@@ -2,7 +2,7 @@
 
 pub mod jobs;
 
-pub use jobs::{fg, bg};
+pub use jobs::{fg, bg, jobs_cli as jobs, wait_cli as wait, disown_cli as disown};
 
 pub mod common;
 

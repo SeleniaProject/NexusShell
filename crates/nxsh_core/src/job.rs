@@ -44,7 +44,15 @@ impl JobTable {
     }
 
     pub fn list(&self) -> Vec<Job> {
-        self.map.iter().map(|r| r.clone()).collect()
+        self.map.iter().map(|r| ( *r.value()).clone()).collect()
+    }
+
+    pub fn disown_all(&self) {
+        self.map.clear();
+    }
+
+    pub fn disown(&self, id: u32) {
+        self.map.remove(&id);
     }
 }
 
