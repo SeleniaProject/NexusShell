@@ -41,6 +41,7 @@ pub struct Executor<'ctx> {
 
 impl<'ctx> Executor<'ctx> {
     pub fn new(context: &'ctx mut ShellContext) -> Self {
+        nxsh_core::job::init();
         Self { context }
     }
 
