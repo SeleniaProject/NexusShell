@@ -35,26 +35,26 @@
   - [ ] 1.3.3 スクリーンショット GIF 追加
 
 ## 2. ワークスペースクレート生成
-- [ ] 2.1 `nxsh_core`
-  - [ ] 2.1.1 `src/lib.rs` (feat flags: `jit`, `object-pipe`)
-  - [ ] 2.1.2 `src/context.rs`
-  - [ ] 2.1.3 `src/executor/mod.rs`
-- [ ] 2.2 `nxsh_parser`
-  - [ ] 2.2.1 `src/lexer.rs`
-  - [ ] 2.2.2 `src/grammar.pest`
-  - [ ] 2.2.3 `src/ast.rs`
-- [ ] 2.3 `nxsh_ui`
-  - [ ] 2.3.1 `src/app.rs` (ratatui `AppState`)
-  - [ ] 2.3.2 `src/widgets/` ディレクトリ
-- [ ] 2.4 `nxsh_hal`
-  - [ ] 2.4.1 `src/process.rs`
-  - [ ] 2.4.2 `src/fs.rs`
-- [ ] 2.5 `nxsh_plugin`
-  - [ ] 2.5.1 `src/lib.rs` (WASI bindings)
-- [ ] 2.6 `nxsh_builtins`
-  - [ ] 2.6.1 `src/lib.rs` (re-export)
-- [ ] 2.7 `nxsh_cli`
-  - [ ] 2.7.1 `src/main.rs` (argparse)
+- [✓] 2.1 `nxsh_core`
+  - [✓] 2.1.1 `src/lib.rs` (feat flags: `jit`, `object-pipe`)
+  - [✓] 2.1.2 `src/context.rs`
+  - [✓] 2.1.3 `src/executor/mod.rs`
+- [✓] 2.2 `nxsh_parser`
+  - [✓] 2.2.1 `src/lexer.rs`
+  - [✓] 2.2.2 `src/grammar.pest`
+  - [✓] 2.2.3 `src/ast.rs`
+- [✓] 2.3 `nxsh_ui`
+  - [✓] 2.3.1 `src/app.rs` (ratatui `AppState`)
+  - [✓] 2.3.2 `src/widgets/` ディレクトリ
+- [✓] 2.4 `nxsh_hal`
+  - [✓] 2.4.1 `src/process.rs`
+  - [✓] 2.4.2 `src/fs.rs`
+- [✓] 2.5 `nxsh_plugin`
+  - [✓] 2.5.1 `src/lib.rs` (WASI bindings)
+- [✓] 2.6 `nxsh_builtins`
+  - [✓] 2.6.1 `src/lib.rs` (re-export)
+- [✓] 2.7 `nxsh_cli`
+  - [✓] 2.7.1 `src/main.rs` (argparse)
 
 ## 3. パーサ & AST 詳細
 ### 3.1 Tokenizer
