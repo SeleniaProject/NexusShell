@@ -39,4 +39,8 @@ pub use ls::ls_async as ls;
 
 pub mod grep;
 
-pub use grep::grep_cli as grep; 
+pub use grep::grep_cli as grep;
+
+pub mod tar;
+
+pub use tar::tar_cli as tar; 
