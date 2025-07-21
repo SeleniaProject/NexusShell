@@ -12,3 +12,6 @@ dirs-next = "2"
 aes-gcm = { version = "0.10", features = ["aes", "rand_core"] }
 rand = "0.8"
 base64 = "0.21" 
+tabled = "0.12"
+pulldown-cmark = "0.10"
+ansi_term = "0.12" 

@@ -14,4 +14,8 @@ pub use cd::cd;
 
 pub mod history;
 
-pub use history::{history_cli as history}; 
+pub use history::{history_cli as history};
+
+pub mod help;
+
+pub use help::help_cli as help; 
