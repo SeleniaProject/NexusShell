@@ -79,14 +79,14 @@
 - [✓] 4.1.2 環境変数ハッシュマップ (dashmap)
 
 ### 4.2 Executor
-- [ ] 4.2.1 AST walker 実装
-- [ ] 4.2.2 リダイレクトオープン (`O_CLOEXEC`)
+- [✓] 4.2.1 AST walker 実装
+- [✓] 4.2.2 リダイレクトオープン (`O_CLOEXEC`)
 - [ ] 4.2.3 パイプ生成 (`pipe2` with `O_NONBLOCK`)
 - [ ] 4.2.4 エラー→スタックトレース付与
 
 ### 4.3 Job Scheduler
-- [ ] 4.3.1 `JobTable` lock-free map
-- [ ] 4.3.2 `SIGCHLD` ハンドラ / Windows JobObject
+- [✓] 4.3.1 `JobTable` lock-free map
+- [✓] 4.3.2 `SIGCHLD` ハンドラ / Windows JobObject
 - [ ] 4.3.3 `fg`, `bg` コマンド実装 & テスト
 
 ## 5. Built-in 実装詳細
