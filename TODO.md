@@ -5,33 +5,33 @@
 ---
 
 ## 0. プロジェクト初期設定
-- [ ] 0.1 Git 初期化
-  - [ ] 0.1.1 `.gitignore` 生成 (`cargo`, `idea`, `vscode`)
+- [~] 0.1 Git 初期化
+  - [✓] 0.1.1 `.gitignore` 生成 (`cargo`, `idea`, `vscode`)
   - [ ] 0.1.2 `main` ブランチ保護ルール設定
-- [ ] 0.2 Cargo ワークスペース
-  - [ ] 0.2.1 ルート `Cargo.toml` 作成 (`[workspace]` メンバ空)
-  - [ ] 0.2.2 ターゲットディレクトリを `target/` に統一
-- [ ] 0.3 CI 雛形
-  - [ ] 0.3.1 `ci/linux.yml` (Ubuntu + Rust stable)
-  - [ ] 0.3.2 `ci/windows.yml` (Windows Server 2022)
-  - [ ] 0.3.3 `ci/macos.yml` (macOS 14)
-- [ ] 0.4 形式設定
-  - [ ] 0.4.1 `rustfmt.toml` (max_width = 100)
-  - [ ] 0.4.2 `clippy.toml` (warns → denies)
-- [ ] 0.5 ツールチェーン
-  - [ ] 0.5.1 `rust-toolchain.toml` (channel = stable, components = rust-src, clippy, rustfmt)
-  - [ ] 0.5.2 `justfile` に `build`, `test`, `ci`, `bench` タスク記述
+- [✓] 0.2 Cargo ワークスペース
+  - [✓] 0.2.1 ルート `Cargo.toml` 作成 (`[workspace]` メンバ空)
+  - [✓] 0.2.2 ターゲットディレクトリを `target/` に統一
+- [✓] 0.3 CI 雛形
+  - [✓] 0.3.1 `ci/linux.yml` (Ubuntu + Rust stable)
+  - [✓] 0.3.2 `ci/windows.yml` (Windows Server 2022)
+  - [✓] 0.3.3 `ci/macos.yml` (macOS 14)
+- [✓] 0.4 形式設定
+  - [✓] 0.4.1 `rustfmt.toml` (max_width = 100)
+  - [✓] 0.4.2 `clippy.toml` (warns → denies)
+- [✓] 0.5 ツールチェーン
+  - [✓] 0.5.1 `rust-toolchain.toml` (channel = stable, components = rust-src, clippy, rustfmt)
+  - [✓] 0.5.2 `justfile` に `build`, `test`, `ci`, `bench` タスク記述
 
 ## 1. ドキュメント復元
-- [ ] 1.1 `docs/` ディレクトリ作成
-- [ ] 1.2 仕様書群を再コミット
-  - [ ] 1.2.1 `SPEC.md`
-  - [ ] 1.2.2 `DESIGN.md`
-  - [ ] 1.2.3 `COMMANDS.md`
-  - [ ] 1.2.4 `UI_DESIGN.md`
-- [ ] 1.3 `README.md`
-  - [ ] 1.3.1 バッジ: CI, Coverage, Crates.io
-  - [ ] 1.3.2 Quick Start セクション
+- [✓] 1.1 `docs/` ディレクトリ作成
+- [✓] 1.2 仕様書群を再コミット
+  - [✓] 1.2.1 `SPEC.md`
+  - [✓] 1.2.2 `DESIGN.md`
+  - [✓] 1.2.3 `COMMANDS.md`
+  - [✓] 1.2.4 `UI_DESIGN.md`
+- [~] 1.3 `README.md`
+  - [✓] 1.3.1 バッジ: CI, Coverage, Crates.io
+  - [✓] 1.3.2 Quick Start セクション
   - [ ] 1.3.3 スクリーンショット GIF 追加
 
 ## 2. ワークスペースクレート生成
