@@ -26,4 +26,8 @@ pub use alias::alias_cli as alias;
 
 pub mod export;
 
-pub use export::export_cli as export; 
+pub use export::export_cli as export;
+
+pub mod set;
+
+pub use set::set_cli as set; 

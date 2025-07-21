@@ -1,5 +1,5 @@
 use dashmap::DashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// ShellContext owns environment variables and process-wide metadata.
 #[derive(Debug, Default)]
@@ -7,6 +7,20 @@ pub struct ShellContext {
     /// Environment key-value pairs.
     pub env: Arc<DashMap<String, String>>,
     pub aliases: Arc<DashMap<String, String>>,
+    pub options: Arc<Mutex<ShellOptions>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ShellOptions {
+    pub errexit: bool, // -e
+    pub xtrace: bool,  // -x
+    pub pipefail: bool, // -o pipefail
+}
+
+impl Default for ShellOptions {
+    fn default() -> Self {
+        Self { errexit: false, xtrace: false, pipefail: false }
+    }
 }
 
 impl ShellContext {
@@ -15,6 +29,7 @@ impl ShellContext {
         Self {
             env: Arc::new(DashMap::new()),
             aliases: Arc::new(DashMap::new()),
+            options: Arc::new(Mutex::new(ShellOptions::default())),
         }
     }
 
@@ -59,6 +74,15 @@ impl ShellContext {
         }
         self.aliases.insert(k, v);
         Ok(())
+    }
+
+    pub fn set_option(&self, op: impl FnOnce(&mut ShellOptions)) {
+        let mut guard = self.options.lock().unwrap();
+        op(&mut guard);
+    }
+
+    pub fn get_options(&self) -> ShellOptions {
+        self.options.lock().unwrap().clone()
     }
 
     pub fn list_aliases(&self) -> Vec<(String, String)> {
