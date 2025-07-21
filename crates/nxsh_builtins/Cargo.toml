@@ -9,3 +9,6 @@ nxsh_hal = { path = "../nxsh_hal" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] } 
 dirs-next = "2" 
+aes-gcm = { version = "0.10", features = ["aes", "rand_core"] }
+rand = "0.8"
+base64 = "0.21" 

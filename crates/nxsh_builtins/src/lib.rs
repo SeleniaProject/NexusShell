@@ -10,4 +10,8 @@ pub use common::logging;
 
 pub mod cd;
 
-pub use cd::cd; 
+pub use cd::cd;
+
+pub mod history;
+
+pub use history::{history_cli as history}; 
