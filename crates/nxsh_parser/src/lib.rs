@@ -9,4 +9,6 @@ use anyhow::Result;
 pub fn parse(input: &str) -> Result<ast::AstNode> {
     // Extremely naive implementation for initial compile-time sanity.
     Ok(ast::AstNode::Command(input.trim().to_string()))
-} 
+}
+
+pub use lexer::TokenKind; 
