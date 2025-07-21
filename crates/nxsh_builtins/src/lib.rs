@@ -8,6 +8,6 @@ pub mod common;
 
 pub use common::logging;
 
-pub fn cd(path: &str) {
-    println!("Changed directory to {path} (stub)");
-} 
+pub mod cd;
+
+pub use cd::cd; 
