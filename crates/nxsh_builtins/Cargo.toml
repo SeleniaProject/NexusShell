@@ -20,6 +20,8 @@ git2 = "0.18"
 humansize = "2" 
 pcre2 = { version = "0.2", features = ["utf8"] }
 rayon = "1.8" 
+regex = "1"
+meval = "0.2"
 tar = "0.4"
 flate2 = { version = "1.0", features = ["gzip"] }
 bzip2 = "0.4"

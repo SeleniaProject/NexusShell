@@ -51,4 +51,8 @@ pub use select::select_cli as select;
 
 pub mod group_by;
 
-pub use group_by::group_by_cli as group_by; 
+pub use group_by::group_by_cli as group_by;
+
+pub mod vars;
+
+pub use vars::{let_cli as builtin_let, declare_cli as declare, printf_cli as printf}; 

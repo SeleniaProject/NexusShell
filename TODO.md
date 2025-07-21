@@ -116,10 +116,10 @@
   - [✓] 5.8.1 `jobs` 出力テーブル (PID, CPU%, MEM%)
   - [✓] 5.8.2 `wait %1` 成功/失敗コード伝播
   - [✓] 5.8.3 `disown -a` 全ジョブ切離し
-- [ ] 5.9 変数 / 算術 (`let`, `declare`, `printf`)
-  - [ ] 5.9.1 `let "a += 1"` パーサ
-  - [ ] 5.9.2 `declare -A assoc_array` 実装
-  - [ ] 5.9.3 `printf "%08x\n" 255` 出力整形テスト
+### 5.9 変数 / 算術 (`let`, `declare`, `printf`)
+- [✓] 5.9.1 `let "a += 1"` パーサ
+- [✓] 5.9.2 `declare -A assoc_array` 実装
+- [✓] 5.9.3 `printf "%08x\n" 255` 出力整形テスト
 - [ ] 5.10 雛形生成ツール
   - [ ] 5.10.1 `cargo install nxsh-gen`
   - [ ] 5.10.2 CLI: `nxsh-gen builtin ping`
