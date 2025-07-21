@@ -1,0 +1,25 @@
+// NexusShell shell grammar (simplified complete version)
+// Comments use pest syntax
+// Whitespace handling
+WHITESPACE = _{ " " | "\t" }
+NEWLINE = _{ "\n" }
+
+// Basic tokens
+IDENT = @{ (ASCII_ALPHANUMERIC | "_" | "-" | ".")+ }
+STRING = @{ "\"" ~ (!("\"") ~ ANY)* ~ "\"" }
+NUMBER = @{ ASCII_DIGIT+ }
+WORD = { IDENT | STRING | NUMBER }
+
+// Operators
+PIPE = { "|" }
+REDIR_OUT = { ">" }
+REDIR_IN = { "<" }
+SEMICOLON = { ";" }
+AND = { "&&" }
+OR = { "||" }
+
+// Command and statements
+command = { WORD+ }
+pipe_chain = { command ~ (PIPE ~ command)+ }
+statement = { pipe_chain | command }
+program = { SOI ~ (statement ~ (SEMICOLON | NEWLINE)*)* ~ EOI } 
