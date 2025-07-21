@@ -30,4 +30,9 @@ pub use export::export_cli as export;
 
 pub mod set;
 
-pub use set::set_cli as set; 
+pub use set::set_cli as set;
+
+pub mod icons;
+pub mod ls;
+
+pub use ls::ls_async as ls; 
