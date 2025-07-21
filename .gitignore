@@ -1,0 +1,40 @@
+# NexusShell .gitignore
+
+# Rust/Cargo build directory
+/target/
+
+# Binaries, build logs, and backup files
+**/*.rs.bk
+**/*.d
+*.log
+
+# IntelliJ IDEA / CLion
+.idea/
+*.iml
+
+# Visual Studio Code
+.vscode/
+
+# macOS Finder files
+.DS_Store
+
+# Windows thumbnail cache
+Thumbs.db
+
+# Node build artifacts (if any)
+node_modules/
+
+# Coverage, test, and benchmarking outputs
+/coverage/
+/criterion/
+
+# Cargo package build directory
+/registry/
+
+# Byproducts of rustc
+*.rlib
+*.rmeta
+
+# Misc
+*.swp
+*.swo 
