@@ -35,4 +35,8 @@ pub use set::set_cli as set;
 pub mod icons;
 pub mod ls;
 
-pub use ls::ls_async as ls; 
+pub use ls::ls_async as ls;
+
+pub mod grep;
+
+pub use grep::grep_cli as grep; 

@@ -18,3 +18,5 @@ ansi_term = "0.12"
 tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread"] }
 git2 = "0.18"
 humansize = "2" 
+pcre2 = { version = "0.2", features = ["utf8"] }
+rayon = "1.8" 
