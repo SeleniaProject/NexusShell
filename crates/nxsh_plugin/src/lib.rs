@@ -5,4 +5,8 @@ pub fn initialize() {
     println!("Plugin subsystem initialized (stub)");
 }
 
-pub mod json; 
+pub mod json;
+pub mod registrar;
+pub mod loader;
+pub mod key;
+pub mod remote; 

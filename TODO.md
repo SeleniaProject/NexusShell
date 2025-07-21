@@ -156,11 +156,11 @@
 - [✓] 8.5 アニメーションフレームレート上限 60fps
 
 ## 9. プラグインシステム詳細
-- [ ] 9.1 `PluginRegistrar` FFI 安定 ABI
-- [ ] 9.2 サンドボックスメモリ制限オプション (`--max-mem`)
-- [ ] 9.3 `nxsh plugin sign` キーペア生成
-- [ ] 9.4 ストア REST API `/plugins/v1/download/{id}`
-- [ ] 9.5 自動更新機構 (SemVer range)
+- [✓] 9.1 `PluginRegistrar` FFI 安定 ABI
+- [✓] 9.2 サンドボックスメモリ制限オプション (`--max-mem`)
+- [✓] 9.3 `nxsh plugin sign` キーペア生成
+- [✓] 9.4 ストア REST API `/plugins/v1/download/{id}`
+- [✓] 9.5 自動更新機構 (SemVer range)
 
 ## 10. セキュリティ強化
 - [ ] 10.1 `seccomp` フィルタ生成 (Linux)
