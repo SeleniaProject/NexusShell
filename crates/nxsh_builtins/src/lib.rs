@@ -43,4 +43,8 @@ pub use grep::grep_cli as grep;
 
 pub mod tar;
 
-pub use tar::tar_cli as tar; 
+pub use tar::tar_cli as tar;
+
+pub mod select;
+
+pub use select::select_cli as select; 

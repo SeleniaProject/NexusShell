@@ -26,3 +26,4 @@ bzip2 = "0.4"
 zstd = { version = "0.13", features = ["zstdmt"] }
 indicatif = "0.17"
 walkdir = "2" 
+jmespath = "0.3" 
