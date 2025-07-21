@@ -170,11 +170,11 @@
 - [✓] 10.5 メモリ安全監査 (`miri`)
 
 ## 11. テスト & QA 追加
-- [ ] 11.1 Golden File 互換テスト生成スクリプト
-- [ ] 11.2 Fuzz Corpus 自動最適化
-- [ ] 11.3 Coverage Gate CI step (`<95% fail`)
-- [ ] 11.4 UI Visual Test (Puppeteer + terminal emulator)
-- [ ] 11.5 性能リグレッション自動 Bisect
+- [✓] 11.1 Golden File 互換テスト生成スクリプト
+- [✓] 11.2 Fuzz Corpus 自動最適化
+- [✓] 11.3 Coverage Gate CI step (`<95% fail`)
+- [✓] 11.4 UI Visual Test (Puppeteer + terminal emulator)
+- [✓] 11.5 性能リグレッション自動 Bisect
 
 ## 12. CI/CD & 配布詳細
 - [ ] 12.1 GitHub Actions Self-hosted ARM64 Runner

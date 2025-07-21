@@ -1,0 +1,25 @@
+name: Coverage
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tarpaulin
+        uses: baptiste0928/cargo-install@v2
+        with:
+          crate: cargo-tarpaulin
+      - name: Run coverage
+        run: cargo tarpaulin --workspace --timeout 120 --out Xml
+      - name: Upload to codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: cobertura.xml
+          fail_ci_if_error: true
+          verbose: true 
