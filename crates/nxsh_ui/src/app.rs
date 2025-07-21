@@ -1,10 +1,12 @@
 use ratatui::{prelude::*, widgets::{Block, Borders, Paragraph, List, ListItem}};
+use crate::widgets::toast::{Toast,render as render_toast};
 
 #[derive(Default)]
 pub struct AppState {
     pub input: String,
     pub side_panel_visible: bool,
     pub suggestions: Vec<String>,
+    pub toasts: Vec<Toast>,
 }
 
 impl AppState {
@@ -41,5 +43,12 @@ impl AppState {
             let paragraph = Paragraph::new(self.input.as_str()).block(block);
             f.render_widget(paragraph, f.size());
         }
+        // Toast overlay (show newest)
+        if let Some(t) = self.toasts.last() {
+            render_toast(f, t);
+        }
     }
-} 
+}
+
+/// Maximum render FPS to reduce CPU usage.
+pub const MAX_FPS: u64 = 60; 
