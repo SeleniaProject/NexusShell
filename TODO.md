@@ -90,32 +90,32 @@
 - [✓] 4.3.3 `fg`, `bg` コマンド実装 & テスト
 
 ## 5. Built-in 実装詳細
-- [ ] 5.1 ユーティリティ `builtins/common/logging.rs`
-- [ ] 5.2 `cd`
-  - [ ] 5.2.1 `~`, `-` 解決
-  - [ ] 5.2.2 `CDPATH` 対応
-- [ ] 5.3 `history`
-  - [ ] 5.3.1 AES-GCM 暗号化実装
-  - [ ] 5.3.2 `history -s` 追加
-- [ ] 5.4 `help`
-  - [ ] 5.4.1 表生成 (tui_table)
-  - [ ] 5.4.2 `help --lang ja` 
-  - [ ] 5.4.3 `help <command>` 詳細モーダル表示
-  - [ ] 5.4.4 Markdown manpage → ANSI 変換フィルタ
-- [ ] 5.5 `alias`
-  - [ ] 5.5.1 `alias NAME=VALUE` 登録
-  - [ ] 5.5.2 `alias -p` 一覧フォーマッタ
-  - [ ] 5.5.3 循環参照検出ユニットテスト
-- [ ] 5.6 `export`
-  - [ ] 5.6.1 `export NAME=VALUE` 実装
-  - [ ] 5.6.2 `export -p` 環境変数一覧 (色分け)
-- [ ] 5.7 `set`
-  - [ ] 5.7.1 `-e`, `-x`, `-o pipefail` 解析
-  - [ ] 5.7.2 ランタイムフラグ更新に伴う Executor 再設定
-- [ ] 5.8 ジョブ制御系 (`bg`, `fg`, `jobs`, `wait`, `disown`)
-  - [ ] 5.8.1 `jobs` 出力テーブル (PID, CPU%, MEM%)
-  - [ ] 5.8.2 `wait %1` 成功/失敗コード伝播
-  - [ ] 5.8.3 `disown -a` 全ジョブ切離し
+- [✓] 5.1 ユーティリティ `builtins/common/logging.rs`
+- [✓] 5.2 `cd`
+  - [✓] 5.2.1 `~`, `-` 解決
+  - [✓] 5.2.2 `CDPATH` 対応
+- [✓] 5.3 `history`
+  - [✓] 5.3.1 AES-GCM 暗号化実装
+  - [✓] 5.3.2 `history -s` 追加
+- [✓] 5.4 `help`
+  - [✓] 5.4.1 表生成 (tui_table)
+  - [✓] 5.4.2 `help --lang ja` 
+  - [✓] 5.4.3 `help <command>` 詳細モーダル表示
+  - [✓] 5.4.4 Markdown manpage → ANSI 変換フィルタ
+- [✓] 5.5 `alias`
+  - [✓] 5.5.1 `alias NAME=VALUE` 登録
+  - [✓] 5.5.2 `alias -p` 一覧フォーマッタ
+  - [✓] 5.5.3 循環参照検出ユニットテスト
+- [✓] 5.6 `export`
+  - [✓] 5.6.1 `export NAME=VALUE` 実装
+  - [✓] 5.6.2 `export -p` 環境変数一覧 (色分け)
+- [✓] 5.7 `set`
+  - [✓] 5.7.1 `-e`, `-x`, `-o pipefail` 解析
+  - [✓] 5.7.2 ランタイムフラグ更新に伴う Executor 再設定
+- [✓] 5.8 ジョブ制御系 (`bg`, `fg`, `jobs`, `wait`, `disown`)
+  - [✓] 5.8.1 `jobs` 出力テーブル (PID, CPU%, MEM%)
+  - [✓] 5.8.2 `wait %1` 成功/失敗コード伝播
+  - [✓] 5.8.3 `disown -a` 全ジョブ切離し
 - [ ] 5.9 変数 / 算術 (`let`, `declare`, `printf`)
   - [ ] 5.9.1 `let "a += 1"` パーサ
   - [ ] 5.9.2 `declare -A assoc_array` 実装
