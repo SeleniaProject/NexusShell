@@ -5,8 +5,12 @@ edition = "2021"
 
 [features]
 default = []
-jit = []
+jit = ["cranelift-codegen", "cranelift-frontend"]
 object-pipe = []
 
 [dependencies]
-anyhow = "1" 
+anyhow = "1"
+
+[target.'cfg(feature = "jit")'.dependencies]
+cranelift-codegen = "0.104"
+cranelift-frontend = "0.104" 

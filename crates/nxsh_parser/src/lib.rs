@@ -30,7 +30,9 @@ pub fn highlight_error(input: &str, err: PestError<Rule>) -> String {
 /// Parse raw input into AST using PEG grammar.
 pub fn parse(input: &str) -> Result<ast::AstNode> {
     match ShellParser::parse(Rule::program, input) {
-        Ok(_) => Ok(ast::AstNode::Command(input.trim().into())),
+        Ok(_) => Ok(ast::AstNode::Program(vec![ast::AstNode::Word(
+            input.trim().to_string(),
+        )])),
         Err(e) => Err(anyhow::anyhow!(highlight_error(input, e))),
     }
 }
