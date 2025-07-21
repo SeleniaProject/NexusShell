@@ -3,6 +3,7 @@
 pub mod context;
 pub mod executor;
 pub mod mir;
+pub mod stream;
 
 #[cfg(feature = "jit")]
 mod jit; // JIT compilation backend (Cranelift)
