@@ -1,3 +1,11 @@
 [workspace]
 resolver = "2"
-members = [] 
+members = [
+    "crates/nxsh_core",
+    "crates/nxsh_parser",
+    "crates/nxsh_ui",
+    "crates/nxsh_hal",
+    "crates/nxsh_plugin",
+    "crates/nxsh_builtins",
+    "crates/nxsh_cli",
+] 

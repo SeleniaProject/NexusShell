@@ -1,0 +1,14 @@
+[package]
+name = "nxsh_cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "nxsh"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+nxsh_core = { path = "../nxsh_core" }
+nxsh_parser = { path = "../nxsh_parser" }
+anyhow = "1" 

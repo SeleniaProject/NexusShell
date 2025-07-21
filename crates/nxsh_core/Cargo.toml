@@ -1,0 +1,12 @@
+[package]
+name = "nxsh_core"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+jit = []
+object-pipe = []
+
+[dependencies]
+anyhow = "1" 

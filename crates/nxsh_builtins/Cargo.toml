@@ -1,0 +1,8 @@
+[package]
+name = "nxsh_builtins"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nxsh_core = { path = "../nxsh_core" }
+nxsh_hal = { path = "../nxsh_hal" } 
