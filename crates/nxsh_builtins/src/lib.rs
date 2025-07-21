@@ -47,4 +47,8 @@ pub use tar::tar_cli as tar;
 
 pub mod select;
 
-pub use select::select_cli as select; 
+pub use select::select_cli as select;
+
+pub mod group_by;
+
+pub use group_by::group_by_cli as group_by; 
