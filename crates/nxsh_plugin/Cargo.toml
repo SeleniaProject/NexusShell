@@ -4,4 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-nxsh_core = { path = "../nxsh_core" } 
+nxsh_core = { path = "../nxsh_core" }
+serde_json = "1" 
