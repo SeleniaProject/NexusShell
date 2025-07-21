@@ -15,3 +15,6 @@ ci:
 
 bench:
     cargo bench 
+
+miri:
+    cargo +nightly miri test --workspace 

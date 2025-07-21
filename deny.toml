@@ -1,0 +1,9 @@
+[advisories]
+ignore = []
+
+[bans]
+denied = [
+    { name = "openssl" }
+]
+
+denied-sources = ["git" ] 

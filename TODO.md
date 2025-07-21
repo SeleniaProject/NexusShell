@@ -163,11 +163,11 @@
 - [✓] 9.5 自動更新機構 (SemVer range)
 
 ## 10. セキュリティ強化
-- [ ] 10.1 `seccomp` フィルタ生成 (Linux)
-- [ ] 10.2 Windows `JobObject` 限界設定
-- [ ] 10.3 ヒストリ Salt ローテーションジョブ (cron)
-- [ ] 10.4 `cargo deny` Policy ファイル
-- [ ] 10.5 メモリ安全監査 (`miri`)
+- [✓] 10.1 `seccomp` フィルタ生成 (Linux)
+- [✓] 10.2 Windows `JobObject` 限界設定
+- [✓] 10.3 ヒストリ Salt ローテーションジョブ (cron)
+- [✓] 10.4 `cargo deny` Policy ファイル
+- [✓] 10.5 メモリ安全監査 (`miri`)
 
 ## 11. テスト & QA 追加
 - [ ] 11.1 Golden File 互換テスト生成スクリプト
