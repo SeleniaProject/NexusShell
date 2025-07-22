@@ -549,3 +549,6 @@ pub use watch::watch_cli as watch_builtin;
 
 pub mod tzselect;
 pub use tzselect::tzselect_cli as tzselect_builtin; 
+
+pub mod hwclock;
+pub use hwclock::hwclock_cli as hwclock_builtin; 
