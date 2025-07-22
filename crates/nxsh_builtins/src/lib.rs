@@ -333,6 +333,12 @@ pub use nice::nice_cli as nice_builtin;
 pub mod renice;
 pub use renice::renice_cli as renice_builtin; 
  
+pub mod uptime;
+pub use uptime::uptime_cli as uptime_builtin; 
+
+pub mod free;
+pub use free::free_cli as free_builtin; 
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;

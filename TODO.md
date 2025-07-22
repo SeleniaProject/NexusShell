@@ -113,8 +113,8 @@
 - [✓] 18.6 pgrep — process search
 - [✓] 18.7 nice — set priority
 - [✓] 18.8 renice — change running priority
-- [ ] 18.9 uptime — system uptime
-- [ ] 18.10 free — memory usage
+- [✓] 18.9 uptime — system uptime
+- [✓] 18.10 free — memory usage
 - [ ] 18.11 vmstat — virtual memory stats
 - [ ] 18.12 lsof — list open files
 - [ ] 18.13 uname — kernel information
