@@ -8,4 +8,13 @@ members = [
     "crates/nxsh_plugin",
     "crates/nxsh_builtins",
     "crates/nxsh_cli",
-] 
+]
+chrono = { version = "0.4", features = ["local-offset"] } 
+filetime = { version = "0.2", optional = true }
+walkdir = "2"
+windows-sys = { version = "0.48", optional = true }
+rand = "0.8"
+term_size = "0.3"
+[target.'cfg(windows)'.dependencies]
+filetime = "0.2"
+windows-sys = "0.48" 

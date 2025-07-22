@@ -1,0 +1,109 @@
+name: NexusShell Release
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  build-container-sign:
+    name: Build & Sign Container Image
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout source code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      # Set up Docker Buildx for multi-arch builds
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Log in to GHCR so we can push images
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Build + push multi-architecture image (amd64/arm64/armv7)
+      - name: Build and push container
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/seleniashell/nxsh:${{ github.ref_name }}
+            ghcr.io/seleniashell/nxsh:latest
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+
+      # Install Notation CLI for Notary v2 signing
+      - name: Install notation CLI
+        run: |
+          curl -sSL https://github.com/notaryproject/notation/releases/latest/download/notation-linux-amd64.tar.gz | tar -xz
+          sudo mv notation /usr/local/bin/notation
+        shell: bash
+
+      # Import signing materials and sign the image—keys are provided via repository secrets
+      - name: Sign container with Notary v2
+        env:
+          NOTATION_CERT: ${{ secrets.NOTATION_CERT }}
+          NOTATION_KEY: ${{ secrets.NOTATION_KEY }}
+        run: |
+          echo "$NOTATION_CERT" > cert.pem
+          echo "$NOTATION_KEY"  > key.pem
+          notation cert import --type ca cert.pem
+          notation key import key.pem --id nxsh-release
+          notation sign --key nxsh-release ghcr.io/seleniashell/nxsh:${{ github.ref_name }}
+        shell: bash
+
+  brew-and-scoop:
+    name: Homebrew & Scoop Publishing
+    needs: build-container-sign
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Download the Darwin and Windows release archives from current tag
+      - name: Download release artifacts
+        uses: actions/download-release-asset@v1
+        with:
+          repository: ${{ github.repository }}
+          tag: ${{ github.ref_name }}
+          pattern: nxsh-${{ github.ref_name }}-*
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Generate Homebrew formula (.rb file)
+      - name: Generate Homebrew formula
+        run: bash scripts/gen_homebrew_formula.sh "${{ github.ref_name }}" "nxsh-${{ github.ref_name }}-darwin-x86_64.tar.gz"
+
+      # Create PR to official Homebrew tap repository
+      - name: Homebrew tap PR
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          repository: SeleniaProject/homebrew-nexusshell
+          title: "homebrew: update NexusShell to ${{ github.ref_name }}"
+          body: "Automated formula update triggered by release ${{ github.ref_name }}."
+          commit-message: "homebrew: bump NexusShell to ${{ github.ref_name }}"
+          branch: "formula/nexusshell-${{ github.ref_name }}"
+          add-paths: nexusshell.rb
+
+      # Generate Scoop manifest (JSON)
+      - name: Generate Scoop manifest
+        run: pwsh -File scripts/gen_scoop_manifest.ps1 -Version "${{ github.ref_name }}" -Archive "nxsh-${{ github.ref_name }}-windows-x86_64.zip"
+
+      # Create PR to Scoop bucket repository
+      - name: Scoop bucket PR
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          repository: SeleniaProject/scoop-bucket
+          title: "scoop: update NexusShell to ${{ github.ref_name }}"
+          body: "Automated manifest update triggered by release ${{ github.ref_name }}."
+          commit-message: "scoop: bump NexusShell to ${{ github.ref_name }}"
+          branch: "bucket/nexusshell-${{ github.ref_name }}"
+          add-paths: nxsh.json 

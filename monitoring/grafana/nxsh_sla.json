@@ -1,0 +1,42 @@
+{
+  "title": "NexusShell SLA Dashboard",
+  "uid": "nxsh-sla",
+  "schemaVersion": 36,
+  "version": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Job Success Rate (30d)",
+      "datasource": "Prometheus",
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]}
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(nxsh_jobs_success_total[30d])) / sum(rate(nxsh_jobs_total[30d])) * 100",
+          "legendFormat": "success %",
+          "format": "time_series"
+        }
+      ],
+      "thresholds": {
+        "mode": "percentage",
+        "steps": [
+          {"color": "red", "value": 0},
+          {"color": "yellow", "value": 95},
+          {"color": "green", "value": 99}
+        ]
+      }
+    },
+    {
+      "type": "graph",
+      "title": "Execution Latency p95 (ms)",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(nxsh_exec_latency_ms_bucket[5m])))",
+          "legendFormat": "p95 latency"
+        }
+      ]
+    }
+  ]
+} 
