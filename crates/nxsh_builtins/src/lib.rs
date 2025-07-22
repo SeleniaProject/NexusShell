@@ -444,3 +444,9 @@ pub use bzip2::bzip2_cli as bzip2_builtin;
 
 pub mod bunzip2;
 pub use bunzip2::bunzip2_cli as bunzip2_builtin; 
+
+pub mod xz;
+pub use xz::xz_cli as xz_builtin;
+
+pub mod unxz;
+pub use unxz::unxz_cli as unxz_builtin; 

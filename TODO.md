@@ -152,8 +152,8 @@
 - [✓] 20.2 gunzip — decompression
 - [✓] 20.3 bzip2 — compression
 - [✓] 20.4 bunzip2 — decompression
-- [ ] 20.5 xz — compression
-- [ ] 20.6 unxz — decompression
+- [✓] 20.5 xz — compression
+- [✓] 20.6 unxz — decompression
 - [ ] 20.7 zip — zip archive
 - [ ] 20.8 unzip — unzip archive
 - [ ] 20.9 cpio — archive tool
