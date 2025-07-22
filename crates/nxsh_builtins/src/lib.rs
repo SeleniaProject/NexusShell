@@ -312,6 +312,12 @@ pub use rev::rev_cli as rev_builtin;
 pub mod ps;
 pub use ps::ps_cli as ps_builtin; 
  
+pub mod top;
+pub use top::top_cli as top_builtin; 
+ 
+pub mod htop;
+pub use htop::htop_cli as htop_builtin; 
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
