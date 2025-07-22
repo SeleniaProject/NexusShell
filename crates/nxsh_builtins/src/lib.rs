@@ -435,3 +435,6 @@ pub use fgrep::fgrep_cli as fgrep_sync;
 
 pub mod gzip;
 pub use gzip::gzip_cli as gzip_builtin; 
+
+pub mod gunzip;
+pub use gunzip::gunzip_cli as gunzip_builtin; 
