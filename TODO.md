@@ -194,7 +194,7 @@
 - [✓] 23.6 watch — repeat execution viewer
 - [✓] 23.7 tzselect — timezone selector
 - [✓] 23.8 hwclock — hardware clock
-- [ ] 23.9 timedatectl — time service controller
+- [✓] 23.9 timedatectl — time service controller
 
 ## 24. 開発者ツール連携
 - [ ] 24.1 git — VCS integration

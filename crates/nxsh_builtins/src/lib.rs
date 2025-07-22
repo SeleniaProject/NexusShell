@@ -552,3 +552,6 @@ pub use tzselect::tzselect_cli as tzselect_builtin;
 
 pub mod hwclock;
 pub use hwclock::hwclock_cli as hwclock_builtin; 
+
+pub mod timedatectl;
+pub use timedatectl::timedatectl_cli as timedatectl_builtin; 
