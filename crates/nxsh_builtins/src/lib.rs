@@ -279,6 +279,10 @@ pub mod tail;
 
 pub use tail::tail_cli as tail_builtin; 
  
+pub mod wc;
+
+pub use wc::wc_cli as wc_builtin; 
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
