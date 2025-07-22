@@ -504,3 +504,6 @@ pub use lsblk::lsblk_cli as lsblk_builtin;
 
 pub mod blkid;
 pub use blkid::blkid_cli as blkid_builtin; 
+
+pub mod fdisk;
+pub use fdisk::fdisk_cli as fdisk_builtin; 
