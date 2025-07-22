@@ -120,8 +120,8 @@
 - [✓] 18.13 uname — kernel information
 - [✓] 18.14 hostname — host name operations
 - [✓] 18.15 env — environment variable list
-- [ ] 18.16 printenv — print single variable
-- [ ] 18.17 id — user/group ids
+- [✓] 18.16 printenv — print single variable
+- [✓] 18.17 id — user/group ids
 - [ ] 18.18 groups — group membership
 - [ ] 18.19 who — logged-in users
 - [ ] 18.20 time — execution time measurement

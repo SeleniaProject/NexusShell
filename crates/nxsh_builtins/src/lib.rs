@@ -354,6 +354,12 @@ pub use hostname::hostname_cli as hostname_builtin;
 pub mod env;
 pub use env::env_cli as env_builtin;
  
+pub mod printenv;
+pub use printenv::printenv_cli as printenv_builtin;
+
+pub mod id;
+pub use id::id_cli as id_builtin;
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
