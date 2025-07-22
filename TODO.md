@@ -134,7 +134,7 @@
 - [✓] 19.5 curl — HTTP client
 - [✓] 19.6 wget — file downloader
 - [✓] 19.7 ssh — secure shell client
-- [ ] 19.8 scp — secure copy
+- [✓] 19.8 scp — secure copy
 - [ ] 19.9 netstat — socket status
 - [ ] 19.10 ss — socket statistics
 - [ ] 19.11 ip — network configuration

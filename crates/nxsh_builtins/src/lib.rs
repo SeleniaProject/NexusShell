@@ -391,6 +391,9 @@ pub use wget::wget_cli as wget_builtin;
 pub mod ssh;
 pub use ssh::ssh_cli as ssh_builtin;
 
+pub mod scp;
+pub use scp::scp_cli as scp_builtin;
+
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
