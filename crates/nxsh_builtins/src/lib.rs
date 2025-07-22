@@ -403,6 +403,9 @@ pub use ss::ss_cli as ss_builtin;
 pub mod ip;
 pub use ip::ip_cli as ip_builtin;
 
+pub mod ifconfig;
+pub use ifconfig::ifconfig_cli as ifconfig_builtin;
+
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
