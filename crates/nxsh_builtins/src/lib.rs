@@ -546,3 +546,6 @@ pub use cron::cron_cli as cron_builtin;
 
 pub mod watch;
 pub use watch::watch_cli as watch_builtin; 
+
+pub mod tzselect;
+pub use tzselect::tzselect_cli as tzselect_builtin; 
