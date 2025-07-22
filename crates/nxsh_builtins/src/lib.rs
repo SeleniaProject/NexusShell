@@ -456,3 +456,6 @@ pub use zip::zip_cli as zip_builtin;
 
 pub mod unzip;
 pub use unzip::unzip_cli as unzip_builtin; 
+
+pub mod cpio;
+pub use cpio::cpio_cli as cpio_builtin; 

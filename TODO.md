@@ -156,7 +156,7 @@
 - [✓] 20.6 unxz — decompression
 - [✓] 20.7 zip — zip archive
 - [✓] 20.8 unzip — unzip archive
-- [ ] 20.9 cpio — archive tool
+- [✓] 20.9 cpio — archive tool
 - [ ] 20.10 ar — static library archiver
 - [ ] 20.11 zstd — high-speed compression
 - [ ] 20.12 unzstd — decompression
