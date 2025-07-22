@@ -158,8 +158,8 @@
 - [✓] 20.8 unzip — unzip archive
 - [✓] 20.9 cpio — archive tool
 - [✓] 20.10 ar — static library archiver
-- [ ] 20.11 zstd — high-speed compression
-- [ ] 20.12 unzstd — decompression
+- [✓] 20.11 zstd — high-speed compression
+- [✓] 20.12 unzstd — decompression
 - [ ] 20.13 7z — multi-format archiver
 
 ## 21. パーミッション & 所有権

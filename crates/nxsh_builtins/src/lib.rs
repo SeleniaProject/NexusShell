@@ -462,3 +462,9 @@ pub use unzip::unzip_cli as unzip_builtin;
 
 pub mod cpio;
 pub use cpio::cpio_cli as cpio_builtin; 
+
+pub mod zstd;
+pub use zstd::zstd_cli as zstd_builtin;
+
+pub mod unzstd;
+pub use unzstd::unzstd_cli as unzstd_builtin; 

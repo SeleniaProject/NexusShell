@@ -24,7 +24,7 @@ meval = "0.2"
 tar = "0.4"
 flate2 = { version = "1.0", features = ["gzip"] }
 bzip2 = "0.4"
-zstd = { version = "0.13", features = ["zstdmt"] }
+zstd = "0.12"
 indicatif = "0.17"
 walkdir = "2" 
 bitflags = "1" 
