@@ -450,3 +450,9 @@ pub use xz::xz_cli as xz_builtin;
 
 pub mod unxz;
 pub use unxz::unxz_cli as unxz_builtin; 
+
+pub mod zip;
+pub use zip::zip_cli as zip_builtin;
+
+pub mod unzip;
+pub use unzip::unzip_cli as unzip_builtin; 
