@@ -267,6 +267,10 @@ pub mod sort;
 
 pub use sort::sort_cli as sort_builtin; 
  
+pub mod uniq;
+
+pub use uniq::uniq_cli as uniq_builtin; 
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
