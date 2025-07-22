@@ -468,3 +468,6 @@ pub use zstd::zstd_cli as zstd_builtin;
 
 pub mod unzstd;
 pub use unzstd::unzstd_cli as unzstd_builtin; 
+
+pub mod sevenz;
+pub use sevenz::sevenz_cli as sevenz_builtin; 
