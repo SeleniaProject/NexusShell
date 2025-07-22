@@ -283,6 +283,10 @@ pub mod wc;
 
 pub use wc::wc_cli as wc_builtin; 
  
+pub mod fmt;
+
+pub use fmt::fmt_cli as fmt_builtin; 
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;

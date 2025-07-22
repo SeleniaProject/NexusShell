@@ -96,7 +96,7 @@
 - [✓] 17.10 head — output first lines
 - [✓] 17.11 tail — output last lines / follow
 - [✓] 17.12 wc — word/line/byte count
-- [ ] 17.13 fmt — text formatter
+- [✓] 17.13 fmt — text formatter
 - [ ] 17.14 fold — line wrap
 - [ ] 17.15 join — relational join
 - [ ] 17.16 comm — three-way compare
