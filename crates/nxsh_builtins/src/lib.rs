@@ -360,6 +360,12 @@ pub use printenv::printenv_cli as printenv_builtin;
 pub mod id;
 pub use id::id_cli as id_builtin;
  
+pub mod groups;
+pub use groups::groups_cli as groups_builtin;
+
+pub mod who;
+pub use who::who_cli as who_builtin;
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;

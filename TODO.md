@@ -122,8 +122,8 @@
 - [✓] 18.15 env — environment variable list
 - [✓] 18.16 printenv — print single variable
 - [✓] 18.17 id — user/group ids
-- [ ] 18.18 groups — group membership
-- [ ] 18.19 who — logged-in users
+- [✓] 18.18 groups — group membership
+- [✓] 18.19 who — logged-in users
 - [ ] 18.20 time — execution time measurement
 
 ## 19. ネットワークツール
