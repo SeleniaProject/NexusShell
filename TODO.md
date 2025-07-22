@@ -94,7 +94,7 @@
 - [✓] 17.8 sort — sort lines
 - [✓] 17.9 uniq — remove duplicates
 - [✓] 17.10 head — output first lines
-- [ ] 17.11 tail — output last lines / follow
+- [✓] 17.11 tail — output last lines / follow
 - [ ] 17.12 wc — word/line/byte count
 - [ ] 17.13 fmt — text formatter
 - [ ] 17.14 fold — line wrap

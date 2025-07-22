@@ -275,6 +275,10 @@ pub mod head;
 
 pub use head::head_cli as head_builtin; 
  
+pub mod tail;
+
+pub use tail::tail_cli as tail_builtin; 
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
