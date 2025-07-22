@@ -406,6 +406,9 @@ pub use ip::ip_cli as ip_builtin;
 pub mod ifconfig;
 pub use ifconfig::ifconfig_cli as ifconfig_builtin;
 
+pub mod route;
+pub use route::route_cli as route_builtin;
+
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
