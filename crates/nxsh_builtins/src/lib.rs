@@ -438,3 +438,9 @@ pub use gzip::gzip_cli as gzip_builtin;
 
 pub mod gunzip;
 pub use gunzip::gunzip_cli as gunzip_builtin; 
+
+pub mod bzip2;
+pub use bzip2::bzip2_cli as bzip2_builtin;
+
+pub mod bunzip2;
+pub use bunzip2::bunzip2_cli as bunzip2_builtin; 
