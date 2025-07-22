@@ -137,7 +137,7 @@
 - [✓] 19.8 scp — secure copy
 - [✓] 19.9 netstat — socket status
 - [✓] 19.10 ss — socket statistics
-- [ ] 19.11 ip — network configuration
+- [✓] 19.11 ip — network configuration
 - [ ] 19.12 ifconfig — legacy network config
 - [ ] 19.13 route — routing table
 - [ ] 19.14 arp — ARP table

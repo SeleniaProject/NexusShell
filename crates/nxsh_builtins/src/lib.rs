@@ -400,6 +400,9 @@ pub use netstat::netstat_cli as netstat_builtin;
 pub mod ss;
 pub use ss::ss_cli as ss_builtin;
 
+pub mod ip;
+pub use ip::ip_cli as ip_builtin;
+
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
