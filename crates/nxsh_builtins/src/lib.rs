@@ -409,6 +409,9 @@ pub use ifconfig::ifconfig_cli as ifconfig_builtin;
 pub mod route;
 pub use route::route_cli as route_builtin;
 
+pub mod ar;
+pub use ar::ar_cli as ar_builtin;
+
 pub mod arp;
 pub use arp::arp_cli as arp_builtin;
 
