@@ -148,7 +148,7 @@
 - [✓] 19.19 curlftpfs — FTP mount via FUSE
 
 ## 20. 圧縮・アーカイブコマンド
-- [ ] 20.1 gzip — compression
+- [✓] 20.1 gzip — compression
 - [ ] 20.2 gunzip — decompression
 - [ ] 20.3 bzip2 — compression
 - [ ] 20.4 bunzip2 — decompression

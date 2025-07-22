@@ -432,3 +432,6 @@ pub use egrep::egrep_cli as egrep_sync;
 pub mod fgrep;
 
 pub use fgrep::fgrep_cli as fgrep_sync; 
+
+pub mod gzip;
+pub use gzip::gzip_cli as gzip_builtin; 
