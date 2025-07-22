@@ -348,6 +348,12 @@ pub use lsof::lsof_cli as lsof_builtin;
 pub mod uname;
 pub use uname::uname_cli as uname_builtin;
  
+pub mod hostname;
+pub use hostname::hostname_cli as hostname_builtin;
+
+pub mod env;
+pub use env::env_cli as env_builtin;
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
