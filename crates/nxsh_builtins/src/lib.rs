@@ -321,6 +321,12 @@ pub use htop::htop_cli as htop_builtin;
 pub mod kill;
 pub use kill::kill_cli as kill_builtin; 
  
+pub mod pkill;
+pub use pkill::pkill_cli as pkill_builtin; 
+
+pub mod pgrep;
+pub use pgrep::pgrep_cli as pgrep_builtin; 
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
