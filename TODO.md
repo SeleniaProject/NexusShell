@@ -132,7 +132,7 @@
 - [✓] 19.3 nslookup — DNS lookup
 - [✓] 19.4 dig — detailed DNS query
 - [✓] 19.5 curl — HTTP client
-- [ ] 19.6 wget — file downloader
+- [✓] 19.6 wget — file downloader
 - [ ] 19.7 ssh — secure shell client
 - [ ] 19.8 scp — secure copy
 - [ ] 19.9 netstat — socket status

@@ -383,8 +383,11 @@ pub mod dig;
 pub use dig::dig_cli as dig_builtin;
  
 pub mod curl;
-pub use curl::curl_cli as curl_builtin;
- 
+pub use curl::curl_cli as curl_builtin; 
+
+pub mod wget;
+pub use wget::wget_cli as wget_builtin;
+
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
