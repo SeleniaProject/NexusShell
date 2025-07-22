@@ -309,6 +309,9 @@ pub use patch::patch_cli as patch_builtin;
 pub mod rev;
 pub use rev::rev_cli as rev_builtin; 
  
+pub mod ps;
+pub use ps::ps_cli as ps_builtin; 
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;

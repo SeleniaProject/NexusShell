@@ -105,7 +105,7 @@
 - [✓] 17.19 rev — reverse lines
 
 ## 18. システム & プロセス管理コマンド
-- [ ] 18.1 ps — process list
+- [✓] 18.1 ps — process list
 - [ ] 18.2 top — dynamic system monitor
 - [ ] 18.3 htop — enhanced top
 - [ ] 18.4 kill — send signal
