@@ -263,6 +263,10 @@ pub mod paste;
 
 pub use paste::paste_cli as paste_builtin; 
  
+pub mod sort;
+
+pub use sort::sort_cli as sort_builtin; 
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
