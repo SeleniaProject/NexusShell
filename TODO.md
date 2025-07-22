@@ -181,9 +181,9 @@
 - [✓] 22.5 fsck — filesystem checker
 - [✓] 22.6 hdparm — disk benchmarking
 - [✓] 22.7 smartctl — SMART status
-- [ ] 22.8 lsusb — USB device list
-- [ ] 22.9 lspci — PCI device list
-- [ ] 22.10 dmidecode — BIOS info dump
+- [✓] 22.8 lsusb — USB device list
+- [✓] 22.9 lspci — PCI device list
+- [✓] 22.10 dmidecode — BIOS info dump
 
 ## 23. 時刻 & スケジューリング
 - [ ] 23.1 date — current date/time

@@ -48,6 +48,7 @@ zip = "0.6"
 mbrman = "0.5"
  fatfs = { version = "0.4", default-features = true }
  fscommon = "0.1"
+ rusb = { version = "0.9", default-features = false }
 
 [dev-dependencies]
 tempfile = "3" 

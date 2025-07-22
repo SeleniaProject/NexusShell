@@ -519,3 +519,12 @@ pub use hdparm::hdparm_cli as hdparm_builtin;
 
 pub mod smartctl;
 pub use smartctl::smartctl_cli as smartctl_builtin; 
+
+pub mod lsusb;
+pub use lsusb::lsusb_cli as lsusb_builtin;
+ 
+pub mod lspci;
+pub use lspci::lspci_cli as lspci_builtin;
+ 
+pub mod dmidecode;
+pub use dmidecode::dmidecode_cli as dmidecode_builtin; 
