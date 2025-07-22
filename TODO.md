@@ -186,7 +186,7 @@
 - [✓] 22.10 dmidecode — BIOS info dump
 
 ## 23. 時刻 & スケジューリング
-- [ ] 23.1 date — current date/time
+- [✓] 23.1 date — current date/time
 - [ ] 23.2 cal — calendar
 - [ ] 23.3 sleep — wait seconds
 - [ ] 23.4 at — one-shot scheduler

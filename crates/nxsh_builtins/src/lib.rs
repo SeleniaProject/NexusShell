@@ -528,3 +528,6 @@ pub use lspci::lspci_cli as lspci_builtin;
  
 pub mod dmidecode;
 pub use dmidecode::dmidecode_cli as dmidecode_builtin; 
+
+pub mod date;
+pub use date::date_cli as date_builtin; 
