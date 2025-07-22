@@ -177,7 +177,7 @@
 - [✓] 22.1 lsblk — block device list
 - [✓] 22.2 blkid — uuid retrieval
 - [✓] 22.3 fdisk — partition editor
-- [ ] 22.4 mkfs — filesystem creator
+- [✓] 22.4 mkfs — filesystem creator
 - [ ] 22.5 fsck — filesystem checker
 - [ ] 22.6 hdparm — disk benchmarking
 - [ ] 22.7 smartctl — SMART status

@@ -1,0 +1,117 @@
+//! `mkfs` builtin – format a block device or file image with a filesystem.
+//!
+//! Current implementation supports **FAT32** creation using the `fatfs` crate.
+//! Syntax:
+//!     mkfs -t fat32 DEVICE [--label LABEL]
+//!
+//! This builtin purposely restricts itself to FAT to avoid destructive
+//! operations that require complex privilege checks. For other filesystems the
+//! command will print an informative error message.
+//!
+//! Safety notes:
+//! * This utility erases data on the target DEVICE. A confirmation prompt is
+//!   omitted because shell scripting requires non-interactive behaviour; users
+//!   must be cautious.
+//! * DEVICE may be a regular file (disk image) or block device node.
+//!
+//! Platform: Unix-like only. On unsupported OSes the command exits gracefully.
+
+use anyhow::{anyhow, Result};
+use std::fs::OpenOptions;
+use std::path::Path;
+
+#[cfg(unix)]
+use fatfs::{format_volume, FormatVolumeOptions, FatType};
+#[cfg(unix)]
+use fscommon::BufStream;
+
+pub async fn mkfs_cli(args: &[String]) -> Result<()> {
+    if args.is_empty() {
+        return Err(anyhow!("mkfs: missing operands"));
+    }
+
+    let mut fstype = String::from("fat32");
+    let mut label: Option<String> = None;
+    let mut device: Option<String> = None;
+
+    let mut idx = 0;
+    while idx < args.len() {
+        match args[idx].as_str() {
+            "-t" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err(anyhow!("mkfs: option -t requires an argument"));
+                }
+                fstype = args[idx].clone();
+            }
+            "--label" | "-L" => {
+                idx += 1;
+                if idx >= args.len() {
+                    return Err(anyhow!("mkfs: option --label requires an argument"));
+                }
+                label = Some(args[idx].clone());
+            }
+            _ => {
+                if device.is_none() {
+                    device = Some(args[idx].clone());
+                } else {
+                    return Err(anyhow!("mkfs: unexpected extra operand {}", args[idx]));
+                }
+            }
+        }
+        idx += 1;
+    }
+
+    let device = device.ok_or_else(|| anyhow!("mkfs: missing DEVICE"))?;
+
+    match fstype.to_lowercase().as_str() {
+        "fat" | "fat32" | "vfat" => {
+            #[cfg(unix)]
+            format_fat32(&device, label.as_deref().unwrap_or("NXSH"))?;
+            #[cfg(not(unix))]
+            println!("mkfs: FAT formatting unsupported on this platform");
+        }
+        other => {
+            return Err(anyhow!("mkfs: unsupported filesystem type '{}'. Only fat32 is currently implemented.", other));
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(unix)]
+fn format_fat32(dev: &str, label: &str) -> Result<()> {
+    use std::io::Seek;
+
+    let f = OpenOptions::new().read(true).write(true).open(Path::new(dev))?;
+    let mut stream = BufStream::new(f);
+
+    let opts = FormatVolumeOptions::new()
+        .fat_type(FatType::Fat32)
+        .volume_label(label.as_bytes());
+
+    format_volume(&mut stream, opts)
+        .map_err(|e| anyhow!("mkfs: format error: {e}"))?;
+
+    // flush underlying file
+    stream.flush()?;
+    println!("mkfs: formatted {} as FAT32 (label = {})", dev, label);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempfile;
+    use std::io::Write;
+
+    #[tokio::test]
+    async fn create_fat_image() {
+        let mut img = tempfile().unwrap();
+        img.set_len(8 * 1024 * 1024).unwrap(); // 8 MiB image
+        let path = "/tmp/mkfs_test.img";
+        std::fs::copy(img, path).unwrap();
+        let _ = mkfs_cli(&["-t".into(), "fat32".into(), path.into()]).await;
+        std::fs::remove_file(path).unwrap();
+    }
+} 

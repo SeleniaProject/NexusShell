@@ -507,3 +507,6 @@ pub use blkid::blkid_cli as blkid_builtin;
 
 pub mod fdisk;
 pub use fdisk::fdisk_cli as fdisk_builtin; 
+
+pub mod mkfs;
+pub use mkfs::mkfs_cli as mkfs_builtin; 
