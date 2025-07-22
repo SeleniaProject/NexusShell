@@ -87,9 +87,9 @@
 - [✓] 17.1 egrep — extended regex search
 - [✓] 17.2 fgrep — fixed-string grep
 - [✓] 17.3 awk — pattern scanning & processing
-- [ ] 17.4 sed — stream editor
-- [ ] 17.5 tr — translate characters
-- [ ] 17.6 cut — column extraction
+- [✓] 17.4 sed — stream editor
+- [✓] 17.5 tr — translate characters
+- [✓] 17.6 cut — column extraction
 - [ ] 17.7 paste — horizontal merge
 - [ ] 17.8 sort — sort lines
 - [ ] 17.9 uniq — remove duplicates

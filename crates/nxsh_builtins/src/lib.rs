@@ -246,9 +246,19 @@ pub use less::less_cli as less_async;
 pub mod awk;
 
 pub use awk::awk_cli as awk_builtin; 
-
+ 
 pub mod egrep;
 
+pub use sed::sed_cli as sed_builtin; 
+ 
+pub mod tr;
+
+pub use tr::tr_cli as tr_builtin; 
+ 
+pub mod cut;
+
+pub use cut::cut_cli as cut_builtin; 
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
