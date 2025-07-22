@@ -394,6 +394,9 @@ pub use ssh::ssh_cli as ssh_builtin;
 pub mod scp;
 pub use scp::scp_cli as scp_builtin;
 
+pub mod netstat;
+pub use netstat::netstat_cli as netstat_builtin;
+
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
