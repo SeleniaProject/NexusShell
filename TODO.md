@@ -165,7 +165,7 @@
 ## 21. パーミッション & 所有権
 - [✓] 21.1 chmod — permission change
 - [✓] 21.2 chown — ownership change
-- [ ] 21.3 chgrp — group change
+- [✓] 21.3 chgrp — group change
 - [ ] 21.4 sudo — privilege escalation wrapper
 - [ ] 21.5 su — switch user
 - [ ] 21.6 setfacl — ACL set

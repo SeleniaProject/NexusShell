@@ -477,3 +477,6 @@ pub use chmod::chmod_cli as chmod_builtin;
 
 pub mod chown;
 pub use chown::chown_cli as chown_builtin; 
+
+pub mod chgrp;
+pub use chgrp::chgrp_cli as chgrp_builtin; 
