@@ -531,3 +531,6 @@ pub use dmidecode::dmidecode_cli as dmidecode_builtin;
 
 pub mod date;
 pub use date::date_cli as date_builtin; 
+
+pub mod cal;
+pub use cal::cal_cli as cal_builtin; 
