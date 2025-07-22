@@ -513,3 +513,9 @@ pub use mkfs::mkfs_cli as mkfs_builtin;
 
 pub mod fsck;
 pub use fsck::fsck_cli as fsck_builtin; 
+
+pub mod hdparm;
+pub use hdparm::hdparm_cli as hdparm_builtin; 
+
+pub mod smartctl;
+pub use smartctl::smartctl_cli as smartctl_builtin; 
