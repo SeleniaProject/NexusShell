@@ -291,6 +291,14 @@ pub mod fold;
 
 pub use fold::fold_cli as fold_builtin; 
  
+pub mod join;
+
+pub use join::join_cli as join_builtin; 
+ 
+pub mod comm;
+
+pub use comm::comm_cli as comm_builtin; 
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
