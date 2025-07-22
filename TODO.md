@@ -170,8 +170,8 @@
 - [✓] 21.5 su — switch user
 - [✓] 21.6 setfacl — ACL set
 - [✓] 21.7 getfacl — ACL get
-- [ ] 21.8 passwd — password change
-- [ ] 21.9 visudo — sudoers editor
+- [✓] 21.8 passwd — password change
+- [✓] 21.9 visudo — sudoers editor
 
 ## 22. デバイス & ファイルシステム
 - [ ] 22.1 lsblk — block device list

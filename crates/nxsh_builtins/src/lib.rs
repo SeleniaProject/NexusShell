@@ -492,3 +492,9 @@ pub use setfacl::setfacl_cli as setfacl_builtin;
 
 pub mod getfacl;
 pub use getfacl::getfacl_cli as getfacl_builtin; 
+
+pub mod passwd;
+pub use passwd::passwd_cli as passwd_builtin;
+
+pub mod visudo;
+pub use visudo::visudo_cli as visudo_builtin; 
