@@ -339,6 +339,9 @@ pub use uptime::uptime_cli as uptime_builtin;
 pub mod free;
 pub use free::free_cli as free_builtin; 
  
+pub mod vmstat;
+pub use vmstat::vmstat_cli as vmstat_builtin; 
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
