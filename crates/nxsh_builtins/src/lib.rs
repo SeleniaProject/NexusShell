@@ -375,6 +375,9 @@ pub use ping::ping_cli as ping_builtin;
 
 pub mod traceroute;
 pub use traceroute::traceroute_cli as traceroute_builtin;
+
+pub mod nslookup;
+pub use nslookup::nslookup_cli as nslookup_builtin;
  
 pub use egrep::egrep_cli as egrep_sync; 
 
