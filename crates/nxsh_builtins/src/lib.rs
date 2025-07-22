@@ -543,3 +543,6 @@ pub use at::at_cli as at_builtin;
 
 pub mod cron;
 pub use cron::cron_cli as cron_builtin; 
+
+pub mod watch;
+pub use watch::watch_cli as watch_builtin; 
