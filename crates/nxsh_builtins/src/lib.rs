@@ -372,6 +372,9 @@ pub use time_cmd::time_cli as time_builtin;
 // Network tools
 pub mod ping;
 pub use ping::ping_cli as ping_builtin;
+
+pub mod traceroute;
+pub use traceroute::traceroute_cli as traceroute_builtin;
  
 pub use egrep::egrep_cli as egrep_sync; 
 
