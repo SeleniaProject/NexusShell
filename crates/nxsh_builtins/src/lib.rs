@@ -388,6 +388,9 @@ pub use curl::curl_cli as curl_builtin;
 pub mod wget;
 pub use wget::wget_cli as wget_builtin;
 
+pub mod ssh;
+pub use ssh::ssh_cli as ssh_builtin;
+
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
