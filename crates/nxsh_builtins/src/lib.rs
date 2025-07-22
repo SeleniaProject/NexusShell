@@ -287,6 +287,10 @@ pub mod fmt;
 
 pub use fmt::fmt_cli as fmt_builtin; 
  
+pub mod fold;
+
+pub use fold::fold_cli as fold_builtin; 
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
