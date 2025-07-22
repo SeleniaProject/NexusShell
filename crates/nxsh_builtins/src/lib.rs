@@ -418,6 +418,15 @@ pub use telnet::telnet_cli as telnet_builtin;
 pub mod ftp;
 pub use ftp::ftp_cli as ftp_builtin;
 
+pub mod rsync;
+pub use rsync::rsync_cli as rsync_builtin;
+
+pub mod nc;
+pub use nc::nc_cli as nc_builtin;
+
+pub mod curlftpfs;
+pub use curlftpfs::curlftpfs_cli as curlftpfs_builtin;
+
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;

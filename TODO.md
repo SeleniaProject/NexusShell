@@ -143,9 +143,9 @@
 - [✓] 19.14 arp — ARP table
 - [✓] 19.15 telnet — debugging client
 - [✓] 19.16 ftp — FTP client
-- [ ] 19.17 rsync — file synchronizer
-- [ ] 19.18 nc — netcat utility
-- [ ] 19.19 curlftpfs — FTP mount via FUSE
+- [✓] 19.17 rsync — file synchronizer
+- [✓] 19.18 nc — netcat utility
+- [✓] 19.19 curlftpfs — FTP mount via FUSE
 
 ## 20. 圧縮・アーカイブコマンド
 - [ ] 20.1 gzip — compression
