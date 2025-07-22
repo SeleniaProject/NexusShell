@@ -412,6 +412,9 @@ pub use route::route_cli as route_builtin;
 pub mod arp;
 pub use arp::arp_cli as arp_builtin;
 
+pub mod telnet;
+pub use telnet::telnet_cli as telnet_builtin;
+
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
