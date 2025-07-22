@@ -498,3 +498,9 @@ pub use passwd::passwd_cli as passwd_builtin;
 
 pub mod visudo;
 pub use visudo::visudo_cli as visudo_builtin; 
+
+pub mod lsblk;
+pub use lsblk::lsblk_cli as lsblk_builtin; 
+
+pub mod blkid;
+pub use blkid::blkid_cli as blkid_builtin; 
