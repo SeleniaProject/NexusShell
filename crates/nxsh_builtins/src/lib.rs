@@ -480,3 +480,9 @@ pub use chown::chown_cli as chown_builtin;
 
 pub mod chgrp;
 pub use chgrp::chgrp_cli as chgrp_builtin; 
+
+pub mod sudo;
+pub use sudo::sudo_cli as sudo_builtin;
+
+pub mod su;
+pub use su::su_cli as su_builtin; 
