@@ -100,9 +100,9 @@
 - [✓] 17.14 fold — line wrap
 - [✓] 17.15 join — relational join
 - [✓] 17.16 comm — three-way compare
-- [ ] 17.17 diff — file difference
-- [ ] 17.18 patch — apply patch
-- [ ] 17.19 rev — reverse lines
+- [✓] 17.17 diff — file difference
+- [✓] 17.18 patch — apply patch
+- [✓] 17.19 rev — reverse lines
 
 ## 18. システム & プロセス管理コマンド
 - [ ] 18.1 ps — process list

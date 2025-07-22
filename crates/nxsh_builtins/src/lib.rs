@@ -299,6 +299,16 @@ pub mod comm;
 
 pub use comm::comm_cli as comm_builtin; 
  
+pub mod diff;
+
+pub use diff::diff_cli as diff_builtin; 
+ 
+pub mod patch;
+pub use patch::patch_cli as patch_builtin; 
+
+pub mod rev;
+pub use rev::rev_cli as rev_builtin; 
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
