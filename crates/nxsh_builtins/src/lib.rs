@@ -243,6 +243,10 @@ pub mod less;
 
 pub use less::less_cli as less_async; 
 
+pub mod awk;
+
+pub use awk::awk_cli as awk_builtin; 
+
 pub mod egrep;
 
 pub use egrep::egrep_cli as egrep_sync; 
