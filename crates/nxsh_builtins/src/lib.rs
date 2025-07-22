@@ -318,6 +318,9 @@ pub use top::top_cli as top_builtin;
 pub mod htop;
 pub use htop::htop_cli as htop_builtin; 
  
+pub mod kill;
+pub use kill::kill_cli as kill_builtin; 
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;

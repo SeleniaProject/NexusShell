@@ -108,7 +108,7 @@
 - [✓] 18.1 ps — process list
 - [✓] 18.2 top — dynamic system monitor
 - [✓] 18.3 htop — enhanced top
-- [ ] 18.4 kill — send signal
+- [✓] 18.4 kill — send signal
 - [ ] 18.5 pkill — kill by name
 - [ ] 18.6 pgrep — process search
 - [ ] 18.7 nice — set priority
