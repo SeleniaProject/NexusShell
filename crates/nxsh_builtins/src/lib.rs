@@ -537,3 +537,9 @@ pub use cal::cal_cli as cal_builtin;
 
 pub mod sleep;
 pub use sleep::sleep_cli as sleep_builtin; 
+
+pub mod at;
+pub use at::at_cli as at_builtin; 
+
+pub mod cron;
+pub use cron::cron_cli as cron_builtin; 

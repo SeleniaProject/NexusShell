@@ -189,8 +189,8 @@
 - [✓] 23.1 date — current date/time
 - [✓] 23.2 cal — calendar
 - [✓] 23.3 sleep — wait seconds
-- [ ] 23.4 at — one-shot scheduler
-- [ ] 23.5 cron — periodic scheduler interface
+- [✓] 23.4 at — one-shot scheduler
+- [✓] 23.5 cron — periodic scheduler interface
 - [ ] 23.6 watch — repeat execution viewer
 - [ ] 23.7 tzselect — timezone selector
 - [ ] 23.8 hwclock — hardware clock
