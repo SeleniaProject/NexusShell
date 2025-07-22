@@ -378,6 +378,12 @@ pub use traceroute::traceroute_cli as traceroute_builtin;
 
 pub mod nslookup;
 pub use nslookup::nslookup_cli as nslookup_builtin;
+
+pub mod dig;
+pub use dig::dig_cli as dig_builtin;
+ 
+pub mod curl;
+pub use curl::curl_cli as curl_builtin;
  
 pub use egrep::egrep_cli as egrep_sync; 
 
