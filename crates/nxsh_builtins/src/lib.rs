@@ -471,3 +471,6 @@ pub use unzstd::unzstd_cli as unzstd_builtin;
 
 pub mod sevenz;
 pub use sevenz::sevenz_cli as sevenz_builtin; 
+
+pub mod chmod;
+pub use chmod::chmod_cli as chmod_builtin; 
