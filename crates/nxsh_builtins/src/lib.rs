@@ -534,3 +534,6 @@ pub use date::date_cli as date_builtin;
 
 pub mod cal;
 pub use cal::cal_cli as cal_builtin; 
+
+pub mod sleep;
+pub use sleep::sleep_cli as sleep_builtin; 
