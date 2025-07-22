@@ -259,6 +259,10 @@ pub mod cut;
 
 pub use cut::cut_cli as cut_builtin; 
  
+pub mod paste;
+
+pub use paste::paste_cli as paste_builtin; 
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
