@@ -342,6 +342,12 @@ pub use free::free_cli as free_builtin;
 pub mod vmstat;
 pub use vmstat::vmstat_cli as vmstat_builtin; 
  
+pub mod lsof;
+pub use lsof::lsof_cli as lsof_builtin;
+
+pub mod uname;
+pub use uname::uname_cli as uname_builtin;
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
