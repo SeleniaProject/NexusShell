@@ -168,8 +168,8 @@
 - [✓] 21.3 chgrp — group change
 - [✓] 21.4 sudo — privilege escalation wrapper
 - [✓] 21.5 su — switch user
-- [ ] 21.6 setfacl — ACL set
-- [ ] 21.7 getfacl — ACL get
+- [✓] 21.6 setfacl — ACL set
+- [✓] 21.7 getfacl — ACL get
 - [ ] 21.8 passwd — password change
 - [ ] 21.9 visudo — sudoers editor
 

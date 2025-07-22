@@ -486,3 +486,9 @@ pub use sudo::sudo_cli as sudo_builtin;
 
 pub mod su;
 pub use su::su_cli as su_builtin; 
+
+pub mod setfacl;
+pub use setfacl::setfacl_cli as setfacl_builtin;
+
+pub mod getfacl;
+pub use getfacl::getfacl_cli as getfacl_builtin; 
