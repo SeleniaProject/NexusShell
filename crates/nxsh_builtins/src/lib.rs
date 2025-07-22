@@ -327,6 +327,12 @@ pub use pkill::pkill_cli as pkill_builtin;
 pub mod pgrep;
 pub use pgrep::pgrep_cli as pgrep_builtin; 
  
+pub mod nice;
+pub use nice::nice_cli as nice_builtin; 
+
+pub mod renice;
+pub use renice::renice_cli as renice_builtin; 
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
