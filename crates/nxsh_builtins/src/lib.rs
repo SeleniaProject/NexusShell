@@ -369,6 +369,10 @@ pub use who::who_cli as who_builtin;
 pub mod time_cmd;
 pub use time_cmd::time_cli as time_builtin;
  
+// Network tools
+pub mod ping;
+pub use ping::ping_cli as ping_builtin;
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;

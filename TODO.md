@@ -127,7 +127,7 @@
 - [✓] 18.20 time — execution time measurement
 
 ## 19. ネットワークツール
-- [ ] 19.1 ping — ICMP reachability
+- [✓] 19.1 ping — ICMP reachability
 - [ ] 19.2 traceroute — route tracing
 - [ ] 19.3 nslookup — DNS lookup
 - [ ] 19.4 dig — detailed DNS query
