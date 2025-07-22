@@ -124,7 +124,7 @@
 - [✓] 18.17 id — user/group ids
 - [✓] 18.18 groups — group membership
 - [✓] 18.19 who — logged-in users
-- [ ] 18.20 time — execution time measurement
+- [✓] 18.20 time — execution time measurement
 
 ## 19. ネットワークツール
 - [ ] 19.1 ping — ICMP reachability

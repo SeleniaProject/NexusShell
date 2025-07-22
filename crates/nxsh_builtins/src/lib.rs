@@ -366,6 +366,9 @@ pub use groups::groups_cli as groups_builtin;
 pub mod who;
 pub use who::who_cli as who_builtin;
  
+pub mod time_cmd;
+pub use time_cmd::time_cli as time_builtin;
+ 
 pub use egrep::egrep_cli as egrep_sync; 
 
 pub mod fgrep;
