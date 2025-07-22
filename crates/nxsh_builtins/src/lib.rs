@@ -474,3 +474,6 @@ pub use sevenz::sevenz_cli as sevenz_builtin;
 
 pub mod chmod;
 pub use chmod::chmod_cli as chmod_builtin; 
+
+pub mod chown;
+pub use chown::chown_cli as chown_builtin; 
