@@ -1,28 +1,8 @@
-# NexusShell TODO 一覧（超詳細版）
+# NexusShell TODO 一覧（Unix/Bash コマンド版）
 
-> **目的**: 本ファイルは NexusShell 完成までのあらゆる作業を粒度「ファイル / 関数」レベルまで分解した決定版タスクリストである。各項目は `[ ]` 未着手 → `[~]` 進行中 → `[✓]` 完了の 3 状態で管理する。全タスクの総数は 500 以上。
+> **目的**: Unix/Bash の伝統的なコマンドのみに焦点を当てた NexusShell 実装タスクリスト
 
 ---
-
-
-## 12. CI/CD & 配布詳細
-- [✓] 12.1 GitHub Actions Self-hosted ARM64 Runner
-- [✓] 12.2 SBOM CycloneDX 生成
-- [✓] 12.3 Notary V2 Container 署名
-- [✓] 12.4 Homebrew Tap 自動 PR
-- [✓] 12.5 Scoop Manifest JSON 生成
-
-## 13. ガバナンス & 運用詳細
-- [✓] 13.1 ドキュメントバージョン管理 (`docs/CHANGELOG.md`)
-- [✓] 13.2 インシデント対応 Runbook 作成
-- [✓] 13.3 SLA モニタリング Dashboards (Grafana)
-- [✓] 13.4 Secrets Rotation Policy 自動化
-- [✓] 13.5 License Compatibility 内部監査 (monthly)
-
-## 14. リリースマイルストーン詳細
-- [✓] 14.1 Preview QA checklist (50 items)
-- [✓] 14.2 Beta External Pilot (社内 30User)
-- [✓] 14.3 Stable Rollout Plan (Phased 10%→100%)
 
 ## 15. Built-in コマンド実装
 - [✓] 15.1 bg — implement `bg` builtin (resume stopped job in background)
@@ -126,89 +106,38 @@
 - [✓] 18.19 who — logged-in users
 - [✓] 18.20 time — execution time measurement
 
-## 19. ネットワークツール
+## 19. ネットワークツール（基本的なもののみ）
 - [✓] 19.1 ping — ICMP reachability
 - [✓] 19.2 traceroute — route tracing
 - [✓] 19.3 nslookup — DNS lookup
-- [✓] 19.4 dig — detailed DNS query
-- [✓] 19.5 curl — HTTP client
-- [✓] 19.6 wget — file downloader
-- [✓] 19.7 ssh — secure shell client
-- [✓] 19.8 scp — secure copy
-- [✓] 19.9 netstat — socket status
-- [✓] 19.10 ss — socket statistics
-- [✓] 19.11 ip — network configuration
-- [✓] 19.12 ifconfig — legacy network config
-- [✓] 19.13 route — routing table
 - [✓] 19.14 arp — ARP table
 - [✓] 19.15 telnet — debugging client
 - [✓] 19.16 ftp — FTP client
-- [✓] 19.17 rsync — file synchronizer
 - [✓] 19.18 nc — netcat utility
-- [✓] 19.19 curlftpfs — FTP mount via FUSE
 
-## 20. 圧縮・アーカイブコマンド
+## 20. 圧縮・アーカイブコマンド（伝統的なもののみ）
 - [✓] 20.1 gzip — compression
 - [✓] 20.2 gunzip — decompression
 - [✓] 20.3 bzip2 — compression
 - [✓] 20.4 bunzip2 — decompression
-- [✓] 20.5 xz — compression
-- [✓] 20.6 unxz — decompression
-- [✓] 20.7 zip — zip archive
-- [✓] 20.8 unzip — unzip archive
 - [✓] 20.9 cpio — archive tool
 - [✓] 20.10 ar — static library archiver
-- [✓] 20.11 zstd — high-speed compression
-- [✓] 20.12 unzstd — decompression
-- [✓] 20.13 7z — multi-format archiver
 
 ## 21. パーミッション & 所有権
 - [✓] 21.1 chmod — permission change
 - [✓] 21.2 chown — ownership change
 - [✓] 21.3 chgrp — group change
-- [✓] 21.4 sudo — privilege escalation wrapper
 - [✓] 21.5 su — switch user
-- [✓] 21.6 setfacl — ACL set
-- [✓] 21.7 getfacl — ACL get
-- [✓] 21.8 passwd — password change
-- [✓] 21.9 visudo — sudoers editor
 
-## 22. デバイス & ファイルシステム
-- [✓] 22.1 lsblk — block device list
-- [✓] 22.2 blkid — uuid retrieval
-- [✓] 22.3 fdisk — partition editor
-- [✓] 22.4 mkfs — filesystem creator
-- [✓] 22.5 fsck — filesystem checker
-- [✓] 22.6 hdparm — disk benchmarking
-- [✓] 22.7 smartctl — SMART status
-- [✓] 22.8 lsusb — USB device list
-- [✓] 22.9 lspci — PCI device list
-- [✓] 22.10 dmidecode — BIOS info dump
+## 22. 基本的なファイルシステムコマンド
+- [✓] 22.12 sync — buffer flush
+- [✓] 22.13 mount — filesystem mount
+- [✓] 22.14 umount — filesystem unmount
 
-## 23. 時刻 & スケジューリング
+## 23. 時刻 & スケジューリング（基本的なもののみ）
 - [✓] 23.1 date — current date/time
 - [✓] 23.2 cal — calendar
 - [✓] 23.3 sleep — wait seconds
-- [✓] 23.4 at — one-shot scheduler
-- [✓] 23.5 cron — periodic scheduler interface
-- [✓] 23.6 watch — repeat execution viewer
-- [✓] 23.7 tzselect — timezone selector
-- [✓] 23.8 hwclock — hardware clock
-- [✓] 23.9 timedatectl — time service controller
-
-## 24. 開発者ツール連携 (SKIPPED - 外部ツール依存のため省略)
-- [-] 24.1 git — VCS integration
-- [-] 24.2 make — build automation
-- [-] 24.3 gcc — C compiler
-- [-] 24.4 clang — LLVM compiler
-- [-] 24.5 cargo — Rust build tool
-- [-] 24.6 rustc — Rust compiler
-- [-] 24.7 go — Go compiler
-- [-] 24.8 python — Python interpreter
-- [-] 24.9 node — Node.js runtime
-- [-] 24.10 javac — Java compiler
-- [-] 24.11 gdb — debugger
-- [-] 24.12 strace — syscall tracer
 
 ## 25. 雑多ユーティリティ
 - [ ] 25.1 yes — infinite output
@@ -217,67 +146,6 @@
 - [ ] 25.4 bc — arbitrary precision calc
 - [ ] 25.5 expr — simple expressions
 
-## 26. コアランタイム & エンジン
-- [ ] 26.1 MIR/SSA IR generation
-- [ ] 26.2 Constant folding optimization
-- [ ] 26.3 Dead pipe removal
-- [ ] 26.4 JIT backend with Cranelift
-- [ ] 26.5 Pipe manager (byte/object/mixed)
-- [ ] 26.6 Redirect handling implementation
-- [ ] 26.7 Work-stealing job scheduler
-- [ ] 26.8 Nice value scheduling
-- [ ] 26.9 Capability sandbox (seccomp)
-- [ ] 26.10 HAL process abstraction layer
-- [ ] 26.11 HAL filesystem abstraction layer
-- [ ] 26.12 HAL network abstraction layer
-- [ ] 26.13 History encryption (Argon2id + AES-GCM)
-- [ ] 26.14 Metrics subsystem implementation
-- [ ] 26.15 Structured error categorization
-
-## 27. UI/TUI コンポーネント
-- [ ] 27.1 Splash screen implementation
-- [ ] 27.2 Real-time status bar
-- [ ] 27.3 Advanced prompt widget
-- [ ] 27.4 Scrollable output pane
-- [ ] 27.5 Generic table renderer
-- [ ] 27.6 Toast notification overlay
-- [ ] 27.7 Sidebar completion panel
-- [ ] 27.8 Progress bar integration
-- [ ] 27.9 Theme engine framework
-- [ ] 27.10 Accessibility modes (screen reader, high contrast)
-
-## 28. プラグインシステム & ストア
-- [ ] 28.1 WASI runtime integration
-- [ ] 28.2 Plugin registrar API refinement
-- [ ] 28.3 Capability manifest validation
-- [ ] 28.4 Signature verification (Ed25519)
-- [ ] 28.5 Plugin search & install commands
-
-## 29. 国際化 / ローカライズ
-- [ ] 29.1 gettext catalog extraction & tooling
-- [ ] 29.2 Locale-aware formatting utilities
-- [ ] 29.3 Multilingual command aliases framework
-
-## 30. セキュリティ & コンプライアンス
-- [ ] 30.1 Automated CVE monitoring
-- [ ] 30.2 Cargo audit enforcement in CI
-- [ ] 30.3 Reproducible build flags & checks
-- [ ] 30.4 Secrets management integration
-- [ ] 30.5 Policy DSL enforcement engine
-
-## 31. オブザーバビリティ & メトリクス
-- [ ] 31.1 Structured logging via tracing
-- [ ] 31.2 Prometheus metrics exporter
-- [ ] 31.3 Crash dump generation & storage
-- [ ] 31.4 Telemetry opt-in workflow
-
-## 32. テスト & ファジング
-- [ ] 32.1 Unit test coverage ≥ 95%
-- [ ] 32.2 Comprehensive integration test suite
-- [ ] 32.3 Property testing with proptest
-- [ ] 32.4 Fuzzing harness with cargo-fuzz
-- [ ] 32.5 Performance benchmark scripts
-
 ---
 
-> **備考**: 本 TODO は随時 Pull Request で更新し、番号は変更不可 (参照用) とする。 
+> **備考**: Unix/Bash の伝統的なコマンドに焦点を当て、外部ツール依存や現代的な機能は除外 
