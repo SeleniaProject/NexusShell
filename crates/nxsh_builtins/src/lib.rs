@@ -249,6 +249,7 @@ pub use awk::awk_cli as awk_builtin;
  
 pub mod egrep;
 
+pub mod sed;
 pub use sed::sed_cli as sed_builtin; 
  
 pub mod tr;
@@ -555,3 +556,16 @@ pub use hwclock::hwclock_cli as hwclock_builtin;
 
 pub mod timedatectl;
 pub use timedatectl::timedatectl_cli as timedatectl_builtin; 
+
+// Miscellaneous utilities
+pub mod yes;
+pub use yes::yes_cli as yes_builtin;
+
+pub mod seq;
+pub use seq::seq_cli as seq_builtin;
+
+pub mod bc;
+pub use bc::bc_cli as bc_builtin;
+
+pub mod expr;
+pub use expr::expr_cli as expr_builtin; 

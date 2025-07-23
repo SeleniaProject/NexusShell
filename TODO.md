@@ -140,11 +140,11 @@
 - [✓] 23.3 sleep — wait seconds
 
 ## 25. 雑多ユーティリティ
-- [ ] 25.1 yes — infinite output
-- [ ] 25.2 printf — formatted output
-- [ ] 25.3 seq — number sequence
-- [ ] 25.4 bc — arbitrary precision calc
-- [ ] 25.5 expr — simple expressions
+- [✓] 25.1 yes — infinite output
+- [✓] 25.2 printf — formatted output
+- [✓] 25.3 seq — number sequence
+- [✓] 25.4 bc — arbitrary precision calc
+- [✓] 25.5 expr — simple expressions
 
 ---
 
