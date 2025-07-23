@@ -1,5 +1,5 @@
-use aes_gcm::{Aes256Gcm, Key, Nonce};
-use aes_gcm::aead::{Aead, NewAead};
+use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+use aes_gcm::aead::{Aead, OsRng};
 use anyhow::{Context as AnyhowContext, Result};
 use base64::{engine::general_purpose, Engine as _};
 use rand::RngCore;
@@ -18,11 +18,11 @@ fn history_path() -> PathBuf {
         .join(DEFAULT_HISTORY_FILE)
 }
 
-fn load_key() -> Result<Key<Aes256Gcm>> {
+fn load_key() -> Result<aes_gcm::Key<Aes256Gcm>> {
     if let Ok(encoded) = std::env::var(KEY_ENV) {
         let bytes = general_purpose::STANDARD.decode(encoded)?;
         if bytes.len() == 32 {
-            return Ok(Key::from_slice(&bytes).clone());
+            return Ok(*aes_gcm::Key::<Aes256Gcm>::from_slice(&bytes));
         }
     }
     // Generate random key and tell user to persist
@@ -33,7 +33,7 @@ fn load_key() -> Result<Key<Aes256Gcm>> {
         &format!("履歴暗号化キーを生成しました: {} (環境変数 {} に設定してください)", encoded, KEY_ENV),
         &format!("Generated history encryption key: {} (set env {} to persist)", encoded, KEY_ENV),
     );
-    Ok(Key::from_slice(&key_bytes).clone())
+    Ok(*aes_gcm::Key::<Aes256Gcm>::from_slice(&key_bytes))
 }
 
 pub fn add(command: &str) -> Result<()> {
@@ -44,7 +44,8 @@ pub fn add(command: &str) -> Result<()> {
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
-    let ciphertext = cipher.encrypt(nonce, command.as_bytes())?;
+    let ciphertext = cipher.encrypt(nonce, command.as_bytes())
+        .map_err(|e| anyhow::anyhow!("Encryption failed: {:?}", e))?;
 
     let mut file = OpenOptions::new()
         .create(true)

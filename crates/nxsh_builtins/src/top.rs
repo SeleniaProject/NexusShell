@@ -66,10 +66,10 @@ fn run_top(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
         sys.refresh_processes();
 
         // Build process list sorted by CPU descending
-        let mut procs: Vec<_> = sys
+        let mut procs: Vec<(sysinfo::Pid, &sysinfo::Process)> = sys
             .processes()
             .iter()
-            .map(|(pid, p)| (*pid, *p))
+            .map(|(pid, p)| (*pid, p))
             .collect();
         procs.sort_by(|a, b| {
             b.1

@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use walkdir::WalkDir;
-use humansize::{FileSize, file_size_opts as opts};
+use bytesize::ByteSize;
 use std::path::Path;
 use tokio::task;
 
@@ -19,7 +19,7 @@ pub async fn du_cli(args: &[String]) -> Result<()> {
     let p = Path::new(&path).to_path_buf();
     let size = task::spawn_blocking(move || calc_size(p)).await??;
     if human {
-        println!("{}", size.file_size(opts::DECIMAL)?.to_string());
+        println!("{}", bytesize::ByteSize::b(size).to_string_as(true));
     } else {
         println!("{}", size);
     }

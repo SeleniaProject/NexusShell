@@ -220,7 +220,7 @@ fn compare(left: &str, right: &str, op: &str) -> Result<String> {
             ">=" => left_num >= right_num,
             _ => return Err(anyhow!("expr: unknown operator: {}", op)),
         };
-        return Ok(if result { "1" } else { "0" });
+        return Ok(if result { "1".to_string() } else { "0".to_string() });
     }
     
     // Fall back to string comparison
@@ -234,7 +234,7 @@ fn compare(left: &str, right: &str, op: &str) -> Result<String> {
         _ => return Err(anyhow!("expr: unknown operator: {}", op)),
     };
     
-    Ok(if result { "1" } else { "0" })
+    Ok(if result { "1".to_string() } else { "0".to_string() })
 }
 
 fn arithmetic(left: &str, right: &str, op: &str) -> Result<String> {

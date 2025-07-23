@@ -8,7 +8,7 @@ use std::env;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-static DIR_STACK: Lazy<Mutex<Vec<PathBuf>>> = Lazy::new(|| {
+pub static DIR_STACK: Lazy<Mutex<Vec<PathBuf>>> = Lazy::new(|| {
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
     Mutex::new(vec![cwd])
 });

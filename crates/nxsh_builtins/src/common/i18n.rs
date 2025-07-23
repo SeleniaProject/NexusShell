@@ -6,8 +6,8 @@
 use fluent::{FluentBundle, FluentResource};
 use fluent_bundle::FluentArgs;
 use std::collections::HashMap;
-use std::sync::OnceLock;
-use unic_langid::{LanguageIdentifier, langid};
+use std::sync::{OnceLock, Arc};
+use unic_langid::LanguageIdentifier;
 use anyhow::{Result, anyhow};
 
 /// Supported languages in NexusShell
@@ -28,16 +28,16 @@ pub enum Language {
 impl Language {
     pub fn lang_id(&self) -> LanguageIdentifier {
         match self {
-            Language::English => langid!("en-US"),
-            Language::Japanese => langid!("ja-JP"),
-            Language::Chinese => langid!("zh-CN"),
-            Language::Korean => langid!("ko-KR"),
-            Language::Spanish => langid!("es-ES"),
-            Language::French => langid!("fr-FR"),
-            Language::German => langid!("de-DE"),
-            Language::Russian => langid!("ru-RU"),
-            Language::Portuguese => langid!("pt-BR"),
-            Language::Italian => langid!("it-IT"),
+            Language::English => "en-US".parse().unwrap(),
+            Language::Japanese => "ja-JP".parse().unwrap(),
+            Language::Chinese => "zh-CN".parse().unwrap(),
+            Language::Korean => "ko-KR".parse().unwrap(),
+            Language::Spanish => "es-ES".parse().unwrap(),
+            Language::French => "fr-FR".parse().unwrap(),
+            Language::German => "de-DE".parse().unwrap(),
+            Language::Russian => "ru-RU".parse().unwrap(),
+            Language::Portuguese => "pt-BR".parse().unwrap(),
+            Language::Italian => "it-IT".parse().unwrap(),
         }
     }
 
@@ -71,23 +71,23 @@ impl Language {
     }
 }
 
-/// Global localization manager
+/// Global localization manager (thread-safe with Fluent)
 pub struct I18n {
-    bundles: HashMap<Language, FluentBundle<FluentResource>>,
-    current_language: Language,
+    bundles: Arc<parking_lot::Mutex<HashMap<Language, FluentBundle<FluentResource>>>>,
+    current_language: parking_lot::Mutex<Language>,
 }
+
+unsafe impl Send for I18n {}
+unsafe impl Sync for I18n {}
 
 static I18N: OnceLock<I18n> = OnceLock::new();
 
 impl I18n {
     /// Initialize the global i18n instance
     pub fn init() -> Result<()> {
-        let mut i18n = I18n {
-            bundles: HashMap::new(),
-            current_language: Language::from_env(),
-        };
-
-        // Load all language resources
+        let mut bundles = HashMap::new();
+        
+        // Load all language bundles
         for lang in [
             Language::English,
             Language::Japanese,
@@ -104,8 +104,13 @@ impl I18n {
             let resource = Self::load_language_resource(lang)?;
             bundle.add_resource(resource)
                 .map_err(|_| anyhow!("Failed to add resource for language {:?}", lang))?;
-            i18n.bundles.insert(lang, bundle);
+            bundles.insert(lang, bundle);
         }
+
+        let i18n = I18n {
+            bundles: Arc::new(parking_lot::Mutex::new(bundles)),
+            current_language: parking_lot::Mutex::new(Language::from_env()),
+        };
 
         I18N.set(i18n).map_err(|_| anyhow!("Failed to initialize i18n"))?;
         Ok(())
@@ -113,7 +118,12 @@ impl I18n {
 
     /// Get the global i18n instance
     pub fn global() -> &'static I18n {
-        I18N.get().expect("I18n not initialized")
+        I18N.get_or_init(|| {
+            I18n {
+                            bundles: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+            current_language: parking_lot::Mutex::new(Language::English),
+            }
+        })
     }
 
     /// Load language resource for a specific language
@@ -137,35 +147,40 @@ impl I18n {
 
     /// Get localized message
     pub fn get(&self, key: &str, args: Option<&FluentArgs>) -> String {
-        let bundle = self.bundles.get(&self.current_language)
-            .or_else(|| self.bundles.get(&Language::English))
-            .expect("No language bundle available");
-
-        let msg = bundle.get_message(key)
-            .and_then(|msg| msg.value())
-            .unwrap_or_else(|| {
-                tracing::warn!("Missing translation key: {}", key);
-                return key.into();
-            });
-
-        let mut errors = vec![];
-        let formatted = bundle.format_pattern(msg, args, &mut errors);
+        let current_lang = *self.current_language.lock();
+        let bundles = self.bundles.lock();
         
-        if !errors.is_empty() {
-            tracing::warn!("Translation errors for key {}: {:?}", key, errors);
-        }
+        let bundle = bundles.get(&current_lang)
+            .or_else(|| bundles.get(&Language::English));
 
-        formatted.into_owned()
+        if let Some(bundle) = bundle {
+            let msg = bundle.get_message(key)
+                .and_then(|msg| msg.value());
+                
+            if let Some(pattern) = msg {
+                let mut errors = vec![];
+                let formatted = bundle.format_pattern(pattern, args, &mut errors);
+                
+                if !errors.is_empty() {
+                    tracing::warn!("Translation errors for key {}: {:?}", key, errors);
+                }
+                
+                return formatted.into_owned();
+            }
+        }
+        
+        tracing::warn!("Missing translation key: {}", key);
+        key.to_string()
     }
 
     /// Set current language
-    pub fn set_language(&mut self, lang: Language) {
-        self.current_language = lang;
+    pub fn set_language(&self, lang: Language) {
+        *self.current_language.lock() = lang;
     }
 
     /// Get current language
     pub fn current_language(&self) -> Language {
-        self.current_language
+        *self.current_language.lock()
     }
 }
 
@@ -213,8 +228,8 @@ mod tests {
     }
 
     #[test]
-    fn test_lang_id() {
-        assert_eq!(Language::English.lang_id(), langid!("en-US"));
-        assert_eq!(Language::Japanese.lang_id(), langid!("ja-JP"));
+    fn test_lang_code() {
+        assert_eq!(Language::English.lang_id(), "en-US".parse().unwrap());
+        assert_eq!(Language::Japanese.lang_id(), "ja-JP".parse().unwrap());
     }
 } 

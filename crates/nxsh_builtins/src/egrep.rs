@@ -11,10 +11,12 @@ pub fn egrep_cli(args: &[String]) -> Result<()> {
     if args.is_empty() {
         return Err(anyhow!("egrep: missing PATTERN"));
     }
-    let pattern = args[0].clone();
-    let paths = &args[1..];
-    let opts = GrepOptions { pattern, json: false };
-    grep_cli(opts, paths)
+    
+    // Create modified args with -E flag for extended regexp
+    let mut grep_args = vec!["-E".to_string(), args[0].clone()];
+    grep_args.extend_from_slice(&args[1..]);
+    
+    grep_cli(&grep_args)
 }
 
 #[cfg(test)]

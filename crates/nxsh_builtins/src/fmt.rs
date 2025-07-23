@@ -11,7 +11,7 @@
 
 use anyhow::{anyhow, Result};
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::Path;
 
 pub fn fmt_cli(args: &[String]) -> Result<()> {

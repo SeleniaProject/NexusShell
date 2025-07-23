@@ -612,7 +612,7 @@ fn should_include_file(entry: &DirEntry, options: &GrepOptions) -> bool {
     // Check exclude patterns
     for pattern in &options.exclude_patterns {
         if let Ok(glob) = Glob::new(pattern) {
-            if glob.compile_matcher().is_match(&filename) {
+            if glob.compile_matcher().is_match(&*filename) {
                 return false;
             }
         }
@@ -624,7 +624,7 @@ fn should_include_file(entry: &DirEntry, options: &GrepOptions) -> bool {
             let dir_name = dir_name.to_string_lossy();
             for pattern in &options.exclude_dir_patterns {
                 if let Ok(glob) = Glob::new(pattern) {
-                    if glob.compile_matcher().is_match(&dir_name) {
+                    if glob.compile_matcher().is_match(&*dir_name) {
                         return false;
                     }
                 }
@@ -637,7 +637,7 @@ fn should_include_file(entry: &DirEntry, options: &GrepOptions) -> bool {
         let mut included = false;
         for pattern in &options.include_patterns {
             if let Ok(glob) = Glob::new(pattern) {
-                if glob.compile_matcher().is_match(&filename) {
+                if glob.compile_matcher().is_match(&*filename) {
                     included = true;
                     break;
                 }
@@ -789,9 +789,9 @@ fn find_matches_in_line(line: &str, matcher: &GrepMatcher) -> Vec<(usize, usize)
     } else if let Some(ref fancy_regex) = matcher.fancy_regex {
         let mut start = 0;
         while start < line.len() {
-            if let Ok(Some(mat)) = fancy_regex.find_at(line, start) {
-                matches.push((mat.start(), mat.end()));
-                start = mat.end().max(start + 1);
+            if let Ok(Some(mat)) = fancy_regex.find(&line[start..]) {
+                matches.push((mat.start() + start, mat.end() + start));
+                start = (mat.end() + start).max(start + 1);
             } else {
                 break;
             }

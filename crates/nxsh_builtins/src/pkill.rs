@@ -6,7 +6,7 @@
 
 use anyhow::{anyhow, Result};
 use regex::Regex;
-use sysinfo::{ProcessExt, System, SystemExt};
+use sysinfo::{ProcessExt, System, SystemExt, PidExt};
 use std::num::ParseIntError;
 
 #[cfg(unix)]
@@ -38,7 +38,7 @@ pub fn pkill_cli(args: &[String]) -> Result<()> {
     for (pid, proc_) in sys.processes() {
         if re.is_match(proc_.name()) {
             matched = true;
-            send_signal(*pid as i32, sig_num)?;
+            send_signal(pid.as_u32() as i32, sig_num)?;
         }
     }
     if !matched {

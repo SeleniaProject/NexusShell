@@ -11,19 +11,22 @@
 //!   ps --forest - Process tree view
 //!   ps --sort=FIELD - Sort by field (cpu, mem, pid, ppid, time, etc.)
 
-use anyhow::{Result, anyhow};
-use chrono::{DateTime, Local, TimeZone};
-use std::collections::{HashMap, HashSet};
-use std::fmt::Write as FmtWrite;
-use std::fs;
+use anyhow::{anyhow, Result};
+use std::collections::HashMap;
+use std::io::{self, Write};
 use std::path::Path;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use users::{get_user_by_uid, Users, UsersCache};
-use humansize::{format_size, DECIMAL};
+use std::fs;
+use std::time::{SystemTime, Duration, UNIX_EPOCH};
+use sysinfo::{System, SystemExt, ProcessExt, Pid, PidExt};
+use chrono::{DateTime, Local, TimeZone};
+use users::{get_user_by_uid, Users as UsersCache, Groups as GroupsCache};
 use tabled::{Table, Tabled, settings::{Style, Alignment}};
+use nxsh_core::context::ShellContext;
+
+use humansize::{format_size, DECIMAL};
 
 #[cfg(target_os = "linux")]
-use procfs::{process::{Process, Stat, Status}, ProcResult, KernelStats};
+use procfs::{process::{Process as ProcfsProcess, Stat, Status}, ProcResult, KernelStats};
 
 #[derive(Debug, Clone)]
 pub struct ProcessInfo {
@@ -208,9 +211,13 @@ fn parse_ps_args(args: &[String]) -> Result<PsOptions> {
 #[cfg(target_os = "linux")]
 fn get_linux_processes(options: &PsOptions) -> Result<Vec<ProcessInfo>> {
     let mut processes = Vec::new();
-    let users_cache = UsersCache::new();
-    let kernel_stats = KernelStats::new()?;
-    let boot_time = kernel_stats.btime;
+    let users_cache = users::UsersCache::new();
+    // Get kernel statistics for CPU usage calculation
+    let kernel_stats = match procfs::KernelStats::new() {
+        Ok(stats) => Some(stats),
+        Err(_) => None,
+    };
+    let boot_time = kernel_stats.as_ref().map(|s| s.btime).unwrap_or(0);
     let page_size = procfs::page_size() as u64;
     
     // Get all processes from /proc
@@ -221,7 +228,7 @@ fn get_linux_processes(options: &PsOptions) -> Result<Vec<ProcessInfo>> {
         
         // Check if directory name is a PID
         if let Ok(pid) = file_name_str.parse::<u32>() {
-            if let Ok(process_info) = get_process_info(pid, &users_cache, boot_time, page_size) {
+            if let Ok(process_info) = get_process_info(pid, &users_cache, boot_time, page_size, kernel_stats.as_ref()) {
                 // Apply filters
                 if let Some(ref user_filter) = options.user_filter {
                     if process_info.user != *user_filter {
@@ -261,11 +268,10 @@ fn get_linux_processes(options: &PsOptions) -> Result<Vec<ProcessInfo>> {
 }
 
 #[cfg(target_os = "linux")]
-fn get_process_info(pid: u32, users_cache: &UsersCache, boot_time: u64, page_size: u64) -> ProcResult<ProcessInfo> {
+fn get_process_info(pid: u32, users_cache: &UsersCache, boot_time: u64, page_size: u64, kernel_stats: Option<&KernelStats>) -> ProcResult<ProcessInfo> {
     let process = Process::new(pid as i32)?;
     let stat = process.stat()?;
     let status = process.status().ok();
-    let cmdline = process.cmdline().unwrap_or_default();
     
     // Get user and group info
     let uid = status.as_ref().map(|s| s.ruid).unwrap_or(0);
@@ -309,11 +315,32 @@ fn get_process_info(pid: u32, users_cache: &UsersCache, boot_time: u64, page_siz
     }.to_string();
     
     // Command and arguments
-    let (command, args) = if cmdline.is_empty() {
-        (format!("[{}]", process.comm()?), vec![])
+    let (command, args) = if let Ok(cmdline) = process.cmdline() {
+        if cmdline.is_empty() {
+            (format!("[{}]", stat.comm), vec![])
+        } else {
+            let cmd = cmdline[0].clone();
+            let args = if cmdline.len() > 1 { cmdline[1..].to_vec() } else { vec![] };
+            (cmd, args)
+        }
     } else {
-        let cmd = cmdline[0].clone();
-        (cmd, cmdline)
+        (format!("[{}]", stat.comm), vec![])
+    };
+    
+    // Calculate CPU usage if kernel stats are available
+    let cpu_usage = if let Some(stats) = kernel_stats {
+        let current_cpu_time = Duration::from_millis((stat.utime + stat.stime) * 1000 / ticks_per_second);
+        let total_cpu_time = Duration::from_millis((stats.total.guest_nice.unwrap_or(0) * 1000) / ticks_per_second);
+        let elapsed_time = Duration::from_millis((stats.btime * 1000) / ticks_per_second);
+        
+        if elapsed_time.as_secs() > 0 {
+            let cpu_usage_percent = (current_cpu_time.as_millis() as f64 / elapsed_time.as_millis() as f64) * 100.0;
+            cpu_usage_percent.round()
+        } else {
+            0.0
+        }
+    } else {
+        0.0 // No kernel stats, cannot calculate CPU usage
     };
     
     Ok(ProcessInfo {
@@ -326,13 +353,13 @@ fn get_process_info(pid: u32, users_cache: &UsersCache, boot_time: u64, page_siz
         command,
         args,
         state,
-        cpu_usage: 0.0, // Would need multiple samples to calculate
+        cpu_usage,
         memory_kb,
         memory_percent: 0.0, // Would need total memory to calculate
         start_time,
         cpu_time,
-        priority: stat.priority,
-        nice: stat.nice,
+        priority: stat.priority as i32,
+        nice: stat.nice as i32,
         num_threads: stat.num_threads as u32,
         tty,
         session_id: stat.session as u32,
@@ -522,13 +549,12 @@ fn display_process_table(processes: Vec<ProcessInfo>, options: &PsOptions) -> Re
     let mut table = Table::new(rows);
     table.with(Style::ascii_rounded());
     
-    if !options.no_headers {
+    // Apply column width adjustments if terminal is too narrow
+    if let Some((width, _)) = term_size::dimensions() {
+        // Adjust table display for narrow terminals
         println!("{}", table);
     } else {
-        // Print without headers
-        for row in table.rows().skip(1) {
-            println!("{}", row);
-        }
+        println!("{}", table);
     }
     
     Ok(())

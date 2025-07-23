@@ -396,7 +396,7 @@ impl PingStats {
         
         for &time in times.iter() {
             if let Some(prev) = prev_time {
-                jitter_sum += (time - prev).abs();
+                jitter_sum += (time - prev).abs() as f64;
             }
             prev_time = Some(time);
         }
@@ -683,7 +683,7 @@ fn parse_ping_args(args: &[String]) -> Result<PingOptions> {
             "-M" => {
                 if i + 1 < args.len() {
                     let hint = &args[i + 1];
-                    options.pmtu_discovery = Some(match hint {
+                    options.pmtu_discovery = Some(match hint.as_str() {
                         "want" => PmtuDiscovery::Want,
                         "do" => PmtuDiscovery::Do,
                         "dont" => PmtuDiscovery::Dont,
@@ -698,7 +698,7 @@ fn parse_ping_args(args: &[String]) -> Result<PingOptions> {
             "-T" => {
                 if i + 1 < args.len() {
                     let ts_opt = &args[i + 1];
-                    options.timestamp_option = Some(match ts_opt {
+                    options.timestamp_option = Some(match ts_opt.as_str() {
                         "tsonly" => TimestampOption::TsOnly,
                         "tsandaddr" => TimestampOption::TsAndAddr,
                         "tsprespec" => TimestampOption::TsPrespec,
@@ -743,7 +743,7 @@ fn parse_ping_args(args: &[String]) -> Result<PingOptions> {
             "-L" => options.suppress_loopback = true,
             arg if !arg.starts_with('-') => {
                 if options.host.is_empty() {
-                    options.host = arg.clone();
+                    options.host = arg.to_string();
                 } else {
                     return Err(anyhow!("ping: unknown host '{}'", arg));
                 }
@@ -795,23 +795,23 @@ fn resolve_hostname(hostname: &str, ipv4_only: bool, ipv6_only: bool, no_dns: bo
     if ipv6_only {
         let response = resolver.ipv6_lookup(hostname)?;
         if let Some(addr) = response.iter().next() {
-            return Ok(IpAddr::V6(*addr));
+            return Ok(IpAddr::V6(addr.0));
         }
     } else if ipv4_only {
         let response = resolver.ipv4_lookup(hostname)?;
         if let Some(addr) = response.iter().next() {
-            return Ok(IpAddr::V4(*addr));
+            return Ok(IpAddr::V4(addr.0));
         }
     } else {
         // Try IPv4 first, then IPv6
         if let Ok(response) = resolver.ipv4_lookup(hostname) {
             if let Some(addr) = response.iter().next() {
-                return Ok(IpAddr::V4(*addr));
+                return Ok(IpAddr::V4(addr.0));
             }
         }
         if let Ok(response) = resolver.ipv6_lookup(hostname) {
             if let Some(addr) = response.iter().next() {
-                return Ok(IpAddr::V6(*addr));
+                return Ok(IpAddr::V6(addr.0));
             }
         }
     }
@@ -882,7 +882,7 @@ fn configure_socket(socket: &Socket, options: &PingOptions, target_addr: &IpAddr
                     let ret = libc::setsockopt(
                         socket.as_raw_fd(),
                         libc::IPPROTO_IP,
-                        libc::IP_DONTFRAG,
+                        libc::IPV6_DONTFRAG,
                         &val as *const _ as *const c_void,
                         std::mem::size_of::<c_int>() as u32,
                     );
@@ -1047,8 +1047,8 @@ fn run_ping(
     };
     
     // Set up channels for packet sending and receiving
-    let (send_tx, send_rx) = bounded(1000);
-    let (recv_tx, recv_rx) = unbounded();
+    let (send_tx, send_rx) = bounded::<(u16, Instant)>(1000);
+    let (recv_tx, recv_rx) = unbounded::<PingResponse>();
     
     // Spawn receiver thread
     let recv_socket = socket.try_clone()?;
@@ -1250,14 +1250,13 @@ fn send_packet(
         IpAddr::V6(ipv6_addr) => {
             // For IPv6, we need source address for checksum calculation
             let src_addr = match socket.local_addr()? {
-                SockAddr::Inet(addr) => {
-                    if let Some(ip) = addr.ip().to_ipv6() {
-                        ip
+                addr => {
+                    if let Some(socket_addr) = addr.as_socket_ipv6() {
+                        socket_addr.ip()
                     } else {
-                        return Err(anyhow!("ping: failed to get IPv6 source address"));
+                        return Err(anyhow!("ping: invalid socket address family"));
                     }
                 }
-                _ => return Err(anyhow!("ping: invalid socket address family")),
             };
             
             let mut icmp6_header = Icmp6Header::new_echo_request(icmp_id, seq);
@@ -1303,13 +1302,20 @@ fn receive_packets(
     let mut buffer = [0u8; 65536];
     
     while running.load(Ordering::Relaxed) {
-        match socket.recv_from(&mut buffer) {
+        let mut uninit_buffer = [std::mem::MaybeUninit::<u8>::uninit(); 65536];
+        match socket.recv_from(&mut uninit_buffer) {
             Ok((bytes_received, from_addr)) => {
                 let receive_time = Instant::now();
                 
+                // Convert MaybeUninit buffer to initialized buffer
+                let buffer: Vec<u8> = uninit_buffer[..bytes_received]
+                    .iter()
+                    .map(|x| unsafe { x.assume_init() })
+                    .collect();
+                
                 if let Ok(from_ip) = extract_ip_from_sockaddr(&from_addr) {
                     if let Some(response) = parse_icmp_response(
-                        &buffer[..bytes_received],
+                        &buffer,
                         from_ip,
                         receive_time,
                         &target_addr,
@@ -1337,9 +1343,12 @@ fn receive_packets(
 }
 
 fn extract_ip_from_sockaddr(addr: &SockAddr) -> Result<IpAddr> {
-    match addr {
-        SockAddr::Inet(inet_addr) => Ok(inet_addr.ip()),
-        _ => Err(anyhow!("ping: unsupported address family")),
+    if let Some(socket_addr_v4) = addr.as_socket_ipv4() {
+        Ok(IpAddr::V4(*socket_addr_v4.ip()))
+    } else if let Some(socket_addr_v6) = addr.as_socket_ipv6() {
+        Ok(IpAddr::V6(*socket_addr_v6.ip()))
+    } else {
+        Err(anyhow!("ping: unsupported address family"))
     }
 }
 
@@ -1440,8 +1449,9 @@ fn handle_ping_response(response: PingResponse, options: &PingOptions, stats: &P
     match response.icmp_type {
         0 | 129 => {
             // ICMP Echo Reply (IPv4) or ICMPv6 Echo Reply
-            if let Some((send_time, _)) = stats.sequence_map.get(&response.icmp_seq) {
-                let rtt = response.receive_time.duration_since(*send_time).as_secs_f64() * 1000.0;
+            if let Some(entry) = stats.sequence_map.get(&response.icmp_seq) {
+                let (send_time, _) = *entry;
+                let rtt = response.receive_time.duration_since(send_time).as_secs_f64() * 1000.0;
                 
                 stats.add_time(rtt, response.icmp_seq, response.icmp_id);
                 

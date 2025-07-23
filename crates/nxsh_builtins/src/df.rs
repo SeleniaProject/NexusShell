@@ -6,10 +6,12 @@
 use anyhow::{anyhow, Result};
 use std::path::Path;
 use tokio::task;
-use humansize::{FileSize, file_size_opts as opts};
+use bytesize::ByteSize;
 
 #[cfg(unix)]
 use libc::{statvfs, c_ulong};
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
 
 pub async fn df_cli(args: &[String]) -> Result<()> {
     let mut human = false;
@@ -25,7 +27,10 @@ pub async fn df_cli(args: &[String]) -> Result<()> {
     let used = total - avail;
     if human {
         println!("Filesystem Size Used Avail");
-        println!("/ {} {} {}", total.file_size(opts::DECIMAL)?, used.file_size(opts::DECIMAL)?, avail.file_size(opts::DECIMAL)?);
+        println!("/ {} {} {}", 
+            bytesize::ByteSize::b(total).to_string_as(true),
+            bytesize::ByteSize::b(used).to_string_as(true),
+            bytesize::ByteSize::b(avail).to_string_as(true));
     } else {
         println!("Filesystem 1K-blocks Used Available");
         println!("/ {} {} {}", total/1024, used/1024, avail/1024);

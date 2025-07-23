@@ -18,6 +18,7 @@
 
 use anyhow::{anyhow, Result};
 use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::Path;
 
 #[cfg(unix)]
@@ -86,9 +87,15 @@ fn format_fat32(dev: &str, label: &str) -> Result<()> {
     let f = OpenOptions::new().read(true).write(true).open(Path::new(dev))?;
     let mut stream = BufStream::new(f);
 
+    // Convert label to fixed-size array, padding with spaces
+    let mut label_bytes = [b' '; 11];
+    let label_slice = label.as_bytes();
+    let copy_len = std::cmp::min(label_slice.len(), 11);
+    label_bytes[..copy_len].copy_from_slice(&label_slice[..copy_len]);
+
     let opts = FormatVolumeOptions::new()
         .fat_type(FatType::Fat32)
-        .volume_label(label.as_bytes());
+        .volume_label(label_bytes);
 
     format_volume(&mut stream, opts)
         .map_err(|e| anyhow!("mkfs: format error: {e}"))?;

@@ -119,10 +119,10 @@ fn format_number(num: f64, format: &str) -> String {
             if num.fract() == 0.0 && num.abs() < 1e15 {
                 format!("{:.0}", num)
             } else {
-                format!("{:g}", num)
+                format!("{}", num)
             }
         }
-        "%f" => format!("{:f}", num),
+        "%f" => format!("{:.6}", num),
         "%e" => format!("{:e}", num),
         "%E" => format!("{:E}", num),
         _ => {
@@ -132,7 +132,7 @@ fn format_number(num: f64, format: &str) -> String {
                     return format!("{:.1$}", num, precision);
                 }
             }
-            format!("{:g}", num)
+            format!("{}", num)
         }
     }
 }

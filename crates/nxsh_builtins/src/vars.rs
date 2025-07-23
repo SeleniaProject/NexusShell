@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 use meval::Expr;
+use std::str::FromStr;
 use nxsh_core::context::ShellContext;
 use regex::Regex;
 
@@ -34,8 +35,8 @@ pub fn let_cli(exprs: &[String], ctx: &ShellContext) -> Result<()> {
 pub fn declare_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
     if args.is_empty() {
         // Print all vars
-        for (k, v) in ctx.env.iter() {
-            println!("{}={}", k.key(), v.value());
+        for entry in ctx.env.iter() {
+            println!("{}={}", entry.key(), entry.value());
         }
         return Ok(());
     }

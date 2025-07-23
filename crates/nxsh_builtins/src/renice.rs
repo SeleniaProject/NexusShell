@@ -45,7 +45,7 @@ pub fn renice_cli(args: &[String]) -> Result<()> {
     {
         for pid_str in &args[pid_start..] {
             let pid: i32 = pid_str.parse().map_err(|e: ParseIntError| anyhow!("renice: invalid PID '{pid_str}': {e}"))?;
-            let res = unsafe { setpriority(PRIO_PROCESS as c_int, pid as u32, adjust as c_int) };
+            let res = unsafe { setpriority(PRIO_PROCESS as libc::__priority_which_t, pid as libc::id_t, adjust as c_int) };
             if res == -1 {
                 return Err(anyhow!("renice: failed to set priority for PID {pid}"));
             }

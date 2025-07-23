@@ -99,7 +99,7 @@ fn pager_loop<W: Write>(mut out: W, lines: &[&str]) -> Result<()> {
                     KeyCode::Char('q') | KeyCode::Char('Q') => break, // quit
                     KeyCode::Char('g') => offset = 0,                // top
                     KeyCode::Char('G') => {
-                        offset = lines.saturating_sub(height.max(1));
+                        offset = lines.len().saturating_sub(height.max(1));
                     }
                     KeyCode::PageDown | KeyCode::Char(' ') => {
                         offset = offset.saturating_add(height);

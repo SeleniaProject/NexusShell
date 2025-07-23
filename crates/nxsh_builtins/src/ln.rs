@@ -384,7 +384,7 @@ fn has_numbered_backups(dest: &Path, suffix: &str) -> Result<bool> {
     if let Ok(entries) = fs::read_dir(parent) {
         for entry in entries {
             if let Ok(entry) = entry {
-                let entry_name = entry.file_name().to_string_lossy();
+                let entry_name = entry.file_name().to_string_lossy().into_owned();
                 if entry_name.starts_with(&format!("{}.", filename)) && 
                    entry_name.ends_with(suffix) {
                     let middle = &entry_name[filename.len() + 1..entry_name.len() - suffix.len()];

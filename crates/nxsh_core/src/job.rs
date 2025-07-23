@@ -52,7 +52,7 @@ impl JobTable {
     }
 }
 
-static JOB_TABLE: Lazy<JobTable> = Lazy::new(JobTable::default);
+pub static JOB_TABLE: Lazy<JobTable> = Lazy::new(JobTable::default);
 
 pub fn init() {
     Lazy::force(&JOB_TABLE);

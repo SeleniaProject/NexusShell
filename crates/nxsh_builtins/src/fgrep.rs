@@ -11,10 +11,12 @@ pub fn fgrep_cli(args: &[String]) -> Result<()> {
     if args.is_empty() {
         return Err(anyhow!("fgrep: missing PATTERN"));
     }
-    let pattern = regex_escape(&args[0]);
-    let paths = &args[1..];
-    let opts = GrepOptions { pattern, json: false };
-    grep_cli(opts, paths)
+    
+    // Create modified args with -F flag for fixed strings
+    let mut grep_args = vec!["-F".to_string(), args[0].clone()];
+    grep_args.extend_from_slice(&args[1..]);
+    
+    grep_cli(&grep_args)
 }
 
 #[cfg(test)]

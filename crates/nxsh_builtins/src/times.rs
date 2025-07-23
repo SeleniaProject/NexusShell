@@ -7,8 +7,10 @@
 use anyhow::Result;
 
 #[cfg(unix)]
+use libc::{getrusage, rusage, timeval, RUSAGE_CHILDREN, RUSAGE_SELF};
+
+#[cfg(unix)]
 pub fn times_cli(_args: &[String]) -> Result<()> {
-    use libc::{getrusage, rusage, timeval, RUSAGE_CHILDREN, RUSAGE_SELF};
     unsafe {
         let mut self_usage: rusage = std::mem::zeroed();
         let mut child_usage: rusage = std::mem::zeroed();

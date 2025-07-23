@@ -7,6 +7,8 @@
 
 use anyhow::{anyhow, Result};
 use std::process::Command;
+use std::os::unix::process::CommandExt;
+use libc::{setpriority, PRIO_PROCESS, c_int};
 
 pub fn nice_cli(args: &[String]) -> Result<()> {
     if args.is_empty() {

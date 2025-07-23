@@ -12,12 +12,10 @@
 //! prints an informative message and exits successfully.
 
 use anyhow::{anyhow, Result};
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
-
-#[cfg(unix)]
-use sysinfo::{System, SystemExt};
-
-#[cfg(unix)]
+use sysinfo::{System, SystemExt, DiskExt};
 use mbrman::MBR;
 
 #[cfg(unix)]
@@ -53,27 +51,26 @@ fn list_block_devices() -> Result<()> {
 
 #[cfg(unix)]
 fn print_partition_table(dev: &PathBuf) -> Result<()> {
-    use std::fs::File;
-    use std::io::{Seek, SeekFrom};
-
     let mut file = File::open(dev)?;
     let size_bytes = file.seek(SeekFrom::End(0))?;
     file.seek(SeekFrom::Start(0))?;
 
     let sector_count = (size_bytes / 512) as u64;
-    let mbr = MBR::read_from(&mut file, sector_count)
+    let mbr = MBR::read_from(&mut file, sector_count.try_into().unwrap_or(512))
         .map_err(|e| anyhow!("fdisk: failed to read partition table: {e}"))?;
 
     println!("Disk: {}  Size: {:.1} GiB", dev.display(), size_bytes as f64 / 1_073_741_824.0);
     println!("Device       Boot  Start    Sectors   Id  Type");
 
-    for (index, part) in mbr.partition_iter().enumerate() {
-        let start = part.starting_lba();
-        let sectors = part.sector_count();
-        let id = part.partition_type().as_byte();
-        let boot = if part.bootable() { "*" } else { " " };
-        println!("{}{}  {} {:>10} {:>10}  {:02X}  {}",
-                 dev.display(), index + 1, boot, start, sectors, id, part.partition_type());
+    for (index, part) in mbr.iter().enumerate() {
+        if part.1.is_used() {
+            let start = part.1.starting_lba;
+            let sectors = part.1.sectors;
+            let id = part.1.sys;
+            let boot = if part.1.boot == mbrman::BOOT_ACTIVE { "*" } else { " " };
+            println!("{}{}  {} {:>10} {:>10}  {:02X}  Linux",
+                     dev.display(), index + 1, boot, start, sectors, id);
+        }
     }
     Ok(())
 }

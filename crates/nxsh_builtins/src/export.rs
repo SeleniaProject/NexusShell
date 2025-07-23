@@ -7,8 +7,8 @@ use nxsh_core::context::ShellContext;
 /// - `export -p` to print all env vars with colorized output
 pub fn export_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
     if args.is_empty() || args[0] == "-p" {
-        for (k, v) in ctx.env.iter() {
-            println!("{}={}", Colour::Cyan.paint(k.key()), v.value());
+        for entry in ctx.env.iter() {
+            println!("{}={}", Colour::Cyan.paint(entry.key()), entry.value());
         }
         return Ok(());
     }

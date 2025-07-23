@@ -33,11 +33,13 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::{DateTime, Local, TimeZone};
-use users::{Users, UsersCache, get_user_by_uid, get_group_by_gid};
+use users::{Users, UsersCache, Groups, get_user_by_uid, get_group_by_gid};
 use unicode_width::UnicodeWidthStr;
 use ansi_term::{Colour, Style, ANSIString};
 use humansize::{format_size, DECIMAL, BINARY};
 use tabled::{Table, Tabled, settings::{Style as TableStyle, Alignment, Width}};
+use std::pin::Pin;
+use std::future::Future;
 
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
@@ -284,43 +286,54 @@ async fn list_directory(
     use_colors: bool,
     git_repo: &Option<git2::Repository>,
 ) -> Result<()> {
-    if options.directory_only {
-        // Just list the directory itself
-        let file_info = get_file_info(path, git_repo)?;
-        if options.long_format {
-            print_long_format(&[file_info], options, use_colors)?;
-        } else {
-            print_short_format(&[file_info], options, use_colors)?;
+    list_directory_boxed(path, options, use_colors, git_repo).await
+}
+
+fn list_directory_boxed(
+    path: &Path,
+    options: &LsOptions,
+    use_colors: bool,
+    git_repo: Option<&git2::Repository>,
+) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
+    Box::pin(async move {
+        if options.directory_only {
+            // Just list the directory itself
+            let file_info = get_file_info(path, git_repo)?;
+            if options.long_format {
+                print_long_format(&[file_info], options, use_colors)?;
+            } else {
+                print_short_format(&[file_info], options, use_colors)?;
+            }
+            return Ok(());
         }
-        return Ok(());
-    }
-    
-    let entries = read_directory(path, options, git_repo).await?;
-    
-    if entries.is_empty() {
-        return Ok(());
-    }
-    
-    let mut sorted_entries = entries;
-    sort_entries(&mut sorted_entries, options);
-    
-    if options.long_format {
-        print_long_format(&sorted_entries, options, use_colors)?;
-    } else {
-        print_short_format(&sorted_entries, options, use_colors)?;
-    }
-    
-    // Handle recursive listing
-    if options.recursive {
-        for entry in &sorted_entries {
-            if entry.metadata.is_dir() && entry.name != "." && entry.name != ".." {
-                println!("\n{}:", entry.path.display());
-                list_directory(&entry.path, options, use_colors, git_repo).await?;
+        
+        let entries = read_directory(path, options, git_repo).await?;
+        
+        if entries.is_empty() {
+            return Ok(());
+        }
+        
+        let mut sorted_entries = entries;
+        sort_entries(&mut sorted_entries, options);
+        
+        if options.long_format {
+            print_long_format(&sorted_entries, options, use_colors)?;
+        } else {
+            print_short_format(&sorted_entries, options, use_colors)?;
+        }
+        
+        // Handle recursive listing
+        if options.recursive {
+            for entry in &sorted_entries {
+                if entry.metadata.is_dir() && entry.name != "." && entry.name != ".." {
+                    println!("\n{}:", entry.path.display());
+                    list_directory_boxed(&entry.path, options, use_colors, git_repo).await?;
+                }
             }
         }
-    }
-    
-    Ok(())
+        
+        Ok(())
+    })
 }
 
 async fn read_directory(
@@ -764,13 +777,13 @@ fn format_file_name(entry: &FileInfo, use_colors: bool, classify: bool) -> Strin
         if let Some(ext) = entry.path.extension() {
             match ext.to_string_lossy().to_lowercase().as_str() {
                 "jpg" | "jpeg" | "png" | "gif" | "bmp" | "svg" | "ico" => {
-                    style = style.fg(Colour::Magenta);
+                    style = style.fg(Colour::Purple);
                 }
                 "mp3" | "wav" | "flac" | "ogg" | "m4a" => {
                     style = style.fg(Colour::Cyan);
                 }
                 "mp4" | "avi" | "mkv" | "mov" | "wmv" | "flv" => {
-                    style = style.fg(Colour::Magenta);
+                    style = style.fg(Colour::Purple);
                 }
                 "zip" | "tar" | "gz" | "bz2" | "xz" | "7z" | "rar" => {
                     style = style.fg(Colour::Red);
@@ -802,7 +815,7 @@ fn format_file_name(entry: &FileInfo, use_colors: bool, classify: bool) -> Strin
             GitStatus::Added => Colour::Green,
             GitStatus::Deleted => Colour::Red,
             GitStatus::Renamed => Colour::Blue,
-            GitStatus::TypeChange => Colour::Magenta,
+            GitStatus::TypeChange => Colour::Purple,
             GitStatus::Ignored => Colour::Fixed(8), // Dark gray
             GitStatus::Conflicted => Colour::Red,
         };

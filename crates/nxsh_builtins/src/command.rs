@@ -9,7 +9,7 @@ use anyhow::{anyhow, Result};
 use std::{env, path::PathBuf, process::Command as SysCmd};
 use nxsh_core::context::ShellContext;
 
-const BUILTIN_NAMES: &[&str] = &[
+pub const BUILTIN_NAMES: &[&str] = &[
     "alias", "bg", "bind", "break", "builtin", "command", "continue", "disown", "echo", "eval", "exec", "exit", "getopts", "hash", "let", "local", "pushd", "popd", "pwd", "read", "readonly", "return", "shift", "source", "suspend", "times", "trap", "type", "ulimit", "umask", "unalias", "unset", "cp", "mv", "rm", "mkdir", "rmdir", "ln", "stat", "touch", "tree", "du", "df", "sync", "mount", "umount", "shred", "split", "cat", "more", "less",
     // TODO: add more names as built-ins are implemented
 ];

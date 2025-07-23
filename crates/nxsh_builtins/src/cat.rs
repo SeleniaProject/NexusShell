@@ -28,7 +28,7 @@ use std::cmp::min;
 
 // Advanced dependencies
 use memmap2::{Mmap, MmapOptions};
-use encoding_rs::{Encoding, UTF_8, UTF_16LE, UTF_16BE, WINDOWS_1252, ISO_8859_1};
+use encoding_rs::{Encoding, UTF_8, UTF_16LE, UTF_16BE, WINDOWS_1252, ISO_8859_2};
 use encoding_rs_io::DecodeReaderBytesBuilder;
 use content_inspector::{ContentType, inspect};
 use mime_guess::from_path;
@@ -44,6 +44,7 @@ use flate2::read::{GzDecoder, DeflateDecoder};
 use bzip2::read::BzDecoder;
 use xz2::read::XzDecoder;
 use zstd::stream::read::Decoder as ZstdDecoder;
+use base64::{Engine as _, engine::general_purpose};
 
 use crate::common::i18n::{t, t_args, init_i18n};
 use crate::t;
@@ -243,7 +244,7 @@ fn parse_cat_args(args: &[String]) -> Result<CatOptions> {
                     "utf-16le" => Some(UTF_16LE),
                     "utf-16be" => Some(UTF_16BE),
                     "windows-1252" | "cp1252" => Some(WINDOWS_1252),
-                    "iso-8859-1" | "latin-1" => Some(ISO_8859_1),
+                    "iso-8859-1" | "latin-1" => Some(ISO_8859_2),
                     _ => return Err(anyhow!(t!("error-invalid-argument", "argument" => &args[i]))),
                 };
                 options.auto_detect_encoding = false;
@@ -290,7 +291,7 @@ fn parse_cat_args(args: &[String]) -> Result<CatOptions> {
             "--buffer-size" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(anyhow!(t!("error-missing-argument", "option" => "--buffer-size")));
+                    return Err(anyhow!(t!("error-missing-argument")));
                 }
                 options.buffer_size = args[i].parse()
                     .context(t!("error-invalid-argument", "argument" => &args[i]))?;
@@ -307,10 +308,10 @@ fn parse_cat_args(args: &[String]) -> Result<CatOptions> {
             "--timeout" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(anyhow!(t!("error-missing-argument", "option" => "--timeout")));
+                    return Err(anyhow!(t!("error-missing-argument")));
                 }
-                let seconds: u64 = args[i].parse()
-                    .context(t!("error-invalid-argument", "argument" => &args[i]))?;
+                                  let seconds: u64 = args[i].parse()
+                    .context(t!("error-invalid-argument"))?;
                 options.network_timeout = Duration::from_secs(seconds);
             }
             "--help" => {
@@ -352,7 +353,7 @@ fn parse_cat_args(args: &[String]) -> Result<CatOptions> {
                         'T' => options.show_tabs = true,
                         'u' => {}, // Ignored
                         'v' => options.show_nonprinting = true,
-                        _ => return Err(anyhow!(t!("error-invalid-option", "option" => &ch.to_string()))),
+                        _ => return Err(anyhow!(t!("error-invalid-option"))),
                     }
                 }
             }
@@ -425,8 +426,8 @@ fn process_files_sequential(options: &CatOptions) -> Result<()> {
 }
 
 fn process_files_parallel(options: &CatOptions) -> Result<()> {
-    let (tx, rx) = bounded(options.max_threads);
-    let (stats_tx, stats_rx) = unbounded();
+    let (tx, rx) = bounded::<(String, Sender<Result<Vec<u8>>>)>(options.max_threads);
+    let (stats_tx, stats_rx) = unbounded::<(String, FileStats)>();
     
     // Spawn worker threads
     let workers: Vec<_> = (0..options.max_threads)
@@ -459,7 +460,7 @@ fn process_files_parallel(options: &CatOptions) -> Result<()> {
     
     // Send files to workers
     for filename in &options.files {
-        let (output_tx, output_rx) = bounded(1);
+        let (output_tx, output_rx) = bounded::<Result<Vec<u8>>>(1);
         tx.send((filename.clone(), output_tx))?;
         file_results.push((filename.clone(), output_rx));
     }
@@ -542,20 +543,20 @@ fn process_single_file(
     
     // Check if file exists and is readable
     if !path.exists() {
-        return Err(anyhow!(t!("error-file-not-found", "filename" => filename)));
+        return Err(anyhow!(t!("error-file-not-found")));
     }
     
     let metadata = std::fs::metadata(path)
-        .context(t!("error-io-error", "message" => "Failed to get file metadata"))?;
+        .context(t!("error-io-error"))?;
     
     if metadata.is_dir() {
-        return Err(anyhow!(t!("error-not-a-file", "path" => filename)));
+        return Err(anyhow!(t!("error-not-a-file")));
     }
     
     // Handle symlinks
     let final_path = if options.follow_symlinks && metadata.file_type().is_symlink() {
         std::fs::canonicalize(path)
-            .context(t!("error-io-error", "message" => "Failed to resolve symlink"))?
+            .context(t!("error-io-error"))?
     } else {
         path.to_path_buf()
     };
@@ -580,7 +581,7 @@ fn process_single_file(
                 processing_time: start_time.elapsed(),
                 encoding_detected: None,
                 file_type,
-                compression_detected: compression,
+                compression_detected: compression.clone(),
             });
         }
         _ => {}
@@ -593,7 +594,7 @@ fn process_single_file(
     let stats = if options.use_mmap && file_size > MMAP_THRESHOLD && compression.is_none() {
         process_file_mmap(&final_path, &mut writer, options, filename, multi_progress)?
     } else {
-        process_file_stream(&final_path, &mut writer, options, filename, multi_progress, compression)?
+        process_file_stream(&final_path, &mut writer, options, filename, multi_progress, compression.clone())?
     };
     
     Ok(FileStats {
@@ -614,12 +615,12 @@ fn process_file_mmap<W: Write>(
     multi_progress: Option<&MultiProgress>,
 ) -> Result<FileStats> {
     let file = File::open(path)
-        .context(t!("error-io-error", "message" => "Failed to open file"))?;
+        .context(t!("error-io-error"))?;
     
     let mmap = unsafe {
         MmapOptions::new()
             .map(&file)
-            .context(t!("error-io-error", "message" => "Failed to memory map file"))?
+            .context(t!("error-io-error"))?
     };
     
     let progress_bar = if let Some(mp) = multi_progress {
@@ -696,7 +697,7 @@ fn process_file_stream<W: Write>(
     compression: Option<CompressionType>,
 ) -> Result<FileStats> {
     let file = File::open(path)
-        .context(t!("error-io-error", "message" => "Failed to open file"))?;
+        .context(t!("error-io-error"))?;
     
     let file_size = file.metadata()?.len();
     
@@ -759,7 +760,7 @@ fn process_reader<R: BufRead, W: Write>(
     process_reader_with_progress(reader, writer, options, filename, None)
 }
 
-fn process_reader_with_progress<R: BufRead, W: Write>(
+fn process_reader_with_progress<R: BufRead + ?Sized, W: Write>(
     mut reader: Box<R>,
     writer: &mut W,
     options: &CatOptions,
@@ -898,7 +899,7 @@ fn process_chunk<W: Write>(
                 write!(writer, "{}", hex::encode(line.as_bytes()))?;
             }
             OutputFormat::Base64 => {
-                write!(writer, "{}", base64::encode(line.as_bytes()))?;
+                write!(writer, "{}", general_purpose::STANDARD.encode(line.as_bytes()))?;
             }
             OutputFormat::Json => {
                 write!(writer, "{}", serde_json::to_string(line)?)?;
@@ -1064,7 +1065,7 @@ fn detect_encoding(data: &[u8]) -> &'static Encoding {
     }
     
     // Default to Latin-1 for binary data
-    ISO_8859_1
+            ISO_8859_2
 }
 
 fn print_statistics(stats: &FileStats, filename: &str) {

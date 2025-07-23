@@ -193,7 +193,8 @@ impl BcContext {
             if exp % 2 == 1 {
                 result *= &base;
             }
-            base *= &base;
+            let base_clone = base.clone();
+            base *= &base_clone;
             exp /= 2;
         }
         
@@ -256,6 +257,7 @@ pub fn bc_cli(args: &[String]) -> Result<()> {
     }
 
     // Process files if provided
+    let files_empty = files.is_empty();
     for file_path in files {
         let file = std::fs::File::open(file_path)
             .map_err(|e| anyhow!("bc: cannot open {}: {}", file_path, e))?;
@@ -268,7 +270,7 @@ pub fn bc_cli(args: &[String]) -> Result<()> {
     }
 
     // Interactive mode or stdin processing
-    if files.is_empty() || interactive {
+    if files_empty || interactive {
         let stdin = io::stdin();
         
         if single_line {

@@ -34,7 +34,7 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
     } else {
         let time = NaiveTime::parse_from_str(spec, "%H:%M")?;
         let now = Local::now();
-        let today = now.date_naive().and_time(time).unwrap();
+        let today = now.date_naive().and_time(time);
         let mut target = today;
         if target <= now.naive_local() {
             target = target + ChronoDuration::days(1);
