@@ -197,7 +197,7 @@
 - [✓] 23.9 timedatectl — time service controller
 
 ## 24. 開発者ツール連携
-- [ ] 24.1 git — VCS integration
+- [✓] 24.1 git — VCS integration
 - [✓] 24.2 make — build automation
 - [ ] 24.3 gcc — C compiler
 - [ ] 24.4 clang — LLVM compiler
