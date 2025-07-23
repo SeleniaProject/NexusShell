@@ -4,11 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = []
+default = ["signal-hook", "libc"]
 jit = ["cranelift-codegen", "cranelift-frontend"]
 object-pipe = []
 
 [dependencies]
+nxsh_parser = { path = "../nxsh_parser" }
 anyhow = "1"
 dashmap = "5"
 once_cell = "1.19"
@@ -18,4 +19,4 @@ cranelift-codegen = { version = "0.104", optional = true }
 cranelift-frontend = { version = "0.104", optional = true } 
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.27", default-features = false, features = ["fs", "process"] } 
+nix = { version = "0.27", default-features = false, features = ["fs", "process", "signal"] } 

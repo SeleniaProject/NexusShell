@@ -1,10 +1,10 @@
 use anyhow::Result;
-
+use std::io::{self, Write};
 use crate::context::ShellContext;
 use std::fs::OpenOptions;
 use std::os::unix::fs::OpenOptionsExt;
-use std::io;
 use crate::mir::{Program, BasicBlock, Instruction};
+use crate::job;
 
 #[cfg(unix)]
 const CLOEXEC: i32 = libc::O_CLOEXEC;
@@ -19,7 +19,7 @@ fn open_redirect(file: &str, append: bool) -> io::Result<std::fs::File> {
         opts.create(true).truncate(true);
     }
     // SAFETY: we just set custom flags
-    unsafe { opts.custom_flags(CLOEXEC).open(file) }
+    opts.custom_flags(CLOEXEC).open(file)
 }
 
 #[cfg(windows)]
@@ -41,79 +41,94 @@ pub struct Executor<'ctx> {
 
 impl<'ctx> Executor<'ctx> {
     pub fn new(context: &'ctx mut ShellContext) -> Self {
-        nxsh_core::job::init();
+        job::init();
         Self { context }
     }
 
     /// Run a raw command string. (Parser integration will be added later.)
     pub fn run(&mut self, command: &str) -> Result<()> {
         // For now, simply echo the command to demonstrate control flow.
-        println!("Executed command: {command}");
-        let _ = &self.context; // keep context in scope
+        println!("Executing: {}", command);
         Ok(())
     }
 
-    /// Walk the AST and execute commands / pipelines.
+    /// Execute an AST node (placeholder for future parser integration)
     pub fn execute(&mut self, node: &nxsh_parser::ast::AstNode) -> anyhow::Result<()> {
         use nxsh_parser::ast::AstNode as N;
         match node {
-            N::Program(nodes) | N::Sequence(nodes) => {
-                for n in nodes {
-                    self.execute(n)?;
-                }
-            }
-            N::Command(cmd) => {
-                self.spawn_command(cmd)?;
-            }
-            N::Pipeline(stages) => {
-                self.execute_pipeline(stages)?;
-            }
-            N::RedirectOut { file, append } => {
-                let f = open_redirect(file, *append)?;
-                let stream = crate::stream::Stream::from_file(f);
-                // Save to context for future executor revision
-                println!("Opened redirect to {} (append={})", file, append);
-                drop(stream);
-            }
+            N::Command(cmd) => self.spawn_command(cmd),
+            N::Pipeline(stages) => self.execute_pipeline(stages),
             _ => {
-                // For unimplemented nodes, no-op.
+                println!("Unsupported AST node type");
+                Ok(())
             }
         }
-        Ok(())
     }
 
     fn spawn_command(&self, cmd: &nxsh_parser::ast::Command) -> anyhow::Result<()> {
-        use std::process::Command as SysCmd;
-        let output = SysCmd::new(&cmd.name).args(cmd.args.iter().map(|a| match a {
-            nxsh_parser::ast::Argument::Word(w) => w,
-            nxsh_parser::ast::Argument::String(s) => s,
-            nxsh_parser::ast::Argument::Number(n) => &n.to_string(),
-            nxsh_parser::ast::Argument::Variable(v) => self
+        let cmd_name = match &cmd.args.first() {
+            Some(nxsh_parser::ast::Argument::Word(w)) => w,
+            Some(nxsh_parser::ast::Argument::String(s)) => s,
+            Some(nxsh_parser::ast::Argument::Number(n)) => &n.to_string(),
+            Some(nxsh_parser::ast::Argument::Variable(v)) => &self
                 .context
                 .get_var(v)
-                .as_deref()
-                .unwrap_or("")
-                .into(),
-            nxsh_parser::ast::Argument::Array(_) => "", // unsupported
-        })).output()?;
+                .unwrap_or("".to_string()),
+            Some(nxsh_parser::ast::Argument::Array(_)) => "", // unsupported
+            None => return Ok(()),
+        };
+
+        let output = std::process::Command::new(cmd_name).output()?;
         io::stdout().write_all(&output.stdout)?;
         io::stderr().write_all(&output.stderr)?;
         Ok(())
     }
 
     fn execute_pipeline(&mut self, stages: &[nxsh_parser::ast::AstNode]) -> anyhow::Result<()> {
-        println!("Pipeline execution stub for {} stages", stages.len());
+        // Placeholder implementation
+        for stage in stages {
+            self.execute(stage)?;
+        }
         Ok(())
     }
 
-    /// Example function to generate MIR from simple math expression.
-    pub fn generate_mir_example(&self) -> Program {
-        let mut prog = Program { blocks: vec![] };
-        let mut block = BasicBlock { id: 0, instrs: vec![] };
-        block.instrs.push(Instruction::ConstInt { id: 1, value: 2 });
-        block.instrs.push(Instruction::ConstInt { id: 2, value: 3 });
-        block.instrs.push(Instruction::Add { dst: 3, lhs: 1, rhs: 2 });
-        prog.blocks.push(block);
-        prog
+    /// Compile and execute MIR program
+    pub fn execute_mir(&mut self, program: &Program) -> Result<()> {
+        for block in &program.blocks {
+            self.execute_block(block)?;
+        }
+        Ok(())
+    }
+
+    fn execute_block(&mut self, block: &BasicBlock) -> Result<()> {
+        for instruction in &block.instrs {
+            self.execute_instruction(instruction)?;
+        }
+        Ok(())
+    }
+
+    fn execute_instruction(&mut self, instruction: &Instruction) -> Result<()> {
+        match instruction {
+            Instruction::Add { dst: _, lhs: _, rhs: _ } => {
+                // Placeholder for arithmetic operations
+                Ok(())
+            }
+            Instruction::Sub { dst: _, lhs: _, rhs: _ } => {
+                // Placeholder for arithmetic operations
+                Ok(())
+            }
+            Instruction::Mul { dst: _, lhs: _, rhs: _ } => {
+                // Placeholder for arithmetic operations
+                Ok(())
+            }
+            Instruction::Div { dst: _, lhs: _, rhs: _ } => {
+                // Placeholder for arithmetic operations
+                Ok(())
+            }
+            Instruction::ConstInt { id: _, value: _ } => {
+                // Placeholder for constant loading
+                Ok(())
+            }
+        }
     }
 } 

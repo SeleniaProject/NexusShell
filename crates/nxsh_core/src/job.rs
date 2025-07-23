@@ -9,7 +9,7 @@ pub enum JobState {
     Completed(i32),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Job {
     pub id: u32,
     pub pid: u32,
@@ -40,60 +40,67 @@ impl JobTable {
     }
 
     pub fn get(&self, id: u32) -> Option<Job> {
-        self.map.get(&id).map(|r| r.clone())
+        self.map.get(&id).map(|r| r.value().clone())
     }
 
     pub fn list(&self) -> Vec<Job> {
-        self.map.iter().map(|r| ( *r.value()).clone()).collect()
+        self.map.iter().map(|r| r.value().clone()).collect()
     }
 
     pub fn disown_all(&self) {
         self.map.clear();
     }
-
-    pub fn disown(&self, id: u32) {
-        self.map.remove(&id);
-    }
 }
 
-pub static JOB_TABLE: Lazy<JobTable> = Lazy::new(|| {
-    let table = JobTable::default();
-    // Start reaper thread only on Unix for now
-    #[cfg(unix)]
-    start_sigchld_reaper();
-    table
-});
-
-#[cfg(unix)]
-fn start_sigchld_reaper() {
-    use signal_hook::consts::signal::SIGCHLD;
-    use signal_hook::iterator::Signals;
-    use std::thread;
-    use std::time::Duration;
-    use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-
-    thread::spawn(|| {
-        let mut signals = Signals::new(&[SIGCHLD]).expect("create signal iterator");
-        for _ in &mut signals {
-            // Drain child statuses
-            loop {
-                match waitpid(-1, Some(WaitPidFlag::WNOHANG)) {
-                    Ok(WaitStatus::Exited(pid, code)) => {
-                        JOB_TABLE.update_state(pid as u32, JobState::Completed(code));
-                    }
-                    Ok(WaitStatus::StillAlive) => break,
-                    Ok(_) => break,
-                    Err(_) => break,
-                }
-            }
-            thread::sleep(Duration::from_millis(10));
-        }
-    });
-}
-
-#[cfg(windows)]
-fn start_sigchld_reaper() {}
+static JOB_TABLE: Lazy<JobTable> = Lazy::new(JobTable::default);
 
 pub fn init() {
     Lazy::force(&JOB_TABLE);
+    
+    #[cfg(unix)]
+    {
+        use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
+        use nix::unistd::Pid;
+        use std::thread;
+        
+        thread::spawn(|| loop {
+            match waitpid(None, Some(WaitPidFlag::WNOHANG)) {
+                Ok(WaitStatus::Exited(pid, code)) => {
+                    let pid_as_u32 = pid.as_raw() as u32;
+                    JOB_TABLE.update_state(pid_as_u32, JobState::Completed(code));
+                }
+                Ok(WaitStatus::Stopped(pid, _sig)) => {
+                    let pid_as_u32 = pid.as_raw() as u32;
+                    JOB_TABLE.update_state(pid_as_u32, JobState::Stopped);
+                }
+                Ok(WaitStatus::Signaled(pid, _sig, _)) => {
+                    let pid_as_u32 = pid.as_raw() as u32;
+                    JOB_TABLE.update_state(pid_as_u32, JobState::Completed(-1));
+                }
+                Ok(_) => {
+                    // Other status types or no children
+                }
+                Err(_) => {
+                    // No children to wait for or other error
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+            }
+        });
+    }
+}
+
+pub fn add_job(pid: u32, cmd: String) -> u32 {
+    JOB_TABLE.add_job(pid, cmd)
+}
+
+pub fn get_job(id: u32) -> Option<Job> {
+    JOB_TABLE.get(id)
+}
+
+pub fn list_jobs() -> Vec<Job> {
+    JOB_TABLE.list()
+}
+
+pub fn disown_all() {
+    JOB_TABLE.disown_all();
 } 

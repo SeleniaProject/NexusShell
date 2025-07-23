@@ -21,7 +21,7 @@ impl ScrollBuffer {
     pub fn scroll(&mut self, delta: isize) {
         let len = self.lines.len();
         let new_offset = self.offset as isize + delta;
-        self.offset = new_offset.clamp(0, len as isize.saturating_sub(1)) as usize;
+        self.offset = new_offset.clamp(0, (len as isize).saturating_sub(1)) as usize;
     }
 
     /// Return an iterator over visible lines starting at current offset.

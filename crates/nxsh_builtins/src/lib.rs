@@ -61,9 +61,9 @@ pub mod bind;
 
 pub use bind::bind_cli as bind; 
 
-pub mod break_builtin as builtin_break;
+pub mod break_builtin;
 
-pub use builtin_break::break_cli as break_cmd; 
+pub use break_builtin::break_cli as break_cmd; 
 
 pub mod builtin;
 

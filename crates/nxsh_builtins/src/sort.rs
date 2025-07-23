@@ -30,7 +30,7 @@ pub fn sort_cli(args: &[String]) -> Result<()> {
                     match ch {
                         'r' => reverse = true,
                         'n' => numeric = true,
-                        _ => return Err(anyhow!(format!("sort: invalid option -- '{}"), ch))),
+                        _ => return Err(anyhow!(format!("sort: invalid option -- '{}'", ch))),
                     }
                 }
             }

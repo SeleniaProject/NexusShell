@@ -20,7 +20,7 @@ impl Toast {
 }
 
 /// Render active toast overlay in bottom-right corner.
-pub fn render<B: Backend>(f: &mut Frame<B>, toast: &Toast) {
+pub fn render(f: &mut Frame, toast: &Toast) {
     let area = f.size();
     let width = toast.message.len() as u16 + 4;
     let height = 3;

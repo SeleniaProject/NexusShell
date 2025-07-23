@@ -20,13 +20,17 @@ fn constant_fold_block(block: &mut BasicBlock) {
             | Sub { dst, lhs, rhs }
             | Mul { dst, lhs, rhs }
             | Div { dst, lhs, rhs } => {
-                if let (Some(lv), Some(rv)) = (const_table.get(lhs), const_table.get(rhs)) {
+                let dst_val = *dst;
+                let lhs_val = *lhs;
+                let rhs_val = *rhs;
+                
+                if let (Some(&lv), Some(&rv)) = (const_table.get(&lhs_val), const_table.get(&rhs_val)) {
                     let result = match instr {
                         Add { .. } => lv + rv,
                         Sub { .. } => lv - rv,
                         Mul { .. } => lv * rv,
                         Div { .. } => {
-                            if *rv == 0 {
+                            if rv == 0 {
                                 continue;
                             }
                             lv / rv
@@ -34,8 +38,8 @@ fn constant_fold_block(block: &mut BasicBlock) {
                         _ => unreachable!(),
                     };
                     // Replace instruction with constant and update table
-                    *instr = ConstInt { id: *dst, value: result };
-                    const_table.insert(*dst, result);
+                    *instr = ConstInt { id: dst_val, value: result };
+                    const_table.insert(dst_val, result);
                 }
             }
         }

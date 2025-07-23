@@ -6,7 +6,8 @@ pub mod ast;
 use anyhow::Result;
 
 use pest::Parser;
-use pest::error::Error as PestError;
+use pest::error::{Error as PestError, LineColLocation};
+use pest_derive::Parser;
 
 #[derive(Parser)]
 #[grammar = "grammar.pest"]
@@ -14,8 +15,10 @@ struct ShellParser;
 
 /// Highlight parsing error with line and column.
 pub fn highlight_error(input: &str, err: PestError<Rule>) -> String {
-    let location = err.line_col;
-    let (line_no, col_no) = location;
+    let (line_no, col_no) = match err.line_col {
+        LineColLocation::Pos((line, col)) => (line, col),
+        LineColLocation::Span((line, col), _) => (line, col),
+    };
     let line_str = input.lines().nth(line_no - 1).unwrap_or("");
     format!(
         "Parse error: {} at line {}, column {}\n{}\n{}^",

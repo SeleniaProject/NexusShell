@@ -14,7 +14,7 @@ impl AppState {
         self.side_panel_visible = !self.side_panel_visible;
     }
 
-    pub fn render<B: Backend>(&self, f: &mut Frame<B>) {
+    pub fn render(&self, f: &mut Frame) {
         if self.side_panel_visible {
             let chunks = Layout::default()
                 .direction(Direction::Horizontal)
