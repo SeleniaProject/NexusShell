@@ -555,12 +555,3 @@ pub use hwclock::hwclock_cli as hwclock_builtin;
 
 pub mod timedatectl;
 pub use timedatectl::timedatectl_cli as timedatectl_builtin; 
-
-pub mod make;
-pub use make::make_cli as make_builtin; 
-
-pub mod git_cmd;
-pub use git_cmd::git_cli as git_builtin; 
-
-pub mod gcc;
-pub use gcc::gcc_cli as gcc_builtin; 

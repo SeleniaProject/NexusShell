@@ -5,7 +5,8 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
-pest = { version = "2", features = ["derive"] }
+pest = "2"
+pest_derive = "2"
 
 [dev-dependencies]
 criterion = "0.5" 

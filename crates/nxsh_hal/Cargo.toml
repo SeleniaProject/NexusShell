@@ -1,9 +1,10 @@
 [package]
 name = "nxsh_hal"
 version = "0.1.0"
-edition = "2021" 
-seccomp-sys = { version = "0.2", optional = true }
-libc = { version = "0.2" }
+edition = "2021"
+
+[dependencies]
+libc = "0.2"
 
 [target.'cfg(unix)'.dependencies]
-seccomp-sys = { version = "0.2", optional = true } 
+seccomp-sys = { version = "0.1", optional = true } 

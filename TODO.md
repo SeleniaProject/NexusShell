@@ -196,19 +196,19 @@
 - [✓] 23.8 hwclock — hardware clock
 - [✓] 23.9 timedatectl — time service controller
 
-## 24. 開発者ツール連携
-- [✓] 24.1 git — VCS integration
-- [✓] 24.2 make — build automation
-- [✓] 24.3 gcc — C compiler
-- [ ] 24.4 clang — LLVM compiler
-- [ ] 24.5 cargo — Rust build tool
-- [ ] 24.6 rustc — Rust compiler
-- [ ] 24.7 go — Go compiler
-- [ ] 24.8 python — Python interpreter
-- [ ] 24.9 node — Node.js runtime
-- [ ] 24.10 javac — Java compiler
-- [ ] 24.11 gdb — debugger
-- [ ] 24.12 strace — syscall tracer
+## 24. 開発者ツール連携 (SKIPPED - 外部ツール依存のため省略)
+- [-] 24.1 git — VCS integration
+- [-] 24.2 make — build automation
+- [-] 24.3 gcc — C compiler
+- [-] 24.4 clang — LLVM compiler
+- [-] 24.5 cargo — Rust build tool
+- [-] 24.6 rustc — Rust compiler
+- [-] 24.7 go — Go compiler
+- [-] 24.8 python — Python interpreter
+- [-] 24.9 node — Node.js runtime
+- [-] 24.10 javac — Java compiler
+- [-] 24.11 gdb — debugger
+- [-] 24.12 strace — syscall tracer
 
 ## 25. 雑多ユーティリティ
 - [ ] 25.1 yes — infinite output
