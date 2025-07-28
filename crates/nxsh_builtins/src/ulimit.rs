@@ -20,8 +20,8 @@ pub fn ulimit_cli(args: &[String]) -> Result<()> {
     #[cfg(unix)]
     {
         if args.is_empty() || args[0] == "-a" {
-            print_limit("core file size", RLIMIT_CORE)?;
-            print_limit("open files", RLIMIT_NOFILE)?;
+            print_limit("core file size", RLIMIT_CORE as i32)?;
+            print_limit("open files", RLIMIT_NOFILE as i32)?;
             return Ok(());
         }
         if args.len() == 2 {
@@ -43,7 +43,7 @@ pub fn ulimit_cli(args: &[String]) -> Result<()> {
 fn print_limit(name: &str, res: i32) -> Result<()> {
     unsafe {
         let mut lim: rlimit = std::mem::zeroed();
-        getrlimit(res, &mut lim);
+        getrlimit(res as u32, &mut lim);
         let v = if lim.rlim_cur == libc::RLIM_INFINITY { "unlimited".into() } else { lim.rlim_cur.to_string() };
         println!("{}: {}", name, v);
     }

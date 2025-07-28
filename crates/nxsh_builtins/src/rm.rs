@@ -12,16 +12,19 @@
 //!   -r, -R, --recursive       - Remove directories and their contents recursively
 //!   -d, --dir                 - Remove empty directories
 //!   -v, --verbose             - Explain what is being done
+//!   --trash                   - Move files to trash instead of permanent deletion
 //!   --help                    - Display help and exit
 //!   --version                 - Output version information and exit
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, Context};
 use std::fs::{self, Metadata};
 use std::io::{self, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
+use std::env;
 use walkdir::{WalkDir, DirEntry};
+use chrono::{DateTime, Local};
 
 #[derive(Debug, Clone)]
 pub struct RmOptions {
@@ -33,6 +36,7 @@ pub struct RmOptions {
     pub recursive: bool,
     pub remove_empty_dirs: bool,
     pub verbose: bool,
+    pub use_trash: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -53,7 +57,46 @@ impl Default for RmOptions {
             recursive: false,
             remove_empty_dirs: false,
             verbose: false,
+            use_trash: false,
         }
+    }
+}
+
+/// Trash directory structure for implementing trash functionality
+#[derive(Debug)]
+struct TrashInfo {
+    trash_dir: PathBuf,
+    files_dir: PathBuf,
+    info_dir: PathBuf,
+}
+
+impl TrashInfo {
+    fn new() -> Result<Self> {
+        let home = env::var("HOME").or_else(|_| env::var("USERPROFILE"))
+            .map_err(|_| anyhow!("Cannot determine home directory for trash"))?;
+        
+        let trash_dir = if cfg!(target_os = "macos") {
+            PathBuf::from(home).join(".Trash")
+        } else if cfg!(windows) {
+            // On Windows, we'll use a simple trash directory
+            PathBuf::from(home).join("NxshTrash")
+        } else {
+            // XDG standard for Linux
+            PathBuf::from(home).join(".local/share/Trash")
+        };
+        
+        let files_dir = trash_dir.join("files");
+        let info_dir = trash_dir.join("info");
+        
+        // Create trash directories if they don't exist
+        fs::create_dir_all(&files_dir)?;
+        fs::create_dir_all(&info_dir)?;
+        
+        Ok(TrashInfo {
+            trash_dir,
+            files_dir,
+            info_dir,
+        })
     }
 }
 
@@ -87,6 +130,13 @@ pub fn rm_cli(args: &[String]) -> Result<()> {
         }
     }
     
+    // Initialize trash if needed
+    let trash_info = if options.use_trash {
+        Some(TrashInfo::new()?)
+    } else {
+        None
+    };
+    
     // Track filesystem devices for --one-file-system
     let mut filesystem_devices = HashMap::new();
     
@@ -94,7 +144,7 @@ pub fn rm_cli(args: &[String]) -> Result<()> {
     for file in &options.files {
         let path = PathBuf::from(file);
         
-        if let Err(e) = remove_path(&path, &options, &mut filesystem_devices) {
+        if let Err(e) = remove_path(&path, &options, &mut filesystem_devices, &trash_info) {
             if !options.force {
                 eprintln!("rm: {}", e);
                 // Continue with other files instead of exiting
@@ -152,6 +202,9 @@ fn parse_rm_args(args: &[String]) -> Result<RmOptions> {
             "-v" | "--verbose" => {
                 options.verbose = true;
             }
+            "--trash" => {
+                options.use_trash = true;
+            }
             "--help" => {
                 print_help();
                 std::process::exit(0);
@@ -198,6 +251,7 @@ fn remove_path(
     path: &Path,
     options: &RmOptions,
     filesystem_devices: &mut HashMap<PathBuf, u64>,
+    trash_info: &Option<TrashInfo>,
 ) -> Result<()> {
     // Check if file exists
     let metadata = match fs::metadata(path) {
@@ -229,13 +283,13 @@ fn remove_path(
     }
     
     if metadata.is_dir() {
-        remove_directory(path, options, filesystem_devices)
+        remove_directory(path, options, filesystem_devices, trash_info)
     } else {
-        remove_file(path, options)
+        remove_file(path, options, trash_info)
     }
 }
 
-fn remove_file(path: &Path, options: &RmOptions) -> Result<()> {
+fn remove_file(path: &Path, options: &RmOptions, trash_info: &Option<TrashInfo>) -> Result<()> {
     // Interactive confirmation
     if options.interactive == InteractiveMode::Always {
         print!("rm: remove regular file '{}'? ", path.display());
@@ -249,15 +303,20 @@ fn remove_file(path: &Path, options: &RmOptions) -> Result<()> {
         }
     }
     
-    // Attempt to remove the file
-    match fs::remove_file(path) {
-        Ok(()) => {
-            if options.verbose {
-                println!("removed '{}'", path.display());
+    // Move to trash or delete permanently
+    if let Some(trash) = trash_info {
+        move_to_trash(path, trash, options)?;
+    } else {
+        // Permanent deletion
+        match fs::remove_file(path) {
+            Ok(()) => {
+                if options.verbose {
+                    println!("removed '{}'", path.display());
+                }
             }
-        }
-        Err(e) => {
-            return Err(anyhow!("cannot remove '{}': {}", path.display(), e));
+            Err(e) => {
+                return Err(anyhow!("cannot remove '{}': {}", path.display(), e));
+            }
         }
     }
     
@@ -268,6 +327,7 @@ fn remove_directory(
     path: &Path,
     options: &RmOptions,
     filesystem_devices: &mut HashMap<PathBuf, u64>,
+    trash_info: &Option<TrashInfo>,
 ) -> Result<()> {
     // Check if we can remove directories
     if !options.recursive && !options.remove_empty_dirs {
@@ -300,14 +360,19 @@ fn remove_directory(
             }
         }
         
-        match fs::remove_dir(path) {
-            Ok(()) => {
-                if options.verbose {
-                    println!("removed directory '{}'", path.display());
+        // Move to trash or delete permanently
+        if let Some(trash) = trash_info {
+            move_to_trash(path, trash, options)?;
+        } else {
+            match fs::remove_dir(path) {
+                Ok(()) => {
+                    if options.verbose {
+                        println!("removed directory '{}'", path.display());
+                    }
                 }
-            }
-            Err(e) => {
-                return Err(anyhow!("cannot remove '{}': {}", path.display(), e));
+                Err(e) => {
+                    return Err(anyhow!("cannot remove '{}': {}", path.display(), e));
+                }
             }
         }
         
@@ -329,31 +394,36 @@ fn remove_directory(
             }
         }
         
-        // Remove contents first (post-order traversal)
-        remove_directory_contents(path, options, filesystem_devices)?;
-        
-        // Interactive confirmation before removing the directory itself
-        if options.interactive == InteractiveMode::Always {
-            print!("rm: remove directory '{}'? ", path.display());
-            io::stdout().flush()?;
+        if let Some(trash) = trash_info {
+            // Move entire directory to trash
+            move_to_trash(path, trash, options)?;
+        } else {
+            // Remove contents first (post-order traversal)
+            remove_directory_contents(path, options, filesystem_devices, trash_info)?;
             
-            let mut response = String::new();
-            io::stdin().read_line(&mut response)?;
-            
-            if !response.trim().to_lowercase().starts_with('y') {
-                return Ok(());
-            }
-        }
-        
-        // Remove the now-empty directory
-        match fs::remove_dir(path) {
-            Ok(()) => {
-                if options.verbose {
-                    println!("removed directory '{}'", path.display());
+            // Interactive confirmation before removing the directory itself
+            if options.interactive == InteractiveMode::Always {
+                print!("rm: remove directory '{}'? ", path.display());
+                io::stdout().flush()?;
+                
+                let mut response = String::new();
+                io::stdin().read_line(&mut response)?;
+                
+                if !response.trim().to_lowercase().starts_with('y') {
+                    return Ok(());
                 }
             }
-            Err(e) => {
-                return Err(anyhow!("cannot remove '{}': {}", path.display(), e));
+            
+            // Remove the now-empty directory
+            match fs::remove_dir(path) {
+                Ok(()) => {
+                    if options.verbose {
+                        println!("removed directory '{}'", path.display());
+                    }
+                }
+                Err(e) => {
+                    return Err(anyhow!("cannot remove '{}': {}", path.display(), e));
+                }
             }
         }
     }
@@ -365,6 +435,7 @@ fn remove_directory_contents(
     path: &Path,
     options: &RmOptions,
     filesystem_devices: &mut HashMap<PathBuf, u64>,
+    trash_info: &Option<TrashInfo>,
 ) -> Result<()> {
     let entries = fs::read_dir(path)
         .map_err(|e| anyhow!("cannot read directory '{}': {}", path.display(), e))?;
@@ -386,12 +457,56 @@ fn remove_directory_contents(
     
     // Remove files first
     for file_path in files {
-        remove_file(&file_path, options)?;
+        remove_file(&file_path, options, trash_info)?;
     }
     
     // Then remove subdirectories recursively
     for dir_path in subdirs {
-        remove_directory(&dir_path, options, filesystem_devices)?;
+        remove_directory(&dir_path, options, filesystem_devices, trash_info)?;
+    }
+    
+    Ok(())
+}
+
+/// Move a file or directory to trash
+fn move_to_trash(path: &Path, trash: &TrashInfo, options: &RmOptions) -> Result<()> {
+    let filename = path.file_name()
+        .ok_or_else(|| anyhow!("Cannot get filename for '{}'", path.display()))?
+        .to_string_lossy();
+    
+    // Generate unique filename in trash
+    let mut counter = 0;
+    let mut trash_filename = filename.to_string();
+    let mut trash_path = trash.files_dir.join(&trash_filename);
+    
+    while trash_path.exists() {
+        counter += 1;
+        trash_filename = format!("{}.{}", filename, counter);
+        trash_path = trash.files_dir.join(&trash_filename);
+    }
+    
+    // Move the file/directory to trash
+    fs::rename(path, &trash_path)
+        .with_context(|| format!("Failed to move '{}' to trash", path.display()))?;
+    
+    // Create .trashinfo file
+    let info_filename = format!("{}.trashinfo", trash_filename);
+    let info_path = trash.info_dir.join(info_filename);
+    
+    let original_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let deletion_date = Local::now().format("%Y-%m-%dT%H:%M:%S").to_string();
+    
+    let trash_info_content = format!(
+        "[Trash Info]\nPath={}\nDeletionDate={}\n",
+        original_path.display(),
+        deletion_date
+    );
+    
+    fs::write(&info_path, trash_info_content)
+        .with_context(|| format!("Failed to create trash info file"))?;
+    
+    if options.verbose {
+        println!("moved '{}' to trash", path.display());
     }
     
     Ok(())
@@ -416,6 +531,7 @@ fn print_help() {
     println!("  -r, -R, --recursive   remove directories and their contents recursively");
     println!("  -d, --dir             remove empty directories");
     println!("  -v, --verbose         explain what is being done");
+    println!("      --trash           move files to trash instead of permanent deletion");
     println!("      --help     display this help and exit");
     println!("      --version  output version information and exit");
     println!();
@@ -431,6 +547,12 @@ fn print_help() {
     println!("Note that if you use rm to remove a file, it might be possible to recover");
     println!("some of its contents, given sufficient expertise and/or time.  For greater");
     println!("assurance that the contents are truly unrecoverable, consider using shred.");
+    println!();
+    println!("The --trash option provides a safer alternative by moving files to a trash");
+    println!("directory instead of permanently deleting them. Trash location:");
+    println!("  Linux/Unix: ~/.local/share/Trash");
+    println!("  macOS: ~/.Trash");
+    println!("  Windows: ~/NxshTrash");
     println!();
     println!("Report rm bugs to <bug-reports@nexusshell.org>");
 }

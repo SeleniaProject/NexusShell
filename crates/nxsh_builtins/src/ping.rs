@@ -392,7 +392,7 @@ impl PingStats {
         }
         
         let mut jitter_sum = 0.0;
-        let mut prev_time = None;
+        let mut prev_time: Option<f64> = None;
         
         for &time in times.iter() {
             if let Some(prev) = prev_time {
@@ -1252,7 +1252,7 @@ fn send_packet(
             let src_addr = match socket.local_addr()? {
                 addr => {
                     if let Some(socket_addr) = addr.as_socket_ipv6() {
-                        socket_addr.ip()
+                        *socket_addr.ip()
                     } else {
                         return Err(anyhow!("ping: invalid socket address family"));
                     }

@@ -1,35 +1,41 @@
-//! `ps` command – comprehensive process list implementation.
+//! `ps` command - display running processes with comprehensive information
 //!
-//! Supports most standard ps options:
-//!   ps aux    - All processes with detailed info
-//!   ps -e     - All processes
-//!   ps -f     - Full format listing
-//!   ps -l     - Long format listing
-//!   ps -u USER - Processes for specific user
-//!   ps -p PID  - Specific process by PID
-//!   ps -C CMD  - Processes by command name
-//!   ps --forest - Process tree view
-//!   ps --sort=FIELD - Sort by field (cpu, mem, pid, ppid, time, etc.)
+//! Full ps implementation with process tree, filtering, and detailed process information
 
-use anyhow::{anyhow, Result};
+use crate::common::{i18n::*, logging::*};
+use std::io::Write;
 use std::collections::HashMap;
-use std::io::{self, Write};
-use std::path::Path;
+use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult};
+use nxsh_hal::{ProcessInfo, ProcessManager};
 use std::fs;
-use std::time::{SystemTime, Duration, UNIX_EPOCH};
-use sysinfo::{System, SystemExt, ProcessExt, Pid, PidExt};
-use chrono::{DateTime, Local, TimeZone};
-use users::{get_user_by_uid, Users as UsersCache, Groups as GroupsCache};
-use tabled::{Table, Tabled, settings::{Style, Alignment}};
-use nxsh_core::context::ShellContext;
+use std::io::{BufRead, BufReader};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use humansize::{format_size, DECIMAL};
-
-#[cfg(target_os = "linux")]
-use procfs::{process::{Process as ProcfsProcess, Stat, Status}, ProcResult, KernelStats};
+pub struct PsBuiltin;
 
 #[derive(Debug, Clone)]
-pub struct ProcessInfo {
+pub struct PsOptions {
+    pub all_processes: bool,
+    pub all_users: bool,
+    pub show_threads: bool,
+    pub full_format: bool,
+    pub long_format: bool,
+    pub user_format: bool,
+    pub tree_format: bool,
+    pub no_headers: bool,
+    pub sort_by: Option<String>,
+    pub filter_user: Option<String>,
+    pub filter_pid: Option<u32>,
+    pub filter_ppid: Option<u32>,
+    pub filter_command: Option<String>,
+    pub output_format: Option<String>,
+    pub wide_output: bool,
+    pub show_environment: bool,
+    pub show_command_line: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProcessEntry {
     pub pid: u32,
     pub ppid: u32,
     pub uid: u32,
@@ -39,313 +45,322 @@ pub struct ProcessInfo {
     pub command: String,
     pub args: Vec<String>,
     pub state: String,
-    pub cpu_usage: f32,
-    pub memory_kb: u64,
-    pub memory_percent: f32,
+    pub cpu_percent: f64,
+    pub memory_percent: f64,
+    pub memory_rss: u64,
+    pub memory_vsz: u64,
     pub start_time: SystemTime,
     pub cpu_time: Duration,
     pub priority: i32,
     pub nice: i32,
-    pub num_threads: u32,
+    pub threads: u32,
     pub tty: String,
     pub session_id: u32,
-    pub pgrp: u32,
-    pub rss: u64,
-    pub vsz: u64,
-    pub wchan: String,
+    pub process_group: u32,
+    pub environment: HashMap<String, String>,
 }
 
-#[derive(Debug)]
-pub struct PsOptions {
-    pub all_processes: bool,
-    pub full_format: bool,
-    pub long_format: bool,
-    pub user_filter: Option<String>,
-    pub pid_filter: Option<u32>,
-    pub command_filter: Option<String>,
-    pub forest: bool,
-    pub sort_field: String,
-    pub reverse_sort: bool,
-    pub no_headers: bool,
-    pub wide_output: bool,
-}
+impl Builtin for PsBuiltin {
+    fn name(&self) -> &str {
+        "ps"
+    }
 
-impl Default for PsOptions {
-    fn default() -> Self {
-        Self {
-            all_processes: false,
-            full_format: false,
-            long_format: false,
-            user_filter: None,
-            pid_filter: None,
-            command_filter: None,
-            forest: false,
-            sort_field: "pid".to_string(),
-            reverse_sort: false,
-            no_headers: false,
-            wide_output: false,
-        }
+    fn execute(&self, context: &mut Context, args: Vec<String>) -> ShellResult<i32> {
+        let options = parse_ps_args(&args)?;
+        let processes = collect_processes(&options)?;
+        display_processes(&processes, &options)?;
+        Ok(0)
+    }
+
+    fn help(&self) -> &str {
+        "ps - display running processes
+
+USAGE:
+    ps [OPTIONS]
+
+OPTIONS:
+    -A, -e, --all             Show all processes
+    -a                        Show all processes except session leaders
+    -x                        Show processes without controlling terminal
+    -u, --user=USER           Show processes for specified user
+    -p, --pid=PID             Show process with specified PID
+    --ppid=PPID               Show processes with specified parent PID
+    -C, --command=CMD         Show processes running specified command
+    -f, --full                Full format listing
+    -l, --long                Long format listing
+    -j                        Jobs format
+    -s                        Signal format
+    -v                        Virtual memory format
+    -m                        Show threads
+    -H, --forest              Show process hierarchy (tree)
+    --no-headers              Don't print headers
+    --sort=SPEC               Sort by specified columns
+    -o, --format=FORMAT       User-defined format
+    -w, --wide                Wide output (don't truncate)
+    -e, --environment         Show environment variables
+    --help                    Display this help and exit
+
+FORMAT SPECIFIERS:
+    pid, ppid, uid, gid, user, group, comm, args, state, pcpu, pmem
+    rss, vsz, stime, time, pri, ni, nlwp, tty, sid, pgrp
+
+EXAMPLES:
+    ps                        Show processes for current user
+    ps aux                    Show all processes with detailed info
+    ps -ef                    Show all processes in full format
+    ps -u root                Show processes for root user
+    ps --forest               Show process tree
+    ps -o pid,comm,pcpu       Custom format output
+    ps --sort=-pcpu           Sort by CPU usage (descending)"
     }
 }
 
-#[derive(Tabled)]
-struct PsRow {
-    #[tabled(rename = "PID")]
-    pid: String,
-    #[tabled(rename = "PPID")]
-    ppid: String,
-    #[tabled(rename = "USER")]
-    user: String,
-    #[tabled(rename = "CPU%")]
-    cpu: String,
-    #[tabled(rename = "MEM%")]
-    mem: String,
-    #[tabled(rename = "VSZ")]
-    vsz: String,
-    #[tabled(rename = "RSS")]
-    rss: String,
-    #[tabled(rename = "TTY")]
-    tty: String,
-    #[tabled(rename = "STAT")]
-    stat: String,
-    #[tabled(rename = "START")]
-    start: String,
-    #[tabled(rename = "TIME")]
-    time: String,
-    #[tabled(rename = "COMMAND")]
-    command: String,
-}
+fn parse_ps_args(args: &[String]) -> ShellResult<PsOptions> {
+    let mut options = PsOptions {
+        all_processes: false,
+        all_users: false,
+        show_threads: false,
+        full_format: false,
+        long_format: false,
+        user_format: false,
+        tree_format: false,
+        no_headers: false,
+        sort_by: None,
+        filter_user: None,
+        filter_pid: None,
+        filter_ppid: None,
+        filter_command: None,
+        output_format: None,
+        wide_output: false,
+        show_environment: false,
+        show_command_line: false,
+    };
 
-pub fn ps_cli(args: &[String]) -> Result<()> {
-    let options = parse_ps_args(args)?;
-    
-    #[cfg(target_os = "linux")]
-    {
-        let processes = get_linux_processes(&options)?;
-        display_processes(processes, &options)?;
-    }
-    
-    #[cfg(not(target_os = "linux"))]
-    {
-        // Fallback to sysinfo for non-Linux systems
-        let processes = get_sysinfo_processes(&options)?;
-        display_processes(processes, &options)?;
-    }
-    
-    Ok(())
-}
-
-fn parse_ps_args(args: &[String]) -> Result<PsOptions> {
-    let mut options = PsOptions::default();
     let mut i = 0;
-    
     while i < args.len() {
         let arg = &args[i];
         
         match arg.as_str() {
-            "aux" | "-aux" => {
-                options.all_processes = true;
-                options.full_format = true;
+            "-A" | "-e" | "--all" => options.all_processes = true,
+            "-a" => options.all_users = true,
+            "-x" => options.all_processes = true,
+            "-f" | "--full" => options.full_format = true,
+            "-l" | "--long" => options.long_format = true,
+            "-m" => options.show_threads = true,
+            "-H" | "--forest" => options.tree_format = true,
+            "--no-headers" => options.no_headers = true,
+            "-w" | "--wide" => options.wide_output = true,
+            "-e" | "--environment" => options.show_environment = true,
+            "-u" | "--user" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(ShellError::runtime("Option -u requires an argument"));
+                }
+                options.filter_user = Some(args[i].clone());
             }
-            "-e" | "-A" => {
-                options.all_processes = true;
+            "-p" | "--pid" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(ShellError::runtime("Option -p requires an argument"));
+                }
+                options.filter_pid = Some(args[i].parse()
+                    .map_err(|_| ShellError::runtime("Invalid PID"))?);
             }
-            "-f" => {
-                options.full_format = true;
+            "--ppid" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(ShellError::runtime("Option --ppid requires an argument"));
+                }
+                options.filter_ppid = Some(args[i].parse()
+                    .map_err(|_| ShellError::runtime("Invalid PPID"))?);
             }
-            "-l" => {
-                options.long_format = true;
+            "-C" | "--command" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(ShellError::runtime("Option -C requires an argument"));
+                }
+                options.filter_command = Some(args[i].clone());
             }
-            "-u" => {
-                if i + 1 < args.len() {
-                    options.user_filter = Some(args[i + 1].clone());
-                    i += 1;
-                } else {
-                    return Err(anyhow!("ps: option requires an argument -- u"));
+            "--sort" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(ShellError::runtime("Option --sort requires an argument"));
+                }
+                options.sort_by = Some(args[i].clone());
+            }
+            "-o" | "--format" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(ShellError::runtime("Option -o requires an argument"));
+                }
+                options.output_format = Some(args[i].clone());
+            }
+            "--help" => return Err(ShellError::runtime("Help requested")),
+            _ if arg.starts_with("-") => {
+                // Handle BSD-style combined options
+                for ch in arg[1..].chars() {
+                    match ch {
+                        'A' | 'e' => options.all_processes = true,
+                        'a' => options.all_users = true,
+                        'x' => options.all_processes = true,
+                        'f' => options.full_format = true,
+                        'l' => options.long_format = true,
+                        'u' => options.user_format = true,
+                        'm' => options.show_threads = true,
+                        'H' => options.tree_format = true,
+                        'w' => options.wide_output = true,
+                        _ => return Err(ShellError::runtime(format!("Unknown option: -{}", ch))),
+                    }
                 }
             }
-            "-p" => {
-                if i + 1 < args.len() {
-                    options.pid_filter = Some(args[i + 1].parse()?);
-                    i += 1;
-                } else {
-                    return Err(anyhow!("ps: option requires an argument -- p"));
-                }
-            }
-            "-C" => {
-                if i + 1 < args.len() {
-                    options.command_filter = Some(args[i + 1].clone());
-                    i += 1;
-                } else {
-                    return Err(anyhow!("ps: option requires an argument -- C"));
-                }
-            }
-            "--forest" => {
-                options.forest = true;
-            }
-            "--no-headers" => {
-                options.no_headers = true;
-            }
-            "-w" | "--wide" => {
-                options.wide_output = true;
-            }
-            arg if arg.starts_with("--sort=") => {
-                let sort_spec = arg.strip_prefix("--sort=").unwrap();
-                if sort_spec.starts_with('-') {
-                    options.reverse_sort = true;
-                    options.sort_field = sort_spec[1..].to_string();
-                } else {
-                    options.sort_field = sort_spec.to_string();
-                }
-            }
-            _ => {
-                return Err(anyhow!("ps: unknown option '{}'", arg));
-            }
+            _ => return Err(ShellError::runtime(format!("Unknown argument: {}", arg))),
         }
         i += 1;
     }
-    
+
     Ok(options)
 }
 
-#[cfg(target_os = "linux")]
-fn get_linux_processes(options: &PsOptions) -> Result<Vec<ProcessInfo>> {
+fn collect_processes(options: &PsOptions) -> ShellResult<Vec<ProcessEntry>> {
     let mut processes = Vec::new();
-    let users_cache = users::UsersCache::new();
-    // Get kernel statistics for CPU usage calculation
-    let kernel_stats = match procfs::KernelStats::new() {
-        Ok(stats) => Some(stats),
-        Err(_) => None,
-    };
-    let boot_time = kernel_stats.as_ref().map(|s| s.btime).unwrap_or(0);
-    let page_size = procfs::page_size() as u64;
     
-    // Get all processes from /proc
-    for entry in fs::read_dir("/proc")? {
-        let entry = entry?;
-        let file_name = entry.file_name();
-        let file_name_str = file_name.to_string_lossy();
+    // Get all processes from /proc on Linux, or use platform-specific methods
+    #[cfg(target_os = "linux")]
+    {
+        let proc_dir = fs::read_dir("/proc")
+            .map_err(|e| ShellError::io(format!("Cannot read /proc: {}", e)))?;
         
-        // Check if directory name is a PID
-        if let Ok(pid) = file_name_str.parse::<u32>() {
-            if let Ok(process_info) = get_process_info(pid, &users_cache, boot_time, page_size, kernel_stats.as_ref()) {
-                // Apply filters
-                if let Some(ref user_filter) = options.user_filter {
-                    if process_info.user != *user_filter {
-                        continue;
+        for entry in proc_dir {
+            let entry = entry.map_err(|e| ShellError::io(format!("Error reading /proc entry: {}", e)))?;
+            let file_name = entry.file_name();
+            let name_str = file_name.to_string_lossy();
+            
+            if let Ok(pid) = name_str.parse::<u32>() {
+                if let Ok(process) = read_process_info(pid) {
+                    if should_include_process(&process, options) {
+                        processes.push(process);
                     }
                 }
-                
-                if let Some(pid_filter) = options.pid_filter {
-                    if process_info.pid != pid_filter {
-                        continue;
-                    }
-                }
-                
-                if let Some(ref cmd_filter) = options.command_filter {
-                    if !process_info.command.contains(cmd_filter) {
-                        continue;
-                    }
-                }
-                
-                if !options.all_processes {
-                    // Default behavior: only show processes owned by current user
-                    let current_uid = unsafe { libc::getuid() };
-                    if process_info.uid != current_uid {
-                        continue;
-                    }
-                }
-                
-                processes.push(process_info);
             }
         }
     }
     
-    // Sort processes
-    sort_processes(&mut processes, &options.sort_field, options.reverse_sort);
+    #[cfg(not(target_os = "linux"))]
+    {
+        // Use HAL for other platforms
+        let process_manager = ProcessManager::new();
+        let system_processes = process_manager.get_system_processes()
+            .map_err(|e| ShellError::runtime(format!("Failed to get processes: {}", e)))?;
+        
+        for proc_info in system_processes {
+            let process = convert_hal_process(proc_info);
+            if should_include_process(&process, options) {
+                processes.push(process);
+            }
+        }
+    }
+    
+    // Sort processes if requested
+    if let Some(ref sort_spec) = options.sort_by {
+        sort_processes(&mut processes, sort_spec)?;
+    }
     
     Ok(processes)
 }
 
 #[cfg(target_os = "linux")]
-fn get_process_info(pid: u32, users_cache: &UsersCache, boot_time: u64, page_size: u64, kernel_stats: Option<&KernelStats>) -> ProcResult<ProcessInfo> {
-    let process = Process::new(pid as i32)?;
-    let stat = process.stat()?;
-    let status = process.status().ok();
+fn read_process_info(pid: u32) -> Result<ProcessEntry, Box<dyn std::error::Error>> {
+    let stat_path = format!("/proc/{}/stat", pid);
+    let status_path = format!("/proc/{}/status", pid);
+    let cmdline_path = format!("/proc/{}/cmdline", pid);
+    let environ_path = format!("/proc/{}/environ", pid);
     
-    // Get user and group info
-    let uid = status.as_ref().map(|s| s.ruid).unwrap_or(0);
-    let gid = status.as_ref().map(|s| s.rgid).unwrap_or(0);
-    let user = users_cache.get_user_by_uid(uid)
-        .map(|u| u.name().to_string_lossy().to_string())
-        .unwrap_or_else(|| uid.to_string());
-    let group = users_cache.get_group_by_gid(gid)
-        .map(|g| g.name().to_string_lossy().to_string())
-        .unwrap_or_else(|| gid.to_string());
+    // Read /proc/pid/stat
+    let stat_content = fs::read_to_string(&stat_path)?;
+    let stat_fields: Vec<&str> = stat_content.split_whitespace().collect();
     
-    // Calculate memory usage
-    let memory_kb = stat.rss * page_size / 1024;
-    let vsz = stat.vsize / 1024;
+    if stat_fields.len() < 44 {
+        return Err("Invalid stat file format".into());
+    }
     
-    // Calculate start time
-    let start_time_ticks = stat.starttime;
-    let ticks_per_second = procfs::ticks_per_second() as u64;
-    let start_time_seconds = boot_time + (start_time_ticks / ticks_per_second);
-    let start_time = UNIX_EPOCH + Duration::from_secs(start_time_seconds);
+    let ppid = stat_fields[3].parse::<u32>()?;
+    let pgrp = stat_fields[4].parse::<u32>()?;
+    let session = stat_fields[5].parse::<u32>()?;
+    let tty_nr = stat_fields[6].parse::<i32>()?;
+    let priority = stat_fields[17].parse::<i32>()?;
+    let nice = stat_fields[18].parse::<i32>()?;
+    let num_threads = stat_fields[19].parse::<u32>()?;
+    let starttime = stat_fields[21].parse::<u64>()?;
+    let vsize = stat_fields[22].parse::<u64>()?;
+    let rss = stat_fields[23].parse::<u64>()? * 4096; // Convert pages to bytes
     
-    // Calculate CPU time
-    let cpu_time_ticks = stat.utime + stat.stime;
-    let cpu_time = Duration::from_millis((cpu_time_ticks * 1000) / ticks_per_second);
+    // Read /proc/pid/status for additional info
+    let mut uid = 0;
+    let mut gid = 0;
+    let mut state = "?".to_string();
     
-    // Get TTY
-    let tty = if stat.tty_nr == 0 {
+    if let Ok(status_content) = fs::read_to_string(&status_path) {
+        for line in status_content.lines() {
+            if line.starts_with("Uid:") {
+                if let Some(uid_str) = line.split_whitespace().nth(1) {
+                    uid = uid_str.parse().unwrap_or(0);
+                }
+            } else if line.starts_with("Gid:") {
+                if let Some(gid_str) = line.split_whitespace().nth(1) {
+                    gid = gid_str.parse().unwrap_or(0);
+                }
+            } else if line.starts_with("State:") {
+                if let Some(state_str) = line.split_whitespace().nth(1) {
+                    state = state_str.to_string();
+                }
+            }
+        }
+    }
+    
+    // Read command line
+    let mut command = format!("[{}]", pid);
+    let mut args = Vec::new();
+    
+    if let Ok(cmdline_content) = fs::read(&cmdline_path) {
+        let cmdline_str = String::from_utf8_lossy(&cmdline_content);
+        let parts: Vec<&str> = cmdline_str.split('\0').filter(|s| !s.is_empty()).collect();
+        if !parts.is_empty() {
+            command = parts[0].to_string();
+            args = parts.iter().map(|s| s.to_string()).collect();
+        }
+    }
+    
+    // Read environment
+    let mut environment = HashMap::new();
+    if let Ok(environ_content) = fs::read(&environ_path) {
+        let environ_str = String::from_utf8_lossy(&environ_content);
+        for env_var in environ_str.split('\0').filter(|s| !s.is_empty()) {
+            if let Some(eq_pos) = env_var.find('=') {
+                let key = env_var[..eq_pos].to_string();
+                let value = env_var[eq_pos + 1..].to_string();
+                environment.insert(key, value);
+            }
+        }
+    }
+    
+    // Get user and group names
+    let user = get_username(uid).unwrap_or_else(|| uid.to_string());
+    let group = get_groupname(gid).unwrap_or_else(|| gid.to_string());
+    
+    // Calculate TTY name
+    let tty = if tty_nr == 0 {
         "?".to_string()
     } else {
-        format!("pts/{}", stat.tty_nr)
+        format!("pts/{}", tty_nr)
     };
     
-    // Process state
-    let state = match stat.state {
-        'R' => "Running",
-        'S' => "Sleeping",
-        'D' => "Disk sleep",
-        'T' => "Stopped",
-        'Z' => "Zombie",
-        _ => "Unknown",
-    }.to_string();
+    // Calculate start time
+    let boot_time = get_boot_time().unwrap_or(UNIX_EPOCH);
+    let start_time = boot_time + Duration::from_secs(starttime / 100); // Convert jiffies to seconds
     
-    // Command and arguments
-    let (command, args) = if let Ok(cmdline) = process.cmdline() {
-        if cmdline.is_empty() {
-            (format!("[{}]", stat.comm), vec![])
-        } else {
-            let cmd = cmdline[0].clone();
-            let args = if cmdline.len() > 1 { cmdline[1..].to_vec() } else { vec![] };
-            (cmd, args)
-        }
-    } else {
-        (format!("[{}]", stat.comm), vec![])
-    };
-    
-    // Calculate CPU usage if kernel stats are available
-    let cpu_usage = if let Some(stats) = kernel_stats {
-        let current_cpu_time = Duration::from_millis((stat.utime + stat.stime) * 1000 / ticks_per_second);
-        let total_cpu_time = Duration::from_millis((stats.total.guest_nice.unwrap_or(0) * 1000) / ticks_per_second);
-        let elapsed_time = Duration::from_millis((stats.btime * 1000) / ticks_per_second);
-        
-        if elapsed_time.as_secs() > 0 {
-            let cpu_usage_percent = (current_cpu_time.as_millis() as f64 / elapsed_time.as_millis() as f64) * 100.0;
-            cpu_usage_percent.round()
-        } else {
-            0.0
-        }
-    } else {
-        0.0 // No kernel stats, cannot calculate CPU usage
-    };
-    
-    Ok(ProcessInfo {
+    Ok(ProcessEntry {
         pid,
-        ppid: stat.ppid as u32,
+        ppid,
         uid,
         gid,
         user,
@@ -353,278 +368,378 @@ fn get_process_info(pid: u32, users_cache: &UsersCache, boot_time: u64, page_siz
         command,
         args,
         state,
-        cpu_usage,
-        memory_kb,
-        memory_percent: 0.0, // Would need total memory to calculate
+        cpu_percent: 0.0, // Would need multiple samples to calculate
+        memory_percent: 0.0, // Would need system memory info
+        memory_rss: rss,
+        memory_vsz: vsize,
         start_time,
-        cpu_time,
-        priority: stat.priority as i32,
-        nice: stat.nice as i32,
-        num_threads: stat.num_threads as u32,
+        cpu_time: Duration::from_secs(0), // Would need to parse from stat
+        priority,
+        nice,
+        threads: num_threads,
         tty,
-        session_id: stat.session as u32,
-        pgrp: stat.pgrp as u32,
-        rss: stat.rss * page_size,
-        vsz,
-        wchan: "".to_string(), // Would need to read from wchan file
+        session_id: session,
+        process_group: pgrp,
+        environment,
     })
 }
 
+#[cfg(target_os = "linux")]
+fn get_boot_time() -> Option<SystemTime> {
+    if let Ok(content) = fs::read_to_string("/proc/stat") {
+        for line in content.lines() {
+            if line.starts_with("btime ") {
+                if let Some(btime_str) = line.split_whitespace().nth(1) {
+                    if let Ok(btime) = btime_str.parse::<u64>() {
+                        return Some(UNIX_EPOCH + Duration::from_secs(btime));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn get_username(uid: u32) -> Option<String> {
+    if let Ok(content) = fs::read_to_string("/etc/passwd") {
+        for line in content.lines() {
+            let fields: Vec<&str> = line.split(':').collect();
+            if fields.len() >= 3 {
+                if let Ok(file_uid) = fields[2].parse::<u32>() {
+                    if file_uid == uid {
+                        return Some(fields[0].to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn get_groupname(gid: u32) -> Option<String> {
+    if let Ok(content) = fs::read_to_string("/etc/group") {
+        for line in content.lines() {
+            let fields: Vec<&str> = line.split(':').collect();
+            if fields.len() >= 3 {
+                if let Ok(file_gid) = fields[2].parse::<u32>() {
+                    if file_gid == gid {
+                        return Some(fields[0].to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 #[cfg(not(target_os = "linux"))]
-fn get_sysinfo_processes(options: &PsOptions) -> Result<Vec<ProcessInfo>> {
-    use sysinfo::{System, SystemExt, ProcessExt, UserExt};
-    
-    let mut sys = System::new();
-    sys.refresh_all();
-    
-    let mut processes = Vec::new();
-    let total_memory = sys.total_memory() as f32;
-    
-    for (pid, proc_) in sys.processes() {
-        let pid_u32 = pid.as_u32();
-        
-        // Apply filters
-        if let Some(pid_filter) = options.pid_filter {
-            if pid_u32 != pid_filter {
-                continue;
-            }
+fn convert_hal_process(proc_info: ProcessInfo) -> ProcessEntry {
+    ProcessEntry {
+        pid: proc_info.pid,
+        ppid: proc_info.parent_pid.unwrap_or(0),
+        uid: 0, // Would need to get from HAL
+        gid: 0,
+        user: "unknown".to_string(),
+        group: "unknown".to_string(),
+        command: proc_info.name,
+        args: proc_info.command_line.unwrap_or_default(),
+        state: format!("{:?}", proc_info.status),
+        cpu_percent: proc_info.cpu_usage.unwrap_or(0.0),
+        memory_percent: 0.0,
+        memory_rss: proc_info.memory_usage.unwrap_or(0),
+        memory_vsz: 0,
+        start_time: proc_info.start_time.unwrap_or(UNIX_EPOCH),
+        cpu_time: proc_info.cpu_time.unwrap_or(Duration::from_secs(0)),
+        priority: 0,
+        nice: 0,
+        threads: 1,
+        tty: "?".to_string(),
+        session_id: 0,
+        process_group: 0,
+        environment: HashMap::new(),
+    }
+}
+
+fn should_include_process(process: &ProcessEntry, options: &PsOptions) -> bool {
+    // Apply filters
+    if let Some(ref user) = options.filter_user {
+        if process.user != *user {
+            return false;
         }
-        
-        if let Some(ref cmd_filter) = options.command_filter {
-            if !proc_.name().contains(cmd_filter) {
-                continue;
-            }
-        }
-        
-        let uid = proc_.user_id().map(|u| *u).unwrap_or(0);
-        let user = proc_.user_id()
-            .and_then(|uid| sys.get_user_by_id(uid))
-            .map(|u| u.name().to_string())
-            .unwrap_or_else(|| uid.to_string());
-        
-        if let Some(ref user_filter) = options.user_filter {
-            if user != *user_filter {
-                continue;
-            }
-        }
-        
-        if !options.all_processes {
-            // Default behavior: only show processes owned by current user
-            let current_uid = unsafe { libc::getuid() };
-            if uid != current_uid {
-                continue;
-            }
-        }
-        
-        let memory_kb = proc_.memory() / 1024;
-        let memory_percent = if total_memory > 0.0 {
-            proc_.memory() as f32 * 100.0 / total_memory
-        } else {
-            0.0
-        };
-        
-        let start_time = UNIX_EPOCH + Duration::from_secs(proc_.start_time());
-        let cpu_time = Duration::from_secs(proc_.run_time());
-        
-        let process_info = ProcessInfo {
-            pid: pid_u32,
-            ppid: proc_.parent().map(|p| p.as_u32()).unwrap_or(0),
-            uid,
-            gid: 0, // Not available in sysinfo
-            user,
-            group: "".to_string(), // Not available in sysinfo
-            command: proc_.name().to_string(),
-            args: proc_.cmd().to_vec(),
-            state: format!("{:?}", proc_.status()),
-            cpu_usage: proc_.cpu_usage(),
-            memory_kb,
-            memory_percent,
-            start_time,
-            cpu_time,
-            priority: 0, // Not available in sysinfo
-            nice: 0, // Not available in sysinfo
-            num_threads: 1, // Not available in sysinfo
-            tty: "?".to_string(),
-            session_id: 0,
-            pgrp: 0,
-            rss: proc_.memory(),
-            vsz: proc_.virtual_memory(),
-            wchan: "".to_string(),
-        };
-        
-        processes.push(process_info);
     }
     
-    // Sort processes
-    sort_processes(&mut processes, &options.sort_field, options.reverse_sort);
-    
-    Ok(processes)
-}
-
-fn sort_processes(processes: &mut [ProcessInfo], sort_field: &str, reverse: bool) {
-    processes.sort_by(|a, b| {
-        let cmp = match sort_field {
-            "pid" => a.pid.cmp(&b.pid),
-            "ppid" => a.ppid.cmp(&b.ppid),
-            "cpu" => a.cpu_usage.partial_cmp(&b.cpu_usage).unwrap_or(std::cmp::Ordering::Equal),
-            "mem" | "memory" => a.memory_percent.partial_cmp(&b.memory_percent).unwrap_or(std::cmp::Ordering::Equal),
-            "time" => a.cpu_time.cmp(&b.cpu_time),
-            "user" => a.user.cmp(&b.user),
-            "command" | "cmd" => a.command.cmp(&b.command),
-            "start" => a.start_time.cmp(&b.start_time),
-            _ => a.pid.cmp(&b.pid),
-        };
-        
-        if reverse {
-            cmp.reverse()
-        } else {
-            cmp
+    if let Some(pid) = options.filter_pid {
+        if process.pid != pid {
+            return false;
         }
-    });
+    }
+    
+    if let Some(ppid) = options.filter_ppid {
+        if process.ppid != ppid {
+            return false;
+        }
+    }
+    
+    if let Some(ref command) = options.filter_command {
+        if !process.command.contains(command) {
+            return false;
+        }
+    }
+    
+    // Apply general filters
+    if !options.all_processes && !options.all_users {
+        // Show only processes for current user (simplified)
+        return true;
+    }
+    
+    true
 }
 
-fn display_processes(processes: Vec<ProcessInfo>, options: &PsOptions) -> Result<()> {
+fn sort_processes(processes: &mut [ProcessEntry], sort_spec: &str) -> ShellResult<()> {
+    let reverse = sort_spec.starts_with('-');
+    let field = if reverse { &sort_spec[1..] } else { sort_spec };
+    
+    match field {
+        "pid" => processes.sort_by_key(|p| p.pid),
+        "ppid" => processes.sort_by_key(|p| p.ppid),
+        "pcpu" => processes.sort_by(|a, b| a.cpu_percent.partial_cmp(&b.cpu_percent).unwrap_or(std::cmp::Ordering::Equal)),
+        "pmem" => processes.sort_by(|a, b| a.memory_percent.partial_cmp(&b.memory_percent).unwrap_or(std::cmp::Ordering::Equal)),
+        "rss" => processes.sort_by_key(|p| p.memory_rss),
+        "vsz" => processes.sort_by_key(|p| p.memory_vsz),
+        "time" => processes.sort_by_key(|p| p.cpu_time),
+        "comm" => processes.sort_by(|a, b| a.command.cmp(&b.command)),
+        "user" => processes.sort_by(|a, b| a.user.cmp(&b.user)),
+        _ => return Err(ShellError::runtime(format!("Unknown sort field: {}", field))),
+    }
+    
+    if reverse {
+        processes.reverse();
+    }
+    
+    Ok(())
+}
+
+fn display_processes(processes: &[ProcessEntry], options: &PsOptions) -> ShellResult<()> {
     if processes.is_empty() {
         return Ok(());
     }
     
-    if options.forest {
-        display_process_tree(processes, options)?;
+    // Determine output format
+    let format = if let Some(ref custom_format) = options.output_format {
+        custom_format.clone()
+    } else if options.full_format {
+        "uid,pid,ppid,c,stime,tty,time,comm".to_string()
+    } else if options.long_format {
+        "f,s,uid,pid,ppid,c,pri,ni,addr,sz,wchan,tty,time,comm".to_string()
+    } else if options.user_format {
+        "user,pid,pcpu,pmem,vsz,rss,tty,stat,start,time,comm".to_string()
     } else {
-        display_process_table(processes, options)?;
+        "pid,tty,time,comm".to_string()
+    };
+    
+    let fields: Vec<&str> = format.split(',').collect();
+    
+    // Print headers
+    if !options.no_headers {
+        print_headers(&fields, options);
+    }
+    
+    // Print processes
+    if options.tree_format {
+        print_process_tree(processes, &fields, options)?;
+    } else {
+        for process in processes {
+            print_process_line(process, &fields, options)?;
+        }
     }
     
     Ok(())
 }
 
-fn display_process_table(processes: Vec<ProcessInfo>, options: &PsOptions) -> Result<()> {
-    let mut rows = Vec::new();
+fn print_headers(fields: &[&str], options: &PsOptions) {
+    let mut header_parts = Vec::new();
     
-    for proc in processes {
-        let start_time = DateTime::<Local>::from(proc.start_time);
-        let start_str = if start_time.date_naive() == Local::now().date_naive() {
-            start_time.format("%H:%M").to_string()
-        } else {
-            start_time.format("%b%d").to_string()
+    for field in fields {
+        let header = match *field {
+            "pid" => "PID",
+            "ppid" => "PPID",
+            "uid" => "UID",
+            "gid" => "GID",
+            "user" => "USER",
+            "group" => "GROUP",
+            "comm" => "COMMAND",
+            "args" => "COMMAND",
+            "stat" | "state" => "STAT",
+            "pcpu" => "%CPU",
+            "pmem" => "%MEM",
+            "rss" => "RSS",
+            "vsz" => "VSZ",
+            "stime" | "start" => "START",
+            "time" => "TIME",
+            "pri" => "PRI",
+            "ni" => "NI",
+            "nlwp" => "NLWP",
+            "tty" => "TTY",
+            "sid" => "SID",
+            "pgrp" => "PGRP",
+            _ => field.to_uppercase().as_str(),
         };
-        
-        let time_str = format!("{}:{:02}", 
-            proc.cpu_time.as_secs() / 60,
-            proc.cpu_time.as_secs() % 60
-        );
-        
-        let command = if options.full_format && !proc.args.is_empty() {
-            proc.args.join(" ")
-        } else {
-            proc.command.clone()
-        };
-        
-        let command = if options.wide_output {
-            command
-        } else {
-            // Truncate command if too long
-            if command.len() > 50 {
-                format!("{}...", &command[..47])
-            } else {
-                command
-            }
-        };
-        
-        rows.push(PsRow {
-            pid: proc.pid.to_string(),
-            ppid: proc.ppid.to_string(),
-            user: proc.user,
-            cpu: format!("{:.1}", proc.cpu_usage),
-            mem: format!("{:.1}", proc.memory_percent),
-            vsz: format_size(proc.vsz * 1024, DECIMAL),
-            rss: format_size(proc.rss, DECIMAL),
-            tty: proc.tty,
-            stat: proc.state,
-            start: start_str,
-            time: time_str,
-            command,
-        });
+        header_parts.push(format!("{:>8}", header));
     }
     
-    let mut table = Table::new(rows);
-    table.with(Style::ascii_rounded());
+    println!("{}", header_parts.join(" "));
+}
+
+fn print_process_line(process: &ProcessEntry, fields: &[&str], options: &PsOptions) -> ShellResult<()> {
+    let mut parts = Vec::new();
     
-    // Apply column width adjustments if terminal is too narrow
-    if let Some((width, _)) = term_size::dimensions() {
-        // Adjust table display for narrow terminals
-        println!("{}", table);
-    } else {
-        println!("{}", table);
+    for field in fields {
+        let value = match *field {
+            "pid" => format!("{:>8}", process.pid),
+            "ppid" => format!("{:>8}", process.ppid),
+            "uid" => format!("{:>8}", process.uid),
+            "gid" => format!("{:>8}", process.gid),
+            "user" => format!("{:>8}", truncate_string(&process.user, 8)),
+            "group" => format!("{:>8}", truncate_string(&process.group, 8)),
+            "comm" => {
+                let cmd = if options.show_command_line && !process.args.is_empty() {
+                    process.args.join(" ")
+                } else {
+                    process.command.clone()
+                };
+                if options.wide_output {
+                    cmd
+                } else {
+                    truncate_string(&cmd, 20)
+                }
+            },
+            "args" => {
+                let cmd = process.args.join(" ");
+                if options.wide_output {
+                    cmd
+                } else {
+                    truncate_string(&cmd, 30)
+                }
+            },
+            "stat" | "state" => format!("{:>8}", process.state),
+            "pcpu" => format!("{:>8.1}", process.cpu_percent),
+            "pmem" => format!("{:>8.1}", process.memory_percent),
+            "rss" => format!("{:>8}", process.memory_rss / 1024), // KB
+            "vsz" => format!("{:>8}", process.memory_vsz / 1024), // KB
+            "stime" | "start" => {
+                let duration = SystemTime::now().duration_since(process.start_time)
+                    .unwrap_or(Duration::from_secs(0));
+                if duration.as_secs() < 86400 {
+                    format!("{:>8}", format_time(duration))
+                } else {
+                    format!("{:>8}", format_date(process.start_time))
+                }
+            },
+            "time" => format!("{:>8}", format_duration(process.cpu_time)),
+            "pri" => format!("{:>8}", process.priority),
+            "ni" => format!("{:>8}", process.nice),
+            "nlwp" => format!("{:>8}", process.threads),
+            "tty" => format!("{:>8}", truncate_string(&process.tty, 8)),
+            "sid" => format!("{:>8}", process.session_id),
+            "pgrp" => format!("{:>8}", process.process_group),
+            _ => format!("{:>8}", "?"),
+        };
+        parts.push(value);
+    }
+    
+    println!("{}", parts.join(" "));
+    
+    // Show environment if requested
+    if options.show_environment && !process.environment.is_empty() {
+        for (key, value) in &process.environment {
+            println!("    {}={}", key, value);
+        }
     }
     
     Ok(())
 }
 
-fn display_process_tree(processes: Vec<ProcessInfo>, options: &PsOptions) -> Result<()> {
-    let mut process_map: HashMap<u32, ProcessInfo> = HashMap::new();
-    let mut children_map: HashMap<u32, Vec<u32>> = HashMap::new();
+fn print_process_tree(processes: &[ProcessEntry], fields: &[&str], options: &PsOptions) -> ShellResult<()> {
+    // Build parent-child relationships
+    let mut children: HashMap<u32, Vec<&ProcessEntry>> = HashMap::new();
     let mut roots = Vec::new();
     
-    // Build process hierarchy
-    for proc in processes {
-        let pid = proc.pid;
-        let ppid = proc.ppid;
-        
-        process_map.insert(pid, proc);
-        children_map.entry(ppid).or_insert_with(Vec::new).push(pid);
-        
-        // If parent is not in our process list, this is a root
-        if ppid == 0 || !process_map.contains_key(&ppid) {
-            roots.push(pid);
+    for process in processes {
+        if process.ppid == 0 || !processes.iter().any(|p| p.pid == process.ppid) {
+            roots.push(process);
+        } else {
+            children.entry(process.ppid).or_insert_with(Vec::new).push(process);
         }
     }
     
-    // Print process tree
-    for root_pid in roots {
-        if let Some(root_proc) = process_map.get(&root_pid) {
-            print_process_tree_recursive(root_proc, &process_map, &children_map, 0, options)?;
-        }
+    // Print tree recursively
+    for root in roots {
+        print_process_tree_recursive(root, &children, fields, options, 0)?;
     }
     
     Ok(())
 }
 
 fn print_process_tree_recursive(
-    proc: &ProcessInfo,
-    process_map: &HashMap<u32, ProcessInfo>,
-    children_map: &HashMap<u32, Vec<u32>>,
-    depth: usize,
+    process: &ProcessEntry,
+    children: &HashMap<u32, Vec<&ProcessEntry>>,
+    fields: &[&str],
     options: &PsOptions,
-) -> Result<()> {
-    // Print indentation
-    for _ in 0..depth {
-        print!("  ");
-    }
-    
-    // Print process info
-    let command = if options.full_format && !proc.args.is_empty() {
-        proc.args.join(" ")
-    } else {
-        proc.command.clone()
-    };
-    
-    println!("{} {} {} {:.1}% {:.1}% {}", 
-        proc.pid, 
-        proc.user,
-        proc.state,
-        proc.cpu_usage,
-        proc.memory_percent,
-        command
-    );
+    depth: usize,
+) -> ShellResult<()> {
+    // Print current process with indentation
+    let indent = "  ".repeat(depth);
+    print!("{}", indent);
+    print_process_line(process, fields, options)?;
     
     // Print children
-    if let Some(children) = children_map.get(&proc.pid) {
-        for &child_pid in children {
-            if let Some(child_proc) = process_map.get(&child_pid) {
-                print_process_tree_recursive(child_proc, process_map, children_map, depth + 1, options)?;
-            }
+    if let Some(child_processes) = children.get(&process.pid) {
+        for child in child_processes {
+            print_process_tree_recursive(child, children, fields, options, depth + 1)?;
         }
     }
     
     Ok(())
+}
+
+fn truncate_string(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max_len.saturating_sub(3)])
+    }
+}
+
+fn format_time(duration: Duration) -> String {
+    let total_seconds = duration.as_secs();
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+    
+    if hours > 0 {
+        format!("{}:{:02}:{:02}", hours, minutes, seconds)
+    } else {
+        format!("{}:{:02}", minutes, seconds)
+    }
+}
+
+fn format_duration(duration: Duration) -> String {
+    let total_seconds = duration.as_secs();
+    let minutes = total_seconds / 60;
+    let seconds = total_seconds % 60;
+    format!("{}:{:02}", minutes, seconds)
+}
+
+fn format_date(time: SystemTime) -> String {
+    // Simplified date formatting
+    match time.duration_since(UNIX_EPOCH) {
+        Ok(duration) => {
+            let timestamp = duration.as_secs();
+            // This is a simplified implementation
+            format!("{}", timestamp % 86400 / 3600) // Just show hour
+        }
+        Err(_) => "?".to_string(),
+    }
 } 

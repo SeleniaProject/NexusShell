@@ -35,7 +35,7 @@ pub use set::set_cli as set;
 pub mod icons;
 pub mod ls;
 
-pub use ls::ls_async as ls;
+pub use ls::ls_cli as ls;
 
 pub mod grep;
 
@@ -250,7 +250,13 @@ pub use awk::awk_cli as awk_builtin;
 pub mod egrep;
 
 pub mod sed;
-pub use sed::sed_cli as sed_builtin; 
+pub mod sort;
+pub mod uniq;
+
+pub use sed::SedBuiltin;
+pub use awk::AwkBuiltin;
+pub use sort::SortBuiltin;
+pub use uniq::UniqBuiltin;
  
 pub mod tr;
 
@@ -263,14 +269,6 @@ pub use cut::cut_cli as cut_builtin;
 pub mod paste;
 
 pub use paste::paste_cli as paste_builtin; 
- 
-pub mod sort;
-
-pub use sort::sort_cli as sort_builtin; 
- 
-pub mod uniq;
-
-pub use uniq::uniq_cli as uniq_builtin; 
  
 pub mod head;
 
@@ -314,30 +312,30 @@ pub mod ps;
 pub use ps::ps_cli as ps_builtin; 
  
 pub mod top;
-pub use top::top_cli as top_builtin; 
+pub mod kill;
+pub mod free;
+pub mod uptime;
+pub mod nice;
+pub mod env;
+pub mod id;
+
+pub use top::TopBuiltin;
+pub use kill::KillBuiltin;
+pub use free::FreeBuiltin;
+pub use uptime::UptimeBuiltin; 
  
 pub mod htop;
 pub use htop::htop_cli as htop_builtin; 
- 
-pub mod kill;
-pub use kill::kill_cli as kill_builtin; 
  
 pub mod pkill;
 pub use pkill::pkill_cli as pkill_builtin; 
 
 pub mod pgrep;
 pub use pgrep::pgrep_cli as pgrep_builtin; 
- 
-pub mod nice;
-pub use nice::nice_cli as nice_builtin; 
 
 pub mod renice;
 pub use renice::renice_cli as renice_builtin; 
- 
-pub mod uptime;
-pub use uptime::uptime_cli as uptime_builtin; 
 
-pub mod free;
 pub use free::free_cli as free_builtin; 
  
 pub mod vmstat;
@@ -351,15 +349,9 @@ pub use uname::uname_cli as uname_builtin;
  
 pub mod hostname;
 pub use hostname::hostname_cli as hostname_builtin;
-
-pub mod env;
-pub use env::env_cli as env_builtin;
  
 pub mod printenv;
 pub use printenv::printenv_cli as printenv_builtin;
-
-pub mod id;
-pub use id::id_cli as id_builtin;
  
 pub mod groups;
 pub use groups::groups_cli as groups_builtin;
@@ -568,4 +560,7 @@ pub mod bc;
 pub use bc::bc_cli as bc_builtin;
 
 pub mod expr;
-pub use expr::expr_cli as expr_builtin; 
+pub use expr::expr_cli as expr_builtin;
+
+pub mod find;
+pub use find::find_cli as find_builtin; 

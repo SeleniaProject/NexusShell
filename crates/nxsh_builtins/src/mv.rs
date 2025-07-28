@@ -17,7 +17,7 @@
 //!   --help                    - Display help and exit
 //!   --version                 - Output version information and exit
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, Context};
 use std::fs::{self, Metadata, OpenOptions};
 use std::io::{self, Write, BufRead, BufReader};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
@@ -417,25 +417,302 @@ fn move_file(source: &Path, dest: &Path, options: &MvOptions) -> Result<()> {
 }
 
 fn move_cross_filesystem(source: &Path, dest: &Path, options: &MvOptions) -> Result<()> {
+    // For atomic operation guarantee, we first copy completely, then remove source
+    // This ensures that if the operation fails partway through, the source remains intact
+    
+    // Create temporary destination path for atomic operation
+    let temp_dest = generate_temp_dest_path(dest)?;
+    
     if source.is_dir() {
-        copy_dir_all(source, dest)?;
-        fs::remove_dir_all(source)?;
+        // Use enhanced recursive copy with metadata preservation
+        copy_dir_recursively_for_mv(source, &temp_dest, options)?;
+        
+        // Atomic rename from temp to final destination
+        fs::rename(&temp_dest, dest)
+            .with_context(|| format!("Failed to atomically move directory '{}' to '{}'", temp_dest.display(), dest.display()))?;
+        
+        // Only remove source after successful atomic move
+        fs::remove_dir_all(source)
+            .with_context(|| format!("Failed to remove source directory '{}' after successful copy", source.display()))?;
     } else {
-        fs::copy(source, dest)?;
-        fs::remove_file(source)?;
+        // Copy file with metadata preservation to temporary location
+        copy_file_with_metadata_for_mv(source, &temp_dest, options)?;
         
-        // Preserve permissions and timestamps
-        let source_metadata = fs::metadata(source).or_else(|_| fs::metadata(dest))?;
-        let dest_file = OpenOptions::new().write(true).open(dest)?;
+        // Atomic rename from temp to final destination
+        fs::rename(&temp_dest, dest)
+            .with_context(|| format!("Failed to atomically move file '{}' to '{}'", temp_dest.display(), dest.display()))?;
         
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let permissions = fs::Permissions::from_mode(source_metadata.permissions().mode());
-            fs::set_permissions(dest, permissions)?;
-        }
+        // Only remove source after successful atomic move
+        fs::remove_file(source)
+            .with_context(|| format!("Failed to remove source file '{}' after successful copy", source.display()))?;
     }
     
+    Ok(())
+}
+
+/// Generate a temporary destination path for atomic operations
+fn generate_temp_dest_path(dest: &Path) -> Result<PathBuf> {
+    let parent = dest.parent().unwrap_or(Path::new("."));
+    let filename = dest.file_name()
+        .ok_or_else(|| anyhow!("Cannot get filename for destination"))?
+        .to_string_lossy();
+    
+    // Create a unique temporary filename
+    let mut counter = 0;
+    loop {
+        let temp_name = format!(".nxsh_mv_temp_{}_{}", filename, counter);
+        let temp_path = parent.join(temp_name);
+        
+        if !temp_path.exists() {
+            return Ok(temp_path);
+        }
+        
+        counter += 1;
+        if counter > 1000 {
+            return Err(anyhow!("Cannot generate unique temporary filename after 1000 attempts"));
+        }
+    }
+}
+
+/// Enhanced recursive directory copy for mv command with full metadata preservation and error recovery
+fn copy_dir_recursively_for_mv(src: &Path, dst: &Path, options: &MvOptions) -> Result<()> {
+    // Create destination directory
+    fs::create_dir_all(dst)
+        .with_context(|| format!("Failed to create directory '{}'", dst.display()))?;
+
+    // Preserve directory metadata
+    preserve_metadata_for_mv(src, dst)
+        .with_context(|| format!("Failed to preserve directory metadata for '{}'", dst.display()))?;
+
+    // Read directory entries with proper error handling
+    let entries = fs::read_dir(src)
+        .with_context(|| format!("Failed to read directory '{}'", src.display()))?;
+
+    let mut copied_items = Vec::new();
+    
+    for entry in entries {
+        let entry = entry
+            .with_context(|| format!("Failed to read directory entry in '{}'", src.display()))?;
+        
+        let file_type = entry.file_type()
+            .with_context(|| format!("Failed to get file type for '{}'", entry.path().display()))?;
+        
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+
+        // Track successful copies for cleanup on error
+        let copy_result = if file_type.is_dir() {
+            copy_dir_recursively_for_mv(&src_path, &dst_path, options)
+                .with_context(|| format!("Failed to copy subdirectory '{}' to '{}'", src_path.display(), dst_path.display()))
+        } else if file_type.is_file() {
+            copy_file_with_metadata_for_mv(&src_path, &dst_path, options)
+                .with_context(|| format!("Failed to copy file '{}' to '{}'", src_path.display(), dst_path.display()))
+        } else if file_type.is_symlink() {
+            copy_symlink_for_mv(&src_path, &dst_path)
+                .with_context(|| format!("Failed to copy symlink '{}' to '{}'", src_path.display(), dst_path.display()))
+        } else {
+            if options.verbose {
+                eprintln!("mv: warning: skipping special file: {}", src_path.display());
+            }
+            Ok(())
+        };
+
+        match copy_result {
+            Ok(()) => {
+                copied_items.push(dst_path);
+            }
+            Err(e) => {
+                // Cleanup partially copied items on error
+                cleanup_partial_copy(&copied_items);
+                return Err(e);
+            }
+        }
+    }
+
+    if options.verbose {
+        println!("mv: copied directory: {} -> {}", src.display(), dst.display());
+    }
+    
+    Ok(())
+}
+
+/// Cleanup partially copied items in case of error
+fn cleanup_partial_copy(copied_items: &[PathBuf]) {
+    for item in copied_items.iter().rev() {
+        if item.is_dir() {
+            let _ = fs::remove_dir_all(item);
+        } else {
+            let _ = fs::remove_file(item);
+        }
+    }
+}
+
+/// Copy a single file with full metadata preservation for mv command with enhanced error handling
+fn copy_file_with_metadata_for_mv(src: &Path, dst: &Path, options: &MvOptions) -> Result<()> {
+    // Create parent directories if they don't exist
+    if let Some(parent) = dst.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create parent directory '{}'", parent.display()))?;
+    }
+
+    // Copy the file content with verification
+    let bytes_copied = fs::copy(src, dst)
+        .with_context(|| format!("Failed to copy file content from '{}' to '{}'", src.display(), dst.display()))?;
+    
+    // Verify the copy was successful by checking file size
+    let src_metadata = fs::metadata(src)
+        .with_context(|| format!("Failed to read source file metadata for '{}'", src.display()))?;
+    
+    if bytes_copied != src_metadata.len() {
+        // Cleanup incomplete copy
+        let _ = fs::remove_file(dst);
+        return Err(anyhow!("File copy incomplete: expected {} bytes, copied {} bytes", 
+                          src_metadata.len(), bytes_copied));
+    }
+
+    // Preserve metadata (permissions and timestamps)
+    preserve_metadata_for_mv(src, dst)
+        .with_context(|| format!("Failed to preserve metadata for '{}'", dst.display()))?;
+
+    if options.verbose {
+        println!("mv: copied file: {} -> {}", src.display(), dst.display());
+    }
+    
+    Ok(())
+}
+
+/// Copy a symbolic link for mv command with enhanced error handling
+fn copy_symlink_for_mv(src: &Path, dst: &Path) -> Result<()> {
+    let target = fs::read_link(src)
+        .with_context(|| format!("Failed to read symlink '{}'", src.display()))?;
+    
+    // Remove destination if it exists
+    if dst.exists() {
+        if dst.is_dir() {
+            fs::remove_dir_all(dst)
+                .with_context(|| format!("Failed to remove existing directory '{}'", dst.display()))?;
+        } else {
+            fs::remove_file(dst)
+                .with_context(|| format!("Failed to remove existing file '{}'", dst.display()))?;
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&target, dst)
+            .with_context(|| format!("Failed to create symlink '{}' -> '{}'", dst.display(), target.display()))?;
+    }
+
+    #[cfg(windows)]
+    {
+        // Determine if target is directory or file for Windows symlink creation
+        let target_is_dir = if target.is_absolute() {
+            target.is_dir()
+        } else {
+            // For relative symlinks, check relative to the symlink's directory
+            if let Some(symlink_parent) = src.parent() {
+                symlink_parent.join(&target).is_dir()
+            } else {
+                target.is_dir()
+            }
+        };
+
+        if target_is_dir {
+            std::os::windows::fs::symlink_dir(&target, dst)
+                .with_context(|| format!("Failed to create directory symlink '{}' -> '{}'", dst.display(), target.display()))?;
+        } else {
+            std::os::windows::fs::symlink_file(&target, dst)
+                .with_context(|| format!("Failed to create file symlink '{}' -> '{}'", dst.display(), target.display()))?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Preserve file/directory metadata (permissions, timestamps) for mv command
+fn preserve_metadata_for_mv(src: &Path, dst: &Path) -> Result<()> {
+    let metadata = fs::metadata(src)
+        .with_context(|| format!("Failed to read metadata for '{}'", src.display()))?;
+
+    // Preserve timestamps
+    let accessed = metadata.accessed()
+        .with_context(|| format!("Failed to get access time for '{}'", src.display()))?;
+    let modified = metadata.modified()
+        .with_context(|| format!("Failed to get modification time for '{}'", src.display()))?;
+
+    // Set timestamps on destination
+    set_file_times_for_mv(dst, accessed, modified)
+        .with_context(|| format!("Failed to set timestamps for '{}'", dst.display()))?;
+
+    // Preserve permissions on Unix systems
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = metadata.permissions();
+        let mode = permissions.mode();
+        
+        let dst_permissions = std::fs::Permissions::from_mode(mode);
+        fs::set_permissions(dst, dst_permissions)
+            .with_context(|| format!("Failed to set permissions for '{}'", dst.display()))?;
+    }
+
+    Ok(())
+}
+
+/// Set file access and modification times for mv command
+fn set_file_times_for_mv(path: &Path, accessed: SystemTime, modified: SystemTime) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::ffi::CString;
+        use std::time::UNIX_EPOCH;
+
+        let path_cstr = CString::new(path.as_os_str().to_string_lossy().as_ref())
+            .map_err(|e| anyhow!("Invalid path for timestamp setting: {}", e))?;
+
+        let accessed_duration = accessed.duration_since(UNIX_EPOCH)
+            .map_err(|e| anyhow!("Invalid access time: {}", e))?;
+        let modified_duration = modified.duration_since(UNIX_EPOCH)
+            .map_err(|e| anyhow!("Invalid modification time: {}", e))?;
+
+        let times = [
+            libc::timespec {
+                tv_sec: accessed_duration.as_secs() as i64,
+                tv_nsec: accessed_duration.subsec_nanos() as i64,
+            },
+            libc::timespec {
+                tv_sec: modified_duration.as_secs() as i64,
+                tv_nsec: modified_duration.subsec_nanos() as i64,
+            },
+        ];
+
+        let result = unsafe {
+            libc::utimensat(libc::AT_FDCWD, path_cstr.as_ptr(), times.as_ptr(), 0)
+        };
+
+        if result != 0 {
+            return Err(anyhow!("Failed to set file times: {}", std::io::Error::last_os_error()));
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        // Windows implementation using SetFileTime
+        use std::os::windows::fs::OpenOptionsExt;
+        use std::fs::OpenOptions;
+        
+        let _file = OpenOptions::new()
+            .write(true)
+            .custom_flags(0x02000000) // FILE_FLAG_BACKUP_SEMANTICS for directories
+            .open(path)
+            .with_context(|| format!("Failed to open file for timestamp setting: {}", path.display()))?;
+
+        // Note: Windows timestamp setting is more complex and would require additional Win32 API calls
+        // For now, we'll just log that we attempted to preserve timestamps
+        if cfg!(debug_assertions) {
+            eprintln!("mv: debug: timestamp preservation on Windows is limited for: {}", path.display());
+        }
+    }
+
     Ok(())
 }
 

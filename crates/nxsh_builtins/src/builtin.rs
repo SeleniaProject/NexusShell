@@ -1,16 +1,6 @@
-//! `builtin` builtin – force execution of a built-in command even if an
-//! external command with the same name exists. Mirrors POSIX `builtin`.
-//!
-//! Usage:
-//!   builtin CMD [ARGS...]
-//!   builtin              # List available builtins
-//!
-//! This minimal implementation dispatches to a curated set of built-ins that
-//! already exist inside `nxsh_builtins`. As more built-ins adopt a uniform
-//! `Builtin` trait, this dispatcher can evolve to dynamic lookup. For now it
-//! matches on command names and forwards arguments.
+//! Built-in command traits and utilities
 
-use anyhow::{anyhow, Result};
+pub use nxsh_core::Builtin;
 
 /// Entry point for the builtin.
 pub fn builtin_cli(args: &[String]) -> Result<()> {

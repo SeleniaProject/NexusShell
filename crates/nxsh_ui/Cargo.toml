@@ -4,5 +4,30 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+nxsh_core = { path = "../nxsh_core" }
+nxsh_builtins = { path = "../nxsh_builtins" }
 ratatui = "0.26"
-crossterm = "0.27" 
+crossterm = "0.27"
+# Latest rustyline for advanced line editing
+rustyline = "16.0.0"
+# Syntax highlighting
+syntect = "5.2"
+# Theme support
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+# Color handling
+ansi_term = "0.12"
+# Configuration management
+dirs = "5.0"
+# Async support for performance
+tokio = { version = "1.0", features = ["full"], optional = true }
+# Fuzzy matching for completion
+fuzzy-matcher = "0.3"
+# Unicode support
+unicode-width = "0.1"
+unicode-segmentation = "1.10"
+
+[features]
+default = []
+async = ["tokio"] 

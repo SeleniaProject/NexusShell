@@ -14,8 +14,7 @@ pub fn select_cli(args: &[String]) -> Result<()> {
     let mut buf = String::new();
     io::stdin().read_to_string(&mut buf)?;
     let json: Value = serde_json::from_str(&buf)?;
-    let data = Variable::from(json);
-    let result = expr.search(data)?;
+    let result = expr.search(&json)?;
     println!("{}", serde_json::to_string_pretty(&result)?);
     Ok(())
 } 

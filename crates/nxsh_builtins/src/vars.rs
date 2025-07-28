@@ -51,7 +51,7 @@ pub fn declare_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
     }
     for name in iter {
         if assoc {
-            ctx.set_var(name, "__assoc_array__".into());
+            ctx.set_var(name, "__assoc_array__".to_string());
         } else {
             ctx.set_var(name, String::new());
         }

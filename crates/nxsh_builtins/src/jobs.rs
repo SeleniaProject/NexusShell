@@ -1,4 +1,7 @@
-use nxsh_core::job::{JOB_TABLE, JobState};
+use crate::common::{i18n::*, logging::*};
+use std::io::Write;
+use std::collections::HashMap;
+use nxsh_core::{Context, JobManager, JobStatus as JobState, ShellResult, ExecutionResult};
 use anyhow::Result;
 use tabled::{Table, Tabled};
 

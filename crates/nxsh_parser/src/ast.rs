@@ -1,131 +1,853 @@
-use std::collections::HashMap;
+//! Abstract Syntax Tree for NexusShell
+//!
+//! This module provides a comprehensive AST representation for all shell
+//! constructs with zero-copy string references and type-safe operations.
 
-#[derive(Debug, Clone)]
-pub enum AstNode {
-    Program(Vec<AstNode>),           // 1
-    Sequence(Vec<AstNode>),          // 2
-    Pipeline(Vec<AstNode>),          // 3
-    Command(Command),                // 4
-    Argument(Argument),              // 5
-    Assignment(String, Box<AstNode>),// 6
-    Variable(String),                // 7
-    Word(String),                    // 8
-    StringLit(String),               // 9
-    NumberLit(i64),                  // 10
-    UnaryOp {                        // 11
-        op: UnaryOperator,
-        expr: Box<AstNode>,
-    },
-    BinaryOp {                       // 12
-        op: BinaryOperator,
-        left: Box<AstNode>,
-        right: Box<AstNode>,
-    },
-    TernaryOp {                      // 13
-        cond: Box<AstNode>,
-        then_br: Box<AstNode>,
-        else_br: Box<AstNode>,
-    },
-    If {                             // 14
-        cond: Box<AstNode>,
-        then_br: Box<AstNode>,
-        else_br: Option<Box<AstNode>>,
-    },
-    While {                          // 15
-        cond: Box<AstNode>,
-        body: Box<AstNode>,
-    },
-    For {                            // 16
-        var: String,
-        iter: Box<AstNode>,
-        body: Box<AstNode>,
-    },
-    Case {                           // 17
-        expr: Box<AstNode>,
-        arms: Vec<(AstNode, AstNode)>,
-    },
-    FunctionDecl {                   // 18
-        name: String,
-        params: Vec<String>,
-        body: Box<AstNode>,
-    },
-    FunctionCall {                   // 19
-        name: String,
-        args: Vec<AstNode>,
-    },
-    Subshell(Box<AstNode>),          // 20
-    Group(Box<AstNode>),             // 21
-    RedirectIn {                    // 22
-        file: String,
-    },
-    RedirectOut {                   // 23
-        file: String,
-        append: bool,
-    },
-    Heredoc {                       // 24
-        delimiter: String,
-        body: String,
-    },
-    Background(Box<AstNode>),        // 25
-    And(Box<AstNode>, Box<AstNode>), // 26
-    Or(Box<AstNode>, Box<AstNode>),  // 27
-    Return(Option<Box<AstNode>>),    // 28
-    Break,                           // 29
-    Continue,                        // 30
-    Array(Vec<AstNode>),             // 31
-    Index {                          // 32
-        array: Box<AstNode>,
-        index: Box<AstNode>,
-    },
-    Match {                          // 33
-        expr: Box<AstNode>,
-        arms: Vec<(AstNode, AstNode)>,
-    },
-    Switch {                         // 34
-        expr: Box<AstNode>,
-        arms: Vec<(AstNode, AstNode)>,
-    },
-    NoOp,                            // 35
+
+use std::fmt;
+use std::path::Path;
+
+/// Standalone Command structure for executor compatibility
+#[derive(Debug, Clone, PartialEq)]
+pub struct Command<'src> {
+    pub name: Box<AstNode<'src>>,
+    pub args: Vec<Argument<'src>>,
+    pub redirections: Vec<Redirection<'src>>,
+    pub background: bool,
 }
 
-#[derive(Debug, Clone)]
-pub struct Command {
-    pub name: String,
-    pub args: Vec<Argument>,
-    pub redirects: Vec<AstNode>, // RedirectIn / RedirectOut / Heredoc variants
+/// Standalone Pipeline structure for executor compatibility
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pipeline<'src> {
+    pub elements: Vec<AstNode<'src>>,
+    pub operators: Vec<PipeOperator>,
 }
 
-#[derive(Debug, Clone)]
-pub enum Argument {
-    Word(String),
-    String(String),
+/// Command arguments with various types
+#[derive(Debug, Clone, PartialEq)]
+pub enum Argument<'src> {
+    Word(&'src str),
+    String(&'src str),
     Number(i64),
-    Variable(String),
-    Array(Vec<Argument>),
+    Variable(&'src str),
+    CommandSubstitution(&'src str),
+    ProcessSubstitution(&'src str),
+    Glob(GlobPattern<'src>),
+    BraceExpansion(Vec<&'src str>),
+    TildeExpansion(&'src str),
+    ArithmeticExpansion(&'src str),
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum UnaryOperator {
-    Neg,
-    Not,
+/// Redirection types for I/O operations
+#[derive(Debug, Clone, PartialEq)]
+pub enum RedirectionType {
+    Input,          // <
+    Output,         // >
+    Append,         // >>
+    Error,          // 2>
+    ErrorAppend,    // 2>>
+    Both,           // &>
+    BothAppend,     // &>>
+    Heredoc,        // <<
+    Herestring,     // <<<
+    InputOutput,    // <>
+    Pipe,           // |
+    ErrorPipe,      // |&
 }
 
-#[derive(Debug, Clone, Copy)]
+/// Main AST node type with zero-copy string references
+#[derive(Debug, Clone, PartialEq)]
+pub enum AstNode<'src> {
+    // Program structure
+    Program(Vec<AstNode<'src>>),
+    StatementList(Vec<AstNode<'src>>),
+    
+    // Pipelines and commands
+    Pipeline {
+        elements: Vec<AstNode<'src>>,
+        operators: Vec<PipeOperator>,
+    },
+    Command {
+        name: Box<AstNode<'src>>,
+        args: Vec<AstNode<'src>>,
+        redirections: Vec<Redirection<'src>>,
+        background: bool,
+    },
+    SimpleCommand {
+        name: &'src str,
+        args: Vec<&'src str>,
+    },
+    CompoundCommand(Box<AstNode<'src>>),
+    
+    // Control flow
+    If {
+        condition: Box<AstNode<'src>>,
+        then_branch: Box<AstNode<'src>>,
+        elif_branches: Vec<(AstNode<'src>, AstNode<'src>)>,
+        else_branch: Option<Box<AstNode<'src>>>,
+    },
+    For {
+        variable: &'src str,
+        iterable: Box<AstNode<'src>>,
+        body: Box<AstNode<'src>>,
+        is_async: bool,
+    },
+    ForC {
+        init: Option<Box<AstNode<'src>>>,
+        condition: Option<Box<AstNode<'src>>>,
+        update: Option<Box<AstNode<'src>>>,
+        body: Box<AstNode<'src>>,
+    },
+    While {
+        condition: Box<AstNode<'src>>,
+        body: Box<AstNode<'src>>,
+    },
+    Until {
+        condition: Box<AstNode<'src>>,
+        body: Box<AstNode<'src>>,
+    },
+    Case {
+        expr: Box<AstNode<'src>>,
+        arms: Vec<CaseArm<'src>>,
+    },
+    Select {
+        variable: &'src str,
+        options: Option<Box<AstNode<'src>>>,
+        body: Box<AstNode<'src>>,
+    },
+    
+    // Modern control structures
+    Match {
+        expr: Box<AstNode<'src>>,
+        arms: Vec<MatchArm<'src>>,
+    },
+    Try {
+        body: Box<AstNode<'src>>,
+        catch_clause: Option<CatchClause<'src>>,
+        finally_clause: Option<Box<AstNode<'src>>>,
+    },
+    
+    // Functions
+    Function {
+        name: &'src str,
+        params: Vec<Parameter<'src>>,
+        body: Box<AstNode<'src>>,
+        is_async: bool,
+    },
+    FunctionDeclaration {
+        name: &'src str,
+        params: Vec<Parameter<'src>>,
+        body: Box<AstNode<'src>>,
+        is_async: bool,
+    },
+    FunctionCall {
+        name: Box<AstNode<'src>>,
+        args: Vec<AstNode<'src>>,
+        is_async: bool,
+    },
+    
+    // Variable operations
+    Assignment {
+        name: &'src str,
+        operator: AssignmentOperator,
+        value: Box<AstNode<'src>>,
+        is_local: bool,
+        is_export: bool,
+        is_readonly: bool,
+    },
+    VariableAssignment {
+        name: &'src str,
+        operator: AssignmentOperator,
+        value: Box<AstNode<'src>>,
+        is_local: bool,
+        is_export: bool,
+        is_readonly: bool,
+    },
+    ArrayAssignment {
+        name: &'src str,
+        elements: Vec<ArrayElement<'src>>,
+        is_local: bool,
+        is_export: bool,
+    },
+    
+    // Expressions
+    BinaryExpression {
+        left: Box<AstNode<'src>>,
+        operator: BinaryOperator,
+        right: Box<AstNode<'src>>,
+    },
+    UnaryExpression {
+        operator: UnaryOperator,
+        operand: Box<AstNode<'src>>,
+    },
+    PostfixExpression {
+        operand: Box<AstNode<'src>>,
+        operator: PostfixOperator,
+    },
+    ConditionalExpression {
+        condition: Box<AstNode<'src>>,
+        then_expr: Box<AstNode<'src>>,
+        else_expr: Box<AstNode<'src>>,
+    },
+    
+    // Test expressions
+    TestExpression {
+        condition: Box<AstNode<'src>>,
+        is_extended: bool, // [[ ]] vs [ ]
+    },
+    TestBinary {
+        left: Box<AstNode<'src>>,
+        operator: TestOperator,
+        right: Box<AstNode<'src>>,
+    },
+    TestUnary {
+        operator: TestUnaryOperator,
+        operand: Box<AstNode<'src>>,
+    },
+    
+    // Expansions
+    VariableExpansion {
+        name: &'src str,
+        modifier: Option<ParameterModifier<'src>>,
+    },
+    CommandSubstitution {
+        command: Box<AstNode<'src>>,
+        is_legacy: bool, // backticks vs $()
+    },
+    ArithmeticExpansion {
+        expr: Box<AstNode<'src>>,
+        is_legacy: bool, // $[] vs $(())
+    },
+    ProcessSubstitution {
+        command: Box<AstNode<'src>>,
+        direction: ProcessSubstitutionDirection,
+    },
+    PathnameExpansion {
+        pattern: GlobPattern<'src>,
+    },
+    BraceExpansion {
+        elements: Vec<BraceElement<'src>>,
+    },
+    TildeExpansion {
+        user: Option<&'src str>,
+    },
+    
+    // Literals
+    Word(&'src str),
+    StringLiteral {
+        value: &'src str,
+        quote_type: QuoteType,
+    },
+    NumberLiteral {
+        value: &'src str,
+        number_type: NumberType,
+    },
+    Array(Vec<AstNode<'src>>),
+    
+    // Grouping
+    Subshell(Box<AstNode<'src>>),
+    BraceGroup(Box<AstNode<'src>>),
+    
+    // Control flow statements
+    Background(Box<AstNode<'src>>),
+    Return(Option<Box<AstNode<'src>>>),
+    Break(Option<&'src str>), // Optional label
+    Continue(Option<&'src str>), // Optional label
+    Exit(Option<Box<AstNode<'src>>>),
+    
+    // Modern language features
+    ImportStatement {
+        module_path: ModulePath<'src>,
+        import_type: ImportType<'src>,
+    },
+    ModuleDeclaration {
+        name: &'src str,
+        body: Box<AstNode<'src>>,
+        visibility: Visibility,
+    },
+    TypeDeclaration {
+        name: &'src str,
+        type_def: TypeDefinition<'src>,
+    },
+    
+    // Async/await
+    AsyncBlock(Box<AstNode<'src>>),
+    AwaitExpression(Box<AstNode<'src>>),
+    YieldExpression(Option<Box<AstNode<'src>>>),
+    
+    // Error handling
+    ThrowStatement(Box<AstNode<'src>>),
+    
+    // Comments and metadata
+    Comment(&'src str),
+    
+    // Special nodes
+    Empty,
+    Error {
+        message: String,
+        location: SourceLocation,
+    },
+}
+
+/// Pipeline operators
+#[derive(Debug, Clone, PartialEq)]
+pub enum PipeOperator {
+    Pipe,              // |
+    LogicalOr,         // ||
+    LogicalAnd,        // &&
+    ObjectPipe,        // |>
+    ObjectPipeParallel, // ||>
+    Background,        // &
+    Semicolon,         // ;
+}
+
+/// Redirection types
+#[derive(Debug, Clone, PartialEq)]
+pub struct Redirection<'src> {
+    pub fd: Option<u32>,
+    pub operator: RedirectionOperator,
+    pub target: RedirectionTarget<'src>,
+    pub redir_type: RedirectionType,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RedirectionOperator {
+    Output,           // >
+    OutputAppend,     // >>
+    Input,            // <
+    InputOutput,      // <>
+    OutputBoth,       // &>
+    OutputBothAppend, // &>>
+    HereDocument,     // <<
+    HereString,       // <<<
+    DuplicateInput,   // <&
+    DuplicateOutput,  // >&
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RedirectionTarget<'src> {
+    File(Box<AstNode<'src>>),
+    FileDescriptor(u32),
+    Close, // &-
+    HereDoc {
+        delimiter: &'src str,
+        content: &'src str,
+        expand: bool,
+    },
+}
+
+impl<'src> AsRef<Path> for RedirectionTarget<'src> {
+    fn as_ref(&self) -> &Path {
+        match self {
+            RedirectionTarget::File(_node) => {
+                // For simplicity, assume the node contains a path string
+                // In a real implementation, this would need proper evaluation
+                Path::new("/tmp/placeholder")
+            }
+            RedirectionTarget::FileDescriptor(_) => Path::new("/dev/null"),
+            RedirectionTarget::Close => Path::new("/dev/null"),
+            RedirectionTarget::HereDoc { .. } => Path::new("/dev/null"),
+        }
+    }
+}
+
+/// Assignment operators
+#[derive(Debug, Clone, PartialEq)]
+pub enum AssignmentOperator {
+    Assign,    // =
+    AddAssign, // +=
+    SubAssign, // -=
+    MulAssign, // *=
+    DivAssign, // /=
+    ModAssign, // %=
+    Append,    // >>=
+    Prepend,   // <<=
+}
+
+/// Binary operators
+#[derive(Debug, Clone, PartialEq)]
 pub enum BinaryOperator {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Eq,
-    Ne,
-    Gt,
-    Lt,
-    And,
-    Or,
+    // Arithmetic
+    Add,        // +
+    Subtract,   // -
+    Multiply,   // *
+    Divide,     // /
+    Modulo,     // %
+    Power,      // **
+    
+    // Comparison
+    Equal,         // ==
+    NotEqual,      // !=
+    Less,          // <
+    LessEqual,     // <=
+    Greater,       // >
+    GreaterEqual,  // >=
+    Match,         // =~
+    NotMatch,      // !~
+    
+    // Logical
+    LogicalAnd,    // &&
+    LogicalOr,     // ||
+    
+    // Bitwise
+    BitwiseAnd,    // &
+    BitwiseOr,     // |
+    BitwiseXor,    // ^
+    LeftShift,     // <<
+    RightShift,    // >>
 }
 
-impl Default for AstNode {
+/// Unary operators
+#[derive(Debug, Clone, PartialEq)]
+pub enum UnaryOperator {
+    Plus,       // +
+    Minus,      // -
+    LogicalNot, // !
+    BitwiseNot, // ~
+}
+
+/// Postfix operators
+#[derive(Debug, Clone, PartialEq)]
+pub enum PostfixOperator {
+    Increment, // ++
+    Decrement, // --
+}
+
+/// Test operators for [ ] and [[ ]]
+#[derive(Debug, Clone, PartialEq)]
+pub enum TestOperator {
+    // String comparison
+    StringEqual,    // =
+    StringNotEqual, // !=
+    StringLess,     // <
+    StringGreater,  // >
+    StringMatch,    // =~
+    StringNotMatch, // !~
+    
+    // Numeric comparison
+    NumericEqual,        // -eq
+    NumericNotEqual,     // -ne
+    NumericLess,         // -lt
+    NumericLessEqual,    // -le
+    NumericGreater,      // -gt
+    NumericGreaterEqual, // -ge
+    
+    // File comparison
+    FileNewer,    // -nt
+    FileOlder,    // -ot
+    FileSame,     // -ef
+}
+
+/// Unary test operators
+#[derive(Debug, Clone, PartialEq)]
+pub enum TestUnaryOperator {
+    // File tests
+    FileExists,      // -e
+    FileRegular,     // -f
+    FileDirectory,   // -d
+    FileSymlink,     // -L, -h
+    FileReadable,    // -r
+    FileWritable,    // -w
+    FileExecutable,  // -x
+    FileNonEmpty,    // -s
+    FileBlockDevice, // -b
+    FileCharDevice,  // -c
+    FileFifo,        // -p
+    FileSocket,      // -S
+    FileSticky,      // -k
+    FileSetgid,      // -g
+    FileSetuid,      // -u
+    FileOwned,       // -O
+    FileGroupOwned,  // -G
+    FileModified,    // -N
+    FileTty,         // -t
+    
+    // String tests
+    StringEmpty,    // -z
+    StringNonEmpty, // -n
+    
+    // Variable tests
+    VariableSet,   // -v
+    VariableArray, // -a (bash extension)
+}
+
+/// Parameter expansion modifiers
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParameterModifier<'src> {
+    // Default values
+    UseDefault(&'src str),              // :-
+    AssignDefault(&'src str),           // :=
+    ErrorIfUnset(Option<&'src str>),    // :?
+    UseAlternative(&'src str),          // :+
+    
+    // Substring
+    Substring {
+        start: Box<AstNode<'src>>,
+        length: Option<Box<AstNode<'src>>>,
+    },
+    
+    // Pattern matching
+    RemoveSmallestPrefix(&'src str),    // #
+    RemoveLargestPrefix(&'src str),     // ##
+    RemoveSmallestSuffix(&'src str),    // %
+    RemoveLargestSuffix(&'src str),     // %%
+    
+    // Pattern replacement
+    ReplaceFirst {
+        pattern: &'src str,
+        replacement: Option<&'src str>,
+    },
+    ReplaceAll {
+        pattern: &'src str,
+        replacement: Option<&'src str>,
+    },
+    
+    // Case modification
+    UppercaseFirst(&'src str),   // ^
+    UppercaseAll(&'src str),     // ^^
+    LowercaseFirst(&'src str),   // ,
+    LowercaseAll(&'src str),     // ,,
+    
+    // Length
+    Length,                      // #var
+}
+
+/// Case statement arms
+#[derive(Debug, Clone, PartialEq)]
+pub struct CaseArm<'src> {
+    pub patterns: Vec<Pattern<'src>>,
+    pub body: AstNode<'src>,
+}
+
+/// Match statement arms (modern feature)
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchArm<'src> {
+    pub pattern: Pattern<'src>,
+    pub guard: Option<AstNode<'src>>,
+    pub body: AstNode<'src>,
+}
+
+/// Catch clause for try statements
+#[derive(Debug, Clone, PartialEq)]
+pub struct CatchClause<'src> {
+    pub variable: Option<&'src str>,
+    pub body: Box<AstNode<'src>>,
+}
+
+/// Function parameters
+#[derive(Debug, Clone, PartialEq)]
+pub struct Parameter<'src> {
+    pub name: &'src str,
+    pub default: Option<AstNode<'src>>,
+    pub is_variadic: bool,
+}
+
+/// Array elements
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArrayElement<'src> {
+    pub index: Option<AstNode<'src>>,
+    pub value: AstNode<'src>,
+}
+
+/// Patterns for matching
+#[derive(Debug, Clone, PartialEq)]
+pub enum Pattern<'src> {
+    Literal(&'src str),
+    Glob(GlobPattern<'src>),
+    Range {
+        start: &'src str,
+        end: &'src str,
+    },
+    Alternative(Vec<Pattern<'src>>),
+}
+
+/// Glob patterns
+#[derive(Debug, Clone, PartialEq)]
+pub struct GlobPattern<'src> {
+    pub elements: Vec<GlobElement<'src>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum GlobElement<'src> {
+    Literal(&'src str),
+    Wildcard,           // *
+    SingleChar,         // ?
+    CharacterClass {
+        negated: bool,
+        ranges: Vec<CharacterRange>,
+    },
+    BraceExpansion(Vec<&'src str>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CharacterRange {
+    pub start: char,
+    pub end: Option<char>, // None for single character
+}
+
+/// Brace expansion elements
+#[derive(Debug, Clone, PartialEq)]
+pub enum BraceElement<'src> {
+    Literal(&'src str),
+    Sequence {
+        start: i64,
+        end: i64,
+        step: Option<i64>,
+    },
+}
+
+/// Process substitution direction
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProcessSubstitutionDirection {
+    Input,  // <()
+    Output, // >()
+}
+
+/// Quote types
+#[derive(Debug, Clone, PartialEq)]
+pub enum QuoteType {
+    Single,   // '...'
+    Double,   // "..."
+    AnsiC,    // $'...'
+    Locale,   // $"..."
+}
+
+/// Number types
+#[derive(Debug, Clone, PartialEq)]
+pub enum NumberType {
+    Decimal,
+    Hexadecimal,
+    Octal,
+    Binary,
+    Float,
+}
+
+/// Import types
+#[derive(Debug, Clone, PartialEq)]
+pub enum ImportType<'src> {
+    Use {
+        alias: Option<&'src str>,
+    },
+    From {
+        items: Vec<&'src str>,
+    },
+    All,
+}
+
+/// Module paths
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModulePath<'src> {
+    pub segments: Vec<&'src str>,
+}
+
+/// Visibility modifiers
+#[derive(Debug, Clone, PartialEq)]
+pub enum Visibility {
+    Public,
+    Private,
+    Restricted(Vec<String>), // pub(crate), pub(super), etc.
+}
+
+/// Type definitions (for modern shell features)
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeDefinition<'src> {
+    Struct {
+        fields: Vec<FieldDefinition<'src>>,
+    },
+    Enum {
+        variants: Vec<EnumVariant<'src>>,
+    },
+    Alias {
+        target: &'src str,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldDefinition<'src> {
+    pub name: &'src str,
+    pub type_name: &'src str,
+    pub default: Option<AstNode<'src>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumVariant<'src> {
+    pub name: &'src str,
+    pub fields: Option<Vec<FieldDefinition<'src>>>,
+}
+
+/// Source location information
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourceLocation {
+    pub line: u32,
+    pub column: u32,
+    pub length: Option<u32>,
+    pub file: Option<String>,
+}
+
+impl<'src> AstNode<'src> {
+    /// Check if this node is a statement (can appear at statement level)
+    pub fn is_statement(&self) -> bool {
+        matches!(self,
+            AstNode::Command { .. } |
+            AstNode::Pipeline { .. } |
+            AstNode::If { .. } |
+            AstNode::For { .. } |
+            AstNode::ForC { .. } |
+            AstNode::While { .. } |
+            AstNode::Until { .. } |
+            AstNode::Case { .. } |
+            AstNode::Select { .. } |
+            AstNode::Match { .. } |
+            AstNode::Try { .. } |
+            AstNode::FunctionDeclaration { .. } |
+            AstNode::VariableAssignment { .. } |
+            AstNode::ArrayAssignment { .. } |
+            AstNode::Return(_) |
+            AstNode::Break(_) |
+            AstNode::Continue(_) |
+            AstNode::Exit(_) |
+            AstNode::ImportStatement { .. } |
+            AstNode::ModuleDeclaration { .. } |
+            AstNode::TypeDeclaration { .. } |
+            AstNode::ThrowStatement(_) |
+            AstNode::Subshell(_) |
+            AstNode::BraceGroup(_)
+        )
+    }
+
+    /// Check if this node is an expression
+    pub fn is_expression(&self) -> bool {
+        matches!(self,
+            AstNode::BinaryExpression { .. } |
+            AstNode::UnaryExpression { .. } |
+            AstNode::PostfixExpression { .. } |
+            AstNode::ConditionalExpression { .. } |
+            AstNode::TestExpression { .. } |
+            AstNode::TestBinary { .. } |
+            AstNode::TestUnary { .. } |
+            AstNode::VariableExpansion { .. } |
+            AstNode::CommandSubstitution { .. } |
+            AstNode::ArithmeticExpansion { .. } |
+            AstNode::ProcessSubstitution { .. } |
+            AstNode::PathnameExpansion { .. } |
+            AstNode::BraceExpansion { .. } |
+            AstNode::TildeExpansion { .. } |
+            AstNode::Word(_) |
+            AstNode::StringLiteral { .. } |
+            AstNode::NumberLiteral { .. } |
+            AstNode::Array(_) |
+            AstNode::FunctionCall { .. } |
+            AstNode::AwaitExpression(_) |
+            AstNode::YieldExpression(_)
+        )
+    }
+
+    /// Check if this node can be used as a command name
+    pub fn can_be_command_name(&self) -> bool {
+        matches!(self,
+            AstNode::Word(_) |
+            AstNode::StringLiteral { .. } |
+            AstNode::VariableExpansion { .. } |
+            AstNode::CommandSubstitution { .. } |
+            AstNode::PathnameExpansion { .. } |
+            AstNode::TildeExpansion { .. }
+        )
+    }
+
+    /// Get the precedence of this node if it's a binary operator
+    pub fn precedence(&self) -> Option<u8> {
+        match self {
+            AstNode::BinaryExpression { operator, .. } => Some(operator.precedence()),
+            _ => None,
+        }
+    }
+
+    /// Check if this node has side effects
+    pub fn has_side_effects(&self) -> bool {
+        match self {
+            AstNode::Command { .. } |
+            AstNode::Pipeline { .. } |
+            AstNode::FunctionCall { .. } |
+            AstNode::VariableAssignment { .. } |
+            AstNode::ArrayAssignment { .. } |
+            AstNode::CommandSubstitution { .. } |
+            AstNode::ProcessSubstitution { .. } |
+            AstNode::Return(_) |
+            AstNode::Break(_) |
+            AstNode::Continue(_) |
+            AstNode::Exit(_) |
+            AstNode::ThrowStatement(_) => true,
+            
+            AstNode::BinaryExpression { left, right, .. } => {
+                left.has_side_effects() || right.has_side_effects()
+            }
+            AstNode::UnaryExpression { operand, .. } => operand.has_side_effects(),
+            AstNode::ConditionalExpression { condition, then_expr, else_expr } => {
+                condition.has_side_effects() || then_expr.has_side_effects() || else_expr.has_side_effects()
+            }
+            AstNode::Array(elements) => elements.iter().any(|e| e.has_side_effects()),
+            
+            _ => false,
+        }
+    }
+}
+
+impl BinaryOperator {
+    /// Get the precedence of this binary operator
+    pub fn precedence(&self) -> u8 {
+        match self {
+            BinaryOperator::LogicalOr => 1,
+            BinaryOperator::LogicalAnd => 2,
+            BinaryOperator::BitwiseOr => 3,
+            BinaryOperator::BitwiseXor => 4,
+            BinaryOperator::BitwiseAnd => 5,
+            BinaryOperator::Equal | BinaryOperator::NotEqual |
+            BinaryOperator::Match | BinaryOperator::NotMatch => 6,
+            BinaryOperator::Less | BinaryOperator::LessEqual |
+            BinaryOperator::Greater | BinaryOperator::GreaterEqual => 7,
+            BinaryOperator::LeftShift | BinaryOperator::RightShift => 8,
+            BinaryOperator::Add | BinaryOperator::Subtract => 9,
+            BinaryOperator::Multiply | BinaryOperator::Divide | BinaryOperator::Modulo => 10,
+            BinaryOperator::Power => 11,
+        }
+    }
+
+    /// Check if this operator is left-associative
+    pub fn is_left_associative(&self) -> bool {
+        !matches!(self, BinaryOperator::Power)
+    }
+}
+
+impl fmt::Display for AstNode<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AstNode::Word(s) => write!(f, "{}", s),
+            AstNode::StringLiteral { value, .. } => write!(f, "\"{}\"", value),
+            AstNode::NumberLiteral { value, .. } => write!(f, "{}", value),
+            AstNode::VariableExpansion { name, .. } => write!(f, "${}", name),
+            AstNode::Command { name, args, .. } => {
+                write!(f, "{}", name)?;
+                for arg in args {
+                    write!(f, " {}", arg)?;
+                }
+                Ok(())
+            }
+            AstNode::Pipeline { elements, .. } => {
+                for (i, element) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " | ")?;
+                    }
+                    write!(f, "{}", element)?;
+                }
+                Ok(())
+            }
+            _ => write!(f, "{:?}", self),
+        }
+    }
+}
+
+impl Default for AstNode<'_> {
     fn default() -> Self {
-        AstNode::NoOp
+        AstNode::Empty
     }
 } 

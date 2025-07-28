@@ -253,7 +253,7 @@ fn get_filesystem_info(path: &Path) -> Result<FilesystemInfo> {
             total_inodes: statfs.f_files as u64,
             free_inodes: statfs.f_ffree as u64,
             max_filename_length: statfs.f_namelen as u64,
-            fs_id: ((statfs.f_fsid.val[0] as u64) << 32) | (statfs.f_fsid.val[1] as u64),
+            fs_id: 0, // fsid_t structure varies by platform
         })
     }
 }

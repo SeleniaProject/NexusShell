@@ -11,4 +11,6 @@ path = "src/main.rs"
 clap = { version = "4", features = ["derive"] }
 nxsh_core = { path = "../nxsh_core" }
 nxsh_parser = { path = "../nxsh_parser" }
-anyhow = "1" 
+anyhow = "1"
+nxsh_ui = { path = "../nxsh_ui" }
+crossterm = "0.27" 

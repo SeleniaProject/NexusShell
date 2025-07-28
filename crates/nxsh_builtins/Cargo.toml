@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 nxsh_core = { path = "../nxsh_core" }
 nxsh_hal = { path = "../nxsh_hal" }
-anyhow = "1.0"
+anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] } 
 dirs-next = "2" 
@@ -15,7 +15,7 @@ base64 = "0.21"
 tabled = "0.12"
 pulldown-cmark = "0.10"
 ansi_term = "0.12" 
-tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "net", "time", "process", "io-util", "sync"] }
+tokio = { version = "1", features = ["full"] }
 git2 = "0.18"
 pcre2 = "0.2"
 rayon = "1.8" 
@@ -92,6 +92,11 @@ termion = "2.0"
 miniz_oxide = "0.7"
 # Date/time handling
 time = { version = "0.3", features = ["macros", "formatting", "parsing"] }
+chrono-tz = "0.8"
+cron = "0.6"
+cronexpr = "1.2"
+# High-precision sleep
+spin_sleep = "1.1"
 # Pure Rust numeric computing
 num_cpus = "1.16"
 # Text processing
@@ -138,6 +143,10 @@ fs2 = "0.4"
 grep-matcher = "0.1"
 grep-regex = "0.1"
 grep-searcher = "0.1"
+# Pattern matching for find command
+glob = "0.3"
+# Signal handling for tail follow mode
+ctrlc = "3.4"
 # System monitoring
 systemstat = "0.2"
 # Network interface information

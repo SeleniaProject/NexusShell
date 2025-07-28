@@ -27,19 +27,15 @@
 //!   --group-directories-first - Group directories before files
 
 use anyhow::{Result, anyhow};
-use std::collections::HashMap;
-use std::fs::{self, DirEntry, Metadata};
+use std::fs::{self, Metadata};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
-use chrono::{DateTime, Local, TimeZone};
-use users::{Users, UsersCache, Groups, get_user_by_uid, get_group_by_gid};
-use unicode_width::UnicodeWidthStr;
-use ansi_term::{Colour, Style, ANSIString};
-use humansize::{format_size, DECIMAL, BINARY};
-use tabled::{Table, Tabled, settings::{Style as TableStyle, Alignment, Width}};
-use std::pin::Pin;
-use std::future::Future;
+use std::time::SystemTime;
+use chrono::{DateTime, Local};
+use users::{Users, UsersCache, Groups};
+use ansi_term::{Colour, Style};
+use humansize::{format_size, BINARY};
+
 
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
@@ -141,16 +137,16 @@ impl Default for LsOptions {
     }
 }
 
-pub async fn ls_async(dir: Option<&str>) -> Result<()> {
+pub fn ls_async(dir: Option<&str>) -> Result<()> {
     let args = if let Some(dir) = dir {
         vec![dir.to_string()]
     } else {
         vec![]
     };
-    ls_cli(&args).await
+    ls_cli(&args)
 }
 
-pub async fn ls_cli(args: &[String]) -> Result<()> {
+pub fn ls_cli(args: &[String]) -> Result<()> {
     let (options, paths) = parse_ls_args(args)?;
     
     let paths = if paths.is_empty() {
@@ -178,7 +174,7 @@ pub async fn ls_cli(args: &[String]) -> Result<()> {
             println!("{}:", path.display());
         }
         
-        list_directory(path, &options, use_colors, &git_repo).await?;
+        list_directory(path, &options, use_colors, &git_repo)?;
     }
     
     Ok(())
@@ -280,72 +276,52 @@ fn should_use_colors(color_option: &ColorOption) -> bool {
     }
 }
 
-async fn list_directory(
+fn list_directory(
     path: &Path,
     options: &LsOptions,
     use_colors: bool,
     git_repo: &Option<git2::Repository>,
 ) -> Result<()> {
-    list_directory_boxed(path, options, use_colors, git_repo).await
-}
-
-fn list_directory_boxed(
-    path: &Path,
-    options: &LsOptions,
-    use_colors: bool,
-    git_repo: Option<&git2::Repository>,
-) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
-    Box::pin(async move {
-        if options.directory_only {
-            // Just list the directory itself
-            let file_info = get_file_info(path, git_repo)?;
-            if options.long_format {
-                print_long_format(&[file_info], options, use_colors)?;
-            } else {
-                print_short_format(&[file_info], options, use_colors)?;
-            }
-            return Ok(());
-        }
-        
-        let entries = read_directory(path, options, git_repo).await?;
-        
-        if entries.is_empty() {
-            return Ok(());
-        }
-        
-        let mut sorted_entries = entries;
-        sort_entries(&mut sorted_entries, options);
-        
+    if options.directory_only {
+        // Just list the directory itself
+        let file_info = get_file_info(path, git_repo.as_ref())?;
         if options.long_format {
-            print_long_format(&sorted_entries, options, use_colors)?;
+            print_long_format(&[file_info], options, use_colors)?;
         } else {
-            print_short_format(&sorted_entries, options, use_colors)?;
+            print_short_format(&[file_info], options, use_colors)?;
         }
-        
-        // Handle recursive listing
-        if options.recursive {
-            for entry in &sorted_entries {
-                if entry.metadata.is_dir() && entry.name != "." && entry.name != ".." {
-                    println!("\n{}:", entry.path.display());
-                    list_directory_boxed(&entry.path, options, use_colors, git_repo).await?;
-                }
-            }
-        }
-        
-        Ok(())
-    })
+        return Ok(());
+    }
+    
+    let entries = read_directory_sync(path, options, git_repo.as_ref())?;
+    
+    if entries.is_empty() {
+        return Ok(());
+    }
+    
+    let mut sorted_entries = entries;
+    sort_entries(&mut sorted_entries, options);
+    
+    if options.long_format {
+        print_long_format(&sorted_entries, options, use_colors)?;
+    } else {
+        print_short_format(&sorted_entries, options, use_colors)?;
+    }
+    
+    Ok(())
 }
 
-async fn read_directory(
+
+
+fn read_directory_sync(
     path: &Path,
     options: &LsOptions,
-    git_repo: &Option<git2::Repository>,
+    git_repo: Option<&git2::Repository>,
 ) -> Result<Vec<FileInfo>> {
     let mut entries = Vec::new();
     
-    let mut dir_entries = tokio::fs::read_dir(path).await?;
-    
-    while let Some(entry) = dir_entries.next_entry().await? {
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
         let file_name = entry.file_name().to_string_lossy().to_string();
         
         // Skip hidden files unless requested
@@ -365,7 +341,7 @@ async fn read_directory(
     Ok(entries)
 }
 
-fn get_file_info(path: &Path, git_repo: &Option<git2::Repository>) -> Result<FileInfo> {
+fn get_file_info(path: &Path, git_repo: Option<&git2::Repository>) -> Result<FileInfo> {
     let metadata = fs::symlink_metadata(path)?;
     let is_symlink = metadata.file_type().is_symlink();
     let name = path.file_name()

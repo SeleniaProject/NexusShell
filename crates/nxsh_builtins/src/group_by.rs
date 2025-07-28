@@ -1,5 +1,5 @@
 use anyhow::Result;
-use ahash::AHashMap;
+use std::collections::HashMap;
 use serde_json::{Value, json};
 use std::io::{self, Read};
 
@@ -14,7 +14,7 @@ pub fn group_by_cli(args: &[String]) -> Result<()> {
     io::stdin().read_to_string(&mut buf)?;
     let arr: Vec<Value> = serde_json::from_str(&buf)?;
 
-    let mut map: AHashMap<String, Vec<Value>> = AHashMap::new();
+    let mut map: HashMap<String, Vec<Value>> = HashMap::new();
     for item in arr {
         if let Some(val) = item.get(field) {
             let key = val.to_string();

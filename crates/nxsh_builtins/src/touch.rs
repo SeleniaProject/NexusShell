@@ -20,7 +20,7 @@ use std::io::Write;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
-use chrono::{DateTime, Local, NaiveDateTime, TimeZone, Utc, ParseResult};
+use chrono::{DateTime, Local, NaiveDateTime, TimeZone, Utc, ParseResult, Datelike};
 use libc::{timespec, utimensat, AT_FDCWD, UTIME_NOW, UTIME_OMIT};
 use std::ffi::CString;
 
@@ -277,7 +277,7 @@ fn parse_timestamp(timestamp: &str) -> Result<SystemTime> {
             let dd: u32 = remaining[2..4].parse()?;
             let hh: u32 = remaining[4..6].parse()?;
             let min: u32 = remaining[6..8].parse()?;
-            let current_year = Local::now().year();
+            let current_year = Utc::now().year();
             (current_year, mm, dd, hh, min)
         }
         10 => {
@@ -320,7 +320,9 @@ fn parse_timestamp(timestamp: &str) -> Result<SystemTime> {
     }
     
     // Create datetime
-    let dt = Local.ymd(year, month, day).and_hms(hour, minute, seconds);
+    let dt = Local.with_ymd_and_hms(year, month, day, hour, minute, seconds)
+        .single()
+        .ok_or_else(|| anyhow::anyhow!("Invalid date/time"))?;
     let system_time = SystemTime::UNIX_EPOCH + Duration::from_secs(dt.timestamp() as u64);
     
     Ok(system_time)

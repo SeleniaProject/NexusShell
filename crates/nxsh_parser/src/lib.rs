@@ -10,7 +10,7 @@ use pest::error::{Error as PestError, LineColLocation};
 use pest_derive::Parser;
 
 #[derive(Parser)]
-#[grammar = "grammar.pest"]
+#[grammar = "grammar/shell.pest"]
 struct ShellParser;
 
 /// Highlight parsing error with line and column.
@@ -33,9 +33,13 @@ pub fn highlight_error(input: &str, err: PestError<Rule>) -> String {
 /// Parse raw input into AST using PEG grammar.
 pub fn parse(input: &str) -> Result<ast::AstNode> {
     match ShellParser::parse(Rule::program, input) {
-        Ok(_) => Ok(ast::AstNode::Program(vec![ast::AstNode::Word(
-            input.trim().to_string(),
-        )])),
+        Ok(_pairs) => {
+            // For now, create a simple AST node
+            // TODO: Implement proper AST construction from pest pairs
+            Ok(ast::AstNode::Program(vec![ast::AstNode::Word(
+                input.trim(),
+            )]))
+        },
         Err(e) => Err(anyhow::anyhow!(highlight_error(input, e))),
     }
 }

@@ -1,0 +1,87 @@
+// NexusShell Grammar Definition
+// This grammar defines the complete syntax of NexusShell including advanced features
+
+WHITESPACE = _{ " " | "\t" }
+COMMENT = _{ "#" ~ (!"\n" ~ ANY)* }
+
+// Basic tokens
+identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+number = @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
+string_literal = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" | "'" ~ (!"'" ~ ANY)* ~ "'" }
+
+// Variables
+variable = { "$" ~ identifier | "${" ~ identifier ~ "}" }
+command_substitution = { "$(" ~ program ~ ")" | "`" ~ program ~ "`" }
+
+// Operators
+pipe = { "|" }
+object_pipe = { "|>" }
+parallel_pipe = { "||>" }
+redirect_in = { "<" }
+redirect_out = { ">" }
+redirect_append = { ">>" }
+redirect_err = { "2>" }
+redirect_both = { "&>" }
+background = { "&" }
+and_op = { "&&" }
+or_op = { "||" }
+semicolon = { ";" }
+
+// Keywords
+if_kw = { "if" }
+then_kw = { "then" }
+else_kw = { "else" }
+elif_kw = { "elif" }
+fi_kw = { "fi" }
+for_kw = { "for" }
+while_kw = { "while" }
+do_kw = { "do" }
+done_kw = { "done" }
+case_kw = { "case" }
+esac_kw = { "esac" }
+function_kw = { "function" }
+match_kw = { "match" }
+with_kw = { "with" }
+
+// Expressions
+word = { identifier | string_literal | number }
+argument = { word | variable | command_substitution }
+arguments = { argument* }
+
+// Commands
+simple_command = { word ~ arguments }
+pipeline = { simple_command ~ (pipe ~ simple_command)* }
+command = { pipeline }
+
+// Control structures
+if_statement = { if_kw ~ command ~ then_kw ~ program ~ (elif_kw ~ command ~ then_kw ~ program)* ~ (else_kw ~ program)? ~ fi_kw }
+for_statement = { for_kw ~ identifier ~ "in" ~ arguments ~ do_kw ~ program ~ done_kw }
+while_statement = { while_kw ~ command ~ do_kw ~ program ~ done_kw }
+case_statement = { case_kw ~ word ~ "in" ~ case_item* ~ esac_kw }
+case_item = { pattern ~ ")" ~ program ~ ";;" }
+pattern = { word ~ ("|" ~ word)* }
+
+// Function definition
+function_def = { function_kw ~ identifier ~ "(" ~ ")" ~ "{" ~ program ~ "}" }
+
+// Match statement (advanced feature)
+match_statement = { match_kw ~ argument ~ with_kw ~ match_arm* }
+match_arm = { pattern ~ "=>" ~ program }
+
+// Statements
+statement = { 
+    if_statement | 
+    for_statement | 
+    while_statement | 
+    case_statement | 
+    function_def |
+    match_statement |
+    command 
+}
+
+// Program structure
+line = { statement ~ (and_op ~ statement | or_op ~ statement | semicolon ~ statement)* ~ background? }
+program = { SOI ~ (line ~ ("\n" | EOI))* ~ EOI }
+
+// Special rules
+Rule = { program } 

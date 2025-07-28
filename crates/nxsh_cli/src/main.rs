@@ -17,7 +17,8 @@ fn main() -> anyhow::Result<()> {
     if let Some(cmd) = cli.command {
         exec.run(&cmd)?;
     } else {
-        println!("NexusShell interactive mode is not yet implemented.");
+        // Start interactive TUI
+        nxsh_ui::run_tui(&mut context, &mut exec)?;
     }
 
     Ok(())

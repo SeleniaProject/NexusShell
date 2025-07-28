@@ -2,21 +2,63 @@
 name = "nxsh_core"
 version = "0.1.0"
 edition = "2021"
+description = "Core functionality for NexusShell"
+license = "Apache-2.0"
+repository = "https://github.com/SeleniaProject/NexusShell"
 
 [features]
-default = ["signal-hook", "libc"]
+default = []
 jit = ["cranelift-codegen", "cranelift-frontend"]
 object-pipe = []
 
 [dependencies]
-nxsh_parser = { path = "../nxsh_parser" }
-anyhow = "1"
-dashmap = "5"
-once_cell = "1.19"
-signal-hook = { version = "0.3", optional = true }
-libc = { version = "0.2", optional = true }
-cranelift-codegen = { version = "0.104", optional = true }
-cranelift-frontend = { version = "0.104", optional = true } 
+# Core dependencies
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+futures = "0.3"
+async-trait = "0.1"
 
-[target.'cfg(unix)'.dependencies]
-nix = { version = "0.27", default-features = false, features = ["fs", "process", "signal"] } 
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Concurrency
+dashmap = "5.5"
+parking_lot = "0.12"
+
+# Logging and metrics
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
+metrics = "0.22"
+metrics-exporter-prometheus = "0.13"
+
+# Time and date
+chrono = { version = "0.4", features = ["serde"] }
+time = { version = "0.3", features = ["serde", "formatting"] }
+
+# Networking
+reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
+
+# Cryptography
+ring = "0.17"
+base64 = "0.21"
+zeroize = "1.6"
+
+# System interaction
+libc = "0.2"
+nix = "0.27"
+atty = "0.2"
+
+# JIT compilation (optional)
+cranelift-codegen = { version = "0.102", optional = true }
+cranelift-frontend = { version = "0.102", optional = true }
+
+# HAL and parser dependencies
+nxsh_hal = { path = "../nxsh_hal" }
+nxsh_parser = { path = "../nxsh_parser" }
+
+[dev-dependencies]
+tempfile = "3.8"
+proptest = "1.4"
+criterion = "0.5" 
