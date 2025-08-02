@@ -13,4 +13,5 @@ nxsh_core = { path = "../nxsh_core" }
 nxsh_parser = { path = "../nxsh_parser" }
 anyhow = "1"
 nxsh_ui = { path = "../nxsh_ui" }
+tokio = { version = "1", features = ["rt"] }
 crossterm = "0.27" 

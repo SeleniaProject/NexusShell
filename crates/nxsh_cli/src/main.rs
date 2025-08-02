@@ -12,13 +12,16 @@ struct Cli {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let mut context = nxsh_core::context::ShellContext::new();
-    let mut exec = nxsh_core::executor::Executor::new(&mut context);
+    let mut exec = nxsh_core::executor::Executor::new()?;
 
     if let Some(cmd) = cli.command {
-        exec.run(&cmd)?;
+        // TODO: Implement command execution
+        println!("Command execution not yet implemented: {}", cmd);
     } else {
-        // Start interactive TUI
-        nxsh_ui::run_tui(&mut context, &mut exec)?;
+        // Start interactive TUI  
+        tokio::runtime::Runtime::new()?.block_on(async {
+            nxsh_ui::run_tui(&mut context, &mut exec).await
+        })?;
     }
 
     Ok(())
