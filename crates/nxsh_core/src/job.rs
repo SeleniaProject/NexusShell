@@ -7,10 +7,9 @@ use crate::error::{ShellError, ErrorKind, ShellResult};
 use std::collections::HashMap;
 use std::fmt;
 use std::process::ExitStatus;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
 
 /// Job identifier type
 pub type JobId = u32;
@@ -359,9 +358,9 @@ pub struct JobManager {
     /// Currently active (foreground) job
     foreground_job: Arc<Mutex<Option<JobId>>>,
     /// Job notification channel
-    notification_tx: mpsc::UnboundedSender<JobNotification>,
+    notification_tx: mpsc::Sender<JobNotification>,
     /// Job notification receiver
-    notification_rx: Arc<Mutex<mpsc::UnboundedReceiver<JobNotification>>>,
+    notification_rx: Arc<Mutex<mpsc::Receiver<JobNotification>>>,
     /// Whether job control is enabled
     job_control_enabled: bool,
     /// Process monitoring thread handle
@@ -413,7 +412,7 @@ pub enum JobNotification {
 impl JobManager {
     /// Create a new job manager
     pub fn new() -> Self {
-        let (notification_tx, notification_rx) = mpsc::unbounded_channel();
+        let (notification_tx, notification_rx) = mpsc::channel();
         
         Self {
             jobs: Arc::new(RwLock::new(HashMap::new())),

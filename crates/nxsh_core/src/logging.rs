@@ -6,10 +6,7 @@ use std::{
     time::SystemTime,
 };
 use serde::{Deserialize, Serialize};
-use tracing_subscriber::{
-    layer::SubscriberExt,
-    EnvFilter,
-};
+use anyhow::Result;
 
 /// Basic logging system
 pub struct LoggingSystem {
@@ -79,19 +76,8 @@ impl LoggingSystem {
         }
 
         // Set up tracing subscriber
-        let filter = EnvFilter::try_new(&self.config.level)
-            .unwrap_or_else(|_| EnvFilter::new("info"));
-
-        let subscriber = tracing_subscriber::registry()
-            .with(filter)
-            .with(tracing_subscriber::fmt::layer()
-                .with_timer(tracing_subscriber::fmt::time::UtcTime::rfc_3339())
-                .with_ansi(true)
-                .with_target(true));
-
-        tracing::subscriber::set_global_default(subscriber)?;
-
-        tracing::info!("Logging system initialized");
+        // Simplified logging initialization without external dependencies
+        println!("Logging system initialized (basic mode)");
         Ok(())
     }
 

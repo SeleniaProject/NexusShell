@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
     io,
 };
-use dashmap::DashMap;
+use is_terminal::IsTerminal;
 
 /// Shell execution context passed to every command
 /// This contains all the state needed for command execution
@@ -109,13 +109,13 @@ impl<'a> Context<'a> {
 /// Shell execution context
 pub struct ShellContext {
     /// Environment variables
-    pub env: Arc<DashMap<String, String>>,
+    pub env: Arc<RwLock<HashMap<String, String>>>,
     /// Shell variables
-    pub vars: Arc<DashMap<String, ShellVariable>>,
+    pub vars: Arc<RwLock<HashMap<String, ShellVariable>>>,
     /// Aliases
-    pub aliases: Arc<DashMap<String, String>>,
+    pub aliases: Arc<RwLock<HashMap<String, String>>>,
     /// Functions
-    pub functions: Arc<DashMap<String, String>>,
+    pub functions: Arc<RwLock<HashMap<String, String>>>,
     /// Current working directory
     pub cwd: PathBuf,
     /// Last exit code
@@ -149,10 +149,10 @@ pub struct ShellContext {
 impl std::fmt::Debug for ShellContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ShellContext")
-            .field("env", &"Arc<DashMap<String, String>>")
-            .field("vars", &"Arc<DashMap<String, ShellVariable>>")
-            .field("aliases", &"Arc<DashMap<String, String>>")
-            .field("functions", &"Arc<DashMap<String, String>>")
+            .field("env", &"Arc<RwLock<HashMap<String, String>>>")
+            .field("vars", &"Arc<RwLock<HashMap<String, ShellVariable>>>")
+            .field("aliases", &"Arc<RwLock<HashMap<String, String>>>")
+            .field("functions", &"Arc<RwLock<HashMap<String, String>>>")
             .field("cwd", &self.cwd)
             .field("last_exit_status", &"Arc<Mutex<i32>>")
             .field("job_manager", &"Arc<Mutex<JobManager>>")
@@ -284,10 +284,10 @@ impl ShellContext {
             .unwrap_or(0) + 1;
 
         Self {
-            env: Arc::new(DashMap::new()),
-            vars: Arc::new(DashMap::new()),
-            aliases: Arc::new(DashMap::new()),
-            functions: Arc::new(DashMap::new()),
+            env: Arc::new(RwLock::new(HashMap::new())),
+            vars: Arc::new(RwLock::new(HashMap::new())),
+            aliases: Arc::new(RwLock::new(HashMap::new())),
+            functions: Arc::new(RwLock::new(HashMap::new())),
             cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
             last_exit_status: Arc::new(Mutex::new(0)),
             job_manager: Arc::new(Mutex::new(JobManager::new())),
@@ -300,7 +300,7 @@ impl ShellContext {
             init_time: Instant::now(),
             history: Arc::new(Mutex::new(Vec::new())),
             dir_stack: Arc::new(Mutex::new(Vec::new())),
-            interactive: atty::is(atty::Stream::Stdin),
+            interactive: std::io::stdin().is_terminal(),
             login_shell: false, // TODO: Detect login shell properly
         }
     }
@@ -314,12 +314,18 @@ impl ShellContext {
     /// Get environment variable
     pub fn get_var(&self, key: &str) -> Option<String> {
         // Check shell variables first
-        if let Some(var) = self.vars.get(key) {
-            return Some(var.value.clone());
+        if let Ok(vars) = self.vars.read() {
+            if let Some(var) = vars.get(key) {
+                return Some(var.value.clone());
+            }
         }
         
         // Then check environment variables
-        self.env.get(key).map(|v| v.clone())
+        if let Ok(env) = self.env.read() {
+            env.get(key).cloned()
+        } else {
+            None
+        }
     }
 
     /// Set environment variable
@@ -332,11 +338,18 @@ impl ShellContext {
         let val_str = val.into();
         
         // Set in environment
-        self.env.insert(key_str.clone(), val_str.clone());
+        if let Ok(mut env) = self.env.write() {
+            env.insert(key_str.clone(), val_str.clone());
+        }
         
         // Also set as shell variable if not already present
-        if !self.vars.contains_key(&key_str) {
-            self.vars.insert(key_str, ShellVariable::new(val_str));
+        if let Ok(vars) = self.vars.read() {
+            if !vars.contains_key(&key_str) {
+                drop(vars); // Release read lock before write
+                if let Ok(mut vars) = self.vars.write() {
+                    vars.insert(key_str, ShellVariable::new(val_str));
+                }
+            }
         }
     }
 
@@ -349,15 +362,23 @@ impl ShellContext {
         
         // If exported, also set in environment
         if var.exported {
-            self.env.insert(key_str.clone(), var.value.clone());
+            if let Ok(mut env) = self.env.write() {
+                env.insert(key_str.clone(), var.value.clone());
+            }
         }
         
-        self.vars.insert(key_str, var);
+        if let Ok(mut vars) = self.vars.write() {
+            vars.insert(key_str, var);
+        }
     }
 
     /// Get alias value
     pub fn get_alias(&self, key: &str) -> Option<String> {
-        self.aliases.get(key).map(|v| v.clone())
+        if let Ok(aliases) = self.aliases.read() {
+            aliases.get(key).cloned()
+        } else {
+            None
+        }
     }
 
     /// Set alias with cycle detection
@@ -379,18 +400,28 @@ impl ShellContext {
         
         // TODO: Implement more sophisticated cycle detection
         
-        self.aliases.insert(key_str, val_str);
+        if let Ok(mut aliases) = self.aliases.write() {
+            aliases.insert(key_str, val_str);
+        }
         Ok(())
     }
 
     /// Remove alias
     pub fn unset_alias(&self, key: &str) -> bool {
-        self.aliases.remove(key).is_some()
+        if let Ok(mut aliases) = self.aliases.write() {
+            aliases.remove(key).is_some()
+        } else {
+            false
+        }
     }
 
     /// Get function body
     pub fn get_function(&self, name: &str) -> Option<String> {
-        self.functions.get(name).map(|v| v.clone())
+        if let Ok(functions) = self.functions.read() {
+            functions.get(name).cloned()
+        } else {
+            None
+        }
     }
 
     /// Set function
@@ -399,12 +430,18 @@ impl ShellContext {
         K: Into<String>,
         V: Into<String>,
     {
-        self.functions.insert(name.into(), body.into());
+        if let Ok(mut functions) = self.functions.write() {
+            functions.insert(name.into(), body.into());
+        }
     }
 
     /// Remove function
     pub fn unset_function(&self, name: &str) -> bool {
-        self.functions.remove(name).is_some()
+        if let Ok(mut functions) = self.functions.write() {
+            functions.remove(name).is_some()
+        } else {
+            false
+        }
     }
 
     /// Add command to history

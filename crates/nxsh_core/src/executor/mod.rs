@@ -171,6 +171,23 @@ impl Executor {
         self.builtins.insert(builtin.name().to_string(), builtin);
     }
 
+    /// Execute a command string (convenience method for UI)
+    pub fn run(&mut self, command_str: &str) -> ShellResult<ExecutionResult> {
+        // Parse the command string into an AST
+        let parser = nxsh_parser::Parser::new();
+        let ast = parser.parse(command_str)
+            .map_err(|e| ShellError::new(
+                ErrorKind::ParseError(crate::error::ParseErrorKind::SyntaxError),
+                format!("Failed to parse command: {}", e)
+            ))?;
+        
+        // Create a basic shell context for execution
+        let mut ctx = ShellContext::new();
+        
+        // Execute the parsed command
+        self.execute(&ast, &mut ctx)
+    }
+
     /// Check if a command is a built-in
     pub fn is_builtin(&self, name: &str) -> bool {
         self.builtins.contains_key(name)
@@ -369,8 +386,10 @@ impl Executor {
         cmd.args(&args[1..]);  // Skip command name
         
         // Set up environment
-        for entry in ctx.env.iter() {
-            cmd.env(entry.key(), entry.value());
+        if let Ok(env) = ctx.env.read() {
+            for (key, value) in env.iter() {
+                cmd.env(key, value);
+            }
         }
         
         // Set working directory
@@ -517,8 +536,10 @@ impl Executor {
         cmd.args(&args[1..]);
         
         // Set environment
-        for entry in ctx.env.iter() {
-            cmd.env(entry.key(), entry.value());
+        if let Ok(env) = ctx.env.read() {
+            for (key, value) in env.iter() {
+                cmd.env(key, value);
+            }
         }
         
         cmd.current_dir(&ctx.cwd);

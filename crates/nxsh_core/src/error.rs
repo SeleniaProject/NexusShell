@@ -128,6 +128,7 @@ pub enum IoErrorKind {
     ConnectionRefused,
     ConnectionReset,
     ConnectionAborted,
+    Other,
     TimedOut,
     WouldBlock,
     UnexpectedEof,
@@ -265,6 +266,7 @@ pub enum InternalErrorKind {
     StackOverflow,
     InfiniteLoop,
     DeadCode,
+    LockError,
 }
 
 /// Source location information for errors
@@ -287,6 +289,22 @@ impl ShellError {
             context: HashMap::new(),
             inner: None,
         }
+    }
+
+    /// Create an I/O error
+    pub fn io(err: std::io::Error) -> Self {
+        Self::new(
+            ErrorKind::SystemError(SystemErrorKind::SystemCallError),
+            format!("I/O error: {}", err)
+        )
+    }
+
+    /// Create a command not found error
+    pub fn command_not_found(command: &str) -> Self {
+        Self::new(
+            ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound),
+            format!("Command not found: {}", command)
+        )
     }
 
     /// Create an error with source location
@@ -585,13 +603,6 @@ impl From<nxsh_hal::HalError> for ShellError {
 
 // Convenience constructors for common error types
 impl ShellError {
-    pub fn command_not_found(command: &str) -> Self {
-        ShellError::new(
-            ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound),
-            format!("Command '{}' not found", command),
-        )
-        .with_context("command", command.to_string())
-    }
 
     pub fn file_not_found(path: &str) -> Self {
         ShellError::new(
