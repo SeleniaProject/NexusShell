@@ -20,7 +20,7 @@ use nxsh_builtins::Builtin;
 
 /// Main completion engine for NexusShell
 pub struct NexusCompleter {
-    filename_completer: FilenameCompleter,
+    filename_completer: rustyline::completion::FilenameCompleter,
     command_cache: HashMap<String, String>, // command -> description
     builtin_cache: HashMap<String, String>, // builtin -> description
     variable_cache: HashSet<String>,
@@ -33,7 +33,7 @@ impl NexusCompleter {
     /// Create a new completer with default settings
     pub fn new() -> Result<Self> {
         let mut completer = Self {
-            filename_completer: FilenameCompleter::new(),
+            filename_completer: rustyline::completion::FilenameCompleter::new(),
             command_cache: HashMap::new(),
             builtin_cache: HashMap::new(),
             variable_cache: HashSet::new(),
@@ -280,22 +280,36 @@ impl NexusCompleter {
     fn get_filename_completions(&self, prefix: &str) -> Result<Vec<CompletionCandidate>> {
         let mut candidates = Vec::new();
 
-        // Use rustyline's filename completer as base
-        if let Ok((start, pairs)) = self.filename_completer.complete(prefix, prefix.len(), &RustylineContext::new("")) {
-            for pair in pairs {
-                let candidate_type = if Path::new(&pair.replacement).is_dir() {
-                    CandidateType::Directory
+        // Use basic file system scanning for completion
+        let path = Path::new(prefix);
+        let (dir, partial_name) = if path.is_dir() {
+            (path, "")
+        } else {
+            (path.parent().unwrap_or(Path::new(".")), 
+             path.file_name().unwrap_or_default().to_str().unwrap_or(""))
+        };
+
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with(partial_name) {
+                    let candidate_type = if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                        CandidateType::Directory
                 } else {
                     CandidateType::File
                 };
 
-                candidates.push(CompletionCandidate {
-                    text: pair.display,
-                    display: None,
-                    replacement: pair.replacement,
-                    candidate_type,
-                    score: self.calculate_score(&pair.replacement, prefix),
-                });
+                    let full_path = dir.join(&name);
+                    let replacement = full_path.to_string_lossy().to_string();
+                    
+                    candidates.push(CompletionCandidate {
+                        text: name.clone(),
+                        display: None,
+                        replacement,
+                        candidate_type,
+                        score: self.calculate_score(&name, partial_name),
+                    });
+                }
             }
         }
 
