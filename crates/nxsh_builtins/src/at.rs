@@ -1,4 +1,4 @@
-//! `at` builtin – world-class one-time job scheduling with advanced features.
+//! `at` builtin  Eworld-class one-time job scheduling with advanced features.
 //!
 //! This implementation provides complete at functionality with professional features:
 //! - Advanced time parsing with natural language support
@@ -34,7 +34,7 @@ use std::{
 use tokio::{
     fs as async_fs,
     process::Command as AsyncCommand,
-    sync::{broadcast, mpsc, Mutex as AsyncMutex},
+    sync::{broadcast, Mutex as AsyncMutex},
     time::{sleep, sleep_until, interval, Duration, Instant},
 };
 use uuid::Uuid;
@@ -131,7 +131,7 @@ pub struct AtConfig {
     pub log_path: PathBuf,
     pub max_concurrent_jobs: usize,
     pub default_queue: String,
-    pub timezone: Tz,
+    pub timezone: String,
     pub mail_enabled: bool,
     pub smtp_server: Option<String>,
     pub smtp_port: u16,
@@ -162,7 +162,7 @@ impl Default for AtConfig {
             log_path: PathBuf::from(DEFAULT_LOG_PATH),
             max_concurrent_jobs: MAX_CONCURRENT_JOBS,
             default_queue: "a".to_string(),
-            timezone: UTC,
+            timezone: UTC.to_string(),
             mail_enabled: false,
             smtp_server: None,
             smtp_port: 587,
@@ -503,7 +503,9 @@ impl AtScheduler {
         async_fs::create_dir_all(&config.log_path).await?;
 
         let (event_sender, _) = broadcast::channel(1000);
-        let time_parser = TimeParser::new(config.timezone, &i18n.current_locale());
+        let current_locale = i18n.current_locale();
+        let timezone = config.timezone.parse::<Tz>().unwrap_or(Tz::UTC);
+        let time_parser = TimeParser::new(timezone, &current_locale);
 
         let scheduler = Self {
             config,
@@ -656,10 +658,11 @@ impl AtScheduler {
                 // Find jobs ready to run
                 {
                     let mut jobs_guard = jobs.write().unwrap();
+                    let jobs_clone = jobs_guard.clone(); // Clone for dependency check
                     for (job_id, job) in jobs_guard.iter_mut() {
                         if job.status == JobStatus::Scheduled && job.scheduled_time <= now {
                             // Check dependencies
-                            if Self::check_job_dependencies(job, &jobs_guard) {
+                            if Self::check_job_dependencies(job, &jobs_clone) {
                                 job.status = JobStatus::Running;
                                 jobs_to_run.push(job.clone());
                             }
@@ -669,6 +672,8 @@ impl AtScheduler {
 
                 // Execute jobs
                 for job in jobs_to_run {
+                    let job_id = job.id.clone();  // Extract job ID first
+                    let job_id_for_closure = job_id.clone();  // Clone for async closure
                     let job_clone = job.clone();
                     let jobs_clone = Arc::clone(&jobs);
                     let running_jobs_clone = Arc::clone(&running_jobs);
@@ -681,16 +686,16 @@ impl AtScheduler {
                         // Update job status
                         {
                             let mut jobs_guard = jobs_clone.write().unwrap();
-                            if let Some(job) = jobs_guard.get_mut(&job.id) {
+                            if let Some(job) = jobs_guard.get_mut(&job_id_for_closure) {
                                 match result {
                                     Ok(execution) => {
                                         job.status = JobStatus::Completed;
                                         job.execution_log.push(execution);
-                                        let _ = event_sender_clone.send(AtEvent::JobCompleted(job.id.clone(), 0));
+                                        let _ = event_sender_clone.send(AtEvent::JobCompleted(job_id_for_closure.clone(), 0));
                                     }
                                     Err(e) => {
                                         job.status = JobStatus::Failed;
-                                        let _ = event_sender_clone.send(AtEvent::JobFailed(job.id.clone(), e.to_string()));
+                                        let _ = event_sender_clone.send(AtEvent::JobFailed(job_id_for_closure.clone(), e.to_string()));
                                     }
                                 }
                             }
@@ -699,17 +704,19 @@ impl AtScheduler {
                         // Remove from running jobs
                         {
                             let mut running_guard = running_jobs_clone.write().unwrap();
-                            running_guard.remove(&job.id);
+                            running_guard.remove(&job_id_for_closure);
                         }
                     });
 
                     // Store running job handle
+                    let job_id_for_storage = job_id;
+                    let job_id_for_event = job_id_for_storage.clone();
                     {
                         let mut running_guard = running_jobs.write().unwrap();
-                        running_guard.insert(job.id.clone(), handle);
+                        running_guard.insert(job_id_for_storage, handle);
                     }
 
-                    let _ = event_sender.send(AtEvent::JobStarted(job.id));
+                    let _ = event_sender.send(AtEvent::JobStarted(job_id_for_event));
                 }
             }
         });
@@ -931,7 +938,7 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
     let mut list_jobs = false;
     let mut remove_jobs = Vec::new();
     let mut queue_filter = None;
-    let i18n = I18n::new("en-US")?; // Should be configurable
+    let i18n = I18n::new(); // Use default I18n instance
 
     let mut i = 0;
     while i < args.len() {
@@ -1102,14 +1109,16 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
 
     let command = if command_args.is_empty() {
         // Read from stdin
-        use tokio::io::{AsyncBufReadExt, BufReader};
-        let stdin = tokio::io::stdin();
-        let reader = BufReader::new(stdin);
-        let mut lines = reader.lines();
+        use std::io::{BufRead, BufReader, stdin};
+        let stdin = stdin();
+        let reader = BufReader::new(stdin.lock());
         let mut command_lines = Vec::new();
         
-        while let Some(line) = lines.next_line().await? {
-            command_lines.push(line);
+        for line in reader.lines() {
+            match line {
+                Ok(line) => command_lines.push(line),
+                Err(e) => return Err(anyhow!("Failed to read from stdin: {}", e)),
+            }
         }
         
         command_lines.join("\n")
@@ -1142,12 +1151,12 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
 }
 
 fn print_at_help(i18n: &I18n) {
-    println!("{}", i18n.get("at.help.title"));
+    println!("{}", i18n.get("at.help.title", None));
     println!();
-    println!("{}", i18n.get("at.help.usage"));
+    println!("{}", i18n.get("at.help.usage", None));
     println!("    at [OPTIONS] time [command...]");
     println!();
-    println!("{}", i18n.get("at.help.time_formats"));
+    println!("{}", i18n.get("at.help.time_formats", None));
     println!("    HH:MM [AM/PM] [date]    - Specific time (e.g., '14:30', '2:30 PM tomorrow')");
     println!("    HHMM [AM/PM] [date]     - Numeric format (e.g., '1430', '230 PM')");
     println!("    noon/midnight [date]    - Named times");
@@ -1158,7 +1167,7 @@ fn print_at_help(i18n: &I18n) {
     println!("    ISO-8601 format         - Full timestamp");
     println!("    @timestamp              - Unix timestamp");
     println!();
-    println!("{}", i18n.get("at.help.options"));
+    println!("{}", i18n.get("at.help.options", None));
     println!("    -h, --help              Show this help message");
     println!("    -l, --list              List scheduled jobs");
     println!("    -r, --remove ID         Remove job by ID");
@@ -1174,7 +1183,7 @@ fn print_at_help(i18n: &I18n) {
     println!("    --retry COUNT           Number of retries on failure");
     println!("    --tag TAG               Add tag to job");
     println!();
-    println!("{}", i18n.get("at.help.examples"));
+    println!("{}", i18n.get("at.help.examples", None));
     println!("    at 14:30 tomorrow       # Schedule for 2:30 PM tomorrow");
     println!("    at 'now + 1 hour'       # Schedule for one hour from now");
     println!("    at 'next friday at 9am' # Schedule for next Friday at 9 AM");

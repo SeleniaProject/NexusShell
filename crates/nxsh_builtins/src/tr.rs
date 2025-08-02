@@ -1,4 +1,4 @@
-//! `tr` command – translate or delete characters.
+//! `tr` command  Etranslate or delete characters.
 //!
 //! Supported subset:
 //!   tr SET1 SET2       # translate characters in SET1 to SET2 (1-1, padding with last char)

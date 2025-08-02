@@ -1,4 +1,4 @@
-//! `wget` builtin — non-interactive network downloader.
+//! `wget` builtin  Enon-interactive network downloader.
 //!
 //! Strategy:
 //! 1. If a full-featured `wget` binary exists in `PATH`, spawn it and forward
@@ -7,7 +7,7 @@
 //!    supports the most common invocation pattern: `wget <URL>` or
 //!    `wget -O <OUTPUT> <URL>`.
 //!
-//! The fallback uses the blocking client of the `reqwest` crate and writes the
+//! The fallback uses the blocking client of the `ureq` crate and writes the
 //! retrieved bytes directly to the target path (or the basename of the URL when
 //! no `-O` is supplied). HTTP(S) redirects are followed automatically. For
 //! large files a streaming write is performed to avoid holding the entire body
@@ -70,10 +70,11 @@ pub fn wget_cli(args: &[String]) -> Result<()> {
         .unwrap_or("index.html");
     let outfile = output.unwrap_or_else(|| PathBuf::from(default_name));
 
-    let response = reqwest::blocking::get(url)
+    let response = ureq::get(url)
+        .call()
         .with_context(|| format!("wget: failed to fetch {url}"))?;
 
-    if !response.status().is_success() {
+    if response.status() != 200 {
         return Err(anyhow!(
             "wget: server responded with HTTP status {}",
             response.status()
@@ -82,8 +83,7 @@ pub fn wget_cli(args: &[String]) -> Result<()> {
 
     let mut file = File::create(&outfile)
         .with_context(|| format!("wget: cannot create file {:?}", outfile))?;
-    let mut source = std::io::BufReader::new(response);
-    copy(&mut source, &mut file).context("wget: failed while writing to file")?;
+    copy(&mut response.into_reader(), &mut file).context("wget: failed while writing to file")?;
 
     Ok(())
 } 

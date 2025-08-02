@@ -4,16 +4,32 @@
 
 use crate::common::{i18n::*, logging::*};
 use std::io::Write;
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult};
+use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError, ErrorKind};
+use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
 use nxsh_hal::{ProcessInfo, ProcessManager};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+fn runtime_error(message: &str) -> ShellError {
+    ShellError::new(
+        ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound),
+        message.to_string(),
+    )
+}
+
+fn io_error(message: &str) -> ShellError {
+    ShellError::new(
+        ErrorKind::IoError(IoErrorKind::FileReadError),
+        message.to_string(),
+    )
+}
+
 pub struct PsBuiltin;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PsOptions {
     pub all_processes: bool,
     pub all_users: bool,
@@ -61,18 +77,35 @@ pub struct ProcessEntry {
 }
 
 impl Builtin for PsBuiltin {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "ps"
     }
 
-    fn execute(&self, context: &mut Context, args: Vec<String>) -> ShellResult<i32> {
-        let options = parse_ps_args(&args)?;
-        let processes = collect_processes(&options)?;
-        display_processes(&processes, &options)?;
-        Ok(0)
+    fn synopsis(&self) -> &'static str {
+        "report a snapshot of current processes"
     }
 
-    fn help(&self) -> &str {
+    fn description(&self) -> &'static str {
+        "Display information about running processes"
+    }
+
+    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
+        let args = &ctx.args;
+        let args = &args[1..];
+        let options = parse_ps_args(args)?;
+        let processes = collect_processes(&options)?;
+        display_processes(&processes, &options)?;
+        Ok(ExecutionResult {
+            exit_code: 0,
+            output: Some(Vec::new()),
+            error: Some(Vec::new()),
+            duration: std::time::Duration::default(),
+            pid: Some(std::process::id()),
+            job_id: None,
+        })
+    }
+
+    fn usage(&self) -> &'static str {
         "ps - display running processes
 
 USAGE:
@@ -154,48 +187,48 @@ fn parse_ps_args(args: &[String]) -> ShellResult<PsOptions> {
             "-u" | "--user" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -u requires an argument"));
+                    return Err(runtime_error("Option -u requires an argument"));
                 }
                 options.filter_user = Some(args[i].clone());
             }
             "-p" | "--pid" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -p requires an argument"));
+                    return Err(runtime_error("Option -p requires an argument"));
                 }
                 options.filter_pid = Some(args[i].parse()
-                    .map_err(|_| ShellError::runtime("Invalid PID"))?);
+                    .map_err(|_| runtime_error("Invalid PID"))?);
             }
             "--ppid" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option --ppid requires an argument"));
+                    return Err(runtime_error("Option --ppid requires an argument"));
                 }
                 options.filter_ppid = Some(args[i].parse()
-                    .map_err(|_| ShellError::runtime("Invalid PPID"))?);
+                    .map_err(|_| runtime_error("Invalid PPID"))?);
             }
             "-C" | "--command" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -C requires an argument"));
+                    return Err(runtime_error("Option -C requires an argument"));
                 }
                 options.filter_command = Some(args[i].clone());
             }
             "--sort" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option --sort requires an argument"));
+                    return Err(runtime_error("Option --sort requires an argument"));
                 }
                 options.sort_by = Some(args[i].clone());
             }
             "-o" | "--format" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -o requires an argument"));
+                    return Err(runtime_error("Option -o requires an argument"));
                 }
                 options.output_format = Some(args[i].clone());
             }
-            "--help" => return Err(ShellError::runtime("Help requested")),
+            "--help" => return Err(runtime_error("Help requested")),
             _ if arg.starts_with("-") => {
                 // Handle BSD-style combined options
                 for ch in arg[1..].chars() {
@@ -209,11 +242,11 @@ fn parse_ps_args(args: &[String]) -> ShellResult<PsOptions> {
                         'm' => options.show_threads = true,
                         'H' => options.tree_format = true,
                         'w' => options.wide_output = true,
-                        _ => return Err(ShellError::runtime(format!("Unknown option: -{}", ch))),
+                        _ => return Err(runtime_error(&format!("Unknown option: -{}", ch))),
                     }
                 }
             }
-            _ => return Err(ShellError::runtime(format!("Unknown argument: {}", arg))),
+            _ => return Err(runtime_error(&format!("Unknown argument: {}", arg))),
         }
         i += 1;
     }
@@ -228,10 +261,10 @@ fn collect_processes(options: &PsOptions) -> ShellResult<Vec<ProcessEntry>> {
     #[cfg(target_os = "linux")]
     {
         let proc_dir = fs::read_dir("/proc")
-            .map_err(|e| ShellError::io(format!("Cannot read /proc: {}", e)))?;
+            .map_err(|e| io_error(&format!("Cannot read /proc: {}", e)))?;
         
         for entry in proc_dir {
-            let entry = entry.map_err(|e| ShellError::io(format!("Error reading /proc entry: {}", e)))?;
+            let entry = entry.map_err(|e| io_error(&format!("Error reading /proc entry: {}", e)))?;
             let file_name = entry.file_name();
             let name_str = file_name.to_string_lossy();
             
@@ -248,9 +281,9 @@ fn collect_processes(options: &PsOptions) -> ShellResult<Vec<ProcessEntry>> {
     #[cfg(not(target_os = "linux"))]
     {
         // Use HAL for other platforms
-        let process_manager = ProcessManager::new();
+        let process_manager = ProcessManager::new()?;
         let system_processes = process_manager.get_system_processes()
-            .map_err(|e| ShellError::runtime(format!("Failed to get processes: {}", e)))?;
+            .map_err(|e| runtime_error(&format!("Failed to get processes: {}", e)))?;
         
         for proc_info in system_processes {
             let process = convert_hal_process(proc_info);
@@ -444,14 +477,14 @@ fn convert_hal_process(proc_info: ProcessInfo) -> ProcessEntry {
         user: "unknown".to_string(),
         group: "unknown".to_string(),
         command: proc_info.name,
-        args: proc_info.command_line.unwrap_or_default(),
+        args: if proc_info.command_line.is_empty() { vec![] } else { vec![proc_info.command_line] },
         state: format!("{:?}", proc_info.status),
-        cpu_percent: proc_info.cpu_usage.unwrap_or(0.0),
+        cpu_percent: 0.0, // cpu_usage field doesn't exist in ProcessInfo
         memory_percent: 0.0,
-        memory_rss: proc_info.memory_usage.unwrap_or(0),
+        memory_rss: proc_info.memory_usage,
         memory_vsz: 0,
-        start_time: proc_info.start_time.unwrap_or(UNIX_EPOCH),
-        cpu_time: proc_info.cpu_time.unwrap_or(Duration::from_secs(0)),
+        start_time: proc_info.start_time,
+        cpu_time: proc_info.cpu_time,
         priority: 0,
         nice: 0,
         threads: 1,
@@ -511,7 +544,7 @@ fn sort_processes(processes: &mut [ProcessEntry], sort_spec: &str) -> ShellResul
         "time" => processes.sort_by_key(|p| p.cpu_time),
         "comm" => processes.sort_by(|a, b| a.command.cmp(&b.command)),
         "user" => processes.sort_by(|a, b| a.user.cmp(&b.user)),
-        _ => return Err(ShellError::runtime(format!("Unknown sort field: {}", field))),
+        _ => return Err(runtime_error(&format!("Unknown sort field: {}", field))),
     }
     
     if reverse {
@@ -584,7 +617,9 @@ fn print_headers(fields: &[&str], options: &PsOptions) {
             "tty" => "TTY",
             "sid" => "SID",
             "pgrp" => "PGRP",
-            _ => field.to_uppercase().as_str(),
+            _ => {
+                field
+            },
         };
         header_parts.push(format!("{:>8}", header));
     }
@@ -742,4 +777,16 @@ fn format_date(time: SystemTime) -> String {
         }
         Err(_) => "?".to_string(),
     }
+}
+
+// CLI entry point function
+pub fn ps_cli(args: &[String]) -> anyhow::Result<()> {
+    let options = parse_ps_args(args).map_err(|e| anyhow::anyhow!("ps error: {}", e))?;
+    
+    let processes = collect_processes(&options).map_err(|e| anyhow::anyhow!("ps error: {}", e))?;
+    if let Err(e) = display_processes(&processes, &options) {
+        return Err(anyhow::anyhow!("ps error: {}", e));
+    }
+    
+    Ok(())
 } 

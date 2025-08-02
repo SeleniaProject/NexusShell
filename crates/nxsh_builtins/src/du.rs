@@ -1,4 +1,4 @@
-//! `du` command – estimate file space usage.
+//! `du` command  Eestimate file space usage.
 //! Usage: du [-h] [PATH]
 //!   -h : human readable units
 //! If PATH omitted, uses current directory.

@@ -1,4 +1,4 @@
-//! `comm` command – compare two sorted files line by line.
+//! `comm` command  Ecompare two sorted files line by line.
 //!
 //! Minimal subset:
 //!   comm FILE1 FILE2

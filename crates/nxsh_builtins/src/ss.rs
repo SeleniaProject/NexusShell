@@ -1,4 +1,4 @@
-//! `ss` builtin — socket statistics utility.
+//! `ss` builtin  Esocket statistics utility.
 //!
 //! This wrapper attempts to invoke the modern `ss` command (from `iproute2`)
 //! which supersedes `netstat` on most Linux distributions. If `ss` is not

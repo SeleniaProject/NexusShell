@@ -1,4 +1,4 @@
-//! `readonly` builtin – mark shell variables as immutable.
+//! `readonly` builtin  Emark shell variables as immutable.
 //! Syntax: readonly NAME[=VALUE] ...
 //! For simplicity, this implementation records readonly keys in a hidden
 //! variable `__READONLY_SET` stored as a comma-separated list inside

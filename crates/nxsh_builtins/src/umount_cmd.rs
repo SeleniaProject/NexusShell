@@ -1,4 +1,4 @@
-//! `umount` command – unmount filesystem.
+//! `umount` command  Eunmount filesystem.
 //! Usage: umount DIR
 
 use anyhow::{anyhow, Result};

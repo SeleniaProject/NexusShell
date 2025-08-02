@@ -1,4 +1,4 @@
-//! `who` builtin — list logged-in users.
+//! `who` builtin  Elist logged-in users.
 //!
 //! Delegates to external `who` or `who.exe` binary if found.
 //! If not present, returns error.

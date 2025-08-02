@@ -4,31 +4,52 @@ use nxsh_core::context::{ShellContext, ShellOptions};
 /// Handle `set` builtin for flags -e, -x, -o pipefail.
 pub fn set_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
     if args.is_empty() {
-        let opts = ctx.get_options();
-        println!("-e {}", opts.errexit);
-        println!("-x {}", opts.xtrace);
-        println!("pipefail {}", opts.pipefail);
+        if let Ok(opts_guard) = ctx.options.read() {
+            println!("-e {}", opts_guard.errexit);
+            println!("-x {}", opts_guard.xtrace);
+            println!("pipefail {}", opts_guard.pipefail);
+        }
         return Ok(());
     }
 
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
-            "-e" => ctx.set_option(|o| o.errexit = true),
-            "+e" => ctx.set_option(|o| o.errexit = false),
-            "-x" => ctx.set_option(|o| o.xtrace = true),
-            "+x" => ctx.set_option(|o| o.xtrace = false),
+            "-e" => {
+                if let Ok(mut opts_guard) = ctx.options.write() {
+                    opts_guard.errexit = true;
+                }
+            },
+            "+e" => {
+                if let Ok(mut opts_guard) = ctx.options.write() {
+                    opts_guard.errexit = false;
+                }
+            },
+            "-x" => {
+                if let Ok(mut opts_guard) = ctx.options.write() {
+                    opts_guard.xtrace = true;
+                }
+            },
+            "+x" => {
+                if let Ok(mut opts_guard) = ctx.options.write() {
+                    opts_guard.xtrace = false;
+                }
+            },
             "-o" => {
                 if let Some(name) = iter.next() {
                     if name == "pipefail" {
-                        ctx.set_option(|o| o.pipefail = true);
+                        if let Ok(mut opts_guard) = ctx.options.write() {
+                            opts_guard.pipefail = true;
+                        }
                     }
                 }
             }
             "+o" => {
                 if let Some(name) = iter.next() {
                     if name == "pipefail" {
-                        ctx.set_option(|o| o.pipefail = false);
+                        if let Ok(mut opts_guard) = ctx.options.write() {
+                            opts_guard.pipefail = false;
+                        }
                     }
                 }
             }

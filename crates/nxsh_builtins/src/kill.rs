@@ -4,8 +4,24 @@
 
 use crate::common::{i18n::*, logging::*};
 use std::io::Write;
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult};
+use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError, ErrorKind};
+use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
+
+fn runtime_error(message: &str) -> ShellError {
+    ShellError::new(
+        ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound),
+        message.to_string(),
+    )
+}
+
+fn io_error(message: &str) -> ShellError {
+    ShellError::new(
+        ErrorKind::IoError(IoErrorKind::FileReadError),
+        message.to_string(),
+    )
+}
 
 pub struct KillBuiltin;
 
@@ -29,20 +45,36 @@ pub enum KillTarget {
 }
 
 impl Builtin for KillBuiltin {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "kill"
     }
 
-    fn execute(&self, context: &mut Context, args: Vec<String>) -> ShellResult<i32> {
+    fn synopsis(&self) -> &'static str {
+        "send a signal to processes"
+    }
+
+    fn description(&self) -> &'static str {
+        "Send signals to processes identified by PID"
+    }
+
+    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
+        let args = &ctx.args;
         let options = parse_kill_args(&args)?;
         
         if options.list_signals {
             list_signals();
-            return Ok(0);
+            return Ok(ExecutionResult {
+                exit_code: 0,
+                output: Some(Vec::new()),
+                error: Some(Vec::new()),
+                duration: std::time::Duration::default(),
+                pid: Some(std::process::id()),
+                job_id: None,
+            });
         }
         
         if options.targets.is_empty() {
-            return Err(ShellError::runtime("No process specified"));
+            return Err(ShellError::command_not_found("No process specified"));
         }
         
         let mut exit_code = 0;
@@ -61,10 +93,17 @@ impl Builtin for KillBuiltin {
             }
         }
         
-        Ok(exit_code)
+        Ok(ExecutionResult {
+            exit_code,
+            output: Some(Vec::new()),
+            error: Some(Vec::new()),
+            duration: std::time::Duration::default(),
+            pid: Some(std::process::id()),
+            job_id: None,
+        })
     }
 
-    fn help(&self) -> &str {
+    fn usage(&self) -> &'static str {
         "kill - terminate processes by sending signals
 
 USAGE:
@@ -153,7 +192,7 @@ fn parse_kill_args(args: &[String]) -> ShellResult<KillOptions> {
             "-s" | "--signal" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -s requires an argument"));
+                    return Err(ShellError::command_not_found("Option -s requires an argument"));
                 }
                 let (sig_num, sig_name) = parse_signal(&args[i], &signal_map)?;
                 options.signal = sig_num;
@@ -162,22 +201,22 @@ fn parse_kill_args(args: &[String]) -> ShellResult<KillOptions> {
             "-n" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -n requires an argument"));
+                    return Err(ShellError::command_not_found("Option -n requires an argument"));
                 }
                 options.signal = args[i].parse()
-                    .map_err(|_| ShellError::runtime("Invalid signal number"))?;
+                    .map_err(|_| ShellError::command_not_found("Invalid signal number"))?;
                 options.signal_name = get_signal_name(options.signal)
                     .unwrap_or_else(|| format!("{}", options.signal));
             }
             "-t" | "--timeout" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -t requires an argument"));
+                    return Err(ShellError::command_not_found("Option -t requires an argument"));
                 }
                 options.timeout = Some(args[i].parse()
-                    .map_err(|_| ShellError::runtime("Invalid timeout value"))?);
+                    .map_err(|_| ShellError::command_not_found("Invalid timeout value"))?);
             }
-            "--help" => return Err(ShellError::runtime("Help requested")),
+            "--help" => return Err(ShellError::command_not_found("Help requested")),
             _ if arg.starts_with("-") && arg.len() > 1 => {
                 // Handle -SIGNAL format
                 let signal_str = &arg[1..];
@@ -216,7 +255,7 @@ fn parse_signal(signal_str: &str, signal_map: &HashMap<String, i32>) -> ShellRes
     if let Some(&sig_num) = signal_map.get(signal_name) {
         Ok((sig_num, signal_name.to_string()))
     } else {
-        Err(ShellError::runtime(format!("Unknown signal: {}", signal_str)))
+        Err(ShellError::command_not_found(&format!("Unknown signal: {}", signal_str)))
     }
 }
 
@@ -226,12 +265,12 @@ fn parse_kill_target(target_str: &str) -> ShellResult<KillTarget> {
     } else if target_str.starts_with('%') {
         // Job ID
         let job_id = target_str[1..].parse::<u32>()
-            .map_err(|_| ShellError::runtime("Invalid job ID"))?;
+            .map_err(|_| ShellError::command_not_found("Invalid job ID"))?;
         Ok(KillTarget::JobId(job_id))
     } else if target_str.starts_with('-') {
         // Process group
         let pgrp = target_str[1..].parse::<u32>()
-            .map_err(|_| ShellError::runtime("Invalid process group ID"))?;
+            .map_err(|_| ShellError::command_not_found("Invalid process group ID"))?;
         Ok(KillTarget::ProcessGroup(pgrp))
     } else if let Ok(pid) = target_str.parse::<u32>() {
         // Process ID
@@ -252,12 +291,12 @@ fn kill_target(target: &KillTarget, signal: i32, options: &KillOptions) -> Shell
         }
         KillTarget::JobId(job_id) => {
             // Would need to look up job in job table
-            return Err(ShellError::runtime("Job control not yet implemented"));
+            return Err(ShellError::command_not_found("Job control not yet implemented"));
         }
         KillTarget::ProcessName(name) => {
             let pids = find_processes_by_name(name)?;
             if pids.is_empty() {
-                return Err(ShellError::runtime(format!("No processes found matching '{}'", name)));
+                return Err(ShellError::command_not_found(&format!("No processes found matching '{}'", name)));
             }
             for pid in pids {
                 send_signal_to_pid(pid, signal)?;
@@ -300,10 +339,10 @@ fn send_signal_to_pid(pid: u32, signal: i32) -> ShellResult<()> {
         if result == -1 {
             let error = std::io::Error::last_os_error();
             match error.raw_os_error() {
-                Some(libc::ESRCH) => Err(ShellError::runtime("No such process")),
-                Some(libc::EPERM) => Err(ShellError::runtime("Operation not permitted")),
-                Some(libc::EINVAL) => Err(ShellError::runtime("Invalid signal")),
-                _ => Err(ShellError::io(format!("Failed to send signal: {}", error))),
+                Some(libc::ESRCH) => Err(ShellError::command_not_found("No such process")),
+                Some(libc::EPERM) => Err(ShellError::command_not_found("Operation not permitted")),
+                Some(libc::EINVAL) => Err(ShellError::command_not_found("Invalid signal")),
+                _ => Err(ShellError::file_not_found(format!("Failed to send signal: {}", error))),
             }
         } else {
             Ok(())
@@ -318,11 +357,11 @@ fn send_signal_to_pid(pid: u32, signal: i32) -> ShellResult<()> {
         let output = Command::new("taskkill")
             .args(&["/PID", &pid.to_string(), "/F"])
             .output()
-            .map_err(|e| ShellError::io(format!("Failed to kill process: {}", e)))?;
+            .map_err(|e| ShellError::file_not_found(&format!("Failed to kill process: {}", e)))?;
         
         if !output.status.success() {
             let error_msg = String::from_utf8_lossy(&output.stderr);
-            Err(ShellError::runtime(format!("Failed to kill process: {}", error_msg)))
+            Err(ShellError::command_not_found(&format!("Failed to kill process: {}", error_msg)))
         } else {
             Ok(())
         }
@@ -330,7 +369,7 @@ fn send_signal_to_pid(pid: u32, signal: i32) -> ShellResult<()> {
     
     #[cfg(not(any(unix, windows)))]
     {
-        Err(ShellError::runtime("Signal sending not supported on this platform"))
+        Err(ShellError::command_not_found("Signal sending not supported on this platform"))
     }
 }
 
@@ -343,7 +382,7 @@ fn send_signal_to_process_group(pgrp: u32, signal: i32) -> ShellResult<()> {
         
         if result == -1 {
             let error = std::io::Error::last_os_error();
-            Err(ShellError::io(format!("Failed to send signal to process group: {}", error)))
+            Err(ShellError::file_not_found(format!("Failed to send signal to process group: {}", error)))
         } else {
             Ok(())
         }
@@ -351,7 +390,7 @@ fn send_signal_to_process_group(pgrp: u32, signal: i32) -> ShellResult<()> {
     
     #[cfg(not(unix))]
     {
-        Err(ShellError::runtime("Process groups not supported on this platform"))
+        Err(ShellError::command_not_found("Process groups not supported on this platform"))
     }
 }
 
@@ -361,10 +400,10 @@ fn find_processes_by_name(name: &str) -> ShellResult<Vec<u32>> {
     #[cfg(target_os = "linux")]
     {
         let proc_dir = std::fs::read_dir("/proc")
-            .map_err(|e| ShellError::io(format!("Cannot read /proc: {}", e)))?;
+            .map_err(|e| ShellError::file_not_found(format!("Cannot read /proc: {}", e)))?;
         
         for entry in proc_dir {
-            let entry = entry.map_err(|e| ShellError::io(format!("Error reading /proc entry: {}", e)))?;
+            let entry = entry.map_err(|e| ShellError::file_not_found(format!("Error reading /proc entry: {}", e)))?;
             let file_name = entry.file_name();
             let name_str = file_name.to_string_lossy();
             
@@ -396,7 +435,7 @@ fn find_processes_by_name(name: &str) -> ShellResult<Vec<u32>> {
         let output = Command::new("tasklist")
             .args(&["/FO", "CSV", "/NH"])
             .output()
-            .map_err(|e| ShellError::io(format!("Failed to list processes: {}", e)))?;
+            .map_err(|e| ShellError::file_not_found(&format!("Failed to list processes: {}", e)))?;
         
         let output_str = String::from_utf8_lossy(&output.stdout);
         for line in output_str.lines() {
@@ -433,7 +472,7 @@ fn process_exists(pid: u32) -> ShellResult<bool> {
         let output = Command::new("tasklist")
             .args(&["/FI", &format!("PID eq {}", pid), "/FO", "CSV"])
             .output()
-            .map_err(|e| ShellError::io(format!("Failed to check process: {}", e)))?;
+            .map_err(|e| ShellError::file_not_found(&format!("Failed to check process: {}", e)))?;
         
         let output_str = String::from_utf8_lossy(&output.stdout);
         Ok(output_str.lines().count() > 1) // Header + process line if exists

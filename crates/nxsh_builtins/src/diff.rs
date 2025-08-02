@@ -1,4 +1,4 @@
-//! `diff` command – display line differences between two files.
+//! `diff` command  Edisplay line differences between two files.
 //!
 //! Minimal subset implemented:
 //!   diff FILE1 FILE2

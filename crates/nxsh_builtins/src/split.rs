@@ -1,4 +1,4 @@
-//! `split` command – split a file into pieces.
+//! `split` command  Esplit a file into pieces.
 //! Usage: split [-b N] FILE [PREFIX]
 //!   -b N : byte size per piece, supports K/M suffix (default 1000000 bytes)
 //! If PREFIX omitted, defaults to "x" producing xa, xb, ...

@@ -4,10 +4,27 @@
 
 use crate::common::{i18n::*, logging::*};
 use std::io::Write;
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult};
+use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter};
+
+// Helper function to create runtime errors more concisely
+fn runtime_error(msg: &str) -> ShellError {
+    ShellError::new(
+        nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument),
+        msg
+    )
+}
+
+// Helper function to create IO errors more concisely  
+fn io_error(msg: &str) -> ShellError {
+    ShellError::new(
+        nxsh_core::error::ErrorKind::IoError(nxsh_core::error::IoErrorKind::Other),
+        msg
+    )
+}
 
 pub struct UniqBuiltin;
 
@@ -28,17 +45,33 @@ pub struct UniqOptions {
 }
 
 impl Builtin for UniqBuiltin {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "uniq"
     }
 
-    fn execute(&self, context: &mut Context, args: Vec<String>) -> ShellResult<i32> {
-        let options = parse_uniq_args(&args)?;
-        process_uniq(&options)?;
-        Ok(0)
+    fn synopsis(&self) -> &'static str {
+        "report or omit repeated lines"
     }
 
-    fn help(&self) -> &str {
+    fn description(&self) -> &'static str {
+        "Filter adjacent duplicate lines from input"
+    }
+
+    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
+        let args = &ctx.args;
+        let options = parse_uniq_args(args)?;
+        process_uniq(&options)?;
+        Ok(ExecutionResult {
+            exit_code: 0,
+            output: None,
+            error: None,
+            duration: std::time::Duration::from_secs(0),
+            pid: None,
+            job_id: None,
+        })
+    }
+
+    fn usage(&self) -> &'static str {
         "uniq - report or omit repeated lines
 
 USAGE:
@@ -99,39 +132,39 @@ fn parse_uniq_args(args: &[String]) -> ShellResult<UniqOptions> {
             "-f" | "--skip-fields" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -f requires an argument"));
+                    return Err(runtime_error("Option -f requires an argument"));
                 }
                 options.skip_fields = args[i].parse()
-                    .map_err(|_| ShellError::runtime("Invalid field count"))?;
+                    .map_err(|_| runtime_error("Invalid field count"))?;
             }
             "-s" | "--skip-chars" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -s requires an argument"));
+                    return Err(runtime_error("Option -s requires an argument"));
                 }
                 options.skip_chars = args[i].parse()
-                    .map_err(|_| ShellError::runtime("Invalid character count"))?;
+                    .map_err(|_| runtime_error("Invalid character count"))?;
             }
             "-w" | "--check-chars" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -w requires an argument"));
+                    return Err(runtime_error("Option -w requires an argument"));
                 }
                 options.check_chars = Some(args[i].parse()
-                    .map_err(|_| ShellError::runtime("Invalid character count"))?);
+                    .map_err(|_| runtime_error("Invalid character count"))?);
             }
-            "--help" => return Err(ShellError::runtime("Help requested")),
+            "--help" => return Err(runtime_error("Help requested")),
             _ if arg.starts_with("-f") => {
                 options.skip_fields = arg[2..].parse()
-                    .map_err(|_| ShellError::runtime("Invalid field count"))?;
+                    .map_err(|_| runtime_error("Invalid field count"))?;
             }
             _ if arg.starts_with("-s") => {
                 options.skip_chars = arg[2..].parse()
-                    .map_err(|_| ShellError::runtime("Invalid character count"))?;
+                    .map_err(|_| runtime_error("Invalid character count"))?;
             }
             _ if arg.starts_with("-w") => {
                 options.check_chars = Some(arg[2..].parse()
-                    .map_err(|_| ShellError::runtime("Invalid character count"))?);
+                    .map_err(|_| runtime_error("Invalid character count"))?);
             }
             _ if arg.starts_with("-") => {
                 // Handle combined short options
@@ -143,7 +176,7 @@ fn parse_uniq_args(args: &[String]) -> ShellResult<UniqOptions> {
                         'u' => options.unique = true,
                         'i' => options.ignore_case = true,
                         'z' => options.zero_terminated = true,
-                        _ => return Err(ShellError::runtime(format!("Unknown option: -{}", ch))),
+                        _ => return Err(runtime_error(&format!("Unknown option: -{}", ch))),
                     }
                 }
             }
@@ -154,7 +187,7 @@ fn parse_uniq_args(args: &[String]) -> ShellResult<UniqOptions> {
                 } else if options.output_file.is_none() {
                     options.output_file = Some(arg.clone());
                 } else {
-                    return Err(ShellError::runtime("Too many arguments"));
+                    return Err(runtime_error("Too many arguments"));
                 }
             }
         }
@@ -170,7 +203,7 @@ fn process_uniq(options: &UniqOptions) -> ShellResult<()> {
     // Open input
     let input: Box<dyn BufRead> = if let Some(ref input_file) = options.input_file {
         let file = File::open(input_file)
-            .map_err(|e| ShellError::io(format!("Cannot open {}: {}", input_file, e)))?;
+            .map_err(|e| io_error(&format!("Cannot open {}: {}", input_file, e)))?;
         Box::new(BufReader::new(file))
     } else {
         Box::new(std::io::stdin().lock())
@@ -179,13 +212,13 @@ fn process_uniq(options: &UniqOptions) -> ShellResult<()> {
     // Open output
     let output: Box<dyn Write> = if let Some(ref output_file) = options.output_file {
         let file = File::create(output_file)
-            .map_err(|e| ShellError::io(format!("Cannot create {}: {}", output_file, e)))?;
+            .map_err(|e| io_error(&format!("Cannot create {}: {}", output_file, e)))?;
         Box::new(BufWriter::new(file))
     } else {
         Box::new(std::io::stdout())
     };
 
-    process_uniq_stream(input, output, options, separator[0])?;
+    process_uniq_stream(input, output, options, separator)?;
     Ok(())
 }
 

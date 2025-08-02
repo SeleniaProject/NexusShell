@@ -1,4 +1,4 @@
-//! `unalias` builtin – remove aliases.
+//! `unalias` builtin  Eremove aliases.
 //! Usage:
 //!   unalias NAME ...  # remove specified aliases
 //!   unalias -a        # remove all aliases
@@ -11,11 +11,15 @@ pub fn unalias_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
         return Err(anyhow!("unalias: missing arguments"));
     }
     if args[0] == "-a" {
-        ctx.aliases.clear();
+        if let Ok(mut aliases_guard) = ctx.aliases.write() {
+            aliases_guard.clear();
+        }
         return Ok(());
     }
     for name in args {
-        ctx.aliases.remove(name);
+        if let Ok(mut aliases_guard) = ctx.aliases.write() {
+            aliases_guard.remove(name);
+        }
     }
     Ok(())
 }

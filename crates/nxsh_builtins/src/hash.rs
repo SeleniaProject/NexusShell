@@ -1,4 +1,4 @@
-//! `hash` builtin – command lookup cache management.
+//! `hash` builtin  Ecommand lookup cache management.
 //! Supported subset of Bash options:
 //!   hash                 # list current cache entries
 //!   hash CMD [...]       # search PATH for each CMD and cache its location
@@ -45,7 +45,7 @@ fn lookup_path(cmd: &str) -> Option<PathBuf> {
     if let Some(path) = CACHE.lock().unwrap().get(cmd) {
         return Some(path.clone());
     }
-    // Absolute or relative path with slash – take as is
+    // Absolute or relative path with slash  Etake as is
     if cmd.contains('/') || cmd.contains('\\') {
         let p = PathBuf::from(cmd);
         if p.is_file() { return Some(p); }

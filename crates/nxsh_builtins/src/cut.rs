@@ -1,4 +1,4 @@
-//! `cut` command – column extraction utility.
+//! `cut` command  Ecolumn extraction utility.
 //!
 //! Supported subset (field mode only):
 //!   cut -f LIST [-d DELIM] [FILE...]

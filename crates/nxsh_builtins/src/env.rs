@@ -1,4 +1,4 @@
-//! `env` builtin — display or modify environment variables.
+//! `env` builtin  Edisplay or modify environment variables.
 //!
 //! Usage:
 //!   env                 # list all env vars in KEY=VAL format

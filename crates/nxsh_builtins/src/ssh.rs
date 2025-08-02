@@ -1,4 +1,4 @@
-//! `ssh` builtin — secure shell client wrapper.
+//! `ssh` builtin  Esecure shell client wrapper.
 //!
 //! NexusShell intentionally leverages the platform-native OpenSSH client for
 //! full protocol compatibility, advanced crypto support, and decades of battle

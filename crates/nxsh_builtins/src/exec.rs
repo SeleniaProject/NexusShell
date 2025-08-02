@@ -1,4 +1,4 @@
-//! `exec` builtin – replace the current shell process with the specified command.
+//! `exec` builtin  Ereplace the current shell process with the specified command.
 //! Usage: `exec CMD [ARGS...]`
 //! On Unix this calls `nix::unistd::execvp`. On Windows it spawns the process
 //! and exits with its status (best-effort emulation).

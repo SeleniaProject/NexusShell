@@ -1,4 +1,4 @@
-//! `rmdir` command – comprehensive empty directory removal implementation.
+//! `rmdir` command  Ecomprehensive empty directory removal implementation.
 //!
 //! Supports complete rmdir functionality:
 //!   rmdir [OPTIONS] DIRECTORY...

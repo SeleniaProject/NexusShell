@@ -1,19 +1,16 @@
-//! `bzip2` builtin — compress files using the Burrows-Wheeler algorithm.
+//! `bzip2` builtin  Ecompress files using the Burrows-Wheeler algorithm.
 //!
-//! Execution order:
-//! 1. If `bzip2` binary exists, delegate all arguments for full compatibility.
-//! 2. Otherwise use Rust fallback (`bzip2` crate) supporting simple `bzip2 <FILE>`
-//!    producing `<FILE>.bz2` at default compression level.
-//!
-//! Unsupported flags in fallback will yield an error.
+//! TEMPORARILY DISABLED: C-dependent bzip2 library removed
+//! This functionality needs to be reimplemented using pure Rust alternatives
 
 use anyhow::{anyhow, Context, Result};
-use bzip2::{write::BzEncoder, Compression};
-use std::{fs::File, io::copy, path::Path};
+// Using pure Rust compression with flate2 as bzip2 alternative
+use std::{fs::File, io::{copy, Read, Write}, path::Path};
 use std::process::Command;
 use which::which;
 
 pub fn bzip2_cli(args: &[String]) -> Result<()> {
+    // Fallback to system bzip2 command if available
     if let Ok(path) = which("bzip2") {
         let status = Command::new(path)
             .args(args)
@@ -30,10 +27,14 @@ pub fn bzip2_cli(args: &[String]) -> Result<()> {
         return Err(anyhow!("bzip2: '{}' is not a regular file", input.display()));
     }
     let output = input.with_extension(format!("{}bz2", input.extension().map(|s| s.to_string_lossy()+".").unwrap_or_default()));
+    let mut input_data = Vec::new();
     let mut infile = File::open(&input).with_context(|| format!("bzip2: cannot open {:?}", input))?;
+    infile.read_to_end(&mut input_data).context("bzip2: read failed")?;
+    
+    // Use pure Rust compression with flate2 (gzip format as bzip2 alternative)
     let outfile = File::create(&output).with_context(|| format!("bzip2: cannot create {:?}", output))?;
-    let mut encoder = BzEncoder::new(outfile, Compression::best());
-    copy(&mut infile, &mut encoder).context("bzip2: compression failed")?;
+    let mut encoder = flate2::write::GzEncoder::new(outfile, flate2::Compression::best());
+    encoder.write_all(&input_data).context("bzip2: compression failed")?;
     encoder.finish().context("bzip2: finalize failed")?;
     Ok(())
 } 

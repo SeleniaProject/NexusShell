@@ -4,14 +4,35 @@
 
 use crate::common::{i18n::*, logging::*};
 use std::io::Write;
+use anyhow::Result;
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult};
+use nxsh_core::{Context, ExecutionResult, ShellResult, ShellError, ErrorKind};
+use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
 use crate::builtin::Builtin;
 use regex::Regex;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
+/// Convenience function for the awk command
+pub fn awk_cli(args: &[String], ctx: &mut nxsh_core::Context) -> anyhow::Result<()> {
+    let builtin = AwkBuiltin;
+    let result = builtin.invoke(ctx)?;
+    if result.exit_code != 0 {
+        return Err(anyhow::anyhow!("Awk command failed with exit code {}", result.exit_code));
+    }
+    Ok(())
+}
+
 pub struct AwkBuiltin;
+
+impl AwkBuiltin {
+    pub fn execute(&self, ctx: &mut nxsh_core::Context, args: Vec<String>) -> Result<ExecutionResult, ShellError> {
+        match awk_cli(&args, ctx) {
+            Ok(()) => Ok(ExecutionResult::success(0)),
+            Err(e) => Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound), e.to_string())),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct AwkOptions {
@@ -100,16 +121,25 @@ pub enum AwkValue {
 }
 
 impl Builtin for AwkBuiltin {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "awk"
     }
 
-    fn execute(&self, context: &mut Context, args: Vec<String>) -> ShellResult<i32> {
-        let options = parse_awk_args(&args)?;
+    fn synopsis(&self) -> &'static str {
+        "pattern scanning and data extraction language"
+    }
+
+    fn description(&self) -> &'static str {
+        "AWK programming language implementation for pattern scanning and data extraction"
+    }
+
+    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
+        let args = &ctx.args;
+        let options = parse_awk_args(args)?;
         
         let program = if let Some(ref file) = options.program_file {
             std::fs::read_to_string(file)
-                .map_err(|e| ShellError::io(format!("Cannot read program file {}: {}", file, e)))?
+                .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::FileReadError), format!("Cannot read program file {}: {}", file, e)))?
         } else {
             options.program.clone()
         };
@@ -131,7 +161,7 @@ impl Builtin for AwkBuiltin {
                 awk_context.filename = file_path.clone();
                 
                 let file = File::open(file_path)
-                    .map_err(|e| ShellError::io(format!("Cannot open {}: {}", file_path, e)))?;
+                    .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::FileReadError), format!("Cannot open {}: {}", file_path, e)))?;
                 process_awk_stream(&mut BufReader::new(file), &parsed_program, &mut awk_context, file_path)?;
             }
         }
@@ -141,10 +171,17 @@ impl Builtin for AwkBuiltin {
             execute_awk_action(action, &mut awk_context)?;
         }
 
-        Ok(0)
+        Ok(ExecutionResult {
+            exit_code: 0,
+            output: None,
+            error: None,
+            duration: std::time::Duration::from_secs(0),
+            pid: None,
+            job_id: None,
+        })
     }
 
-    fn help(&self) -> &str {
+    fn usage(&self) -> &'static str {
         "awk - pattern scanning and data extraction language
 
 USAGE:
@@ -283,7 +320,7 @@ fn parse_awk_args(args: &[String]) -> ShellResult<AwkOptions> {
         if arg == "-F" || arg == "--field-separator" {
             i += 1;
             if i >= args.len() {
-                return Err(ShellError::runtime("Option -F requires an argument"));
+                return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "Option -F requires an argument".to_string()));
             }
             options.field_separator = args[i].clone();
         } else if arg.starts_with("-F") {
@@ -291,13 +328,13 @@ fn parse_awk_args(args: &[String]) -> ShellResult<AwkOptions> {
         } else if arg == "-f" || arg == "--file" {
             i += 1;
             if i >= args.len() {
-                return Err(ShellError::runtime("Option -f requires an argument"));
+                return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "Option -f requires an argument".to_string()));
             }
             options.program_file = Some(args[i].clone());
         } else if arg == "-v" || arg == "--assign" {
             i += 1;
             if i >= args.len() {
-                return Err(ShellError::runtime("Option -v requires an argument"));
+                return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "Option -v requires an argument".to_string()));
             }
             let assignment = &args[i];
             if let Some(eq_pos) = assignment.find('=') {
@@ -305,7 +342,7 @@ fn parse_awk_args(args: &[String]) -> ShellResult<AwkOptions> {
                 let var_value = assignment[eq_pos + 1..].to_string();
                 options.variables.insert(var_name, var_value);
             } else {
-                return Err(ShellError::runtime("Invalid variable assignment format"));
+                return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "Invalid variable assignment format".to_string()));
             }
         } else if arg.starts_with("-v") {
             let assignment = &arg[2..];
@@ -315,9 +352,9 @@ fn parse_awk_args(args: &[String]) -> ShellResult<AwkOptions> {
                 options.variables.insert(var_name, var_value);
             }
         } else if arg == "--help" {
-            return Err(ShellError::runtime("Help requested"));
+            return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "Help requested".to_string()));
         } else if arg.starts_with("-") {
-            return Err(ShellError::runtime(format!("Unknown option: {}", arg)));
+            return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Unknown option: {}", arg)));
         } else {
             // First non-option argument is program if no -f was used
             if options.program.is_empty() && options.program_file.is_none() {
@@ -330,7 +367,7 @@ fn parse_awk_args(args: &[String]) -> ShellResult<AwkOptions> {
     }
 
     if options.program.is_empty() && options.program_file.is_none() {
-        return Err(ShellError::runtime("No program provided"));
+        return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "No program provided".to_string()));
     }
 
     Ok(options)
@@ -536,4 +573,6 @@ fn awk_value_to_string(value: &AwkValue) -> String {
             }
         }
     }
-} 
+}
+
+ 

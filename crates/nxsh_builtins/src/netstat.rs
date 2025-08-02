@@ -1,4 +1,4 @@
-//! `netstat` builtin — socket status overview.
+//! `netstat` builtin  Esocket status overview.
 //!
 //! Delegates to the platform's `netstat` (or equivalent) command. On many
 //! modern Linux distributions `ss` replaces `netstat`; therefore, if `netstat`

@@ -1,4 +1,4 @@
-//! `sleep` builtin – world-class high-precision sleep command with advanced features.
+//! `sleep` builtin  Eworld-class high-precision sleep command with advanced features.
 //!
 //! This implementation provides complete sleep functionality with professional features:
 //! - High-precision sleep with nanosecond accuracy using spin-sleep technique
@@ -38,7 +38,7 @@ use std::{
 };
 use tokio::{
     signal,
-    sync::{broadcast, mpsc},
+    sync::{broadcast},
     time::{sleep as async_sleep, sleep_until, interval, MissedTickBehavior, Interval},
 };
 use crate::common::i18n::I18n;
@@ -330,17 +330,18 @@ impl SleepManager {
         pb.set_style(
             ProgressStyle::default_bar()
                 .template(&format!("{{spinner:.green}} {} [{{wide_bar:.cyan/blue}}] {{pos}}/{{len}}ms ({{eta}})", 
-                    label.as_deref().unwrap_or(&self.i18n.get("sleep.progress.sleeping"))))?
+                    label.as_deref().unwrap_or(&self.i18n.get("sleep.progress.sleeping", None))))?
                 .progress_chars("#>-")
         );
 
         let start = Instant::now();
         let update_interval = Duration::from_millis(PROGRESS_UPDATE_INTERVAL_MS);
-        let mut last_update = Instant::now();
+        let mut last_update = Duration::from_secs(0);
 
         while start.elapsed() < duration {
             if self.interrupt_flag.load(Ordering::Relaxed) {
-                pb.abandon_with_message(&self.i18n.get("sleep.progress.interrupted"));
+                let interrupted_msg = self.i18n.get("sleep.progress.interrupted", None);
+                pb.abandon_with_message(interrupted_msg);
                 break;
             }
 
@@ -354,8 +355,8 @@ impl SleepManager {
             async_sleep(Duration::from_millis(1)).await;
         }
 
-        pb.finish_with_message(&format!("{} ({:?})", 
-            self.i18n.get("sleep.progress.completed"), method));
+        let completed_msg = self.i18n.get("sleep.progress.completed", None);
+        pb.finish_with_message(format!("{} ({:?})", completed_msg, method));
         Ok(())
     }
 
@@ -388,7 +389,7 @@ impl SleepManager {
     async fn send_notification(&self, operation: &SleepOperation) -> Result<()> {
         if let Some(sender) = &self.notification_sender {
             let message = format!("{}: {} ({}ms)", 
-                self.i18n.get("sleep.notification.completed"),
+                self.i18n.get("sleep.notification.completed", None),
                 operation.id,
                 operation.actual_duration.unwrap_or(Duration::ZERO).as_millis()
             );
@@ -407,16 +408,16 @@ impl SleepManager {
     }
 
     pub fn print_statistics(&self) -> Result<()> {
-        println!("\n{}", self.i18n.get("sleep.stats.title"));
+        println!("\n{}", self.i18n.get("sleep.stats.title", None));
         println!("{}", "=".repeat(50));
-        println!("{}: {}", self.i18n.get("sleep.stats.total_operations"), self.statistics.total_operations);
-        println!("{}: {:.3}s", self.i18n.get("sleep.stats.total_time"), self.statistics.total_sleep_time.as_secs_f64());
-        println!("{}: {:.3}ms", self.i18n.get("sleep.stats.avg_error"), self.statistics.average_precision_error.as_secs_f64() * 1000.0);
-        println!("{}: {:.3}ms", self.i18n.get("sleep.stats.max_error"), self.statistics.max_precision_error.as_secs_f64() * 1000.0);
-        println!("{}: {:.3}ms", self.i18n.get("sleep.stats.min_error"), self.statistics.min_precision_error.as_secs_f64() * 1000.0);
-        println!("{}: {}", self.i18n.get("sleep.stats.interrupted"), self.statistics.interrupted_count);
+        println!("{}: {}", self.i18n.get("sleep.stats.total_operations", None), self.statistics.total_operations);
+        println!("{}: {:.3}s", self.i18n.get("sleep.stats.total_time", None), self.statistics.total_sleep_time.as_secs_f64());
+        println!("{}: {:.3}ms", self.i18n.get("sleep.stats.avg_error", None), self.statistics.average_precision_error.as_secs_f64() * 1000.0);
+        println!("{}: {:.3}ms", self.i18n.get("sleep.stats.max_error", None), self.statistics.max_precision_error.as_secs_f64() * 1000.0);
+        println!("{}: {:.3}ms", self.i18n.get("sleep.stats.min_error", None), self.statistics.min_precision_error.as_secs_f64() * 1000.0);
+        println!("{}: {}", self.i18n.get("sleep.stats.interrupted", None), self.statistics.interrupted_count);
         
-        println!("\n{}", self.i18n.get("sleep.stats.method_usage"));
+        println!("\n{}", self.i18n.get("sleep.stats.method_usage", None));
         for (method, count) in &self.statistics.method_usage {
             println!("  {}: {}", method, count);
         }
@@ -505,7 +506,7 @@ pub async fn sleep_cli(args: &[String]) -> Result<()> {
     let mut label = None;
     let mut show_help = false;
     let mut show_stats = false;
-    let i18n = I18n::new("en-US")?; // Default to English, should be configurable
+    let i18n = I18n::new(); // Use default I18n instance
     
     let mut i = 0;
     while i < args.len() {
@@ -569,7 +570,7 @@ pub async fn sleep_cli(args: &[String]) -> Result<()> {
         
         if sleep_manager.config.show_statistics {
             println!("{}: {:.3}ms (error: {:.3}ms)", 
-                sleep_manager.i18n.get("sleep.completed"),
+                sleep_manager.i18n.get("sleep.completed", None),
                 operation.actual_duration.unwrap_or(Duration::ZERO).as_secs_f64() * 1000.0,
                 operation.precision_error.unwrap_or(Duration::ZERO).as_secs_f64() * 1000.0
             );
@@ -585,12 +586,12 @@ pub async fn sleep_cli(args: &[String]) -> Result<()> {
 }
 
 fn print_help(i18n: &I18n) {
-    println!("{}", i18n.get("sleep.help.title"));
+    println!("{}", i18n.get("sleep.help.title", None));
     println!();
-    println!("{}", i18n.get("sleep.help.usage"));
+    println!("{}", i18n.get("sleep.help.usage", None));
     println!("    sleep [OPTIONS] DURATION [DURATION...]");
     println!();
-    println!("{}", i18n.get("sleep.help.duration_formats"));
+    println!("{}", i18n.get("sleep.help.duration_formats", None));
     println!("    5           - 5 seconds");
     println!("    1.5s        - 1.5 seconds");
     println!("    500ms       - 500 milliseconds");
@@ -602,7 +603,7 @@ fn print_help(i18n: &I18n) {
     println!("    2w          - 2 weeks");
     println!("    1y          - 1 year");
     println!();
-    println!("{}", i18n.get("sleep.help.options"));
+    println!("{}", i18n.get("sleep.help.options", None));
     println!("    -h, --help              Show this help message");
     println!("    -p, --progress          Show progress bar with ETA");
     println!("    -s, --statistics        Show sleep statistics and precision metrics");
@@ -614,7 +615,7 @@ fn print_help(i18n: &I18n) {
     println!("    --batch                 Batch mode for multiple operations");
     println!("    -l, --label LABEL       Set custom label for progress display");
     println!();
-    println!("{}", i18n.get("sleep.help.examples"));
+    println!("{}", i18n.get("sleep.help.examples", None));
     println!("    sleep 5                 # Sleep for 5 seconds");
     println!("    sleep --progress 2m     # Sleep 2 minutes with progress bar");
     println!("    sleep --precise 100ms   # High-precision 100ms sleep");

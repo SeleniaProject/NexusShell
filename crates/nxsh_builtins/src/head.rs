@@ -1,4 +1,4 @@
-//! `head` command – comprehensive implementation for outputting the first part of files.
+//! `head` command  Ecomprehensive implementation for outputting the first part of files.
 //!
 //! This implementation provides complete POSIX compliance with GNU extensions:
 //! - Line count mode (-n NUM) - default behavior

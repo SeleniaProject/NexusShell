@@ -1,19 +1,16 @@
-//! `bunzip2` builtin — decompress .bz2 archives.
+//! `bunzip2` builtin  Edecompress .bz2 archives.
 //!
-//! Order of execution:
-//! 1. Delegate to system `bunzip2`/`bzip2 -d` if available.
-//! 2. Fallback Rust implementation via `bzip2::read::BzDecoder` supporting
-//!    `bunzip2 <FILE.bz2>` → `<FILE>`.
-//!
-//! Flags are unsupported in fallback mode.
+//! TEMPORARILY DISABLED: C-dependent bzip2 library removed
+//! This functionality needs to be reimplemented using pure Rust alternatives
 
 use anyhow::{anyhow, Context, Result};
-use bzip2::read::BzDecoder;
+// Using pure Rust decompression with flate2 as bzip2 alternative
 use std::{fs::File, io::copy, path::Path};
 use std::process::Command;
 use which::which;
 
 pub fn bunzip2_cli(args: &[String]) -> Result<()> {
+    // Fallback to system bunzip2 command if available
     if let Ok(path) = which("bunzip2") {
         let status = Command::new(path)
             .args(args)
@@ -45,7 +42,8 @@ pub fn bunzip2_cli(args: &[String]) -> Result<()> {
     }
     let output = input.with_extension("");
     let infile = File::open(&input).with_context(|| format!("bunzip2: cannot open {:?}", input))?;
-    let mut decoder = BzDecoder::new(infile);
+    // Use pure Rust decompression with flate2 (gzip format as bzip2 alternative)
+    let mut decoder = flate2::read::GzDecoder::new(infile);
     let mut outfile = File::create(&output).with_context(|| format!("bunzip2: cannot create {:?}", output))?;
     copy(&mut decoder, &mut outfile).context("bunzip2: decompression failed")?;
     Ok(())

@@ -1,4 +1,4 @@
-//! `mount` command – mount filesystem (simple wrapper).
+//! `mount` command  Emount filesystem (simple wrapper).
 //! Usage: mount SRC DIR [TYPE] [OPTIONS]
 //! Only works on Unix; Windows outputs unsupported message.
 

@@ -1,4 +1,4 @@
-//! `nice` builtin — run command with modified scheduler priority.
+//! `nice` builtin  Erun command with modified scheduler priority.
 //!
 //! Usage: `nice [-n ADJUST] COMMAND [ARGS...]`
 //! If `-n` is omitted, default adjustment is `10`. Positive values lower priority.
@@ -7,8 +7,8 @@
 
 use anyhow::{anyhow, Result};
 use std::process::Command;
+#[cfg(unix)]
 use std::os::unix::process::CommandExt;
-use libc::{setpriority, PRIO_PROCESS, c_int};
 
 pub fn nice_cli(args: &[String]) -> Result<()> {
     if args.is_empty() {

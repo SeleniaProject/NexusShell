@@ -1,4 +1,4 @@
-//! `dig` builtin — detailed DNS query utility.
+//! `dig` builtin  Edetailed DNS query utility.
 //!
 //! Delegates to system `dig` binary if available, forwarding all arguments.
 //! If not found, returns an error.

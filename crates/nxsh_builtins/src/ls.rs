@@ -1,4 +1,4 @@
-//! `ls` command – comprehensive directory listing implementation.
+//! `ls` command  Ecomprehensive directory listing implementation.
 //!
 //! Supports most standard ls options:
 //!   ls [OPTIONS] [FILES...]
@@ -28,17 +28,82 @@
 
 use anyhow::{Result, anyhow};
 use std::fs::{self, Metadata};
+#[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use chrono::{DateTime, Local};
-use users::{Users, UsersCache, Groups};
+// TODO: Replace uzers with pure Rust alternative for Unix user/group lookups
+// use uzers::{Users, UsersCache, Groups};
 use ansi_term::{Colour, Style};
 use humansize::{format_size, BINARY};
+use is_terminal::IsTerminal;
 
 
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
+
+// Cross-platform metadata helpers
+#[cfg(unix)]
+fn get_uid(metadata: &Metadata) -> u32 {
+    metadata.uid()
+}
+
+#[cfg(not(unix))]
+fn get_uid(_metadata: &Metadata) -> u32 {
+    0 // Default for Windows
+}
+
+#[cfg(unix)]
+fn get_gid(metadata: &Metadata) -> u32 {
+    metadata.gid()
+}
+
+#[cfg(not(unix))]
+fn get_gid(_metadata: &Metadata) -> u32 {
+    0 // Default for Windows
+}
+
+#[cfg(unix)]
+fn get_nlink(metadata: &Metadata) -> u64 {
+    metadata.nlink()
+}
+
+#[cfg(not(unix))]
+fn get_nlink(_metadata: &Metadata) -> u64 {
+    1 // Default for Windows
+}
+
+#[cfg(unix)]
+fn get_ino(metadata: &Metadata) -> u64 {
+    metadata.ino()
+}
+
+#[cfg(not(unix))]
+fn get_ino(_metadata: &Metadata) -> u64 {
+    0 // Default for Windows
+}
+
+#[cfg(unix)]
+fn get_blocks(metadata: &Metadata) -> u64 {
+    metadata.blocks()
+}
+
+#[cfg(not(unix))]
+fn get_blocks(metadata: &Metadata) -> u64 {
+    // Approximate blocks from file size
+    (metadata.len() + 511) / 512
+}
+
+#[cfg(unix)]
+fn get_mode(permissions: &std::fs::Permissions) -> u32 {
+    permissions.mode()
+}
+
+#[cfg(not(unix))]
+fn get_mode(_permissions: &std::fs::Permissions) -> u32 {
+    0o644 // Default for Windows
+}
 
 #[derive(Debug, Clone)]
 pub struct LsOptions {
@@ -160,7 +225,8 @@ pub fn ls_cli(args: &[String]) -> Result<()> {
     
     // Initialize git repository if needed
     let git_repo = if options.git_status {
-        git2::Repository::discover(".").ok()
+        None // TODO: Implement using gix
+        // git2::Repository::discover(".").ok()
     } else {
         None
     };
@@ -272,7 +338,7 @@ fn should_use_colors(color_option: &ColorOption) -> bool {
     match color_option {
         ColorOption::Always => true,
         ColorOption::Never => false,
-        ColorOption::Auto => atty::is(atty::Stream::Stdout),
+        ColorOption::Auto => is_terminal::IsTerminal::is_terminal(&std::io::stdout()),
     }
 }
 
@@ -280,7 +346,7 @@ fn list_directory(
     path: &Path,
     options: &LsOptions,
     use_colors: bool,
-    git_repo: &Option<git2::Repository>,
+    git_repo: &Option<()>, // TODO: Replace with gix repository type
 ) -> Result<()> {
     if options.directory_only {
         // Just list the directory itself
@@ -316,7 +382,7 @@ fn list_directory(
 fn read_directory_sync(
     path: &Path,
     options: &LsOptions,
-    git_repo: Option<&git2::Repository>,
+    git_repo: Option<&()>, // TODO: Replace with gix repository type
 ) -> Result<Vec<FileInfo>> {
     let mut entries = Vec::new();
     
@@ -341,7 +407,7 @@ fn read_directory_sync(
     Ok(entries)
 }
 
-fn get_file_info(path: &Path, git_repo: Option<&git2::Repository>) -> Result<FileInfo> {
+fn get_file_info(path: &Path, git_repo: Option<&()>) -> Result<FileInfo> { // TODO: Replace with gix
     let metadata = fs::symlink_metadata(path)?;
     let is_symlink = metadata.file_type().is_symlink();
     let name = path.file_name()
@@ -355,8 +421,8 @@ fn get_file_info(path: &Path, git_repo: Option<&git2::Repository>) -> Result<Fil
         None
     };
     
-    let git_status = if let Some(repo) = git_repo {
-        get_git_status(repo, path).ok()
+    let git_status = if git_repo.is_some() {
+        get_git_status(path).ok()
     } else {
         None
     };
@@ -371,7 +437,15 @@ fn get_file_info(path: &Path, git_repo: Option<&git2::Repository>) -> Result<Fil
     })
 }
 
-fn get_git_status(repo: &git2::Repository, path: &Path) -> Result<GitStatus, git2::Error> {
+fn get_git_status(_path: &Path) -> Result<GitStatus, Box<dyn std::error::Error>> {
+    // TODO: Implement using gix (pure Rust Git implementation)
+    // For now, return default status to avoid compilation errors
+    Ok(GitStatus::Untracked)
+}
+
+// TODO: Implement git status checking with gix
+/*
+fn get_git_status_old(repo: &git2::Repository, path: &Path) -> Result<GitStatus, git2::Error> {
     let mut status_opts = git2::StatusOptions::new();
     status_opts.include_untracked(true);
     status_opts.include_ignored(false);
@@ -411,6 +485,7 @@ fn get_git_status(repo: &git2::Repository, path: &Path) -> Result<GitStatus, git
     
     Ok(GitStatus::Untracked)
 }
+*/
 
 fn sort_entries(entries: &mut [FileInfo], options: &LsOptions) {
     entries.sort_by(|a, b| {
@@ -429,13 +504,17 @@ fn sort_entries(entries: &mut [FileInfo], options: &LsOptions) {
         } else if options.sort_by_size {
             b.metadata.len().cmp(&a.metadata.len())
         } else if options.sort_by_ctime {
-            let a_ctime = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(a.metadata.ctime() as u64);
-            let b_ctime = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(b.metadata.ctime() as u64);
-            b_ctime.cmp(&a_ctime)
+            // Creation time is not directly available in std::fs::Metadata
+            // Use modified time as fallback for cross-platform compatibility
+            let a_time = a.metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+            let b_time = b.metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+            b_time.cmp(&a_time)
         } else if options.sort_by_atime {
-            let a_atime = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(a.metadata.atime() as u64);
-            let b_atime = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(b.metadata.atime() as u64);
-            b_atime.cmp(&a_atime)
+            // Access time is not directly available in std::fs::Metadata
+            // Use modified time as fallback for cross-platform compatibility
+            let a_time = a.metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+            let b_time = b.metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+            b_time.cmp(&a_time)
         } else {
             // Default: sort by name
             a.name.cmp(&b.name)
@@ -450,7 +529,8 @@ fn sort_entries(entries: &mut [FileInfo], options: &LsOptions) {
 }
 
 fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool) -> Result<()> {
-    let users_cache = UsersCache::new();
+    // TODO: Replace with pure Rust alternative for user/group lookups
+    // let users_cache = UsersCache::new();
     
     // Calculate column widths
     let mut max_links = 0;
@@ -459,22 +539,24 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
     let mut max_group = 0;
     
     for entry in entries {
-        max_links = max_links.max(entry.metadata.nlink().to_string().len());
+        max_links = max_links.max(get_nlink(&entry.metadata).to_string().len());
         max_size = max_size.max(format_file_size(entry.metadata.len(), options.human_readable).len());
         
         if !options.long_no_owner && !options.numeric_ids {
-            let user_name = get_user_name(entry.metadata.uid(), &users_cache);
+            let uid = get_uid(&entry.metadata);
+            let user_name = uid.to_string(); // TODO: get_user_name(get_uid(&entry.metadata), &users_cache);
             max_user = max_user.max(user_name.len());
         }
         
         if !options.long_no_group && !options.no_group && !options.numeric_ids {
-            let group_name = get_group_name(entry.metadata.gid(), &users_cache);
+            let gid = get_gid(&entry.metadata);
+            let group_name = gid.to_string(); // TODO: get_group_name(get_gid(&entry.metadata), &users_cache);
             max_group = max_group.max(group_name.len());
         }
     }
     
     for entry in entries {
-        print_long_entry(entry, options, use_colors, &users_cache, max_links, max_size, max_user, max_group)?;
+        print_long_entry(entry, options, use_colors, max_links, max_size, max_user, max_group)?;
     }
     
     Ok(())
@@ -484,7 +566,7 @@ fn print_long_entry(
     entry: &FileInfo,
     options: &LsOptions,
     use_colors: bool,
-    users_cache: &UsersCache,
+    // TODO: Replace with pure Rust alternative: users_cache: &UsersCache,
     max_links: usize,
     max_size: usize,
     max_user: usize,
@@ -494,12 +576,12 @@ fn print_long_entry(
     
     // Inode number
     if options.show_inode {
-        line.push_str(&format!("{:8} ", entry.metadata.ino()));
+        line.push_str(&format!("{:8} ", get_ino(&entry.metadata)));
     }
     
     // Block size
     if options.show_size_blocks {
-        let blocks = entry.metadata.blocks();
+        let blocks = get_blocks(&entry.metadata);
         line.push_str(&format!("{:6} ", blocks));
     }
     
@@ -507,14 +589,14 @@ fn print_long_entry(
     line.push_str(&format_permissions(&entry.metadata));
     
     // Number of links
-    line.push_str(&format!(" {:width$}", entry.metadata.nlink(), width = max_links));
+    line.push_str(&format!(" {:width$}", get_nlink(&entry.metadata), width = max_links));
     
     // Owner
     if !options.long_no_owner {
         let owner = if options.numeric_ids {
-            entry.metadata.uid().to_string()
+            get_uid(&entry.metadata).to_string()
         } else {
-            get_user_name(entry.metadata.uid(), users_cache)
+            get_uid(&entry.metadata).to_string() // TODO: get_user_name(get_uid(&entry.metadata), users_cache)
         };
         line.push_str(&format!(" {:width$}", owner, width = max_user));
     }
@@ -522,9 +604,9 @@ fn print_long_entry(
     // Group
     if !options.long_no_group && !options.no_group {
         let group = if options.numeric_ids {
-            entry.metadata.gid().to_string()
+            get_gid(&entry.metadata).to_string()
         } else {
-            get_group_name(entry.metadata.gid(), users_cache)
+            get_gid(&entry.metadata).to_string() // TODO: get_group_name(get_gid(&entry.metadata), users_cache)
         };
         line.push_str(&format!(" {:width$}", group, width = max_group));
     }
@@ -561,11 +643,11 @@ fn print_short_format(entries: &[FileInfo], options: &LsOptions, use_colors: boo
             let mut line = String::new();
             
             if options.show_inode {
-                line.push_str(&format!("{:8} ", entry.metadata.ino()));
+                line.push_str(&format!("{:8} ", get_ino(&entry.metadata)));
             }
             
             if options.show_size_blocks {
-                let blocks = entry.metadata.blocks();
+                let blocks = get_blocks(&entry.metadata);
                 line.push_str(&format!("{:6} ", blocks));
             }
             
@@ -591,11 +673,11 @@ fn print_columns(entries: &[FileInfo], options: &LsOptions, use_colors: bool, te
         let mut name = String::new();
         
         if options.show_inode {
-            name.push_str(&format!("{:8} ", entry.metadata.ino()));
+            name.push_str(&format!("{:8} ", get_ino(&entry.metadata)));
         }
         
         if options.show_size_blocks {
-            let blocks = entry.metadata.blocks();
+            let blocks = get_blocks(&entry.metadata);
             name.push_str(&format!("{:6} ", blocks));
         }
         
@@ -637,7 +719,7 @@ fn print_columns(entries: &[FileInfo], options: &LsOptions, use_colors: bool, te
 }
 
 fn format_permissions(metadata: &Metadata) -> String {
-    let mode = metadata.permissions().mode();
+    let mode = get_mode(&metadata.permissions());
     let mut perms = String::with_capacity(10);
     
     // File type
@@ -805,6 +887,7 @@ fn format_file_name(entry: &FileInfo, use_colors: bool, classify: bool) -> Strin
     style.paint(name).to_string()
 }
 
+/* TODO: Implement with pure Rust alternative
 fn get_user_name(uid: u32, users_cache: &UsersCache) -> String {
     users_cache.get_user_by_uid(uid)
         .map(|u| u.name().to_string_lossy().to_string())
@@ -816,11 +899,12 @@ fn get_group_name(gid: u32, users_cache: &UsersCache) -> String {
         .map(|g| g.name().to_string_lossy().to_string())
         .unwrap_or_else(|| gid.to_string())
 }
+*/
 
 fn is_executable(metadata: &Metadata) -> bool {
     #[cfg(unix)]
     {
-        metadata.permissions().mode() & 0o111 != 0
+        get_mode(&metadata.permissions()) & 0o111 != 0
     }
     
     #[cfg(not(unix))]

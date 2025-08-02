@@ -1,4 +1,4 @@
-//! `join` command – combine two text files on a common field (relational join).
+//! `join` command  Ecombine two text files on a common field (relational join).
 //!
 //! Minimal subset implemented:
 //!   join FILE1 FILE2

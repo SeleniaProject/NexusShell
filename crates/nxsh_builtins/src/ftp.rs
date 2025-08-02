@@ -1,4 +1,4 @@
-//! `ftp` builtin — interactive file transfer client.
+//! `ftp` builtin  Einteractive file transfer client.
 //!
 //! NexusShell delegates all FTP functionality to existing mature clients
 //! instead of re-implementing the protocol. The builtin examines the PATH for

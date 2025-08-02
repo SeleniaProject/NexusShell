@@ -1,4 +1,4 @@
-//! `fgrep` command – fixed-string search.
+//! `fgrep` command  Efixed-string search.
 //! Usage: fgrep PATTERN [FILE...]
 //! It escapes all regex meta characters and forwards to the `grep` builtin.
 

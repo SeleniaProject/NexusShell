@@ -1,4 +1,4 @@
-//! `paste` command – horizontal file merging.
+//! `paste` command  Ehorizontal file merging.
 //!
 //! Supported subset:
 //!   paste [-d DELIM] FILE...

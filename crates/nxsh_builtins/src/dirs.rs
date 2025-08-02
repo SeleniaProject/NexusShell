@@ -1,4 +1,4 @@
-//! `dirs` builtin – display contents of directory stack.
+//! `dirs` builtin  Edisplay contents of directory stack.
 //! Currently supports basic usage: `dirs` prints stack from most-recent to oldest.
 //! Options `-c` (clear), `-l` (long path) are stubbed for future expansion.
 

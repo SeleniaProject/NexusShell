@@ -1,4 +1,4 @@
-//! `7z` builtin — multi-format archive tool (7-Zip).
+//! `7z` builtin  Emulti-format archive tool (7-Zip).
 //!
 //! Delegates to system `7z`/`7zr`/`7za` binaries for full functionality.
 //! If none are found, returns error (no lightweight fallback provided).

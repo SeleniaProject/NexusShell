@@ -1,4 +1,4 @@
-//! `telnet` builtin — simple TCP debugging client.
+//! `telnet` builtin  Esimple TCP debugging client.
 //!
 //! This builtin forwards execution to the platform's `telnet` binary when
 //! available. If `telnet` is missing but `ncat` (from Nmap) is installed, we

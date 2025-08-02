@@ -1,12 +1,12 @@
-//! `read` builtin – read a line from standard input into variable.
+//! `read` builtin  Eread a line from standard input into variable.
 //! Usage: read [-r] VAR
 //!   -r : do not treat backslash as escape, raw read (default raw)
 //!
 //! If VAR is omitted, read into variable `REPLY`.
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use nxsh_core::context::ShellContext;
-use std::io::{self, Read};
+use std::io;
 
 pub fn read_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
     let mut raw = true; // default raw (bash uses -r to disable escapes but we ignore escapes anyway)

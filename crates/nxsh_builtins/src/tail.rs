@@ -1,4 +1,4 @@
-//! `tail` command – comprehensive implementation for outputting the last part of files.
+//! `tail` command  Ecomprehensive implementation for outputting the last part of files.
 //!
 //! This implementation provides complete POSIX compliance with GNU extensions:
 //! - Line count mode (-n NUM) - default behavior
@@ -304,7 +304,7 @@ fn tail_lines_reader<R: BufRead>(mut reader: Box<R>, options: &TailOptions) -> R
             if buffer.len() == options.count {
                 buffer.pop_front();
             }
-            buffer.push_back(line.clone());
+            buffer.push_back(line.as_bytes().to_vec());
             line.clear();
         }
     }
@@ -317,8 +317,8 @@ fn tail_lines_reader<R: BufRead>(mut reader: Box<R>, options: &TailOptions) -> R
             handle.write_all(&line_bytes)?;
         }
     } else {
-        for line in buffer {
-            handle.write_all(line.as_bytes())?;
+        for line_bytes in buffer {
+            handle.write_all(&line_bytes)?;
         }
     }
     

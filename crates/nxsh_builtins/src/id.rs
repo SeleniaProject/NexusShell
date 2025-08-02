@@ -1,19 +1,37 @@
-//! `id` builtin — print user and group IDs.
+//! `id` builtin  Eprint user and group IDs.
 //!
-//! Output format similar to GNU `id`:
-//!   uid=1000(alice) gid=1000(alice) groups=1000(alice),27(sudo)
-//! Name lookup via `sysinfo` user list where available; otherwise numeric only.
+//! TEMPORARILY DISABLED: Unix-specific user/group functionality requires platform-specific implementation
+//! Windows implementation will use alternative methods
 
 use anyhow::{anyhow, Result};
-use users::{Users, UsersCache, get_user_by_uid, get_group_by_gid, get_current_uid, get_current_gid, get_effective_uid, get_effective_gid};
+
+// Platform-specific imports
 #[cfg(unix)]
-use libc::{getgid, getgroups, getuid};
+// Removed uzers dependency - using alternative user management methods
+// use uzers::{Users, UsersCache, get_user_by_uid, get_group_by_gid, get_current_uid, get_current_gid, get_effective_uid, get_effective_gid};
+#[cfg(unix)]
+use nix::libc::{getgid, getgroups, getuid};
+
+#[cfg(windows)]
+use whoami;
 
 pub fn id_cli(args: &[String]) -> Result<()> {
+    #[cfg(unix)]
+    {
+        unix_id_impl(args)
+    }
+    #[cfg(windows)]
+    {
+        windows_id_impl(args)
+    }
+}
+
+#[cfg(unix)]
+fn unix_id_impl(args: &[String]) -> Result<()> {
     let uid = get_current_uid();
     let gid = get_current_gid();
-    let euid = get_effective_uid();
-    let egid = get_effective_gid();
+    let _euid = get_effective_uid();
+    let _egid = get_effective_gid();
     
     if args.is_empty() {
         // Default: show uid, gid, and groups
@@ -28,7 +46,6 @@ pub fn id_cli(args: &[String]) -> Result<()> {
         print!("uid={}({}) gid={}({})", uid, user_name, gid, group_name);
         
         // Show supplementary groups
-        #[cfg(unix)]
         unsafe {
             let mut groups = vec![0u32; 64];
             let n = getgroups(groups.len() as i32, groups.as_mut_ptr());
@@ -67,7 +84,31 @@ pub fn id_cli(args: &[String]) -> Result<()> {
                         .unwrap_or_else(|| gid.to_string());
                     println!("{}", group_name);
                 }
-                _ => {}
+                _ => return Err(anyhow!("Unknown option: {}", arg)),
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn windows_id_impl(args: &[String]) -> Result<()> {
+    let username = whoami::username();
+    
+    if args.is_empty() {
+        // Default: show user info (Windows doesn't have traditional Unix uid/gid)
+        println!("user={} domain={}", username, whoami::hostname());
+    } else {
+        // Handle command line options  
+        for arg in args {
+            match arg.as_str() {
+                "-u" | "--user" => {
+                    println!("{}", username);
+                }
+                "-g" | "--group" => {
+                    println!("Users"); // Default group for Windows
+                }
+                _ => return Err(anyhow!("Unknown option: {}", arg)),
             }
         }
     }

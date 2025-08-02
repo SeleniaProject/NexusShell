@@ -7,7 +7,8 @@
 use crate::common::{i18n::*, logging::*};
 use std::io::Write;
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult};
+use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError, ErrorKind, StreamData};
+use nxsh_core::error::{RuntimeErrorKind, IoErrorKind, InternalErrorKind};
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -47,14 +48,14 @@ impl Builtin for CdCommand {
                 "-P" => follow_symlinks = false,
                 arg if arg.starts_with('-') => {
                     return Err(ShellError::new(
-                        ErrorKind::InvalidArgument,
+                        ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
                         format!("cd: invalid option: {}", arg)
                     ));
                 }
                 arg => {
                     if target_dir.is_some() {
                         return Err(ShellError::new(
-                            ErrorKind::InvalidArgument,
+                            ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
                             "cd: too many arguments"
                         ));
                     }
@@ -70,7 +71,7 @@ impl Builtin for CdCommand {
             None => {
                 // No argument - go to HOME directory
                 ctx.env.get_var("HOME")
-                    .ok_or_else(|| ShellError::new(ErrorKind::RuntimeError, "cd: HOME not set"))?
+                    .ok_or_else(|| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::VariableNotFound), "cd: HOME not set"))?
             }
         };
 
@@ -79,7 +80,7 @@ impl Builtin for CdCommand {
             "-" => {
                 // Go to previous directory (stored in OLDPWD)
                 let oldpwd = ctx.env.get_var("OLDPWD")
-                    .ok_or_else(|| ShellError::new(ErrorKind::RuntimeError, "cd: OLDPWD not set"))?;
+                    .ok_or_else(|| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::VariableNotFound), "cd: OLDPWD not set"))?;
                 
                 // Print the directory we're changing to (bash behavior)
                 println!("{}", oldpwd);
@@ -90,7 +91,7 @@ impl Builtin for CdCommand {
 
         // Save current directory as OLDPWD
         let current_dir = env::current_dir()
-            .map_err(|e| ShellError::new(ErrorKind::IoError, format!("Failed to get current directory: {}", e)))?;
+            .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::PermissionError), format!("Failed to get current directory: {}", e)))?;
         
         // Change to the target directory
         let new_path = PathBuf::from(&resolved_target);
@@ -102,7 +103,7 @@ impl Builtin for CdCommand {
 
         // Actually change directory
         env::set_current_dir(&canonical_path)
-            .map_err(|e| ShellError::new(ErrorKind::IoError, format!("cd: {}: {}", resolved_target, e)))?;
+            .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::NotFound), format!("cd: {}: {}", resolved_target, e)))?;
 
         // Update shell context
         ctx.set_cwd(canonical_path.clone())?;
@@ -138,7 +139,7 @@ impl CdCommand {
 
         // Try current directory first
         let current_attempt = env::current_dir()
-            .map_err(|e| ShellError::new(ErrorKind::IoError, format!("Failed to get current directory: {}", e)))?
+            .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::PermissionError), format!("Failed to get current directory: {}", e)))?
             .join(target);
         
         if current_attempt.exists() {
@@ -162,7 +163,7 @@ impl CdCommand {
     /// Canonicalize path (resolve symlinks)
     fn canonicalize_path(&self, path: &Path) -> ShellResult<PathBuf> {
         path.canonicalize()
-            .map_err(|e| ShellError::new(ErrorKind::IoError, format!("cd: {}: {}", path.display(), e)))
+            .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::NotFound), format!("cd: {}: {}", path.display(), e)))
     }
 
     /// Resolve path without following symlinks
@@ -171,7 +172,7 @@ impl CdCommand {
             PathBuf::from("/")
         } else {
             env::current_dir()
-                .map_err(|e| ShellError::new(ErrorKind::IoError, format!("Failed to get current directory: {}", e)))?
+                .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::PermissionError), format!("Failed to get current directory: {}", e)))?
         };
 
         for component in path.components() {
@@ -198,14 +199,14 @@ impl CdCommand {
         // Verify the path exists
         if !result.exists() {
             return Err(ShellError::new(
-                ErrorKind::IoError,
+                ErrorKind::IoError(IoErrorKind::NotFound),
                 format!("cd: {}: No such file or directory", path.display())
             ));
         }
 
         if !result.is_dir() {
             return Err(ShellError::new(
-                ErrorKind::IoError,
+                ErrorKind::IoError(IoErrorKind::InvalidData),
                 format!("cd: {}: Not a directory", path.display())
             ));
         }
@@ -242,7 +243,7 @@ impl CdCommand {
     /// Get the logical current directory (following symlinks)
     pub fn get_logical_pwd() -> ShellResult<PathBuf> {
         env::current_dir()
-            .map_err(|e| ShellError::new(ErrorKind::IoError, format!("Failed to get current directory: {}", e)))
+            .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::PermissionError), format!("Failed to get current directory: {}", e)))
     }
 
     /// Get the physical current directory (without following symlinks)
@@ -250,7 +251,7 @@ impl CdCommand {
         // This is more complex to implement properly and would require
         // tracking the path without resolving symlinks
         env::current_dir()
-            .map_err(|e| ShellError::new(ErrorKind::IoError, format!("Failed to get current directory: {}", e)))
+            .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::PermissionError), format!("Failed to get current directory: {}", e)))
     }
 }
 
@@ -278,7 +279,7 @@ pub fn cd_cli(args: &[String], ctx: &mut nxsh_core::context::ShellContext) -> Sh
     if result.is_success() {
         Ok(())
     } else {
-        Err(ShellError::new(ErrorKind::RuntimeError, format!("cd failed with exit code {}", result.exit_code)))
+        Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound), format!("cd failed with exit code {}", result.exit_code)))
     }
 }
 
@@ -335,5 +336,15 @@ mod tests {
         
         assert!(result.is_ok());
         assert_eq!(env::current_dir().unwrap(), temp_dir2.path());
+    }
+}
+
+/// Convenience function for the cd command
+pub fn cd(args: &[String], ctx: &mut nxsh_core::Context) -> anyhow::Result<()> {
+    let command = CdCommand;
+    let result = command.invoke(ctx)?;
+    match result.exit_code {
+        0 => Ok(()),
+        code => Err(anyhow::anyhow!("cd failed with exit code {}", code)),
     }
 } 

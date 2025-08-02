@@ -15,7 +15,8 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
 };
 use serde::{Deserialize, Serialize};
-use reqwest::{Client, ClientBuilder, Method, header::HeaderMap};
+// TODO: Replace with ureq
+// use reqwest::{Client, ClientBuilder, Method, header::HeaderMap};
 use log::{info, warn, error, debug};
 
 use crate::common::i18n::tr;
@@ -1418,7 +1419,7 @@ mod tests {
         
         assert_eq!(options.url, "https://example.com");
         assert_eq!(options.method, Method::POST);
-        assert_eq!(options.headers.get("Content-Type"), Some(&"application/json".to_string()));
+        assert_eq!(options.headers.get("Content-Type", None), Some(&"application/json".to_string()));
     }
     
     #[tokio::test]

@@ -1,4 +1,4 @@
-//! `passwd` builtin — change user password.
+//! `passwd` builtin  Echange user password.
 //!
 //! Delegates to system `passwd` binary. No fallback implementation because
 //! password database handling is platform-specific and privileged.

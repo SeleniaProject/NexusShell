@@ -1,4 +1,4 @@
-//! `visudo` builtin — edit sudoers file safely.
+//! `visudo` builtin  Eedit sudoers file safely.
 //!
 //! Delegates to system `visudo` binary; no fallback.
 

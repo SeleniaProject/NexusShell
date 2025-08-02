@@ -1,4 +1,4 @@
-//! `egrep` command – extended regex search wrapper around `grep`.
+//! `egrep` command  Eextended regex search wrapper around `grep`.
 //! Usage: egrep PATTERN [FILE...]
 //! It forwards to `grep` builtin with identical behavior since PCRE2 already
 //! supports extended regular expressions by default.

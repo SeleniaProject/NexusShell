@@ -1,4 +1,4 @@
-//! `df` command – report filesystem disk space usage.
+//! `df` command  Ereport filesystem disk space usage.
 //! Usage: df [-h] [PATH]
 //!   -h : human readable sizes
 //! If PATH omitted, uses current directory.
@@ -9,7 +9,7 @@ use tokio::task;
 use bytesize::ByteSize;
 
 #[cfg(unix)]
-use libc::{statvfs, c_ulong};
+use nix::libc::{statvfs, c_ulong};
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 
@@ -47,14 +47,17 @@ fn stat_fs(p: std::path::PathBuf) -> Result<(u64,u64,u64,u64)> {
 }
 
 #[cfg(windows)]
+#[cfg(windows)]
 fn stat_fs(p: std::path::PathBuf) -> Result<(u64,u64,u64,u64)> {
     use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    use std::os::windows::ffi::OsStrExt;
     use std::ptr;
     let mut free_bytes: u64 = 0;
     let mut total_bytes: u64 = 0;
     let mut avail_bytes: u64 = 0;
+    let wide_path: Vec<u16> = p.as_os_str().encode_wide().chain(Some(0)).collect();
     let ok = unsafe {
-        GetDiskFreeSpaceExW(p.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<u16>>().as_ptr(), &mut avail_bytes, &mut total_bytes, &mut free_bytes)
+        GetDiskFreeSpaceExW(wide_path.as_ptr(), &mut avail_bytes, &mut total_bytes, &mut free_bytes)
     }!=0;
     if !ok { return Err(anyhow!("df: GetDiskFreeSpaceEx failed")); }
     Ok((total_bytes/4096, free_bytes/4096, avail_bytes/4096, 4096))

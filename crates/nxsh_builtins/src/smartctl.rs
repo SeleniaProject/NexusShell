@@ -1,4 +1,4 @@
-//! `smartctl` builtin – display S.M.A.R.T. information for a disk.
+//! `smartctl` builtin  Edisplay S.M.A.R.T. information for a disk.
 //!
 //! This is a thin wrapper around the external `smartctl` utility from
 //! smartmontools. It forwards arguments and prints the command output, allowing
@@ -11,7 +11,7 @@
 //! Limitations:
 //! * Requires `smartctl` binary in PATH. If not present, a helpful message is
 //!   shown.
-//! * No parsing is done – output is streamed directly.
+//! * No parsing is done  Eoutput is streamed directly.
 //! * On non-Unix systems the command is currently unsupported.
 
 use anyhow::{anyhow, Result};

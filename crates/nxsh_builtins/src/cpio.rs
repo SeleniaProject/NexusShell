@@ -1,4 +1,4 @@
-//! `cpio` builtin — archive tool compatible with POSIX cpio format.
+//! `cpio` builtin  Earchive tool compatible with POSIX cpio format.
 //!
 //! For complete feature coverage (copy-in/out, various formats, SELinux/xattrs
 //! preservation, etc.) we delegate execution to the platform `cpio` binary.

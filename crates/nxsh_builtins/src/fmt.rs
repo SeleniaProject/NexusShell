@@ -1,4 +1,4 @@
-//! `fmt` command – simple text reformatter (paragraph line wrapping).
+//! `fmt` command  Esimple text reformatter (paragraph line wrapping).
 //!
 //! Supported subset:
 //!   fmt [-w WIDTH] [FILE...]

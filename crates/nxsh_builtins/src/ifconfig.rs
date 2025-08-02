@@ -1,4 +1,4 @@
-//! `ifconfig` builtin — legacy network interface configuration.
+//! `ifconfig` builtin  Elegacy network interface configuration.
 //!
 //! On modern Linux systems, `ifconfig` is deprecated in favour of `ip addr`,
 //! but many scripts still rely on it. This builtin simply searches for a

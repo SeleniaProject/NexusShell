@@ -1,4 +1,4 @@
-//! `getfacl` builtin — display file access control lists.
+//! `getfacl` builtin  Edisplay file access control lists.
 //!
 //! Delegates to system `getfacl` for accurate ACL display. No fallback.
 

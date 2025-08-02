@@ -1,4 +1,4 @@
-//! `curlftpfs` builtin — mount FTP server via FUSE.
+//! `curlftpfs` builtin  Emount FTP server via FUSE.
 //!
 //! This builtin simply invokes the system `curlftpfs` binary if present in
 //! `PATH`, forwarding all arguments. No fallback is provided because mounting a

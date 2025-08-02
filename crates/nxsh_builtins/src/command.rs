@@ -1,4 +1,4 @@
-//! `command` builtin – PATH search & type query
+//! `command` builtin  EPATH search & type query
 //! Supports a subset of Bash `command` options:
 //!   -v name … print the location/type of each name (concise)
 //!   -V name … verbose output describing how each name would be interpreted

@@ -3,9 +3,10 @@
 //! Full top implementation with real-time monitoring, interactive controls, and system information
 
 use crate::common::{i18n::*, logging::*};
-use std::io::Write;
+use std::io::{self, Write};
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult};
+use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError, ErrorKind};
+use nxsh_core::error::RuntimeErrorKind;
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent},
@@ -34,6 +35,25 @@ pub struct TopOptions {
     pub show_command_line: bool,
     pub color_mode: bool,
     pub secure_mode: bool,
+}
+
+impl Default for TopOptions {
+    fn default() -> Self {
+        Self {
+            delay: Duration::from_secs(3),
+            iterations: None,
+            batch_mode: false,
+            sort_field: "cpu".to_string(),
+            reverse_sort: true,
+            show_threads: false,
+            show_idle: true,
+            filter_user: None,
+            filter_pid: None,
+            show_command_line: false,
+            color_mode: true,
+            secure_mode: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -82,12 +102,21 @@ pub struct TopProcess {
 }
 
 impl Builtin for TopBuiltin {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "top"
     }
 
-    fn execute(&self, context: &mut Context, args: Vec<String>) -> ShellResult<i32> {
-        let options = parse_top_args(&args)?;
+    fn synopsis(&self) -> &'static str {
+        "display and update sorted information about running processes"
+    }
+
+    fn description(&self) -> &'static str {
+        "Display and update sorted information about running processes in real-time"
+    }
+
+    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
+        let args = &ctx.args;
+        let options = parse_top_args(args)?;
         
         if options.batch_mode {
             run_batch_mode(&options)?;
@@ -95,10 +124,17 @@ impl Builtin for TopBuiltin {
             run_interactive_mode(&options)?;
         }
         
-        Ok(0)
+        Ok(ExecutionResult {
+            exit_code: 0,
+            output: None,
+            error: None,
+            duration: std::time::Duration::from_secs(0),
+            pid: None,
+            job_id: None,
+        })
     }
 
-    fn help(&self) -> &str {
+    fn usage(&self) -> &'static str {
         "top - display and update sorted information about running processes
 
 USAGE:
@@ -179,40 +215,40 @@ fn parse_top_args(args: &[String]) -> ShellResult<TopOptions> {
             "-d" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -d requires an argument"));
+                    return Err(ShellError::new(ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument), "Option -d requires an argument"));
                 }
                 let delay_secs: f64 = args[i].parse()
-                    .map_err(|_| ShellError::runtime("Invalid delay value"))?;
+                    .map_err(|_| ShellError::new(ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument), "Invalid delay value"))?;
                 options.delay = Duration::from_secs_f64(delay_secs);
             }
             "-n" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -n requires an argument"));
+                    return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "Option -n requires an argument"));
                 }
                 options.iterations = Some(args[i].parse()
-                    .map_err(|_| ShellError::runtime("Invalid iteration count"))?);
+                    .map_err(|_| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "Invalid iteration count"))?);
             }
             "-p" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -p requires an argument"));
+                    return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "Option -p requires an argument"));
                 }
                 options.filter_pid = Some(args[i].parse()
-                    .map_err(|_| ShellError::runtime("Invalid PID"))?);
+                    .map_err(|_| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "Invalid PID"))?);
             }
             "-u" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -u requires an argument"));
+                    return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "Option -u requires an argument"));
                 }
                 options.filter_user = Some(args[i].clone());
             }
-            "--help" => return Err(ShellError::runtime("Help requested")),
+            "--help" => return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "Help requested")),
             _ if arg.starts_with("-") => {
-                return Err(ShellError::runtime(format!("Unknown option: {}", arg)));
+                return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Unknown option: {}", arg)));
             }
-            _ => return Err(ShellError::runtime(format!("Unknown argument: {}", arg))),
+            _ => return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Unknown argument: {}", arg))),
         }
         i += 1;
     }
@@ -248,15 +284,15 @@ fn run_batch_mode(options: &TopOptions) -> ShellResult<()> {
 fn run_interactive_mode(options: &TopOptions) -> ShellResult<()> {
     // Enable raw mode for interactive input
     terminal::enable_raw_mode()
-        .map_err(|e| ShellError::runtime(format!("Failed to enable raw mode: {}", e)))?;
+        .map_err(|e| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Failed to enable raw mode: {}", e)))?;
     
     let result = run_interactive_loop(options);
     
     // Restore terminal
     terminal::disable_raw_mode()
-        .map_err(|e| ShellError::runtime(format!("Failed to disable raw mode: {}", e)))?;
+        .map_err(|e| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Failed to disable raw mode: {}", e)))?;
     execute!(io::stdout(), terminal::Clear(ClearType::All), cursor::MoveTo(0, 0))
-        .map_err(|e| ShellError::runtime(format!("Failed to clear terminal: {}", e)))?;
+        .map_err(|e| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Failed to clear terminal: {}", e)))?;
     
     result
 }
@@ -268,10 +304,10 @@ fn run_interactive_loop(options: &TopOptions) -> ShellResult<()> {
     loop {
         // Check for input
         if event::poll(Duration::from_millis(100))
-            .map_err(|e| ShellError::runtime(format!("Failed to poll events: {}", e)))? {
+            .map_err(|e| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Failed to poll events: {}", e)))? {
             
             if let Event::Key(key_event) = event::read()
-                .map_err(|e| ShellError::runtime(format!("Failed to read event: {}", e)))? {
+                .map_err(|e| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Failed to read event: {}", e)))? {
                 
                 match handle_key_event(key_event, &mut current_options)? {
                     KeyAction::Quit => break,
@@ -353,7 +389,7 @@ fn update_display(options: &TopOptions) -> ShellResult<()> {
     execute!(io::stdout(), 
         terminal::Clear(ClearType::All), 
         cursor::MoveTo(0, 0)
-    ).map_err(|e| ShellError::runtime(format!("Failed to clear screen: {}", e)))?;
+    ).map_err(|e| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Failed to clear screen: {}", e)))?;
     
     display_interactive_output(&system_info, &processes, options)?;
     
@@ -586,10 +622,10 @@ fn collect_top_processes(options: &TopOptions) -> ShellResult<Vec<TopProcess>> {
     #[cfg(target_os = "linux")]
     {
         let proc_dir = fs::read_dir("/proc")
-            .map_err(|e| ShellError::io(format!("Cannot read /proc: {}", e)))?;
+            .map_err(|e| ShellError::new(ErrorKind::IoError, format!("Cannot read /proc: {}", e)))?;
         
         for entry in proc_dir {
-            let entry = entry.map_err(|e| ShellError::io(format!("Error reading /proc entry: {}", e)))?;
+            let entry = entry.map_err(|e| ShellError::new(ErrorKind::IoError, format!("Error reading /proc entry: {}", e)))?;
             let file_name = entry.file_name();
             let name_str = file_name.to_string_lossy();
             
@@ -724,7 +760,7 @@ fn sort_top_processes(processes: &mut [TopProcess], sort_field: &str, reverse: b
         "memory" => processes.sort_by(|a, b| a.memory_percent.partial_cmp(&b.memory_percent).unwrap_or(std::cmp::Ordering::Equal)),
         "pid" => processes.sort_by_key(|p| p.pid),
         "time" => processes.sort_by_key(|p| p.cpu_time),
-        _ => return Err(ShellError::runtime(format!("Unknown sort field: {}", sort_field))),
+        _ => return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Unknown sort field: {}", sort_field))),
     }
     
     if reverse {
@@ -836,7 +872,7 @@ fn display_process_list(processes: &[TopProcess], options: &TopOptions) -> Shell
 
 fn show_help_screen() -> ShellResult<()> {
     execute!(io::stdout(), terminal::Clear(ClearType::All), cursor::MoveTo(0, 0))
-        .map_err(|e| ShellError::runtime(format!("Failed to clear screen: {}", e)))?;
+        .map_err(|e| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Failed to clear screen: {}", e)))?;
     
     println!("Help for Interactive Commands - top version");
     println!();
@@ -865,7 +901,7 @@ fn show_help_screen() -> ShellResult<()> {
     println!("Press any key to continue...");
     
     // Wait for key press
-    event::read().map_err(|e| ShellError::runtime(format!("Failed to read key: {}", e)))?;
+    event::read().map_err(|e| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Failed to read key: {}", e)))?;
     
     Ok(())
 }
@@ -924,4 +960,21 @@ fn truncate_string(s: &str, max_len: usize) -> String {
     } else {
         format!("{}+", &s[..max_len.saturating_sub(1)])
     }
+}
+
+// CLI entry point function
+pub fn top_cli(args: &[String]) -> anyhow::Result<()> {
+    let options = TopOptions::default();
+    
+    if options.batch_mode {
+        if let Err(e) = run_batch_mode(&options) {
+            return Err(anyhow::anyhow!("top error: {}", e));
+        }
+    } else {
+        if let Err(e) = run_interactive_mode(&options) {
+            return Err(anyhow::anyhow!("top error: {}", e));
+        }
+    }
+    
+    Ok(())
 } 

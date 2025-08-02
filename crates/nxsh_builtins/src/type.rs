@@ -1,4 +1,4 @@
-//! `type` builtin – determine how a command name would be interpreted.
+//! `type` builtin  Edetermine how a command name would be interpreted.
 //! Output categories: alias, builtin, function (reserved), file, not found.
 
 use anyhow::Result;

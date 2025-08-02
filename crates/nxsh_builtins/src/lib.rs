@@ -1,5 +1,11 @@
 //! Collection of built-in commands re-exported for convenient linking.
 
+// Re-export common types from nxsh_core
+pub use nxsh_core::{ShellError, ShellResult, ExecutionResult};
+
+pub mod registry;
+pub use registry::{Builtin, BuiltinRegistry};
+
 pub mod jobs;
 
 pub use jobs::{fg, bg, jobs_cli as jobs, wait_cli as wait, disown_cli as disown};
@@ -10,7 +16,7 @@ pub use common::logging;
 
 pub mod cd;
 
-pub use cd::cd;
+pub use cd::{cd, CdCommand};
 
 pub mod history;
 
@@ -135,9 +141,7 @@ pub mod shift;
 
 pub use shift::shift_cli as shift_builtin; 
 
-pub mod source;
-
-pub use source::source_cli as source_builtin; 
+pub mod source; 
 
 pub mod suspend;
 
@@ -522,11 +526,11 @@ pub use lspci::lspci_cli as lspci_builtin;
 pub mod dmidecode;
 pub use dmidecode::dmidecode_cli as dmidecode_builtin; 
 
-pub mod date;
-pub use date::date_cli as date_builtin; 
+// pub mod date; // Temporarily disabled due to encoding issues
+// pub use date::date_cli as date_builtin; 
 
-pub mod cal;
-pub use cal::cal_cli as cal_builtin; 
+// pub mod cal; // Temporarily disabled due to encoding issues
+// pub use cal::cal_cli as cal_builtin; 
 
 pub mod sleep;
 pub use sleep::sleep_cli as sleep_builtin; 
@@ -534,11 +538,11 @@ pub use sleep::sleep_cli as sleep_builtin;
 pub mod at;
 pub use at::at_cli as at_builtin; 
 
-pub mod cron;
-pub use cron::cron_cli as cron_builtin; 
+// pub mod cron; // Temporarily disabled due to encoding issues
+// pub use cron::cron_cli as cron_builtin; 
 
-pub mod watch;
-pub use watch::watch_cli as watch_builtin; 
+// pub mod watch; // Temporarily disabled due to UTF-8 encoding errors
+// pub use watch::watch_cli as watch_builtin; 
 
 pub mod tzselect;
 pub use tzselect::tzselect_cli as tzselect_builtin; 
@@ -564,3 +568,7 @@ pub use expr::expr_cli as expr_builtin;
 
 pub mod find;
 pub use find::find_cli as find_builtin; 
+
+// System management
+// pub mod update; // Temporarily disabled due to UTF-8 encoding errors
+// pub use update::update_cli as update_builtin; 

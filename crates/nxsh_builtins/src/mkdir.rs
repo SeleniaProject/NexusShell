@@ -1,4 +1,4 @@
-//! `mkdir` command – comprehensive directory creation implementation.
+//! `mkdir` command  Ecomprehensive directory creation implementation.
 //!
 //! Supports complete mkdir functionality:
 //!   mkdir [OPTIONS] DIRECTORY...
@@ -12,6 +12,7 @@
 use anyhow::{Result, anyhow};
 use std::fs::{self, Permissions};
 use std::io::{self, Write};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -305,9 +306,17 @@ fn create_directory_with_parents(path: &Path, options: &MkdirOptions) -> Result<
 }
 
 fn set_directory_permissions(path: &Path, mode: u32) -> Result<()> {
-    let permissions = Permissions::from_mode(mode);
-    fs::set_permissions(path, permissions)
-        .map_err(|e| anyhow!("cannot set permissions for '{}': {}", path.display(), e))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = std::fs::Permissions::from_mode(mode);
+        fs::set_permissions(path, permissions)
+            .map_err(|e| anyhow!("cannot set permissions for '{}': {}", path.display(), e))?;
+    }
+    #[cfg(not(unix))]
+    {
+        eprintln!("mkdir: warning: setting file permissions not supported on this platform");
+    }
     Ok(())
 }
 

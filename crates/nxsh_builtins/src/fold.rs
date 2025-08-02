@@ -1,4 +1,4 @@
-//! `fold` command – wrap input lines to fit a specified width.
+//! `fold` command  Ewrap input lines to fit a specified width.
 //!
 //! Supported subset:
 //!   fold [-w WIDTH] [FILE...]

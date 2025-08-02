@@ -1,4 +1,4 @@
-//! `traceroute` builtin — display route to host.
+//! `traceroute` builtin  Edisplay route to host.
 //!
 //! Delegates to system `traceroute` (Unix) or `tracert.exe` (Windows).
 //! All arguments are forwarded unchanged for maximum compatibility.

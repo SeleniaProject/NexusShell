@@ -1,4 +1,4 @@
-//! `fsck` builtin – filesystem consistency checker.
+//! `fsck` builtin  Efilesystem consistency checker.
 //!
 //! Supported filesystems: FAT12/16/32 (via `fatfs` crate).
 //!
@@ -95,10 +95,10 @@ fn run_fat_check(device: &str, auto: bool) -> Result<()> {
         println!("fsck: CLEAN");
     } else {
         if cross_links > 0 {
-            println!("fsck: warning – {cross_links} cross-linked cluster(s) detected");
+            println!("fsck: warning  E{cross_links} cross-linked cluster(s) detected");
         }
         if !lost_clusters.is_empty() {
-            println!("fsck: warning – {} lost cluster(s) starting at {:?}", lost_clusters.len(), &lost_clusters[..std::cmp::min(10, lost_clusters.len())]);
+            println!("fsck: warning  E{} lost cluster(s) starting at {:?}", lost_clusters.len(), &lost_clusters[..std::cmp::min(10, lost_clusters.len())]);
         }
         println!("fsck: issues found; run with repair support in future versions");
     }

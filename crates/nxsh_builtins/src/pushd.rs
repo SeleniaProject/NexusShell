@@ -1,4 +1,4 @@
-//! `pushd` builtin – push directory onto stack and switch to it.
+//! `pushd` builtin  Epush directory onto stack and switch to it.
 //! Usage: pushd [DIR]
 //! Without DIR, swaps the top two directories.
 

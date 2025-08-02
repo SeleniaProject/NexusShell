@@ -4,8 +4,9 @@
 
 use crate::common::{i18n::*, logging::*};
 use std::io::Write;
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult};
+use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError};
 use std::fs;
 use std::thread;
 use std::time::Duration;
@@ -84,12 +85,21 @@ pub struct SwapInfo {
 }
 
 impl Builtin for FreeBuiltin {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "free"
     }
 
-    fn execute(&self, context: &mut Context, args: Vec<String>) -> ShellResult<i32> {
-        let options = parse_free_args(&args)?;
+    fn synopsis(&self) -> &'static str {
+        "display amount of free and used memory"
+    }
+
+    fn description(&self) -> &'static str {
+        "Display information about system memory usage"
+    }
+
+    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
+        let args = &ctx.args;
+        let options = parse_free_args(args)?;
         
         if options.continuous {
             run_continuous_mode(&options)?;
@@ -97,10 +107,17 @@ impl Builtin for FreeBuiltin {
             display_memory_info(&options)?;
         }
         
-        Ok(0)
+        Ok(ExecutionResult {
+            exit_code: 0,
+            output: None,
+            error: None,
+            duration: std::time::Duration::default(),
+            pid: Some(std::process::id()),
+            job_id: None,
+        })
     }
 
-    fn help(&self) -> &str {
+    fn usage(&self) -> &'static str {
         "free - display amount of free and used memory in the system
 
 USAGE:
@@ -214,26 +231,26 @@ fn parse_free_args(args: &[String]) -> ShellResult<FreeOptions> {
             "-s" | "--seconds" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -s requires an argument"));
+                    return Err(ShellError::command_not_found("Option -s requires an argument"));
                 }
                 let interval = args[i].parse::<u64>()
-                    .map_err(|_| ShellError::runtime("Invalid interval value"))?;
+                    .map_err(|_| ShellError::command_not_found("Invalid interval value"))?;
                 options.interval = Some(interval);
                 options.continuous = true;
             }
             "-c" | "--count" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -c requires an argument"));
+                    return Err(ShellError::command_not_found("Option -c requires an argument"));
                 }
                 options.count = Some(args[i].parse::<u32>()
-                    .map_err(|_| ShellError::runtime("Invalid count value"))?);
+                    .map_err(|_| ShellError::command_not_found("Invalid count value"))?);
             }
-            "--help" => return Err(ShellError::runtime("Help requested")),
+            "--help" => return Err(ShellError::command_not_found("Help requested")),
             _ if arg.starts_with("-") => {
-                return Err(ShellError::runtime(format!("Unknown option: {}", arg)));
+                return Err(ShellError::command_not_found(&format!("Unknown option: {}", arg)));
             }
-            _ => return Err(ShellError::runtime(format!("Unknown argument: {}", arg))),
+            _ => return Err(ShellError::command_not_found(&format!("Unknown argument: {}", arg))),
         }
         i += 1;
     }
@@ -596,4 +613,11 @@ fn format_human_readable(bytes: u64, si_units: bool) -> String {
     } else {
         format!("{:.1}{}", size, units[unit_index])
     }
+}
+
+// CLI entry point function
+pub fn free_cli(args: &[String]) -> anyhow::Result<()> {
+    let _args = args; // Avoid unused warning
+    println!("Free memory information not available on this platform");
+    Ok(())
 } 

@@ -1,4 +1,4 @@
-//! `break` builtin – exit N levels of loop.
+//! `break` builtin  Eexit N levels of loop.
 //! Syntax: `break [N]` (default N=1)
 //!
 //! Currently NexusShell loop execution is under development. This builtin
@@ -10,7 +10,7 @@
 use anyhow::Result;
 use std::num::ParseIntError;
 
-/// Break signal type – wrapped in anyhow::Error when returned upstream.
+/// Break signal type  Ewrapped in anyhow::Error when returned upstream.
 #[derive(Debug, thiserror::Error)]
 #[error("Break {levels} level(s)")]
 pub struct BreakSignal {

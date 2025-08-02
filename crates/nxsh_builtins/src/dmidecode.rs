@@ -1,4 +1,4 @@
-//! `dmidecode` builtin – dump BIOS/DMI information.
+//! `dmidecode` builtin  Edump BIOS/DMI information.
 //! Thin wrapper around the external `dmidecode` command. Requires root on most
 //! systems.
 

@@ -1,4 +1,4 @@
-//! `gzip` builtin — compress files with DEFLATE algorithm.
+//! `gzip` builtin  Ecompress files with DEFLATE algorithm.
 //!
 //! Preferred strategy:
 //! 1. Delegate to the system `gzip` binary (ensures full option compatibility).

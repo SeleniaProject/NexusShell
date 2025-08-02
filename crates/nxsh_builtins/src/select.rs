@@ -1,5 +1,4 @@
 use anyhow::Result;
-use jmespath::{Variable, Expression};
 use serde_json::Value;
 use std::io::{self, Read};
 

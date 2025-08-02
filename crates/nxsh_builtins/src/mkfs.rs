@@ -1,4 +1,4 @@
-//! `mkfs` builtin – format a block device or file image with a filesystem.
+//! `mkfs` builtin  Eformat a block device or file image with a filesystem.
 //!
 //! Current implementation supports **FAT32** creation using the `fatfs` crate.
 //! Syntax:

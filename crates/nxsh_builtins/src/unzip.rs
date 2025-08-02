@@ -1,4 +1,4 @@
-//! `unzip` builtin — extract ZIP archives.
+//! `unzip` builtin  Eextract ZIP archives.
 //!
 //! 1. Delegate to system `unzip` for full feature set.
 //! 2. Fallback to `zip` crate supporting `unzip ARCHIVE.zip` extracting to cwd.

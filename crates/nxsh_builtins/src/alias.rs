@@ -6,7 +6,8 @@
 use crate::common::{i18n::*, logging::*};
 use std::io::Write;
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult};
+use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError, ErrorKind, StreamData};
+use nxsh_core::error::{RuntimeErrorKind, IoErrorKind, InternalErrorKind};
 
 /// The `alias` builtin command implementation
 pub struct AliasCommand;
@@ -46,7 +47,7 @@ impl Builtin for AliasCommand {
                 print_all = true;
             } else if arg.starts_with('-') {
                 return Err(ShellError::new(
-                    ErrorKind::InvalidArgument,
+                    ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
                     format!("alias: invalid option: {}", arg)
                 ));
             } else if arg.contains('=') {
@@ -92,7 +93,7 @@ impl AliasCommand {
             // Validate alias name
             if !self.is_valid_alias_name(name) {
                 return Err(ShellError::new(
-                    ErrorKind::InvalidArgument,
+                    ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
                     format!("alias: `{}': invalid alias name", name)
                 ));
             }
@@ -100,7 +101,7 @@ impl AliasCommand {
             // Check for cycles before setting the alias
             if self.would_create_cycle(name, value, ctx) {
                 return Err(ShellError::new(
-                    ErrorKind::RuntimeError,
+                    ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
                     format!("alias: `{}': would create a cycle", name)
                 ));
             }
@@ -109,7 +110,7 @@ impl AliasCommand {
             ctx.env.set_alias(name, value)?;
         } else {
             return Err(ShellError::new(
-                ErrorKind::InvalidArgument,
+                ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
                 format!("alias: invalid assignment: {}", assignment)
             ));
         }
@@ -122,10 +123,10 @@ impl AliasCommand {
         if let Some(value) = ctx.env.get_alias(name) {
             let output = format!("alias {}='{}'\n", name, self.escape_value(&value));
             ctx.stdout.write(StreamData::Text(output))
-                .map_err(|e| ShellError::new(ErrorKind::IoError, format!("Failed to write output: {}", e)))?;
+                .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::FileWriteError), format!("Failed to write output: {}", e)))?;
         } else {
             return Err(ShellError::new(
-                ErrorKind::RuntimeError,
+                ErrorKind::RuntimeError(RuntimeErrorKind::VariableNotFound),
                 format!("alias: {}: not found", name)
             ));
         }
@@ -136,20 +137,26 @@ impl AliasCommand {
     /// Print all aliases
     fn print_all_aliases(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
         let mut output = String::new();
-        let mut aliases: Vec<_> = ctx.env.aliases.iter().collect();
         
-        // Sort aliases by name for consistent output
-        aliases.sort_by(|a, b| a.key().cmp(b.key()));
+        if let Ok(aliases_lock) = ctx.env.aliases.read() {
+            let mut aliases: Vec<_> = aliases_lock.iter().collect();
+            
+            // Sort aliases by name for consistent output
+            aliases.sort_by(|a, b| a.0.cmp(b.0));
 
-        for entry in aliases {
-            let name = entry.key();
-            let value = entry.value();
-            output.push_str(&format!("alias {}='{}'\n", name, self.escape_value(value)));
+            for (name, value) in aliases {
+                output.push_str(&format!("alias {}='{}'\n", name, self.escape_value(value)));
+            }
+        } else {
+            return Err(ShellError::new(
+                ErrorKind::InternalError(InternalErrorKind::LockError),
+                "Failed to read aliases"
+            ));
         }
 
         if !output.is_empty() {
             ctx.stdout.write(StreamData::Text(output))
-                .map_err(|e| ShellError::new(ErrorKind::IoError, format!("Failed to write output: {}", e)))?;
+                .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::FileWriteError), format!("Failed to write output: {}", e)))?;
         }
 
         Ok(ExecutionResult::success(0))
@@ -168,13 +175,13 @@ impl AliasCommand {
             
             // Check for indirect cycles by following the alias chain
             let mut visited = std::collections::HashSet::new();
-            let mut current = *first_word;
+            let mut current = first_word.to_string();
             
-            while let Some(alias_value) = ctx.env.get_alias(current) {
-                if visited.contains(current) {
+            while let Some(alias_value) = ctx.env.get_alias(&current) {
+                if visited.contains(&current) {
                     return true; // Cycle detected
                 }
-                visited.insert(current);
+                visited.insert(current.clone());
                 
                 // Get the first word of the alias value
                 let alias_parts: Vec<&str> = alias_value.split_whitespace().collect();
@@ -182,7 +189,7 @@ impl AliasCommand {
                     if *next_word == name {
                         return true; // Would create cycle
                     }
-                    current = next_word;
+                    current = next_word.to_string();
                 } else {
                     break;
                 }
@@ -277,7 +284,7 @@ pub fn alias_cli(args: &[String], ctx: &mut nxsh_core::context::ShellContext) ->
     if result.is_success() {
         Ok(())
     } else {
-        Err(ShellError::new(ErrorKind::RuntimeError, format!("alias failed with exit code {}", result.exit_code)))
+        Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound), format!("alias failed with exit code {}", result.exit_code)))
     }
 }
 

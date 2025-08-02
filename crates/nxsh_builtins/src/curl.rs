@@ -1,10 +1,10 @@
-//! `curl` builtin — HTTP client utility.
+//! `curl` builtin  EHTTP client utility.
 //!
 //! Delegates to the system `curl` binary when available in `PATH` to preserve the
 //! complete feature set and CLI surface area. When the binary is unavailable
 //! (e.g. minimal containers or Windows without Git for Windows), it falls back
 //! to a minimal internal implementation that currently supports simple HTTP
-//! GET requests using the `reqwest` crate. Additional HTTP verbs and options
+//! GET requests using the `ureq` crate with native-certs. Additional HTTP verbs and options
 //! can be extended in subsequent iterations.
 
 use anyhow::{anyhow, Result};
@@ -32,9 +32,10 @@ pub fn curl_cli(args: &[String]) -> Result<()> {
     // Lightweight built-in fallback: only supports `curl <URL>` (single GET).
     if args.len() == 1 {
         let url = &args[0];
-        let body = reqwest::blocking::get(url)
+        let body = ureq::get(url)
+            .call()
             .map_err(|e| anyhow!("curl: request failed: {e}"))?
-            .text()
+            .into_string()
             .map_err(|e| anyhow!("curl: failed to read body: {e}"))?;
 
         print!("{body}");

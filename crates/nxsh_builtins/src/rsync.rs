@@ -1,4 +1,4 @@
-//! `rsync` builtin — fast incremental file transfer.
+//! `rsync` builtin  Efast incremental file transfer.
 //!
 //! For maximum feature parity and performance, this builtin simply re-executes
 //! the system `rsync` binary, forwarding all arguments verbatim. When `rsync`

@@ -1,4 +1,4 @@
-//! `blkid` builtin — locate/print block device attributes.
+//! `blkid` builtin  Elocate/print block device attributes.
 //!
 //! Delegates execution to the system `blkid` binary for comprehensive output.
 //! No fallback implementation is provided.

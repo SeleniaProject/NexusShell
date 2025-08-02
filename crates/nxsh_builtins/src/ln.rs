@@ -1,4 +1,4 @@
-//! `ln` command – comprehensive hard and symbolic link creation implementation.
+//! `ln` command  Ecomprehensive hard and symbolic link creation implementation.
 //!
 //! Supports complete ln functionality:
 //!   ln [OPTIONS] TARGET LINK_NAME
@@ -22,7 +22,10 @@
 use anyhow::{Result, anyhow};
 use std::fs::{self, File};
 use std::io::{self, Write};
+#[cfg(unix)]
 use std::os::unix::fs::{symlink, MetadataExt};
+#[cfg(windows)]
+use std::os::windows::fs::{symlink_file, symlink_dir};
 use std::path::{Path, PathBuf, Component};
 
 #[derive(Debug, Clone)]
@@ -435,9 +438,30 @@ fn create_symbolic_link(target: &Path, link: &Path, options: &LnOptions) -> Resu
         target.to_path_buf()
     };
     
-    symlink(&link_target, link)
-        .map_err(|e| anyhow!("ln: failed to create symbolic link '{}' -> '{}': {}", 
-                            link.display(), link_target.display(), e))?;
+    #[cfg(unix)]
+    {
+        symlink(&link_target, link)
+            .map_err(|e| anyhow!("ln: failed to create symbolic link '{}' -> '{}': {}", 
+                                link.display(), link_target.display(), e))?;
+    }
+    
+    #[cfg(windows)]
+    {
+        if link_target.is_dir() {
+            symlink_dir(&link_target, link)
+                .map_err(|e| anyhow!("ln: failed to create symbolic link '{}' -> '{}': {}", 
+                                    link.display(), link_target.display(), e))?;
+        } else {
+            symlink_file(&link_target, link)
+                .map_err(|e| anyhow!("ln: failed to create symbolic link '{}' -> '{}': {}", 
+                                    link.display(), link_target.display(), e))?;
+        }
+    }
+    
+    #[cfg(not(any(unix, windows)))]
+    {
+        return Err(anyhow!("ln: symbolic links not supported on this platform"));
+    }
     
     Ok(())
 }

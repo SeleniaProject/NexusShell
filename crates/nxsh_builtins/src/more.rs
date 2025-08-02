@@ -1,4 +1,4 @@
-//! `more` command – basic pager.
+//! `more` command  Ebasic pager.
 //! Usage: more FILE
 //! Reads file and outputs page by page. For non-interactive build, it prints all.
 

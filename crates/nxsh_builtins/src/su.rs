@@ -1,4 +1,4 @@
-//! `su` builtin — switch user.
+//! `su` builtin  Eswitch user.
 //!
 //! Delegates to system `su` binary; no fallback.
 

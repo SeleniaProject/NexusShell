@@ -1,4 +1,4 @@
-//! `return` builtin – terminate function execution with status.
+//! `return` builtin  Eterminate function execution with status.
 //! Usage: return [N]
 //! Emits `ReturnSignal` carrying status code which future function frame handler
 //! will intercept.

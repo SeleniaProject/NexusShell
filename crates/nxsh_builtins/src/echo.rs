@@ -6,7 +6,8 @@
 use crate::common::{i18n::*, logging::*};
 use std::io::Write;
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult};
+use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError, ErrorKind, StreamData};
+use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
 
 /// The `echo` builtin command implementation
 pub struct EchoCommand;
@@ -48,7 +49,7 @@ impl Builtin for EchoCommand {
                         'E' => disable_escapes = true,
                         _ => {
                             return Err(ShellError::new(
-                                ErrorKind::InvalidArgument,
+                                ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
                                 format!("echo: invalid option: -{}", ch)
                             ));
                         }
@@ -89,7 +90,7 @@ impl Builtin for EchoCommand {
 
         // Write to stdout stream
         ctx.stdout.write(StreamData::Text(output))
-            .map_err(|e| ShellError::new(ErrorKind::IoError, format!("Failed to write output: {}", e)))?;
+            .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::FileWriteError), format!("Failed to write output: {}", e)))?;
 
         Ok(ExecutionResult::success(0))
     }
@@ -273,7 +274,7 @@ pub fn echo_cli(args: &[String], ctx: &mut nxsh_core::context::ShellContext) -> 
     if result.is_success() {
         Ok(())
     } else {
-        Err(ShellError::new(ErrorKind::RuntimeError, format!("echo failed with exit code {}", result.exit_code)))
+        Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound), format!("echo failed with exit code {}", result.exit_code)))
     }
 }
 

@@ -1,4 +1,4 @@
-//! `cat` command – world-class file concatenation and display implementation.
+//! `cat` command  Eworld-class file concatenation and display implementation.
 //!
 //! This implementation provides complete POSIX compliance with advanced features:
 //! - Full internationalization support (10 languages)
@@ -33,7 +33,7 @@ use encoding_rs_io::DecodeReaderBytesBuilder;
 use content_inspector::{ContentType, inspect};
 use mime_guess::from_path;
 use rayon::prelude::*;
-use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, Sender};
 use indicatif::{ProgressBar, ProgressStyle, MultiProgress};
 use console::{Term, style};
 use tokio::fs::File as AsyncFile;
@@ -41,13 +41,11 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncBufReadExt, BufReader as AsyncBufR
 use futures::stream::{self, StreamExt};
 use url::Url;
 use flate2::read::{GzDecoder, DeflateDecoder};
-use bzip2::read::BzDecoder;
-use xz2::read::XzDecoder;
-use zstd::stream::read::Decoder as ZstdDecoder;
+use lzma_rs::lzma_decompress;
 use base64::{Engine as _, engine::general_purpose};
 
 use crate::common::i18n::{t, t_args, init_i18n};
-use crate::t;
+use crate::{t, ShellError, ShellResult};
 
 /// Maximum size for memory mapping (1GB)
 const MMAP_THRESHOLD: u64 = 1024 * 1024 * 1024;
@@ -426,22 +424,27 @@ fn process_files_sequential(options: &CatOptions) -> Result<()> {
 }
 
 fn process_files_parallel(options: &CatOptions) -> Result<()> {
-    let (tx, rx) = bounded::<(String, Sender<Result<Vec<u8>>>)>(options.max_threads);
-    let (stats_tx, stats_rx) = unbounded::<(String, FileStats)>();
+    use std::sync::mpsc::{channel, Receiver, Sender};
+    
+    let (tx, rx): (Sender<(String, Sender<Result<Vec<u8>>>)>, Receiver<(String, Sender<Result<Vec<u8>>>)>) = channel();
+    let (stats_tx, stats_rx): (Sender<(String, FileStats)>, Receiver<(String, FileStats)>) = channel();
+    
+    // Wrap receiver in Arc<Mutex> for sharing between threads
+    let rx = Arc::new(Mutex::new(rx));
     
     // Spawn worker threads
     let workers: Vec<_> = (0..options.max_threads)
         .map(|_| {
-            let rx = rx.clone();
+            let rx = Arc::clone(&rx);
             let stats_tx = stats_tx.clone();
             let options = options.clone();
             
             thread::spawn(move || {
-                while let Ok((filename, output_sender)) = rx.recv() {
+                while let Ok((filename, output_sender)) = rx.lock().unwrap().recv() {
                     match process_file_to_memory(&filename, &options) {
                         Ok((content, stats)) => {
                             let _ = output_sender.send(Ok(content));
-                            let _ = stats_tx.send((filename, stats));
+                            let _ = stats_tx.send((filename.to_string(), stats));
                         }
                         Err(e) => {
                             let _ = output_sender.send(Err(e));
@@ -460,7 +463,7 @@ fn process_files_parallel(options: &CatOptions) -> Result<()> {
     
     // Send files to workers
     for filename in &options.files {
-        let (output_tx, output_rx) = bounded::<Result<Vec<u8>>>(1);
+        let (output_tx, output_rx): (Sender<Result<Vec<u8>>>, Receiver<Result<Vec<u8>>>) = channel();
         tx.send((filename.clone(), output_tx))?;
         file_results.push((filename.clone(), output_rx));
     }
@@ -720,13 +723,22 @@ fn process_file_stream<W: Write>(
             Box::new(BufReader::new(GzDecoder::new(file)))
         }
         Some(CompressionType::Bzip2) => {
-            Box::new(BufReader::new(BzDecoder::new(file)))
+            // Use pure Rust alternative for bzip2
+            // For now, treat as regular file
+            eprintln!("Warning: bzip2 decompression not available, reading as regular file");
+            Box::new(BufReader::with_capacity(options.buffer_size, file))
         }
         Some(CompressionType::Xz) => {
-            Box::new(BufReader::new(XzDecoder::new(file)))
+            // Use pure Rust alternative for XZ
+            // For now, treat as regular file
+            eprintln!("Warning: XZ decompression not available, reading as regular file");
+            Box::new(BufReader::with_capacity(options.buffer_size, file))
         }
         Some(CompressionType::Zstd) => {
-            Box::new(BufReader::new(ZstdDecoder::new(file)?))
+            // Use pure Rust alternative for zstd
+            // For now, treat as regular file
+            eprintln!("Warning: zstd decompression not available, reading as regular file");
+            Box::new(BufReader::with_capacity(options.buffer_size, file))
         }
         Some(CompressionType::Deflate) => {
             Box::new(BufReader::new(DeflateDecoder::new(file)))

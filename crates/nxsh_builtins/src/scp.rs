@@ -1,4 +1,4 @@
-//! `scp` builtin — secure copy utility.
+//! `scp` builtin  Esecure copy utility.
 //!
 //! This builtin defers to the platform's OpenSSH `scp` implementation to ensure
 //! robust protocol support, cipher negotiation, progress UI, and compatibility

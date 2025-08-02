@@ -1,17 +1,15 @@
-//! `unxz` builtin — LZMA decompression utility.
+//! `unxz` builtin  ELZMA decompression utility.
 //!
-//! Behaviour hierarchy:
-//! 1. Use system `unxz` (or `xz -d`) when available.
-//! 2. Fallback to Rust decoder via `xz2` supporting `unxz <FILE.xz>`.
-//!
-//! Flags unsupported in fallback mode.
+//! TEMPORARILY DISABLED: C-dependent xz2 library removed
+//! This functionality needs to be reimplemented using pure Rust alternatives
 
 use anyhow::{anyhow, Context, Result};
-use std::{fs::File, io::{copy}, path::Path, process::Command};
+use std::{fs::File, io::{copy, Write}, path::Path, process::Command};
 use which::which;
-use xz2::read::XzDecoder;
+// Using pure Rust LZMA decompression as xz alternative
 
 pub fn unxz_cli(args: &[String]) -> Result<()> {
+    // Fallback to system unxz command if available
     if let Ok(path) = which("unxz") {
         let status = Command::new(path).args(args).status().map_err(|e| anyhow!("unxz: failed to launch backend: {e}"))?;
         std::process::exit(status.code().unwrap_or(1));
@@ -31,9 +29,10 @@ pub fn unxz_cli(args: &[String]) -> Result<()> {
     }
     if !input.is_file() { return Err(anyhow!("unxz: '{}' is not a regular file", input.display())); }
     let output = input.with_extension("");
-    let infile = File::open(&input).with_context(|| format!("unxz: cannot open {:?}", input))?;
-    let mut decoder = XzDecoder::new(infile);
+    let mut infile = File::open(&input).with_context(|| format!("unxz: cannot open {:?}", input))?;
     let mut outfile = File::create(&output).with_context(|| format!("unxz: cannot create {:?}", output))?;
-    copy(&mut decoder, &mut outfile).context("unxz: decompression failed")?;
+    // Use pure Rust LZMA decompression as xz alternative
+    let mut buf_reader = std::io::BufReader::new(infile);
+    lzma_rs::lzma_decompress(&mut buf_reader, &mut outfile).map_err(|e| anyhow!("unxz: decompression failed: {}", e))?;
     Ok(())
 } 

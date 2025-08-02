@@ -1,4 +1,4 @@
-//! `route` builtin — view or manipulate routing tables.
+//! `route` builtin  Eview or manipulate routing tables.
 //!
 //! On most Unix-like systems, `route` (from net-tools) is deprecated in favour
 //! of `ip route` (from iproute2), but many users still depend on it. This

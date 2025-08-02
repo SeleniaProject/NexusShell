@@ -1,4 +1,4 @@
-//! `complete` builtin – register or list completion scripts.
+//! `complete` builtin  Eregister or list completion scripts.
 //! Syntax examples:
 //!   complete --list                 # list all registered completions
 //!   complete CMD SCRIPT             # register SCRIPT for CMD (overwrite if exists)

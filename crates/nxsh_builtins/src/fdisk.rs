@@ -1,4 +1,4 @@
-//! `fdisk` builtin – simple partition table viewer.
+//! `fdisk` builtin  Esimple partition table viewer.
 //!
 //! Supported subcommands:
 //!     fdisk -l            # list all block devices and their partitions
@@ -20,7 +20,7 @@ use mbrman::MBR;
 
 #[cfg(unix)]
 pub async fn fdisk_cli(args: &[String]) -> Result<()> {
-    // "fdisk -l" or no argument ⇒ list block devices
+    // "fdisk -l" or no argument ⇁Elist block devices
     if args.is_empty() || (args.len() == 1 && args[0] == "-l") {
         list_block_devices()?;
         return Ok(());

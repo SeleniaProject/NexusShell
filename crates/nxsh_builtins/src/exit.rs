@@ -1,4 +1,4 @@
-//! `exit` builtin – terminate shell with optional status code.
+//! `exit` builtin  Eterminate shell with optional status code.
 //! Usage: `exit [N]`.
 
 use anyhow::Result;

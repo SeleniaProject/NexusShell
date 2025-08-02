@@ -1,4 +1,4 @@
-//! `sudo` builtin — privilege escalation wrapper.
+//! `sudo` builtin  Eprivilege escalation wrapper.
 //!
 //! Simply delegates to system `sudo` binary (or `runas` on Windows). No fallback
 //! implementation is provided.

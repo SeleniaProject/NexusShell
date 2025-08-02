@@ -6,8 +6,9 @@
 use crate::common::{i18n::*, logging::*};
 use std::io::Write;
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult};
+use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError, ErrorKind, StreamData};
 use nxsh_core::context::ShellVariable;
+use nxsh_core::error::{RuntimeErrorKind, IoErrorKind, InternalErrorKind};
 
 /// The `export` builtin command implementation
 pub struct ExportCommand;
@@ -46,7 +47,7 @@ impl Builtin for ExportCommand {
                 print_all = true;
             } else if arg.starts_with('-') {
                 return Err(ShellError::new(
-                    ErrorKind::InvalidArgument,
+                    ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
                     format!("export: invalid option: {}", arg)
                 ));
             } else {
@@ -86,7 +87,7 @@ impl ExportCommand {
             // Validate variable name
             if !self.is_valid_variable_name(name) {
                 return Err(ShellError::new(
-                    ErrorKind::InvalidArgument,
+                    ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
                     format!("export: `{}': not a valid identifier", name)
                 ));
             }
@@ -100,14 +101,6 @@ impl ExportCommand {
         } else {
             // Just export existing variable
             let name = assignment;
-
-            // Validate variable name
-            if !self.is_valid_variable_name(name) {
-                return Err(ShellError::new(
-                    ErrorKind::InvalidArgument,
-                    format!("export: `{}': not a valid identifier", name)
-                ));
-            }
 
             // Check if variable exists
             if let Some(value) = ctx.env.get_var(name) {
@@ -130,24 +123,25 @@ impl ExportCommand {
         let mut output = String::new();
 
         // Get all environment variables and format them
-        for entry in ctx.env.env.iter() {
-            let key = entry.key();
-            let value = entry.value();
-            
-            // Check if this variable is marked as exported
-            if let Some(shell_var) = ctx.env.variables.get(key) {
-                if shell_var.exported {
-                    output.push_str(&format!("declare -x {}=\"{}\"\n", key, self.escape_value(value)));
+        if let Ok(env_guard) = ctx.env.env.read() {
+            for (key, value) in env_guard.iter() {
+                // Check if this variable is marked as exported
+                if let Ok(vars_guard) = ctx.env.vars.read() {
+                    if let Some(shell_var) = vars_guard.get(key) {
+                        if shell_var.exported {
+                            output.push_str(&format!("declare -x {}=\"{}\"\n", key, self.escape_value(value)));
+                        }
+                    } else {
+                        // If not in shell variables, assume it's exported (from system environment)
+                        output.push_str(&format!("declare -x {}=\"{}\"\n", key, self.escape_value(value)));
+                    }
                 }
-            } else {
-                // If not in shell variables, assume it's exported (from system environment)
-                output.push_str(&format!("declare -x {}=\"{}\"\n", key, self.escape_value(value)));
             }
         }
 
         // Write to stdout
         ctx.stdout.write(StreamData::Text(output))
-            .map_err(|e| ShellError::new(ErrorKind::IoError, format!("Failed to write output: {}", e)))?;
+            .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::FileWriteError), format!("Failed to write output: {}", e)))?;
 
         Ok(ExecutionResult::success(0))
     }
@@ -230,7 +224,7 @@ pub fn export_cli(args: &[String], ctx: &mut nxsh_core::context::ShellContext) -
     if result.is_success() {
         Ok(())
     } else {
-        Err(ShellError::new(ErrorKind::RuntimeError, format!("export failed with exit code {}", result.exit_code)))
+        Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound), format!("export failed with exit code {}", result.exit_code)))
     }
 }
 
@@ -264,7 +258,7 @@ mod tests {
         assert_eq!(ctx.env.get_var("TEST_VAR"), Some("hello".to_string()));
         
         // Check that it's marked as exported
-        if let Some(var) = ctx.env.variables.get("TEST_VAR") {
+        if let Some(var) = ctx.env.variables.get("TEST_VAR", None) {
             assert!(var.exported);
         }
     }
@@ -284,7 +278,7 @@ mod tests {
         assert_eq!(ctx.env.get_var("EXISTING_VAR"), Some("existing_value".to_string()));
         
         // Check that it's marked as exported
-        if let Some(var) = ctx.env.variables.get("EXISTING_VAR") {
+        if let Some(var) = ctx.env.variables.get("EXISTING_VAR", None) {
             assert!(var.exported);
         }
     }

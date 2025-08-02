@@ -72,9 +72,19 @@ impl Language {
 }
 
 /// Global localization manager (thread-safe with Fluent)
+#[derive(Clone)]
 pub struct I18n {
     bundles: Arc<parking_lot::Mutex<HashMap<Language, FluentBundle<FluentResource>>>>,
-    current_language: parking_lot::Mutex<Language>,
+    current_language: Arc<parking_lot::Mutex<Language>>,
+}
+
+impl std::fmt::Debug for I18n {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("I18n")
+            .field("current_language", &*self.current_language.lock())
+            .field("bundles_count", &self.bundles.lock().len())
+            .finish()
+    }
 }
 
 unsafe impl Send for I18n {}
@@ -83,6 +93,11 @@ unsafe impl Sync for I18n {}
 static I18N: OnceLock<I18n> = OnceLock::new();
 
 impl I18n {
+    /// Create a new I18n instance (for compatibility)
+    pub fn new() -> Self {
+        Self::global().clone()
+    }
+
     /// Initialize the global i18n instance
     pub fn init() -> Result<()> {
         let mut bundles = HashMap::new();
@@ -109,7 +124,7 @@ impl I18n {
 
         let i18n = I18n {
             bundles: Arc::new(parking_lot::Mutex::new(bundles)),
-            current_language: parking_lot::Mutex::new(Language::from_env()),
+            current_language: Arc::new(parking_lot::Mutex::new(Language::from_env())),
         };
 
         I18N.set(i18n).map_err(|_| anyhow!("Failed to initialize i18n"))?;
@@ -120,8 +135,8 @@ impl I18n {
     pub fn global() -> &'static I18n {
         I18N.get_or_init(|| {
             I18n {
-                            bundles: Arc::new(parking_lot::Mutex::new(HashMap::new())),
-            current_language: parking_lot::Mutex::new(Language::English),
+                bundles: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+                current_language: Arc::new(parking_lot::Mutex::new(Language::English)),
             }
         })
     }
@@ -169,8 +184,13 @@ impl I18n {
             }
         }
         
-        tracing::warn!("Missing translation key: {}", key);
+        // Fallback to key if translation not found
         key.to_string()
+    }
+    
+    /// Get localized message with single argument (for compatibility)
+    pub fn get_single(&self, key: &str) -> String {
+        self.get(key, None)
     }
 
     /// Set current language
@@ -181,6 +201,22 @@ impl I18n {
     /// Get current language
     pub fn current_language(&self) -> Language {
         *self.current_language.lock()
+    }
+
+    /// Get current locale string (for compatibility)
+    pub fn current_locale(&self) -> String {
+        match self.current_language() {
+            Language::English => "en-US".to_string(),
+            Language::Japanese => "ja-JP".to_string(),
+            Language::Chinese => "zh-CN".to_string(),
+            Language::Spanish => "es-ES".to_string(),
+            Language::French => "fr-FR".to_string(),
+            Language::German => "de-DE".to_string(),
+            Language::Russian => "ru-RU".to_string(),
+            Language::Korean => "ko-KR".to_string(),
+            Language::Portuguese => "pt-BR".to_string(),
+            Language::Italian => "it-IT".to_string(),
+        }
     }
 }
 

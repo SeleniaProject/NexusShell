@@ -1,8 +1,8 @@
-//! `hdparm` builtin – simple disk performance benchmarking.
+//! `hdparm` builtin  Esimple disk performance benchmarking.
 //!
 //! Currently implemented options (subset):
 //!   -t   : Buffered (sequential) read timing
-//!   -T   : Cached timing (OS cache) – measures memory copy speed
+//!   -T   : Cached timing (OS cache)  Emeasures memory copy speed
 //!
 //! Usage examples:
 //!     hdparm -t /dev/sda
@@ -93,7 +93,7 @@ fn buffered_test(dev: &str) -> Result<()> {
     while read_bytes < TOTAL {
         let n = file.read(&mut buf)?;
         if n == 0 {
-            break; // EOF encountered before TOTAL – fine
+            break; // EOF encountered before TOTAL  Efine
         }
         read_bytes += n;
     }

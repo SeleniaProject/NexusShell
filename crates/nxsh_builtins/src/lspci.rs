@@ -1,4 +1,4 @@
-//! `lspci` builtin – list PCI devices.
+//! `lspci` builtin  Elist PCI devices.
 //! This command relies on the external `lspci` utility (pciutils). If the
 //! binary is not found, an informative message is shown.
 

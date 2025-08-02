@@ -1,4 +1,4 @@
-//! `popd` builtin – pop directory stack and change to new top.
+//! `popd` builtin  Epop directory stack and change to new top.
 //! Usage: popd
 
 use anyhow::{anyhow, Result};

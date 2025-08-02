@@ -1,4 +1,4 @@
-//! `watch` builtin – world-class real-time command monitoring with advanced features.
+//! `watch` builtin  Eworld-class real-time command monitoring with advanced features.
 //!
 //! This implementation provides complete watch functionality with professional features:
 //! - Real-time command execution with customizable intervals
@@ -34,12 +34,12 @@ use std::{
     fmt,
     io::{stdout, Write, BufRead, BufReader},
     process::{Command, Stdio},
-    sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, Ordering}},
+    sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, Ordering}, mpsc},
     time::{Duration, Instant, SystemTime},
 };
 use tokio::{
     process::Command as AsyncCommand,
-    sync::{broadcast, mpsc, RwLock},
+    sync::{broadcast, RwLock},
     time::{sleep, interval, MissedTickBehavior},
 };
 use unicode_width::UnicodeWidthStr;
@@ -369,7 +369,7 @@ impl WatchManager {
             
             if self.config.notifications_enabled {
                 self.send_notification(&format!("{}: {}", 
-                    self.i18n.get("watch.notification.changes_detected"),
+                    self.i18n.get("watch.notification.changes_detected", None),
                     execution.command
                 )).await?;
             }
@@ -588,7 +588,7 @@ impl WatchManager {
             execute!(stdout(), 
                 MoveTo(left_width as u16, (row + 3) as u16),
                 SetForegroundColor(self.config.theme.border_color),
-                Print("│"),
+                Print("━E),
                 ResetColor
             )?;
             
@@ -599,19 +599,19 @@ impl WatchManager {
                     0 => {
                         let stats = self.statistics.read().await;
                         execute!(stdout(), Print(format!("{}: {}", 
-                            self.i18n.get("watch.stats.executions"), 
+                            self.i18n.get("watch.stats.executions", None), 
                             stats.total_executions)))?;
                     }
                     1 => {
                         let stats = self.statistics.read().await;
                         execute!(stdout(), Print(format!("{}: {}", 
-                            self.i18n.get("watch.stats.changes"), 
+                            self.i18n.get("watch.stats.changes", None), 
                             stats.changes_detected)))?;
                     }
                     2 => {
                         let stats = self.statistics.read().await;
                         execute!(stdout(), Print(format!("{}: {:.2}ms", 
-                            self.i18n.get("watch.stats.avg_time"), 
+                            self.i18n.get("watch.stats.avg_time", None), 
                             stats.average_execution_time.as_secs_f64() * 1000.0)))?;
                     }
                     _ => {}
@@ -637,7 +637,7 @@ impl WatchManager {
         
         execute!(stdout(),
             SetForegroundColor(self.config.theme.header_color),
-            Print(format!("{}: {} ", self.i18n.get("watch.header.every"), self.config.interval)),
+            Print(format!("{}: {} ", self.i18n.get("watch.header.every", None), self.config.interval)),
             SetForegroundColor(self.config.theme.command_color),
             Print(&self.command),
             Print(" "),
@@ -648,9 +648,9 @@ impl WatchManager {
         
         execute!(stdout(),
             SetForegroundColor(self.config.theme.timestamp_color),
-            Print(format!("{}: {} | ", self.i18n.get("watch.header.timestamp"), timestamp)),
-            Print(format!("{}: {} | ", self.i18n.get("watch.header.executions"), stats.total_executions)),
-            Print(format!("{}: {}", self.i18n.get("watch.header.changes"), stats.changes_detected)),
+            Print(format!("{}: {} | ", self.i18n.get("watch.header.timestamp", None), timestamp)),
+            Print(format!("{}: {} | ", self.i18n.get("watch.header.executions", None), stats.total_executions)),
+            Print(format!("{}: {}", self.i18n.get("watch.header.changes", None), stats.changes_detected)),
             ResetColor,
             MoveToNextLine(2)
         )?;
@@ -663,15 +663,15 @@ impl WatchManager {
         execute!(stdout(), MoveTo(0, height - 1))?;
         
         let status = if self.paused.load(Ordering::Relaxed) {
-            format!("[{}] ", self.i18n.get("watch.status.paused"))
+            format!("[{}] ", self.i18n.get("watch.status.paused", None))
         } else {
-            format!("[{}] ", self.i18n.get("watch.status.running"))
+            format!("[{}] ", self.i18n.get("watch.status.running", None))
         };
         
         let help = format!("q:{} | p:{} | h:{}", 
-            self.i18n.get("watch.keys.quit"),
-            self.i18n.get("watch.keys.pause"),
-            self.i18n.get("watch.keys.help")
+            self.i18n.get("watch.keys.quit", None),
+            self.i18n.get("watch.keys.pause", None),
+            self.i18n.get("watch.keys.help", None)
         );
         
         execute!(stdout(),
@@ -691,20 +691,20 @@ impl WatchManager {
         
         execute!(stdout(), 
             SetForegroundColor(self.config.theme.info_color),
-            Print(format!("{}\n", self.i18n.get("watch.stats.title"))),
+            Print(format!("{}\n", self.i18n.get("watch.stats.title", None))),
             ResetColor
         )?;
         
         execute!(stdout(), Print(format!("{}: {}\n", 
-            self.i18n.get("watch.stats.total_executions"), stats.total_executions)))?;
+            self.i18n.get("watch.stats.total_executions", None), stats.total_executions)))?;
         execute!(stdout(), Print(format!("{}: {}\n", 
-            self.i18n.get("watch.stats.successful"), stats.successful_executions)))?;
+            self.i18n.get("watch.stats.successful", None), stats.successful_executions)))?;
         execute!(stdout(), Print(format!("{}: {}\n", 
-            self.i18n.get("watch.stats.failed"), stats.failed_executions)))?;
+            self.i18n.get("watch.stats.failed", None), stats.failed_executions)))?;
         execute!(stdout(), Print(format!("{}: {:.2}ms\n", 
-            self.i18n.get("watch.stats.avg_time"), stats.average_execution_time.as_secs_f64() * 1000.0)))?;
+            self.i18n.get("watch.stats.avg_time", None), stats.average_execution_time.as_secs_f64() * 1000.0)))?;
         execute!(stdout(), Print(format!("{}: {}\n", 
-            self.i18n.get("watch.stats.changes_detected"), stats.changes_detected)))?;
+            self.i18n.get("watch.stats.changes_detected", None), stats.changes_detected)))?;
         
         Ok(())
     }
@@ -715,13 +715,13 @@ impl WatchManager {
         
         execute!(stdout(), 
             SetForegroundColor(self.config.theme.info_color),
-            Print(format!("{}\n", self.i18n.get("watch.history.title"))),
+            Print(format!("{}\n", self.i18n.get("watch.history.title", None))),
             ResetColor
         )?;
         
         for execution in recent {
-            let status = if execution.exit_code == Some(0) { "✓" } else { "✗" };
-            let changes = if execution.changes_detected { "●" } else { "○" };
+            let status = if execution.exit_code == Some(0) { "✁E } else { "✁E };
+            let changes = if execution.changes_detected { "◁E } else { "◁E };
             
             execute!(stdout(), Print(format!("{} {} {} [{}ms] {}\n",
                 status,
@@ -1022,12 +1022,12 @@ pub async fn watch_cli(args: &[String]) -> Result<()> {
 }
 
 fn print_watch_help(i18n: &I18n) {
-    println!("{}", i18n.get("watch.help.title"));
+    println!("{}", i18n.get("watch.help.title", None));
     println!();
-    println!("{}", i18n.get("watch.help.usage"));
+    println!("{}", i18n.get("watch.help.usage", None));
     println!("    watch [OPTIONS] command [args...]");
     println!();
-    println!("{}", i18n.get("watch.help.options"));
+    println!("{}", i18n.get("watch.help.options", None));
     println!("    -h, --help              Show this help message");
     println!("    -n, --interval SEC      Set update interval in seconds (default: 2.0)");
     println!("    -d, --differences       Highlight differences between updates");
@@ -1048,18 +1048,18 @@ fn print_watch_help(i18n: &I18n) {
     println!("    --export FORMAT         Export history (json, csv)");
     println!("    --export-file FILE      Export filename");
     println!();
-    println!("{}", i18n.get("watch.help.keyboard"));
+    println!("{}", i18n.get("watch.help.keyboard", None));
     println!("    q, Q                    Quit");
     println!("    p, P                    Pause/resume");
     println!("    r, R                    Force refresh");
     println!("    d, D                    Toggle differences");
     println!("    s, S                    Toggle statistics");
-    println!("    ↑/↓                     Scroll up/down");
+    println!("    ↁEↁE                    Scroll up/down");
     println!("    Page Up/Down            Scroll page up/down");
     println!("    Home                    Go to top");
     println!("    Ctrl+C                  Quit");
     println!();
-    println!("{}", i18n.get("watch.help.examples"));
+    println!("{}", i18n.get("watch.help.examples", None));
     println!("    watch ls -la                    # Watch directory listing");
     println!("    watch -n 0.5 date              # Update every 0.5 seconds");
     println!("    watch -d 'ps aux | grep nginx' # Watch with differences");

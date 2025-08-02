@@ -1,4 +1,4 @@
-//! `suspend` builtin – send SIGSTOP to the current shell process to suspend it.
+//! `suspend` builtin  Esend SIGSTOP to the current shell process to suspend it.
 //! On Unix this calls `libc::raise(SIGSTOP)`. On Windows a stub message is printed.
 
 use anyhow::Result;

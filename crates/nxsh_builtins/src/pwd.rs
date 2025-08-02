@@ -1,4 +1,4 @@
-//! `pwd` builtin – print current working directory.
+//! `pwd` builtin  Eprint current working directory.
 //! Supports options:
 //!   -L : logical path from $PWD (default)
 //!   -P : physical path with symlink resolution

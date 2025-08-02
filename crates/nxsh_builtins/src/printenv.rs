@@ -1,4 +1,4 @@
-//! `printenv` builtin — print environment variable value.
+//! `printenv` builtin  Eprint environment variable value.
 //!
 //! Usage:
 //!   printenv VAR          # print value of VAR

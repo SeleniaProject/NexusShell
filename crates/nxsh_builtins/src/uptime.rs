@@ -5,8 +5,9 @@
 use crate::common::{i18n::*, logging::*};
 use std::io::Write;
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult};
+use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError};
 use std::fs;
+use anyhow::{anyhow, Result};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub struct UptimeBuiltin;
@@ -27,11 +28,20 @@ pub struct UptimeInfo {
 }
 
 impl Builtin for UptimeBuiltin {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "uptime"
     }
 
-    fn execute(&self, context: &mut Context, args: Vec<String>) -> ShellResult<i32> {
+    fn synopsis(&self) -> &'static str {
+        "show how long the system has been running"
+    }
+
+    fn description(&self) -> &'static str {
+        "Display system uptime and load averages"
+    }
+
+    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
+        let args = &ctx.args;
         let options = parse_uptime_args(&args)?;
         
         let uptime_info = collect_uptime_info()?;
@@ -44,10 +54,17 @@ impl Builtin for UptimeBuiltin {
             display_standard(&uptime_info);
         }
         
-        Ok(0)
+        Ok(ExecutionResult {
+            exit_code: 0,
+            output: Some(Vec::new()),
+            error: Some(Vec::new()),
+            duration: std::time::Duration::default(),
+            pid: Some(std::process::id()),
+            job_id: None,
+        })
     }
 
-    fn help(&self) -> &str {
+    fn usage(&self) -> &'static str {
         "uptime - show how long the system has been running
 
 USAGE:
@@ -83,11 +100,11 @@ fn parse_uptime_args(args: &[String]) -> ShellResult<UptimeOptions> {
         match arg.as_str() {
             "-p" | "--pretty" => options.pretty = true,
             "-s" | "--since" => options.since = true,
-            "--help" => return Err(ShellError::runtime("Help requested")),
+            "--help" => return Err(ShellError::command_not_found("Help requested")),
             _ if arg.starts_with("-") => {
-                return Err(ShellError::runtime(format!("Unknown option: {}", arg)));
+                return Err(ShellError::command_not_found(&format!("Unknown option: {}", arg)));
             }
-            _ => return Err(ShellError::runtime(format!("Unknown argument: {}", arg))),
+            _ => return Err(ShellError::command_not_found(&format!("Unknown argument: {}", arg))),
         }
     }
 
@@ -141,11 +158,11 @@ fn read_proc_uptime() -> ShellResult<Duration> {
     
     let parts: Vec<&str> = content.split_whitespace().collect();
     if parts.is_empty() {
-        return Err(ShellError::runtime("Invalid /proc/uptime format"));
+        return Err(ShellError::command_not_found("Invalid /proc/uptime format"));
     }
     
     let uptime_secs = parts[0].parse::<f64>()
-        .map_err(|_| ShellError::runtime("Invalid uptime value"))?;
+        .map_err(|_| ShellError::command_not_found("Invalid uptime value"))?;
     
     Ok(Duration::from_secs_f64(uptime_secs))
 }
@@ -157,15 +174,15 @@ fn read_proc_loadavg() -> ShellResult<(f64, f64, f64)> {
     
     let parts: Vec<&str> = content.split_whitespace().collect();
     if parts.len() < 3 {
-        return Err(ShellError::runtime("Invalid /proc/loadavg format"));
+        return Err(ShellError::command_not_found("Invalid /proc/loadavg format"));
     }
     
     let load1 = parts[0].parse::<f64>()
-        .map_err(|_| ShellError::runtime("Invalid load average"))?;
+        .map_err(|_| ShellError::command_not_found("Invalid load average"))?;
     let load5 = parts[1].parse::<f64>()
-        .map_err(|_| ShellError::runtime("Invalid load average"))?;
+        .map_err(|_| ShellError::command_not_found("Invalid load average"))?;
     let load15 = parts[2].parse::<f64>()
-        .map_err(|_| ShellError::runtime("Invalid load average"))?;
+        .map_err(|_| ShellError::command_not_found("Invalid load average"))?;
     
     Ok((load1, load5, load15))
 }

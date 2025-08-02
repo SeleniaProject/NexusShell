@@ -1,4 +1,4 @@
-//! `shred` command – overwrite a file to make recovery difficult.
+//! `shred` command  Eoverwrite a file to make recovery difficult.
 //! Usage: shred FILE
 //! Overwrites with random data once and then truncates to zero.
 

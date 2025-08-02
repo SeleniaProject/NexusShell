@@ -1,4 +1,4 @@
-//! `pkill` builtin — send signals to processes matched by name (regex).
+//! `pkill` builtin  Esend signals to processes matched by name (regex).
 //!
 //! Usage: `pkill [-SIGNAL] PATTERN`
 //! If `-SIGNAL` is omitted, defaults to SIGTERM (15).
@@ -10,7 +10,7 @@ use sysinfo::{ProcessExt, System, SystemExt, PidExt};
 use std::num::ParseIntError;
 
 #[cfg(unix)]
-use libc::{c_int, kill as libc_kill, pid_t};
+use nix::libc::{c_int, kill as libc_kill, pid_t};
 #[cfg(windows)]
 use windows_sys::Win32::{Foundation::HANDLE, System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE}};
 
@@ -74,7 +74,7 @@ fn send_signal(pid: i32, sig: i32) -> Result<()> {
 fn send_signal(pid: i32, _sig: i32) -> Result<()> {
     unsafe {
         let handle: HANDLE = OpenProcess(PROCESS_TERMINATE, 0, pid as u32);
-        if handle == 0 {
+        if handle == std::ptr::null_mut() {
             return Err(anyhow!("pkill: could not open process {pid}"));
         }
         if TerminateProcess(handle, 1) == 0 {

@@ -1,4 +1,4 @@
-//! `pgrep` builtin — search processes by name (regex).
+//! `pgrep` builtin  Esearch processes by name (regex).
 //!
 //! Usage: `pgrep PATTERN` (POSIX ERE pattern). Prints matching PIDs, one per line.
 //! Options not yet supported (future: -l, -f, -x, etc.).

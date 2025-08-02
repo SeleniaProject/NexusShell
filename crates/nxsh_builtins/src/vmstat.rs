@@ -1,4 +1,4 @@
-//! `vmstat` builtin — report virtual memory statistics.
+//! `vmstat` builtin  Ereport virtual memory statistics.
 //!
 //! Simplified output inspired by Linux `vmstat`.
 //! Currently prints a single snapshot with columns:

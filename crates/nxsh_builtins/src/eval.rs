@@ -1,4 +1,4 @@
-//! `eval` builtin – re-evaluate the given arguments as a command line.
+//! `eval` builtin  Ere-evaluate the given arguments as a command line.
 //! This implementation concatenates the arguments with spaces and invokes the
 //! platform default shell (`sh -c` on Unix, `cmd /C` on Windows). In the future
 //! this will integrate directly with NexusShell's parser/executor.

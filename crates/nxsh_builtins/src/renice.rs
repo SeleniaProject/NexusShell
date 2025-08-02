@@ -1,4 +1,4 @@
-//! `renice` builtin — change priority of running processes.
+//! `renice` builtin  Echange priority of running processes.
 //!
 //! Usage: `renice [-n] ADJUST PID...`
 //! Accepts numeric nice value and list of PIDs. Positive values lower priority.
@@ -9,7 +9,7 @@ use anyhow::{anyhow, Result};
 use std::num::ParseIntError;
 
 #[cfg(unix)]
-use libc::{c_int, setpriority, PRIO_PROCESS};
+use nix::libc::{c_int, setpriority, PRIO_PROCESS};
 #[cfg(windows)]
 // placeholder import to satisfy cfg path
 use core::marker::PhantomData;

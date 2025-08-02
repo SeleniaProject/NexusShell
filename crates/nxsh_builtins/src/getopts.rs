@@ -1,4 +1,4 @@
-//! `getopts` builtin – POSIX argument parsing helper.
+//! `getopts` builtin  EPOSIX argument parsing helper.
 //! Syntax: getopts OPTSTRING NAME [ARGS...]
 //! For each option parsed, sets variable NAME to the option character and prints index.
 //! If option requires an argument (indicated by ':' in OPTSTRING), the argument is stored in

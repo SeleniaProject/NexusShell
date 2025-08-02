@@ -1,4 +1,4 @@
-//! `wc` command – print newline, word, and byte counts.
+//! `wc` command  Eprint newline, word, and byte counts.
 //!
 //! Supported subset:
 //!   wc [-lwmc] [FILE...]

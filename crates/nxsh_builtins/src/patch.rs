@@ -1,4 +1,4 @@
-//! `patch` command – apply unified context diffs.
+//! `patch` command  Eapply unified context diffs.
 //!
 //! This built-in is a thin wrapper around the system `patch` utility to avoid
 //! re-implementing a full diff parser. It supports the most common workflow:

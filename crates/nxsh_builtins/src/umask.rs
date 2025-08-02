@@ -1,4 +1,4 @@
-//! `umask` builtin – get or set the file creation mask.
+//! `umask` builtin  Eget or set the file creation mask.
 //! Usage:
 //!   umask           # print current mask in 4-digit octal (e.g., 0022)
 //!   umask MODE      # set mask to MODE (octal)

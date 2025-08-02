@@ -1,4 +1,4 @@
-//! `tree` command – directory tree listing.
+//! `tree` command  Edirectory tree listing.
 //! Usage: tree [DIR]
 //! Prints ASCII tree up to default depth 3; use -L <n> to limit depth.
 
@@ -26,7 +26,7 @@ fn display_tree(root: std::path::PathBuf, depth: usize) -> Result<()> {
     for entry in WalkDir::new(&root).min_depth(1).max_depth(depth) {
         let e = entry?;
         let depth_level = e.depth();
-        let indent = "│   ".repeat(depth_level - 1);
+        let indent = "━E  ".repeat(depth_level - 1);
         let name = e.file_name().to_string_lossy();
         let branch = if e.depth() == depth { "└──" } else { "├──" };
         println!("{}{} {}", indent, branch, name);

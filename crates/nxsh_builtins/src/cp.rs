@@ -1,4 +1,4 @@
-//! `cp` command – copy files and directories.
+//! `cp` command  Ecopy files and directories.
 //! Supported syntax:
 //!   cp SRC DST
 //!   cp -r SRC_DIR DST_DIR
@@ -386,7 +386,7 @@ fn set_file_times(path: &Path, accessed: SystemTime, modified: SystemTime) -> Re
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        use libc::{utimensat, timespec, AT_FDCWD};
+        use nix::libc::{utimensat, timespec, AT_FDCWD};
         use std::ffi::CString;
         use std::time::UNIX_EPOCH;
 

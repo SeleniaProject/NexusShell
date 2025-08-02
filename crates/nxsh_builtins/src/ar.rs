@@ -1,4 +1,4 @@
-//! `ar` builtin — static library archiver wrapper.
+//! `ar` builtin  Estatic library archiver wrapper.
 //!
 //! Provides access to platform `ar` command. All arguments are forwarded verbatim.
 //! Implementing full archive manipulation internally is out of scope.

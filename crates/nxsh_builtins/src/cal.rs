@@ -1,4 +1,4 @@
-//! `cal` builtin – world-class calendar display with Unicode box drawing.
+//! `cal` builtin  Eworld-class calendar display with Unicode box drawing.
 //!
 //! This implementation provides complete calendar functionality with advanced features:
 //! - Beautiful Unicode box drawing characters for calendar borders
@@ -25,32 +25,32 @@ use console::{style, Color, Term};
 
 // Unicode box drawing characters
 const BOX_HORIZONTAL: char = '─';
-const BOX_VERTICAL: char = '│';
-const BOX_TOP_LEFT: char = '┌';
-const BOX_TOP_RIGHT: char = '┐';
-const BOX_BOTTOM_LEFT: char = '└';
-const BOX_BOTTOM_RIGHT: char = '┘';
+const BOX_VERTICAL: char = '━E;
+const BOX_TOP_LEFT: char = '━E;
+const BOX_TOP_RIGHT: char = '━E;
+const BOX_BOTTOM_LEFT: char = '━E;
+const BOX_BOTTOM_RIGHT: char = '━E;
 const BOX_CROSS: char = '┼';
 const BOX_T_DOWN: char = '┬';
 const BOX_T_UP: char = '┴';
-const BOX_T_RIGHT: char = '├';
+const BOX_T_RIGHT: char = '━E;
 const BOX_T_LEFT: char = '┤';
 
 // Double line box drawing
-const BOX_DOUBLE_HORIZONTAL: char = '═';
-const BOX_DOUBLE_VERTICAL: char = '║';
-const BOX_DOUBLE_TOP_LEFT: char = '╔';
-const BOX_DOUBLE_TOP_RIGHT: char = '╗';
-const BOX_DOUBLE_BOTTOM_LEFT: char = '╚';
-const BOX_DOUBLE_BOTTOM_RIGHT: char = '╝';
+const BOX_DOUBLE_HORIZONTAL: char = '╁E;
+const BOX_DOUBLE_VERTICAL: char = '╁E;
+const BOX_DOUBLE_TOP_LEFT: char = '╁E;
+const BOX_DOUBLE_TOP_RIGHT: char = '╁E;
+const BOX_DOUBLE_BOTTOM_LEFT: char = '╁E;
+const BOX_DOUBLE_BOTTOM_RIGHT: char = '╁E;
 
 // Heavy box drawing
-const BOX_HEAVY_HORIZONTAL: char = '━';
-const BOX_HEAVY_VERTICAL: char = '┃';
-const BOX_HEAVY_TOP_LEFT: char = '┏';
-const BOX_HEAVY_TOP_RIGHT: char = '┓';
-const BOX_HEAVY_BOTTOM_LEFT: char = '┗';
-const BOX_HEAVY_BOTTOM_RIGHT: char = '┛';
+const BOX_HEAVY_HORIZONTAL: char = '━E;
+const BOX_HEAVY_VERTICAL: char = '━E;
+const BOX_HEAVY_TOP_LEFT: char = '━E;
+const BOX_HEAVY_TOP_RIGHT: char = '━E;
+const BOX_HEAVY_BOTTOM_LEFT: char = '━E;
+const BOX_HEAVY_BOTTOM_RIGHT: char = '━E;
 
 // Moon phase symbols
 const MOON_NEW: char = '🌑';
@@ -66,8 +66,8 @@ const MOON_WANING_CRESCENT: char = '🌘';
 static MONTH_NAMES: &[(&str, &[&str])] = &[
     ("en", &["January", "February", "March", "April", "May", "June", 
              "July", "August", "September", "October", "November", "December"]),
-    ("ja", &["1月", "2月", "3月", "4月", "5月", "6月", 
-             "7月", "8月", "9月", "10月", "11月", "12月"]),
+    ("ja", &["1朁E, "2朁E, "3朁E, "4朁E, "5朁E, "6朁E, 
+             "7朁E, "8朁E, "9朁E, "10朁E, "11朁E, "12朁E]),
     ("de", &["Januar", "Februar", "März", "April", "Mai", "Juni", 
              "Juli", "August", "September", "Oktober", "November", "Dezember"]),
     ("fr", &["janvier", "février", "mars", "avril", "mai", "juin", 
@@ -78,25 +78,25 @@ static MONTH_NAMES: &[(&str, &[&str])] = &[
              "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]),
     ("pt", &["janeiro", "fevereiro", "março", "abril", "maio", "junho", 
              "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]),
-    ("ru", &["январь", "февраль", "март", "апрель", "май", "июнь", 
-             "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"]),
-    ("zh", &["一月", "二月", "三月", "四月", "五月", "六月", 
-             "七月", "八月", "九月", "十月", "十一月", "十二月"]),
-    ("ko", &["1월", "2월", "3월", "4월", "5월", "6월", 
-             "7월", "8월", "9월", "10월", "11월", "12월"]),
+    ("ru", &["январсE, "сE�вралсE, "марсE, "апрелсE, "май", "июнсE, 
+             "июлсE, "авгусE�E, "сE�нтябрсE, "октябрсE, "ноябрсE, "декабрсE]),
+    ("zh", &["一朁E, "二月", "三月", "四月", "五月", "六朁E, 
+             "丁E��", "八朁E, "九月", "十月", "十一朁E, "十二月"]),
+    ("ko", &["1�E�E, "2�E�E, "3�E�E, "4�E�E, "5�E�E, "6�E�E, 
+             "7�E�E, "8�E�E, "9�E�E, "10�E�E, "11�E�E, "12�E�E]),
 ];
 
 static WEEKDAY_NAMES: &[(&str, &[&str])] = &[
     ("en", &["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]),
-    ("ja", &["日", "月", "火", "水", "木", "金", "土"]),
+    ("ja", &["日", "朁E, "火", "水", "木", "釁E, "圁E]),
     ("de", &["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"]),
     ("fr", &["di", "lu", "ma", "me", "je", "ve", "sa"]),
     ("es", &["do", "lu", "ma", "mi", "ju", "vi", "sá"]),
     ("it", &["do", "lu", "ma", "me", "gi", "ve", "sa"]),
     ("pt", &["do", "se", "te", "qu", "qu", "se", "sá"]),
-    ("ru", &["вс", "пн", "вт", "ср", "чт", "пт", "сб"]),
-    ("zh", &["日", "一", "二", "三", "四", "五", "六"]),
-    ("ko", &["일", "월", "화", "수", "목", "금", "토"]),
+    ("ru", &["всE, "пн", "всE, "сE�", "сE�E, "псE, "сE�"]),
+    ("zh", &["日", "一", "亁E, "丁E, "囁E, "亁E, "六"]),
+    ("ko", &["�E�", "�E�E, "���E, "�E�E, "�E�", "�E�E, "���"]),
 ];
 
 static WEEKDAY_FULL_NAMES: &[(&str, &[&str])] = &[
@@ -107,9 +107,9 @@ static WEEKDAY_FULL_NAMES: &[(&str, &[&str])] = &[
     ("es", &["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"]),
     ("it", &["domenica", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato"]),
     ("pt", &["domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"]),
-    ("ru", &["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"]),
-    ("zh", &["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"]),
-    ("ko", &["일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일"]),
+    ("ru", &["восE�ресE�нье", "понедельник", "вторник", "сE�еда", "сE�тверг", "пятнисE�", "сE�ббота"]),
+    ("zh", &["星期日", "星期一", "星期亁E, "星期丁E, "星期囁E, "星期亁E, "星期六"]),
+    ("ko", &["�E��E�일", "�E�요�E�", "���요�E�", "�E�요�E�", "�E��E�일", "�E�요�E�", "����E�일"]),
 ];
 
 #[derive(Debug, Clone)]
@@ -1017,12 +1017,12 @@ fn print_rounded_month(month_name: &str, year: i32, grid: &[Vec<CalendarDay>], o
     // Month and year header
     let header = format!("{} {}", month_name, year);
     let padding = (width - header.len()) / 2;
-    print!("│");
+    print!("━E);
     print!("{:width$}{}{:width2$}", "", header, "", width = padding, width2 = width - padding - header.len());
-    println!("│");
+    println!("━E);
     
     // Weekday headers and days
-    print!("│");
+    print!("━E);
     if options.show_week_numbers {
         print!(" W ");
     }
@@ -1030,11 +1030,11 @@ fn print_rounded_month(month_name: &str, year: i32, grid: &[Vec<CalendarDay>], o
         if i > 0 { print!(" "); }
         print!("{:>2}", weekday);
     }
-    println!(" │");
+    println!(" ━E);
     
     // Calendar days
     for week in grid {
-        print!("│");
+        print!("━E);
         
         if options.show_week_numbers {
             if let Some(week_num) = week.iter().find_map(|d| d.week_number) {
@@ -1068,7 +1068,7 @@ fn print_rounded_month(month_name: &str, year: i32, grid: &[Vec<CalendarDay>], o
             }
         }
         
-        println!(" │");
+        println!(" ━E);
     }
     
     // Bottom border with rounded corners

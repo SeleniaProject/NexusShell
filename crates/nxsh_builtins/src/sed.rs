@@ -4,8 +4,10 @@
 
 use crate::common::{i18n::*, logging::*};
 use std::io::Write;
+use std::time::Duration;
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult};
+use nxsh_core::{Context, ExecutionResult, ShellResult, ShellError};
 use crate::builtin::Builtin;
 use regex::{Regex, RegexBuilder};
 use std::fs::{File, OpenOptions};
@@ -61,15 +63,24 @@ pub struct SubstituteFlags {
 }
 
 impl Builtin for SedBuiltin {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "sed"
     }
 
-    fn execute(&self, context: &mut Context, args: Vec<String>) -> ShellResult<i32> {
-        let options = parse_sed_args(&args)?;
+    fn synopsis(&self) -> &'static str {
+        "stream editor for filtering and transforming text"
+    }
+
+    fn description(&self) -> &'static str {
+        "Stream editor that performs text transformations on input streams"
+    }
+
+    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
+        let args = &ctx.args;
+        let options = parse_sed_args(args)?;
         
         if options.script.is_empty() && options.script_files.is_empty() {
-            return Err(ShellError::runtime("No script provided"));
+            return Err(ShellError::command_not_found("No script provided"));
         }
 
         let mut commands = Vec::new();
@@ -82,7 +93,7 @@ impl Builtin for SedBuiltin {
         // Parse script files
         for script_file in &options.script_files {
             let content = std::fs::read_to_string(script_file)
-                .map_err(|e| ShellError::io(format!("Failed to read script file {}: {}", script_file, e)))?;
+                .map_err(|e| ShellError::file_not_found(&format!("Failed to read script file {}: {}", script_file, e)))?;
             commands.extend(parse_sed_script(&content, options.extended_regex)?);
         }
 
@@ -95,10 +106,17 @@ impl Builtin for SedBuiltin {
             }
         }
 
-        Ok(0)
+        Ok(ExecutionResult {
+            exit_code: 0,
+            output: Some(Vec::new()),
+            error: Some(Vec::new()),
+            duration: Duration::from_secs(0),
+            pid: Some(std::process::id()),
+            job_id: None,
+        })
     }
 
-    fn help(&self) -> &str {
+    fn usage(&self) -> &'static str {
         "sed - stream editor for filtering and transforming text
 
 USAGE:
@@ -161,13 +179,13 @@ fn parse_sed_args(args: &[String]) -> ShellResult<SedOptions> {
         if arg == "-e" || arg == "--expression" {
             i += 1;
             if i >= args.len() {
-                return Err(ShellError::runtime("Option -e requires an argument"));
+                return Err(ShellError::command_not_found("Option -e requires an argument"));
             }
             options.script.push(args[i].clone());
         } else if arg == "-f" || arg == "--file" {
             i += 1;
             if i >= args.len() {
-                return Err(ShellError::runtime("Option -f requires an argument"));
+                return Err(ShellError::command_not_found("Option -f requires an argument"));
             }
             options.script_files.push(args[i].clone());
         } else if arg == "-i" || arg == "--in-place" {
@@ -184,9 +202,9 @@ fn parse_sed_args(args: &[String]) -> ShellResult<SedOptions> {
         } else if arg == "-z" || arg == "--null-data" {
             options.null_data = true;
         } else if arg == "--help" {
-            return Err(ShellError::runtime("Help requested"));
+            return Err(ShellError::command_not_found("Help requested"));
         } else if arg.starts_with("-") {
-            return Err(ShellError::runtime(format!("Unknown option: {}", arg)));
+            return Err(ShellError::command_not_found(&format!("Unknown option: {}", arg)));
         } else {
             // First non-option argument is script if no -e or -f was used
             if options.script.is_empty() && options.script_files.is_empty() {
@@ -259,20 +277,20 @@ fn parse_sed_command(cmd: &str, extended_regex: bool) -> ShellResult<SedCommand>
     } else if cmd.starts_with('w') {
         Ok(SedCommand::Write(cmd[1..].trim().to_string()))
     } else {
-        Err(ShellError::runtime(format!("Unknown sed command: {}", cmd)))
+        Err(ShellError::command_not_found(&format!("Unknown sed command: {}", cmd)))
     }
 }
 
 fn parse_substitute_command(cmd: &str, extended_regex: bool) -> ShellResult<SedCommand> {
     if cmd.len() < 4 {
-        return Err(ShellError::runtime("Invalid substitute command"));
+        return Err(ShellError::command_not_found("Invalid substitute command"));
     }
     
     let delimiter = cmd.chars().nth(1).unwrap();
     let parts: Vec<&str> = cmd[2..].split(delimiter).collect();
     
     if parts.len() < 2 {
-        return Err(ShellError::runtime("Invalid substitute command format"));
+        return Err(ShellError::command_not_found("Invalid substitute command format"));
     }
     
     let pattern_str = parts[0];
@@ -306,7 +324,7 @@ fn parse_substitute_command(cmd: &str, extended_regex: bool) -> ShellResult<SedC
     }
     
     let pattern = regex_builder.build()
-        .map_err(|e| ShellError::runtime(format!("Invalid regex pattern: {}", e)))?;
+        .map_err(|e| ShellError::command_not_found(&format!("Invalid regex pattern: {}", e)))?;
     
     Ok(SedCommand::Substitute {
         pattern,
@@ -318,12 +336,12 @@ fn parse_substitute_command(cmd: &str, extended_regex: bool) -> ShellResult<SedC
 fn process_sed_file(file_path: &str, commands: &[SedCommand], options: &SedOptions) -> ShellResult<()> {
     let path = Path::new(file_path);
     let input_file = File::open(path)
-        .map_err(|e| ShellError::io(format!("Cannot open {}: {}", file_path, e)))?;
+        .map_err(|e| ShellError::file_not_found(&format!("Cannot open {}: {}", file_path, e)))?;
     
     if options.in_place {
         let temp_path = format!("{}.sed_tmp", file_path);
         let temp_file = File::create(&temp_path)
-            .map_err(|e| ShellError::io(format!("Cannot create temp file: {}", e)))?;
+            .map_err(|e| ShellError::file_not_found(&format!("Cannot create temp file: {}", e)))?;
         
         let mut writer = BufWriter::new(temp_file);
         process_sed_stream(&mut BufReader::new(input_file), &mut writer, commands, options)?;
@@ -334,11 +352,11 @@ fn process_sed_file(file_path: &str, commands: &[SedCommand], options: &SedOptio
         if let Some(ref suffix) = options.backup_suffix {
             let backup_path = format!("{}{}", file_path, suffix);
             std::fs::rename(file_path, backup_path)
-                .map_err(|e| ShellError::io(format!("Cannot create backup: {}", e)))?;
+                .map_err(|e| ShellError::file_not_found(&format!("Cannot create backup: {}", e)))?;
         }
         
         std::fs::rename(&temp_path, file_path)
-            .map_err(|e| ShellError::io(format!("Cannot replace original file: {}", e)))?;
+            .map_err(|e| ShellError::file_not_found(&format!("Cannot replace original file: {}", e)))?;
     } else {
         process_sed_stream(&mut BufReader::new(input_file), &mut std::io::stdout(), commands, options)?;
     }
@@ -370,13 +388,13 @@ fn process_sed_stream<R: BufRead, W: Write>(
     
     loop {
         buffer.clear();
-        let bytes_read = reader.read_until(separator[0], &mut buffer)?;
+        let bytes_read = reader.read_until(separator, &mut buffer)?;
         if bytes_read == 0 {
             break;
         }
         
         // Remove separator
-        if buffer.last() == Some(&separator[0]) {
+        if buffer.last() == Some(&separator) {
             buffer.pop();
         }
         
@@ -502,7 +520,7 @@ fn process_sed_stream<R: BufRead, W: Write>(
                         .create(true)
                         .append(true)
                         .open(filename)
-                        .map_err(|e| ShellError::io(format!("Cannot write to {}: {}", filename, e)))?;
+                        .map_err(|e| ShellError::file_not_found(&format!("Cannot write to {}: {}", filename, e)))?;
                     writeln!(file, "{}", pattern_space)?;
                 }
             }

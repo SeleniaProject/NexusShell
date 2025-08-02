@@ -1,4 +1,4 @@
-//! `arp` builtin — ARP table manipulation and inspection.
+//! `arp` builtin  EARP table manipulation and inspection.
 //!
 //! Most modern Linux distributions deprecate the standalone `arp` binary in
 //! favour of `ip neigh` from the `iproute2` package. This builtin therefore

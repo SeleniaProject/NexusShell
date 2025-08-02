@@ -1,4 +1,4 @@
-//! `gunzip` builtin — DEFLATE decompression utility.
+//! `gunzip` builtin  EDEFLATE decompression utility.
 //!
 //! Execution order:
 //! 1. Prefer the system `gunzip` binary for full option compatibility.

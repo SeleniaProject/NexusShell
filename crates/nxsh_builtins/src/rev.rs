@@ -1,4 +1,4 @@
-//! `rev` command – reverse characters of each line.
+//! `rev` command  Ereverse characters of each line.
 //!
 //! Usage: rev [FILE...]
 //!   • With no FILE or FILE "-", reads standard input.

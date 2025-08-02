@@ -1,14 +1,17 @@
-//! `unzstd` builtin — Zstandard decompression utility.
+//! `unzstd` builtin  EZstandard decompression utility.
 //!
-//! 1. Try system `unzstd` (or `zstd -d`).
-//! 2. Fallback to Rust `zstd` crate supporting `unzstd <FILE.zst>`.
+//! TEMPORARILY DISABLED: C-dependent zstd library removed
+//! This functionality needs to be reimplemented using pure Rust alternatives
 
 use anyhow::{anyhow, Context, Result};
 use std::{fs::File, io::copy, path::Path, process::Command};
 use which::which;
-use zstd::stream::read::Decoder;
+// Note: zstd crate may not be available - using fallback implementation
+#[cfg(feature = "zstd")]
+use zstd::Decoder;
 
 pub fn unzstd_cli(args: &[String]) -> Result<()> {
+    // Fallback to system unzstd command if available
     if let Ok(path) = which("unzstd") {
         let status = Command::new(path).args(args).status().map_err(|e| anyhow!("unzstd: failed to launch backend: {e}"))?;
         std::process::exit(status.code().unwrap_or(1));
@@ -30,9 +33,24 @@ pub fn unzstd_cli(args: &[String]) -> Result<()> {
         return Err(anyhow!("unzstd: '{}' is not a regular file", input.display()));
     }
     let output = input.with_extension("");
-    let infile = File::open(&input).with_context(|| format!("unzstd: cannot open {:?}", input))?;
-    let mut decoder = Decoder::new(infile)?;
-    let mut outfile = File::create(&output).with_context(|| format!("unzstd: cannot create {:?}", output))?;
-    copy(&mut decoder, &mut outfile).context("unzstd: decompression failed")?;
+    
+    #[cfg(feature = "zstd")]
+    {
+        let infile = File::open(&input).with_context(|| format!("unzstd: cannot open {:?}", input))?;
+        let mut decoder = Decoder::new(infile)?;
+        let mut outfile = File::create(&output).with_context(|| format!("unzstd: cannot create {:?}", output))?;
+        copy(&mut decoder, &mut outfile).context("unzstd: decompression failed")?;
+    }
+    
+    #[cfg(not(feature = "zstd"))]
+    {
+        // Fallback to system unzstd command
+        let mut cmd = Command::new("unzstd");
+        cmd.arg(&input).arg("-o").arg(&output);
+        let status = cmd.status().context("unzstd: failed to execute system command")?;
+        if !status.success() {
+            return Err(anyhow!("unzstd: system command failed"));
+        }
+    }
     Ok(())
 } 

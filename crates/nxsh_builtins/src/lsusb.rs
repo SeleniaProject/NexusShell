@@ -1,7 +1,7 @@
-//! `lsusb` builtin – list USB devices.
+//! `lsusb` builtin  Elist USB devices.
 //!
 //! On Unix platforms it attempts to execute the external `lsusb` utility if
-//! available. If not, it falls back to libusb enumeration via the `rusb` crate
+//! available. If not, it falls back to system command via shell execution
 //! and outputs a compact listing similar to the canonical format.
 //! On non-Unix systems a graceful unsupported message is printed.
 
@@ -31,7 +31,8 @@ pub async fn lsusb_cli(args: &[String]) -> Result<()> {
         }
 
         // Fallback: enumerate via libusb
-        use rusb::{Context, UsbContext};
+        // TODO: Delegate to system lsusb command instead of libusb
+        // use rusb::{Context, UsbContext};
 
         let ctx = Context::new()?;
         let devices = ctx.devices()?;

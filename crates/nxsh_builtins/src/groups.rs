@@ -1,4 +1,4 @@
-//! `groups` builtin — display group memberships.
+//! `groups` builtin  Edisplay group memberships.
 //!
 //! Strategy: if external `groups` binary exists, delegate to it, passing all args.
 //! Otherwise, on Unix fallback to parsing `id -Gn` output.

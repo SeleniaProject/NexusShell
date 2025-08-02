@@ -1,4 +1,4 @@
-//! `less` command – advanced interactive pager.
+//! `less` command  Eadvanced interactive pager.
 //! Supports forward/backward navigation similar to GNU less (subset).
 //! Keys: Space/PageDown/Down/j -> forward, b/PageUp/Up/k -> back, g -> top, G -> bottom, q -> quit.
 //! Falls back to printing all content if not running in TTY.
@@ -8,6 +8,7 @@ use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::Path;
 use std::time::Duration;
+use is_terminal::IsTerminal;
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent},
@@ -41,7 +42,7 @@ fn run_less(path_opt: Option<String>) -> Result<()> {
     let lines: Vec<&str> = content.lines().collect();
 
     // If not a TTY, print everything and return (non-interactive environment).
-    if !atty::is(atty::Stream::Stdout) {
+    if !is_terminal::IsTerminal::is_terminal(&std::io::stdout()) {
         println!("{}", content);
         return Ok(());
     }

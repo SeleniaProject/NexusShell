@@ -1,4 +1,4 @@
-//! `timedatectl` builtin – world-class time and date management with advanced features.
+//! `timedatectl` builtin  Eworld-class time and date management with advanced features.
 //!
 //! This implementation provides complete timedatectl functionality with professional features:
 //! - Complete time and date management system
@@ -34,7 +34,7 @@ use std::{
 use tokio::{
     fs as async_fs,
     process::Command as AsyncCommand,
-    sync::{broadcast, mpsc, Mutex as AsyncMutex},
+    sync::{broadcast, Mutex as AsyncMutex},
     time::{sleep, interval, Instant},
 };
 use regex::Regex;
@@ -436,8 +436,8 @@ impl TimedatectlManager {
         }
 
         // Validate timezone
-        let tz: Tz = timezone.parse()
-            .with_context(|| format!("Invalid timezone: {}", timezone))?;
+        let tz: chrono_tz::Tz = timezone.parse()
+            .map_err(|e| anyhow!("Invalid timezone: {} - {}", timezone, e))?;
 
         let old_timezone = {
             let status = self.current_status.read().unwrap();
@@ -459,7 +459,8 @@ impl TimedatectlManager {
         }
 
         // Send event
-        let _ = self.event_sender.send(TimedatectlEvent::TimezoneChanged(old_timezone, timezone.to_string()));
+        let old_timezone_for_event = old_timezone.clone();
+        let _ = self.event_sender.send(TimedatectlEvent::TimezoneChanged(old_timezone_for_event, timezone.to_string()));
 
         // Log the change
         self.log_event(&format!("Timezone changed by user {}: {} -> {}", user, old_timezone, timezone)).await?;
@@ -779,7 +780,7 @@ impl TimedatectlManager {
                 if config.monitor_drift {
                     // Calculate current drift rate
                     // This is a placeholder for actual drift calculation
-                    let drift_rate = 0.0; // ppm
+                    let drift_rate: f64 = 0.0; // ppm
                     
                     if drift_rate.abs() > config.sync_config.max_drift {
                         let _ = event_sender.send(TimedatectlEvent::DriftDetected(drift_rate));
@@ -834,7 +835,7 @@ impl TimedatectlManager {
             local_time: now_local,
             universal_time: now_utc,
             rtc_time: None,
-            timezone: now_local.timezone().name().to_string(),
+            timezone: "Local".to_string(),
             timezone_offset: now_local.offset().local_minus_utc(),
             dst_active: false, // TODO: Detect DST
             system_clock_synchronized: false,
@@ -1058,7 +1059,7 @@ pub async fn timedatectl_cli(args: &[String]) -> Result<()> {
     let mut remove_ntp_server = None;
     let mut show_statistics = false;
     let mut show_history = false;
-    let i18n = I18n::new("en-US")?; // Should be configurable
+    let i18n = I18n::new(); // Use default I18n instance
 
     let mut i = 0;
     while i < args.len() {
@@ -1366,12 +1367,12 @@ fn parse_time_string(time_str: &str) -> Result<DateTime<Utc>> {
 }
 
 fn print_timedatectl_help(i18n: &I18n) {
-    println!("{}", i18n.get("timedatectl.help.title"));
+    println!("{}", i18n.get("timedatectl.help.title", None));
     println!();
-    println!("{}", i18n.get("timedatectl.help.usage"));
+    println!("{}", i18n.get("timedatectl.help.usage", None));
     println!("    timedatectl [OPTIONS] [COMMAND]");
     println!();
-    println!("{}", i18n.get("timedatectl.help.commands"));
+    println!("{}", i18n.get("timedatectl.help.commands", None));
     println!("    status                  Show current time and date settings (default)");
     println!("    show                    Show current settings in machine-readable format");
     println!("    set-time TIME           Set system time");
@@ -1386,12 +1387,12 @@ fn print_timedatectl_help(i18n: &I18n) {
     println!("    statistics              Show time management statistics");
     println!("    history                 Show time adjustment history");
     println!();
-    println!("{}", i18n.get("timedatectl.help.options"));
+    println!("{}", i18n.get("timedatectl.help.options", None));
     println!("    -h, --help              Show this help message");
     println!("    --monitor               Monitor time synchronization status");
     println!("    --all                   Show all properties");
     println!();
-    println!("{}", i18n.get("timedatectl.help.time_formats"));
+    println!("{}", i18n.get("timedatectl.help.time_formats", None));
     println!("    YYYY-MM-DD HH:MM:SS     Full date and time");
     println!("    YYYY-MM-DD HH:MM        Date and time without seconds");
     println!("    HH:MM:SS                Time only (today's date)");
@@ -1399,7 +1400,7 @@ fn print_timedatectl_help(i18n: &I18n) {
     println!("    TIMESTAMP               Unix timestamp");
     println!("    YYYY-MM-DDTHH:MM:SSZ    ISO 8601 format");
     println!();
-    println!("{}", i18n.get("timedatectl.help.examples"));
+    println!("{}", i18n.get("timedatectl.help.examples", None));
     println!("    timedatectl                                    # Show current status");
     println!("    timedatectl set-time '2024-12-25 12:00:00'    # Set specific time");
     println!("    timedatectl set-timezone 'America/New_York'   # Set timezone");

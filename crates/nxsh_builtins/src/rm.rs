@@ -1,4 +1,4 @@
-//! `rm` command – comprehensive file and directory removal implementation.
+//! `rm` command  Ecomprehensive file and directory removal implementation.
 //!
 //! Supports complete rm functionality:
 //!   rm [OPTIONS] FILE...
@@ -19,12 +19,24 @@
 use anyhow::{Result, anyhow, Context};
 use std::fs::{self, Metadata};
 use std::io::{self, Write};
-use std::os::unix::fs::MetadataExt;
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use std::env;
 use walkdir::{WalkDir, DirEntry};
 use chrono::{DateTime, Local};
+
+// Cross-platform device ID helper function
+#[cfg(unix)]
+fn get_device_id(metadata: &Metadata) -> u64 {
+    metadata.dev()
+}
+
+#[cfg(not(unix))]
+fn get_device_id(_metadata: &Metadata) -> u64 {
+    0 // On Windows, always return 0 as device comparison is not meaningful
+}
 
 #[derive(Debug, Clone)]
 pub struct RmOptions {
@@ -267,7 +279,7 @@ fn remove_path(
     
     // Check filesystem device for --one-file-system
     if options.one_file_system {
-        let device = metadata.dev();
+        let device = get_device_id(&metadata);
         let parent = path.parent().unwrap_or(path);
         
         if let Some(&parent_device) = filesystem_devices.get(parent) {

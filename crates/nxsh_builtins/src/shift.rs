@@ -1,4 +1,4 @@
-//! `shift` builtin – shift positional parameters left by N.
+//! `shift` builtin  Eshift positional parameters left by N.
 //! For initial implementation, positional parameters are stored in
 //! `__ARGV` variable within `ShellContext` as a NUL-separated list.
 //! `shift [N]` removes first N elements.

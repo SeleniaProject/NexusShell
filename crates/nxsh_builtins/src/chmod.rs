@@ -1,4 +1,4 @@
-//! `chmod` builtin — change file permissions.
+//! `chmod` builtin  Echange file permissions.
 //!
 //! Preferred behaviour:
 //! 1. Execute platform `chmod` binary for complete POSIX flag support.
@@ -10,6 +10,7 @@
 //! container images where coreutils may be missing.
 
 use anyhow::{anyhow, Context, Result};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::{fs, path::Path, process::Command};
 use which::which;
@@ -37,7 +38,21 @@ pub fn chmod_cli(args: &[String]) -> Result<()> {
         let metadata = fs::metadata(path)
             .with_context(|| format!("chmod: cannot access '{file}'"))?;
         let mut perms = metadata.permissions();
-        perms.set_mode(mode);
+        
+        // Platform-specific permission setting
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            perms.set_mode(mode);
+        }
+        
+        #[cfg(windows)]
+        {
+            // On Windows, we can only set read-only attribute
+            // Setting execute/write permissions is more complex
+            perms.set_readonly((mode & 0o200) == 0);
+        }
+        
         fs::set_permissions(path, perms)
             .with_context(|| format!("chmod: failed to set permissions for '{file}'"))?;
     }

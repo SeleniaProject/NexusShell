@@ -1,4 +1,4 @@
-//! `unset` builtin – remove variables or functions.
+//! `unset` builtin  Eremove variables or functions.
 //! For now supports variables (-v) and aliases (-f maps to alias removal).
 //! Usage: unset [-v|-f] NAME ...
 
@@ -14,9 +14,13 @@ pub fn unset_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
 
     for name in &args[names_start..] {
         if mode_var {
-            ctx.env.remove(name);
+            if let Ok(mut env_guard) = ctx.env.write() {
+                env_guard.remove(name);
+            }
         } else {
-            ctx.aliases.remove(name);
+            if let Ok(mut aliases_guard) = ctx.aliases.write() {
+                aliases_guard.remove(name);
+            }
         }
     }
     Ok(())

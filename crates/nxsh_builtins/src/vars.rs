@@ -35,8 +35,10 @@ pub fn let_cli(exprs: &[String], ctx: &ShellContext) -> Result<()> {
 pub fn declare_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
     if args.is_empty() {
         // Print all vars
-        for entry in ctx.env.iter() {
-            println!("{}={}", entry.key(), entry.value());
+        if let Ok(vars_guard) = ctx.vars.read() {
+            for (key, var) in vars_guard.iter() {
+                println!("{}={}", key, var.value);
+            }
         }
         return Ok(());
     }

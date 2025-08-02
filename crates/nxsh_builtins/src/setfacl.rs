@@ -1,4 +1,4 @@
-//! `setfacl` builtin — set file access control lists.
+//! `setfacl` builtin  Eset file access control lists.
 //!
 //! For full capability support, this builtin simply delegates to the system
 //! `setfacl` binary. No portable fallback is provided because ACL

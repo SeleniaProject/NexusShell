@@ -1,5 +1,7 @@
 //! Built-in command traits and utilities
 
+use anyhow::{anyhow, Result};
+
 pub use nxsh_core::Builtin;
 
 /// Entry point for the builtin.

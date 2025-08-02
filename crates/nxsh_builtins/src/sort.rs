@@ -5,11 +5,28 @@
 use crate::common::{i18n::*, logging::*};
 use std::io::Write;
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult};
+use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError};
 use rayon::prelude::*;
+use anyhow::{anyhow, Result};
 use std::cmp::Ordering;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter};
+
+// Helper function to create runtime errors more concisely
+fn runtime_error(msg: &str) -> ShellError {
+    ShellError::new(
+        nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument),
+        msg
+    )
+}
+
+// Helper function to create IO errors more concisely  
+fn io_error(msg: &str) -> ShellError {
+    ShellError::new(
+        nxsh_core::error::ErrorKind::IoError(nxsh_core::error::IoErrorKind::Other),
+        msg
+    )
+}
 
 pub struct SortBuiltin;
 
@@ -59,12 +76,21 @@ pub struct SortKeyOptions {
 }
 
 impl Builtin for SortBuiltin {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "sort"
     }
 
-    fn execute(&self, context: &mut Context, args: Vec<String>) -> ShellResult<i32> {
-        let options = parse_sort_args(&args)?;
+    fn synopsis(&self) -> &'static str {
+        "sort lines of text files"
+    }
+
+    fn description(&self) -> &'static str {
+        "Sort lines of text files according to various criteria"
+    }
+
+    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
+        let args = &ctx.args;
+        let options = parse_sort_args(args)?;
 
         if options.check || options.check_silent {
             return check_sorted(&options);
@@ -90,10 +116,17 @@ impl Builtin for SortBuiltin {
         }
 
         output_lines(&lines, &options)?;
-        Ok(0)
+        Ok(ExecutionResult {
+            exit_code: 0,
+            output: None,
+            error: None,
+            duration: std::time::Duration::from_secs(0),
+            pid: None,
+            job_id: None,
+        })
     }
 
-    fn help(&self) -> &str {
+    fn usage(&self) -> &'static str {
         "sort - sort lines of text files
 
 USAGE:
@@ -187,14 +220,20 @@ fn parse_sort_args(args: &[String]) -> ShellResult<SortOptions> {
             "-t" | "--field-separator" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -t requires an argument"));
+                    return Err(ShellError::new(
+                        nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument),
+                        "Option -t requires an argument"
+                    ));
                 }
                 options.field_separator = Some(args[i].clone());
             }
             "-k" | "--key" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -k requires an argument"));
+                    return Err(ShellError::new(
+                        nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument),
+                        "Option -k requires an argument"
+                    ));
                 }
                 let key = parse_sort_key(&args[i])?;
                 options.keys.push(key);
@@ -202,33 +241,51 @@ fn parse_sort_args(args: &[String]) -> ShellResult<SortOptions> {
             "-o" | "--output" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -o requires an argument"));
+                    return Err(ShellError::new(
+                        nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument),
+                        "Option -o requires an argument"
+                    ));
                 }
                 options.output_file = Some(args[i].clone());
             }
             "-S" | "--buffer-size" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -S requires an argument"));
+                    return Err(ShellError::new(
+                        nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument),
+                        "Option -S requires an argument"
+                    ));
                 }
                 options.buffer_size = parse_size(&args[i])?;
             }
             "-T" | "--temporary-directory" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option -T requires an argument"));
+                    return Err(ShellError::new(
+                        nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument),
+                        "Option -T requires an argument"
+                    ));
                 }
                 options.temporary_directory = Some(args[i].clone());
             }
             "--parallel" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::runtime("Option --parallel requires an argument"));
+                    return Err(ShellError::new(
+                        nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument),
+                        "Option --parallel requires an argument"
+                    ));
                 }
                 options.parallel = args[i].parse()
-                    .map_err(|_| ShellError::runtime("Invalid parallel count"))?;
+                    .map_err(|_| ShellError::new(
+                        nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument),
+                        "Invalid parallel count"
+                    ))?;
             }
-            "--help" => return Err(ShellError::runtime("Help requested")),
+            "--help" => return Err(ShellError::new(
+                nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument),
+                "Help requested"
+            )),
             _ if arg.starts_with("-t") => {
                 options.field_separator = Some(arg[2..].to_string());
             }
@@ -260,7 +317,7 @@ fn parse_sort_args(args: &[String]) -> ShellResult<SortOptions> {
                         'C' => options.check_silent = true,
                         's' => options.stable = true,
                         'z' => options.zero_terminated = true,
-                        _ => return Err(ShellError::runtime(format!("Unknown option: -{}", ch))),
+                        _ => return Err(runtime_error(&format!("Unknown option: -{}", ch))),
                     }
                 }
             }
@@ -301,7 +358,7 @@ fn parse_sort_key(key_def: &str) -> ShellResult<SortKey> {
     let (end_field, end_char, end_opts) = if parts.len() > 1 {
         parse_field_spec(parts[1])?
     } else {
-        (None, None, String::new())
+        (start_field, start_char.clone(), String::new())
     };
     
     // Combine options from both parts
@@ -311,7 +368,7 @@ fn parse_sort_key(key_def: &str) -> ShellResult<SortKey> {
     Ok(SortKey {
         start_field,
         start_char,
-        end_field,
+        end_field: Some(end_field),
         end_char,
         options: key_options,
     })
@@ -340,13 +397,13 @@ fn parse_field_spec(spec: &str) -> ShellResult<(usize, Option<usize>, String)> {
     }
     
     let field = field_num.parse::<usize>()
-        .map_err(|_| ShellError::runtime("Invalid field number"))?;
+        .map_err(|_| runtime_error("Invalid field number"))?;
     
     let char_pos = if char_num.is_empty() {
         None
     } else {
         Some(char_num.parse::<usize>()
-            .map_err(|_| ShellError::runtime("Invalid character position"))?)
+            .map_err(|_| runtime_error("Invalid character position"))?)
     };
     
     Ok((field, char_pos, options))
@@ -392,7 +449,7 @@ fn parse_size(size_str: &str) -> ShellResult<usize> {
     };
     
     let num: usize = num_part.parse()
-        .map_err(|_| ShellError::runtime("Invalid size format"))?;
+        .map_err(|_| runtime_error("Invalid size format"))?;
     
     Ok(num * suffix)
 }
@@ -408,13 +465,13 @@ fn collect_lines(options: &SortOptions) -> ShellResult<Vec<String>> {
         
         loop {
             buffer.clear();
-            let bytes_read = reader.read_until(separator[0], &mut buffer)?;
+            let bytes_read = reader.read_until(separator, &mut buffer)?;
             if bytes_read == 0 {
                 break;
             }
             
             // Remove separator
-            if buffer.last() == Some(&separator[0]) {
+            if buffer.last() == Some(&separator) {
                 buffer.pop();
             }
             
@@ -423,19 +480,19 @@ fn collect_lines(options: &SortOptions) -> ShellResult<Vec<String>> {
     } else {
         for file_path in &options.files {
             let file = File::open(file_path)
-                .map_err(|e| ShellError::io(format!("Cannot open {}: {}", file_path, e)))?;
+                .map_err(|e| io_error(&format!("Cannot open {}: {}", file_path, e)))?;
             let mut reader = BufReader::new(file);
             let mut buffer = Vec::new();
             
             loop {
                 buffer.clear();
-                let bytes_read = reader.read_until(separator[0], &mut buffer)?;
+                let bytes_read = reader.read_until(separator, &mut buffer)?;
                 if bytes_read == 0 {
                     break;
                 }
                 
                 // Remove separator
-                if buffer.last() == Some(&separator[0]) {
+                if buffer.last() == Some(&separator) {
                     buffer.pop();
                 }
                 
@@ -526,7 +583,7 @@ fn extract_key(line: &str, key: &SortKey, field_separator: &Option<String>) -> S
 fn split_line(line: &str, field_separator: &Option<String>) -> Vec<String> {
     if let Some(sep) = field_separator {
         if sep.len() == 1 {
-            line.split(&sep.chars().next().unwrap()).map(|s| s.to_string()).collect()
+            line.split(sep.chars().next().unwrap()).map(|s| s.to_string()).collect()
         } else {
             line.split(sep).map(|s| s.to_string()).collect()
         }
@@ -609,7 +666,7 @@ fn compare_string(a: &str, b: &str, options: &SortKeyOptions) -> Ordering {
     }
 }
 
-fn check_sorted(options: &SortOptions) -> ShellResult<i32> {
+fn check_sorted(options: &SortOptions) -> ShellResult<ExecutionResult> {
     let lines = collect_lines(options)?;
     
     for i in 1..lines.len() {
@@ -620,18 +677,39 @@ fn check_sorted(options: &SortOptions) -> ShellResult<i32> {
                     i + 1,
                     lines[i]);
             }
-            return Ok(1);
+            return Ok(ExecutionResult {
+                exit_code: 1,
+                output: None,
+                error: None,
+                duration: std::time::Duration::from_secs(0),
+                pid: None,
+                job_id: None,
+            });
         }
     }
     
-    Ok(0)
+    Ok(ExecutionResult {
+        exit_code: 0,
+        output: None,
+        error: None,
+        duration: std::time::Duration::from_secs(0),
+        pid: None,
+        job_id: None,
+    })
 }
 
-fn merge_sorted_files(options: &SortOptions) -> ShellResult<i32> {
+fn merge_sorted_files(options: &SortOptions) -> ShellResult<ExecutionResult> {
     // Simplified merge implementation
     let lines = collect_lines(options)?;
     output_lines(&lines, options)?;
-    Ok(0)
+    Ok(ExecutionResult {
+        exit_code: 0,
+        output: None,
+        error: None,
+        duration: std::time::Duration::from_secs(0),
+        pid: None,
+        job_id: None,
+    })
 }
 
 fn output_lines(lines: &[String], options: &SortOptions) -> ShellResult<()> {
@@ -639,7 +717,7 @@ fn output_lines(lines: &[String], options: &SortOptions) -> ShellResult<()> {
     
     if let Some(ref output_file) = options.output_file {
         let file = File::create(output_file)
-            .map_err(|e| ShellError::io(format!("Cannot create {}: {}", output_file, e)))?;
+            .map_err(|e| io_error(&format!("Cannot create {}: {}", output_file, e)))?;
         let mut writer = BufWriter::new(file);
         
         for line in lines {

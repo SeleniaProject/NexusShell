@@ -1,4 +1,4 @@
-//! `hostname` builtin — get or set system host name.
+//! `hostname` builtin  Eget or set system host name.
 //!
 //! Usage:
 //!   hostname            # print full hostname
@@ -10,7 +10,7 @@ use anyhow::{anyhow, Result};
 use sysinfo::{System, SystemExt};
 
 #[cfg(unix)]
-use libc::{sethostname};
+use nix::libc::{sethostname};
 
 pub fn hostname_cli(args: &[String]) -> Result<()> {
     if args.is_empty() {

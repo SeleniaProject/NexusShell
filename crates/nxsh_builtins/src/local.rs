@@ -1,4 +1,4 @@
-//! `local` builtin – declare local variables within function scope.
+//! `local` builtin  Edeclare local variables within function scope.
 //! As function scoping is not fully implemented yet, this builtin currently
 //! behaves similarly to `declare` but sets a special `__local_` prefix which
 //! future function frames will interpret as local scope.

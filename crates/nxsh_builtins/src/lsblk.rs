@@ -1,4 +1,4 @@
-//! `lsblk` builtin — list block devices.
+//! `lsblk` builtin  Elist block devices.
 //!
 //! Delegates to system `lsblk` binary for complete output and option support.
 //! No fallback implementation is provided since querying block devices is

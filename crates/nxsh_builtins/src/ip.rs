@@ -1,4 +1,4 @@
-//! `ip` builtin — network configuration utility wrapper.
+//! `ip` builtin  Enetwork configuration utility wrapper.
 //!
 //! On Linux and other Unix‐like systems, this builtin looks for the `ip`
 //! command from the `iproute2` suite. All command-line arguments are forwarded
@@ -56,7 +56,7 @@ pub fn ip_cli(args: &[String]) -> Result<()> {
     {
         if let Ok(ipconfig) = which("ipconfig.exe") {
             let status = Command::new(ipconfig)
-                .args(&args)
+                .args(args)
                 .status()
                 .map_err(|e| anyhow!("ip: fallback ipconfig failed: {e}"))?;
             std::process::exit(status.code().unwrap_or(1));

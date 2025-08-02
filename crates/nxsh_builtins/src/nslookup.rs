@@ -1,4 +1,4 @@
-//! `nslookup` builtin — DNS lookup utility.
+//! `nslookup` builtin  EDNS lookup utility.
 //!
 //! Implements delegation to external `nslookup` binary for full functionality.
 //! If not present, returns error.

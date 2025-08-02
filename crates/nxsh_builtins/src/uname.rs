@@ -1,4 +1,4 @@
-//! `uname` builtin — print kernel / OS information.
+//! `uname` builtin  Eprint kernel / OS information.
 //!
 //! Supported flags:
 //!   -s   kernel name (default)

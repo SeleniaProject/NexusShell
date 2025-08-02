@@ -1,9 +1,9 @@
-//! `bind` builtin – configure key bindings for the NexusShell line editor.
+//! `bind` builtin  Econfigure key bindings for the NexusShell line editor.
 //! Syntax: `bind KEYSEQ:COMMAND [KEYSEQ:COMMAND ...]`
 //!
 //! Behavior:
-//! • No arguments     → print current bindings in KEYSEQ:COMMAND form.
-//! • KEYSEQ:COMMAND   → add/update binding in config file.
+//! • No arguments     ↁEprint current bindings in KEYSEQ:COMMAND form.
+//! • KEYSEQ:COMMAND   ↁEadd/update binding in config file.
 //!
 //! Bindings are persisted to `keymap` file inside the config directory:
 //!   $NXSH_CONFIG_DIR/keymap  (if env var set)
@@ -93,10 +93,10 @@ mod tests {
 
         // Load again and assert
         let map = load_bindings().unwrap();
-        assert_eq!(map.get("C-S").unwrap(), "split-pane-horizontal");
+        assert_eq!(map.get("C-S", None).unwrap(), "split-pane-horizontal");
 
         // List should output the binding (capture stdout)
-        // Simple smoke test – ensure no error
+        // Simple smoke test  Eensure no error
         bind_cli(&[]).unwrap();
     }
 } 

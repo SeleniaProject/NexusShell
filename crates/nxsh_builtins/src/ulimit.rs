@@ -1,4 +1,4 @@
-//! `ulimit` builtin – view or set resource limits.
+//! `ulimit` builtin  Eview or set resource limits.
 //! Supported options (subset):
 //!   -a  : list all limits
 //!   -n N: set/open files soft limit
@@ -9,7 +9,7 @@
 use anyhow::{anyhow, Result};
 
 #[cfg(unix)]
-use libc::{getrlimit, setrlimit, rlimit, RLIMIT_CORE, RLIMIT_NOFILE};
+use nix::libc::{getrlimit, setrlimit, rlimit, RLIMIT_CORE, RLIMIT_NOFILE};
 
 pub fn ulimit_cli(args: &[String]) -> Result<()> {
     #[cfg(windows)]

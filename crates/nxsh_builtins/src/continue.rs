@@ -1,4 +1,4 @@
-//! `continue` builtin – skip N levels of loop and continue next iteration.
+//! `continue` builtin  Eskip N levels of loop and continue next iteration.
 //! Usage: `continue [N]` (default 1)
 //!
 //! The actual control-flow handling is deferred to the loop executor via a

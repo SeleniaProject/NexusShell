@@ -1,4 +1,4 @@
-//! `nc` builtin — Netcat utility wrapper.
+//! `nc` builtin  ENetcat utility wrapper.
 //!
 //! Attempts to execute one of the common Netcat variants: `nc`, `netcat`, or
 //! `ncat` (Nmap). All arguments are forwarded verbatim, allowing users to rely

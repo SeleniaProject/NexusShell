@@ -1,4 +1,4 @@
-//! `hwclock` builtin – read or set the hardware clock (RTC).
+//! `hwclock` builtin  Eread or set the hardware clock (RTC).
 //!
 //! Supported wrapper options:
 //!   hwclock            # read RTC time

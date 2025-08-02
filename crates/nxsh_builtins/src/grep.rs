@@ -1,4 +1,4 @@
-//! `grep` command – comprehensive pattern searching implementation.
+//! `grep` command  Ecomprehensive pattern searching implementation.
 //!
 //! Supports complete grep functionality:
 //!   grep [OPTIONS] PATTERN [FILES...]
@@ -48,9 +48,10 @@ use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use walkdir::{WalkDir, DirEntry};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ansi_term::{Colour, Style};
+use is_terminal::IsTerminal;
 use memchr::{memchr, memmem};
 use rayon::prelude::*;
-use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -863,7 +864,7 @@ fn should_use_color(options: &GrepOptions) -> bool {
     match options.color {
         ColorMode::Never => false,
         ColorMode::Always => true,
-        ColorMode::Auto => atty::is(atty::Stream::Stdout),
+        ColorMode::Auto => is_terminal::IsTerminal::is_terminal(&std::io::stdout()),
     }
 }
 

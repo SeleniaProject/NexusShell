@@ -1,4 +1,4 @@
-//! `touch` command – comprehensive file timestamp update and creation implementation.
+//! `touch` command  Ecomprehensive file timestamp update and creation implementation.
 //!
 //! Supports complete touch functionality:
 //!   touch [OPTIONS] FILE...
@@ -17,11 +17,12 @@
 use anyhow::{Result, anyhow};
 use std::fs::{self, OpenOptions, File, Metadata};
 use std::io::Write;
+#[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone, Utc, ParseResult, Datelike};
-use libc::{timespec, utimensat, AT_FDCWD, UTIME_NOW, UTIME_OMIT};
+use filetime::{FileTime, set_file_times, set_symlink_file_times};
 use std::ffi::CString;
 
 #[derive(Debug, Clone)]
@@ -381,62 +382,49 @@ fn update_file_timestamps(path: &Path, touch_time: &TouchTime, options: &TouchOp
             .map_err(|e| anyhow!("touch: cannot touch '{}': {}", path.display(), e))?;
     }
     
-    // Update timestamps using utimensat system call
-    update_timestamps_unix(path, touch_time, options)
+    // Update timestamps using filetime crate
+    update_timestamps_safe(path, touch_time, options)
 }
 
-fn update_timestamps_unix(path: &Path, touch_time: &TouchTime, options: &TouchOptions) -> Result<()> {
-    let path_cstr = CString::new(path.to_string_lossy().as_bytes())
-        .map_err(|_| anyhow!("touch: invalid path '{}'", path.display()))?;
-    
-    // Prepare timespec structures
-    let mut times = [
-        timespec { tv_sec: 0, tv_nsec: UTIME_OMIT }, // access time
-        timespec { tv_sec: 0, tv_nsec: UTIME_OMIT }, // modify time
-    ];
-    
-    // Set access time
-    if should_update_access_time(options) {
-        if let Some(access_time) = touch_time.access_time {
-            let duration = access_time.duration_since(UNIX_EPOCH)
-                .map_err(|_| anyhow!("touch: invalid access time"))?;
-            times[0] = timespec {
-                tv_sec: duration.as_secs() as i64,
-                tv_nsec: duration.subsec_nanos() as i64,
-            };
-        } else {
-            times[0].tv_nsec = UTIME_NOW;
-        }
-    }
-    
-    // Set modify time
-    if should_update_modify_time(options) {
-        if let Some(modify_time) = touch_time.modify_time {
-            let duration = modify_time.duration_since(UNIX_EPOCH)
-                .map_err(|_| anyhow!("touch: invalid modify time"))?;
-            times[1] = timespec {
-                tv_sec: duration.as_secs() as i64,
-                tv_nsec: duration.subsec_nanos() as i64,
-            };
-        } else {
-            times[1].tv_nsec = UTIME_NOW;
-        }
-    }
-    
-    // Call utimensat
-    let flags = if options.no_dereference {
-        libc::AT_SYMLINK_NOFOLLOW
+fn update_timestamps_safe(path: &Path, touch_time: &TouchTime, options: &TouchOptions) -> Result<()> {
+    // Get current file times
+    let metadata = if options.no_dereference {
+        path.symlink_metadata()
     } else {
-        0
+        path.metadata()
+    }.map_err(|e| anyhow!("touch: cannot stat '{}': {}", path.display(), e))?;
+    
+    let current_atime = FileTime::from_last_access_time(&metadata);
+    let current_mtime = FileTime::from_last_modification_time(&metadata);
+    
+    // Determine new times
+    let new_atime = if should_update_access_time(options) {
+        if let Some(access_time) = touch_time.access_time {
+            FileTime::from_system_time(access_time)
+        } else {
+            FileTime::now()
+        }
+    } else {
+        current_atime
     };
     
-    let result = unsafe {
-        utimensat(AT_FDCWD, path_cstr.as_ptr(), times.as_ptr(), flags)
+    let new_mtime = if should_update_modify_time(options) {
+        if let Some(modify_time) = touch_time.modify_time {
+            FileTime::from_system_time(modify_time)
+        } else {
+            FileTime::now()
+        }
+    } else {
+        current_mtime
     };
     
-    if result != 0 {
-        let error = std::io::Error::last_os_error();
-        return Err(anyhow!("touch: setting times of '{}': {}", path.display(), error));
+    // Apply timestamp changes
+    if options.no_dereference {
+        set_symlink_file_times(path, new_atime, new_mtime)
+            .map_err(|e| anyhow!("touch: setting times of '{}': {}", path.display(), e))?;
+    } else {
+        set_file_times(path, new_atime, new_mtime)
+            .map_err(|e| anyhow!("touch: setting times of '{}': {}", path.display(), e))?;
     }
     
     Ok(())

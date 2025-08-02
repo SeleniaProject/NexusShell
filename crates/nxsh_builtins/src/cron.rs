@@ -1,4 +1,4 @@
-//! `cron` builtin – world-class cron scheduling system with advanced features.
+//! `cron` builtin  Eworld-class cron scheduling system with advanced features.
 //!
 //! This implementation provides complete cron functionality with professional features:
 //! - Full cron expression support with extended syntax
@@ -36,7 +36,7 @@ use std::{
 use tokio::{
     fs as async_fs,
     process::Command as AsyncCommand,
-    sync::{broadcast, mpsc, Mutex as AsyncMutex},
+    sync::{broadcast, Mutex as AsyncMutex},
     time::{sleep, interval, Duration, Instant},
 };
 use uuid::Uuid;
@@ -1070,9 +1070,10 @@ impl CronDaemon {
                 let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
                 let backup_file = backup_path.join(format!("cron_backup_{}.json", timestamp));
 
-                let jobs_guard = jobs.read().unwrap();
-                let jobs_vec: Vec<_> = jobs_guard.values().cloned().collect();
-                drop(jobs_guard);
+                let jobs_vec: Vec<_> = {
+                    let jobs_guard = jobs.read().unwrap();
+                    jobs_guard.values().cloned().collect()
+                };
 
                 if let Ok(backup_data) = serde_json::to_string_pretty(&jobs_vec) {
                     if let Err(e) = async_fs::write(&backup_file, backup_data).await {
@@ -1582,12 +1583,12 @@ impl CronJobOptions {
 }
 
 fn print_cron_help(i18n: &I18n) {
-    println!("{}", i18n.get("cron.help.title"));
+    println!("{}", i18n.get("cron.help.title", None));
     println!();
-    println!("{}", i18n.get("cron.help.usage"));
+    println!("{}", i18n.get("cron.help.usage", None));
     println!("    cron [OPTIONS] [COMMAND]");
     println!();
-    println!("{}", i18n.get("cron.help.commands"));
+    println!("{}", i18n.get("cron.help.commands", None));
     println!("    -l, --list              List all cron jobs");
     println!("    -a, --add               Add a new cron job");
     println!("    -r, --remove ID         Remove a cron job");
@@ -1597,7 +1598,7 @@ fn print_cron_help(i18n: &I18n) {
     println!("    --run-now ID            Run a job immediately");
     println!("    --stats                 Show cron statistics");
     println!();
-    println!("{}", i18n.get("cron.help.options"));
+    println!("{}", i18n.get("cron.help.options", None));
     println!("    -h, --help              Show this help message");
     println!("    --name NAME             Job name (required for --add)");
     println!("    --description DESC      Job description");
@@ -1612,17 +1613,17 @@ fn print_cron_help(i18n: &I18n) {
     println!("    --mail-on-failure       Send email on failure");
     println!("    --no-mail               Disable all email notifications");
     println!();
-    println!("{}", i18n.get("cron.help.cron_format"));
+    println!("{}", i18n.get("cron.help.cron_format", None));
     println!("    * * * * * *");
-    println!("    │ │ │ │ │ │");
-    println!("    │ │ │ │ │ └─── day of week (0-6, Sunday=0)");
-    println!("    │ │ │ │ └───── month (1-12)");
-    println!("    │ │ │ └─────── day of month (1-31)");
-    println!("    │ │ └───────── hour (0-23)");
-    println!("    │ └─────────── minute (0-59)");
+    println!("    ━E━E━E━E━E━E);
+    println!("    ━E━E━E━E━E└─── day of week (0-6, Sunday=0)");
+    println!("    ━E━E━E━E└───── month (1-12)");
+    println!("    ━E━E━E└─────── day of month (1-31)");
+    println!("    ━E━E└───────── hour (0-23)");
+    println!("    ━E└─────────── minute (0-59)");
     println!("    └───────────── second (0-59, optional)");
     println!();
-    println!("{}", i18n.get("cron.help.examples"));
+    println!("{}", i18n.get("cron.help.examples", None));
     println!("    cron --list                                    # List all jobs");
     println!("    cron --add --name 'Backup' --schedule '0 2 * * *' --command 'backup.sh'");
     println!("    cron --add --name 'Hourly Report' --schedule '0 * * * *' --command 'report.py'");

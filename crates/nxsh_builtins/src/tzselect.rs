@@ -1,4 +1,4 @@
-//! `tzselect` builtin – interactive timezone selector.
+//! `tzselect` builtin  Einteractive timezone selector.
 //!
 //! This command delegates to the external `tzselect` utility when available.
 //! If not present, it prints a list of common timezone identifiers and

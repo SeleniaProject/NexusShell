@@ -1,4 +1,4 @@
-//! `htop` command — enhanced dynamic system monitor.
+//! `htop` command  Eenhanced dynamic system monitor.
 //!
 //! Implementation strategy: if the external `htop` binary exists in PATH, delegate
 //! execution to it (preserving any CLI args). If not available, fall back to the
