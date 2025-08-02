@@ -3,184 +3,189 @@ name = "nxsh_builtins"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+linux = []  # Linux-specific features (procfs removed as it's C/C++ dependent)
+
 [dependencies]
 nxsh_core = { path = "../nxsh_core" }
 nxsh_hal = { path = "../nxsh_hal" }
 anyhow = "1"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] } 
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hostname = "0.3" 
 dirs-next = "2" 
-rand = "0.8"
+rand = { version = "0.8", default-features = false, features = ["std"] }
 base64 = "0.21" 
 tabled = "0.12"
 pulldown-cmark = "0.10"
 ansi_term = "0.12" 
-tokio = { version = "1", features = ["full"] }
-git2 = "0.18"
-pcre2 = "0.2"
-rayon = "1.8" 
+fancy-regex = "0.11"  # Pure Rust regex with advanced features
 regex = "1"
 meval = "0.2"
-tar = "0.4"
-flate2 = { version = "1.0", features = ["zlib"] }
-bzip2 = "0.4"
+deflate = "1.0"  # Pure Rust deflate implementation
+flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }  # Pure Rust gzip
 indicatif = "0.17"
 walkdir = "2" 
 bitflags = "1" 
 jmespath = "0.3"
-reqwest = { version = "0.11", features = ["blocking", "rustls-tls"] }
-zstd = "0.11"
+ureq = { version = "2.8", features = ["json"], default-features = false }  # Pure Rust HTTP client
 html2text = "0.4"
-ahash = "0.8" 
 thiserror = "1"
 once_cell = "1"
-libc = "0.2"
-signal-hook = { version = "0.3", features = ["iterator"] }
 bytesize = "1.3"
-aes-gcm = "0.10"
+chacha20poly1305 = "0.10"  # Pure Rust AEAD cipher replacing aes-gcm
+blake3 = { version = "1.5", default-features = false, features = ["pure"] }  # Pure Rust hash
 term_size = "0.3"
 which = "4.4"
 sysinfo = { version = "0.29", features = ["multithread"] }
 crossterm = { version = "0.27", features = ["event-stream"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+filetime = "0.2"  # Pure Rust file timestamp manipulation
 ratatui = "0.24"
-atty = "0.2"
+is-terminal = "0.4"  # Replace atty
 url = "2"
-xz2 = "0.1"
-zip = "0.6"
-mbrman = "0.5"
-fatfs = { version = "0.3", default-features = true }
-fscommon = "0.1"
-rusb = { version = "0.9", default-features = false }
-# Dependencies for utility commands
+miniz_oxide = "0.7"  # Pure Rust compression replacement for bzip2/xz2/zstd
+lzma-rs = "0.3"  # Pure Rust LZMA implementation
+# File operations and compression - Pure Rust only
+zip = { version = "0.6", default-features = false, features = ["deflate", "time"] }  # Pure Rust zip 
+tar = "0.4"
+tempfile = "3"
+uuid = { version = "1.0", features = ["v4"] }
+memmap2 = "0.9"
+
+# Numerical computation - Pure Rust
 num-bigint = "0.4"
 num-rational = "0.4"
 num-traits = "0.2"
-# Additional dependencies for comprehensive implementation
-nix = { version = "0.27", features = ["process", "signal", "user", "fs", "mount", "socket", "net", "time", "ioctl", "mman"] }
-users = "0.11"
+
+# System info and utilities - Pure Rust
 platform-info = "2.0"
 humansize = "2.1"
 memchr = "2.6"
 unicode-width = "0.1"
 unicode-segmentation = "1.10"
 aho-corasick = "1.1"
-sha2 = "0.10"
-md-5 = "0.10"
-crc32fast = "1.3"
 hex = "0.4"
 byteorder = "1.5"
-memmap2 = "0.9"
-parking_lot = "0.12"
-dashmap = "5.5"
-crossbeam = "0.8"
-crossbeam-channel = "0.5"
-crossbeam-utils = "0.8"
-# Process and system monitoring
-procfs = { version = "0.16", default-features = false }
-# System info using pure Rust
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-# Network functionality
-hickory-resolver = { version = "0.24", default-features = false, features = ["tokio-runtime"] }
-# File operations
-tempfile = "3"
-uuid = { version = "1.0", features = ["v4"] }
-# Terminal handling
-termion = "2.0"
-# Compression
-miniz_oxide = "0.7"
-# Date/time handling
+
+# Command-line argument parsing
+clap = { version = "4.0", features = ["derive"] }
+
+# Time handling
 time = { version = "0.3", features = ["macros", "formatting", "parsing"] }
-chrono-tz = "0.8"
-cron = "0.6"
-cronexpr = "1.2"
-# High-precision sleep
-spin_sleep = "1.1"
-# Pure Rust numeric computing
-num_cpus = "1.16"
+
 # Text processing
 globset = "0.4"
-# Raw socket support for ping
-socket2 = { version = "0.5", features = ["all"] }
-# Advanced regex features
-fancy-regex = "0.11"
-# System call interface
-syscalls = "0.6"
-# Memory-mapped files
-mmap = "0.1"
-# Advanced file system operations
-fuser = "0.14"
-# Network utilities
-pnet = "0.34"
-# Process management
-procinfo = "0.4"
-# System information
-sys-info = "0.9"
-# Internationalization
-fluent = "0.16"
-fluent-bundle = "0.15"
-fluent-syntax = "0.11"
-unic-langid = "0.9"
-# Advanced file handling
-mime_guess = "2.0"
-encoding_rs = "0.8"
-encoding_rs_io = "0.1"
-# Binary file detection
-content_inspector = "0.2.4"
-# Advanced terminal features
+glob = "0.3"
+
+# Terminal features  
 console = "0.15"
-# Async utilities
-futures = "0.3"
-futures-util = "0.3"
+
 # Enhanced error handling
 color-eyre = "0.6"
-# Performance monitoring
-perf-event = "0.4"
-# File locking
+
+# File handling
 fs2 = "0.4"
-# Advanced text processing
-grep-matcher = "0.1"
-grep-regex = "0.1"
-grep-searcher = "0.1"
-# Pattern matching for find command
-glob = "0.3"
-# Signal handling for tail follow mode
+mime_guess = "2.0"
+encoding_rs = "0.8"
+content_inspector = "0.2.4"
+
+# Signal handling
 ctrlc = "3.4"
-# System monitoring
-systemstat = "0.2"
-# Network interface information
-netlink-sys = "0.8"
-rtnetlink = "0.13"
-# Advanced process information
-psutil = "3.2"
-# File metadata
-xattr = "1.0"
-# Performance profiling
+
+# Performance testing
 criterion = "0.5"
+
+# I18n support - Pure Rust
+fluent = "0.16"
+fluent-bundle = "0.15"
+unic-langid = "0.9"
+
+# DNS resolution - Pure Rust
+hickory-resolver = "0.24"
+
+# Timezone support - Pure Rust
+chrono-tz = "0.8"
+
+# Cron expression parsing - Pure Rust
+cron = "0.12"
+
+# Async runtime - minimal features only
+tokio = { version = "1.0", features = ["rt", "macros", "time", "process", "fs", "signal"] }
+futures = "0.3"
+
+# Encoding support
+encoding_rs_io = "0.1"
+
+# Async futures support
+tokio-stream = "0.1"
+
+# Version comparison
+semver = "1.0"
+
+# CPU detection - Pure Rust
+num_cpus = "1.16"
+
+# Hash function - Pure Rust alternative to sha2
+sha2 = "0.10"
+
+# MBR manipulation - Pure Rust
+mbrman = "0.5"
+
+# Windows system API - Pure Rust bindings
+windows-sys = "0.59"
+
+# Logging infrastructure - Pure Rust
+tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
+tracing-appender = "0.2"
+
+# Metrics - Pure Rust
+metrics-exporter-prometheus = "0.13"
+
+# Parallel processing - Pure Rust
+rayon = "1.8"
+
+# Signal handling - Pure Rust 
+signal-hook = "0.3"
+
+# Synchronization - Pure Rust
+parking_lot = "0.12"
+
+# File system libraries - Pure Rust
+fatfs = "0.3"
+fscommon = "0.1"
+
+# Compression libraries - Pure Rust alternatives only
+# Using miniz_oxide and lzma-rs which are already included above
+
+# Socket programming
+socket2 = "0.5"
+
+# HashMap replacement for dashmap
+dashmap = "5.5"
+
+# Additional missing dependencies - Pure Rust cryptography
+ed25519-dalek = "2.1"
+
+# Fix bit-set dependency issue by specifying compatible version
+bit-set = "0.6"
+bit-vec = "0.6"
+
+# Platform-specific dependencies - Pure Rust only
+[target.'cfg(windows)'.dependencies]
+whoami = "1.6"
+
+[target.'cfg(unix)'.dependencies]
+# Unix-specific dependencies
+uzers = "0.11"
+nix = "0.27"
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3" 
 criterion = "0.5"
 proptest = "1.0"
-quickcheck = "1.0"
 assert_cmd = "2.0"
-predicates = "3.0"
-
-[features]
-default = ["full"]
-minimal = []
-full = [
-    "git-support",
-    "network-tools", 
-    "compression",
-    "advanced-text",
-    "system-monitoring",
-    "internationalization"
-]
-git-support = []
-network-tools = []
-compression = []
-advanced-text = []
-system-monitoring = []
-internationalization = [] 
+predicates = "3.0" 
