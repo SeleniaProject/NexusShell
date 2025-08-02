@@ -13,7 +13,7 @@ use std::{
 };
 use tokio::sync::RwLock;
 use ansi_term::Colour;
-use syntect::highlighting::{Theme, ThemeSet};
+use crate::highlighting::SyntaxHighlighter;
 
 /// Main theme configuration for NexusShell
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,32 +105,23 @@ impl NexusTheme {
         Ok(())
     }
     
-    /// Get a syntect theme by name
-    pub fn get_syntect_theme(&self, theme_name: &str) -> Result<Theme> {
-        let theme_set = ThemeSet::load_defaults();
-        
-        // Try to find the theme by name
-        if let Some(theme) = theme_set.themes.get(theme_name) {
-            return Ok(theme.clone());
-        }
-        
-        // Fallback to default theme
-        if let Some(theme) = theme_set.themes.get("base16-ocean.dark") {
-            return Ok(theme.clone());
-        }
-        
-        // If all else fails, use the first available theme
-        if let Some((_, theme)) = theme_set.themes.iter().next() {
-            return Ok(theme.clone());
-        }
-        
-        Err(anyhow::anyhow!("No syntect themes available"))
+    /// Get a theme configuration by name (placeholder for syntect replacement)
+    pub fn get_theme_config(&self, theme_name: &str) -> Result<String> {
+        // TODO: Implement pure Rust theme management
+        // For now, return the theme name as a placeholder
+        Ok(theme_name.to_string())
     }
     
-    /// Get available syntect themes
-    pub fn available_syntect_themes() -> Vec<String> {
-        let theme_set = ThemeSet::load_defaults();
-        theme_set.themes.keys().cloned().collect()
+    /// Get available theme names
+    pub fn available_theme_names() -> Vec<String> {
+        vec![
+            "base16-ocean.dark".to_string(),
+            "base16-eighties.dark".to_string(),
+            "base16-mocha.dark".to_string(),
+            "InspiredGitHub".to_string(),
+            "Solarized (dark)".to_string(),
+            "Solarized (light)".to_string(),
+        ]
     }
 }
 
