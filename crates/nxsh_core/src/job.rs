@@ -247,6 +247,11 @@ impl Job {
         }
     }
 
+    /// Check if job has any running processes
+    pub fn has_running_processes(&self) -> bool {
+        self.processes.iter().any(|p| p.is_running())
+    }
+
     /// Check if job is running
     pub fn is_running(&self) -> bool {
         matches!(self.status, JobStatus::Running | JobStatus::Background | JobStatus::Foreground)
@@ -464,6 +469,41 @@ impl JobManager {
     pub fn get_job(&self, job_id: JobId) -> Option<Job> {
         let jobs = self.jobs.read().unwrap();
         jobs.get(&job_id).cloned()
+    }
+
+    /// Get a mutable reference to a job by ID
+    /// 
+    /// This method provides temporary mutable access to a job for updating
+    /// its state. The caller receives a closure that can modify the job.
+    pub fn with_job_mut<T, F>(&self, job_id: JobId, f: F) -> Option<T>
+    where
+        F: FnOnce(&mut Job) -> T,
+    {
+        let mut jobs = self.jobs.write().unwrap();
+        jobs.get_mut(&job_id).map(f)
+    }
+
+    /// Get a mutable job by ID (alternative implementation)
+    /// 
+    /// Returns a clone of the job that can be modified and then updated back
+    /// using update_job method. This approach avoids holding locks for extended periods.
+    pub fn get_job_mut(&self, job_id: JobId) -> Option<Job> {
+        let jobs = self.jobs.read().unwrap();
+        jobs.get(&job_id).cloned()
+    }
+
+    /// Update an existing job
+    /// 
+    /// This method should be used in conjunction with get_job_mut to update
+    /// a job after modification.
+    pub fn update_job(&mut self, job: Job) -> bool {
+        let mut jobs = self.jobs.write().unwrap();
+        if jobs.contains_key(&job.id) {
+            jobs.insert(job.id, job);
+            true
+        } else {
+            false
+        }
     }
 
     /// Get all jobs

@@ -48,6 +48,18 @@ pub struct ExecutionResult {
 }
 
 impl ExecutionResult {
+    /// Create a new execution result
+    pub fn new(exit_code: i32) -> Self {
+        Self {
+            exit_code,
+            output: None,
+            error: None,
+            duration: Duration::from_millis(0),
+            pid: None,
+            job_id: None,
+        }
+    }
+
     pub fn success(exit_code: i32) -> Self {
         Self {
             exit_code,
@@ -71,6 +83,18 @@ impl ExecutionResult {
 
     pub fn with_duration(mut self, duration: Duration) -> Self {
         self.duration = duration;
+        self
+    }
+
+    /// Set the job ID for background processes
+    pub fn with_job_id(mut self, job_id: crate::job::JobId) -> Self {
+        self.job_id = Some(job_id);
+        self
+    }
+
+    /// Set the process ID
+    pub fn with_pid(mut self, pid: u32) -> Self {
+        self.pid = Some(pid);
         self
     }
 
@@ -415,22 +439,190 @@ impl Executor {
             .with_duration(duration))
     }
 
-    /// Execute background command
-    fn execute_background(&mut self, command: &AstNode, ctx: &mut ShellContext) -> ShellResult<ExecutionResult> {
-        self.stats.background_jobs += 1;
+    /// Execute background command with proper job control and process management
+    /// 
+    /// This method implements true background execution by:
+    /// - Spawning processes without blocking the parent shell
+    /// - Integrating with the job management system for tracking
+    /// - Handling process isolation and signal management
+    /// - Providing immediate return while maintaining process oversight
+    pub fn execute_background(&mut self, command: &AstNode, ctx: &mut ShellContext) -> ShellResult<ExecutionResult> {
+        use std::process::{Command as StdCommand, Stdio};
+        use std::thread;
+        use std::time::Instant;
         
-        // Create a new job
-        let _job_id = {
-            let job_manager_arc = ctx.job_manager();
-            let mut job_manager = job_manager_arc.lock()
-                .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Job manager lock poisoned"))?;
-            job_manager.create_job(format!("Background job"))
+        self.stats.background_jobs += 1;
+        let start_time = Instant::now();
+        
+        // Extract command information from AST node
+        let (command_name, args) = match command {
+            AstNode::Command { name, args, .. } => {
+                // Extract command name from the name node
+                let cmd_name = match name.as_ref() {
+                    AstNode::Word(w) => w.to_string(),
+                    AstNode::StringLiteral { value, .. } => value.to_string(),
+                    _ => return Err(ShellError::new(
+                        ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
+                        "Invalid command name in background execution"
+                    )),
+                };
+                
+                // Extract arguments
+                let cmd_args: Vec<String> = args.iter()
+                    .filter_map(|arg| match arg {
+                        AstNode::Word(w) => Some(w.to_string()),
+                        AstNode::StringLiteral { value, .. } => Some(value.to_string()),
+                        _ => None,
+                    })
+                    .collect();
+                
+                (cmd_name, cmd_args)
+            }
+            _ => return Err(ShellError::new(
+                ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
+                "Background execution requires a command node"
+            )),
         };
         
-        // Execute command in background (simplified for now)
-        // TODO: Implement proper background execution with job control
-        let result = self.execute(command, ctx)?;
+        // Check if this is a builtin command (builtins cannot run in background)
+        if self.is_builtin(&command_name) {
+            return Err(ShellError::new(
+                ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
+                format!("Builtin command '{}' cannot be executed in background", command_name)
+            ));
+        }
         
+        // Resolve command path using PATH environment
+        let command_path = self.find_command_in_path(&command_name)
+            .unwrap_or_else(|_| std::path::PathBuf::from(&command_name));
+        
+        // Create job entry before spawning process
+        let job_description = format!("{} {}", command_name, args.join(" "));
+        let job_id = {
+            let job_manager_arc = ctx.job_manager();
+            let mut job_manager = job_manager_arc.lock()
+                .map_err(|_| ShellError::new(
+                    ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), 
+                    "Job manager lock poisoned"
+                ))?;
+            job_manager.create_job(job_description.clone())
+        };
+        
+        // Prepare background process command
+        let mut std_cmd = StdCommand::new(command_path);
+        std_cmd.args(&args);
+        
+        // Configure process for background execution
+        std_cmd
+            .stdin(Stdio::null())    // Detach from parent stdin
+            .stdout(Stdio::null())   // Redirect stdout to null (or log file in future)
+            .stderr(Stdio::null());  // Redirect stderr to null (or log file in future)
+        
+        // Set environment variables from shell context
+        if let Ok(env_vars) = ctx.env.read() {
+            for (key, value) in env_vars.iter() {
+                std_cmd.env(key, value);
+            }
+        }
+        
+        // Set working directory
+        std_cmd.current_dir(&ctx.cwd);
+        
+        // Create process group for proper signal handling
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            std_cmd.process_group(0); // Create new process group
+        }
+        
+        // Spawn the background process
+        let child = std_cmd.spawn()
+            .map_err(|e| ShellError::new(
+                ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
+                format!("Failed to spawn background process '{}': {}", command_name, e)
+            ))?;
+        
+        let process_id = child.id();
+        
+        // Add process to job tracking
+        {
+            let job_manager_arc = ctx.job_manager();
+            let job_manager = job_manager_arc.lock()
+                .map_err(|_| ShellError::new(
+                    ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), 
+                    "Job manager lock poisoned"
+                ))?;
+            
+            job_manager.with_job_mut(job_id, |job| {
+                let process_info = crate::job::ProcessInfo::new(
+                    process_id,
+                    process_id, // Use PID as PGID for now
+                    job_description.clone()
+                );
+                job.add_process(process_info);
+                job.status = crate::job::JobStatus::Background;
+            });
+        }
+        
+        // Spawn monitoring thread for the background process
+        let job_manager_weak = Arc::downgrade(&ctx.job_manager());
+        thread::spawn(move || {
+            // Wait for process completion in background thread
+            match child.wait_with_output() {
+                Ok(output) => {
+                    let exit_code = output.status.code().unwrap_or(-1);
+                    
+                    // Update job status when process completes
+                    if let Some(job_manager_arc) = job_manager_weak.upgrade() {
+                        if let Ok(job_manager) = job_manager_arc.lock() {
+                            job_manager.with_job_mut(job_id, |job| {
+                                if let Some(process) = job.get_process_mut(process_id) {
+                                    process.status = if exit_code == 0 {
+                                        crate::job::JobStatus::Done(exit_code)
+                                    } else {
+                                        crate::job::JobStatus::Failed(
+                                            format!("Process exited with code {}", exit_code)
+                                        )
+                                    };
+                                    process.end_time = Some(Instant::now());
+                                    process.exit_status = Some(output.status);
+                                }
+                                job.update_status();
+                                
+                                // Mark job as completed
+                                if !job.has_running_processes() {
+                                    job.completed_at = Some(Instant::now());
+                                }
+                            });
+                        }
+                    }
+                }
+                Err(e) => {
+                    // Handle process wait failure
+                    if let Some(job_manager_arc) = job_manager_weak.upgrade() {
+                        if let Ok(job_manager) = job_manager_arc.lock() {
+                            job_manager.with_job_mut(job_id, |job| {
+                                if let Some(process) = job.get_process_mut(process_id) {
+                                    process.status = crate::job::JobStatus::Failed(
+                                        format!("Failed to wait for process: {}", e)
+                                    );
+                                    process.end_time = Some(Instant::now());
+                                }
+                                job.update_status();
+                            });
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Return immediately with background job information
+        let duration = start_time.elapsed();
+        let result = ExecutionResult::new(0)
+            .with_output(format!("[{}] {} &\n", job_id, job_description).into_bytes())
+            .with_duration(duration)
+            .with_job_id(job_id);
+            
         Ok(result)
     }
 
