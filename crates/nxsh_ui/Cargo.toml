@@ -6,12 +6,13 @@ edition = "2021"
 [dependencies]
 nxsh_core = { path = "../nxsh_core" }
 nxsh_builtins = { path = "../nxsh_builtins" }
+nxsh_parser = { path = "../nxsh_parser" }
 ratatui = "0.26"
 crossterm = "0.27"
 # Latest rustyline for advanced line editing
 rustyline = "16.0.0"
-# Syntax highlighting
-syntect = "5.2"
+# Syntax highlighting - using pure Rust regex-based highlighting instead of syntect
+regex = "1.10"
 # Theme support
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -20,6 +21,10 @@ serde_yaml = "0.9"
 ansi_term = "0.12"
 # Configuration management
 dirs = "5.0"
+# Error handling
+anyhow = "1.0"
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
 # Async support for performance
 tokio = { version = "1.0", features = ["full"], optional = true }
 # Fuzzy matching for completion
@@ -29,5 +34,5 @@ unicode-width = "0.1"
 unicode-segmentation = "1.10"
 
 [features]
-default = []
+default = ["async"]
 async = ["tokio"] 
