@@ -1,122 +1,151 @@
 use std::time::{Duration, Instant};
 use std::io::{self, Write};
+
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    event::{self, Event},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
-use crate::app::{AppState, MAX_FPS};
-use nxsh_core::{context::ShellContext, executor::Executor, ShellResult};
-use crate::scroll_buffer::ScrollBuffer;
+use ratatui::{prelude::*, Terminal};
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 
-type Frame<'a> = ratatui::Frame<'a, CrosstermBackend<std::io::Stdout>>;
+use nxsh_core::{ShellContext, ShellResult, executor::Executor};
+use crate::app::App;
 
 /// Run TUI interactive shell. Blocks until user exits with Ctrl+D or :quit.
-pub fn run(context: &mut ShellContext, executor: &mut Executor) -> ShellResult<()> {
-    enable_raw_mode().map_err(|e| nxsh_core::ShellError::io(format!("Failed to enable raw mode: {}", e)))?;
+pub async fn run(context: &mut ShellContext, executor: &mut Executor) -> ShellResult<()> {
+    enable_raw_mode().map_err(|e| nxsh_core::ShellError::io(e))?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)
-        .map_err(|e| nxsh_core::ShellError::io(format!("Failed to init terminal: {}", e)))?;
+        .map_err(|e| nxsh_core::ShellError::io(e))?;
 
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)
-        .map_err(|e| nxsh_core::ShellError::io(format!("Failed to create terminal: {}", e)))?;
+        .map_err(|e| nxsh_core::ShellError::io(e))?;
 
-    let mut app = NexusShellApp::new();
-    let mut last_tick = Instant::now();
-    let tick_rate = Duration::from_millis(1000 / MAX_FPS);
+    let mut app = App::new().await.map_err(|e| nxsh_core::ShellError::io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+    let tick_rate: Duration = Duration::from_millis(250);
+    let mut last_tick: Instant = Instant::now();
 
     loop {
-        terminal.draw(|f| app.render(f)).map_err(|e| nxsh_core::ShellError::io(format!("Draw error: {}", e)))?;
+        terminal.draw(|f| {
+            if let Err(e) = app.render::<ratatui::backend::CrosstermBackend<std::io::Stdout>>(f) {
+                eprintln!("Failed to render: {}", e);
+            }
+        }).map_err(|e| nxsh_core::ShellError::io(e))?;
 
-        let timeout = tick_rate
+        let timeout: Duration = tick_rate
             .checked_sub(last_tick.elapsed())
             .unwrap_or_else(|| Duration::from_secs(0));
-        if event::poll(timeout).map_err(|e| nxsh_core::ShellError::io(format!("Poll error: {}", e)))? {
-            if let Event::Key(key) = event::read().map_err(|e| nxsh_core::ShellError::io(format!("Read error: {}", e)))? {
-                if !app.handle_key(key, context, executor)? {
+        if event::poll(timeout).map_err(|e| nxsh_core::ShellError::io(e))? {
+            if let Event::Key(key) = event::read().map_err(|e| nxsh_core::ShellError::io(e))? {
+                app.handle_key(key).await.map_err(|e| nxsh_core::ShellError::io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+                if app.should_quit() {
                     break;
                 }
             }
         }
         if last_tick.elapsed() >= tick_rate {
-            app.update();
             last_tick = Instant::now();
         }
     }
 
-    disable_raw_mode().map_err(|e| nxsh_core::ShellError::io(format!("Failed to disable raw mode: {}", e)))?;
+    disable_raw_mode().map_err(|e| nxsh_core::ShellError::io(e))?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)
-        .map_err(|e| nxsh_core::ShellError::io(format!("Failed to restore terminal: {}", e)))?;
+        .map_err(|e| nxsh_core::ShellError::io(e))?;
     terminal.show_cursor().ok();
     Ok(())
 }
 
-/// Main application state wrapper for TUI.
-pub struct NexusShellApp {
-    state: AppState,
-    scroll: ScrollBuffer,
+/// Setup terminal for TUI rendering. Returns a Terminal instance ready for rendering.
+pub fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>, std::io::Error> {
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let backend = CrosstermBackend::new(stdout);
+    let terminal = Terminal::new(backend)?;
+    Ok(terminal)
 }
 
-impl NexusShellApp {
-    pub fn new() -> Self {
-        Self { state: AppState::default(), scroll: ScrollBuffer::default() }
-    }
+/// Restore terminal state after TUI rendering.
+pub fn restore_terminal() -> Result<(), std::io::Error> {
+    disable_raw_mode()?;
+    execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
+    Ok(())
+}
 
-    /// Render UI.
-    pub fn render(&self, f: &mut Frame) {
-        self.state.render(f);
-    }
+/// Get terminal size for layout calculations.
+pub fn get_terminal_size() -> ShellResult<(u16, u16)> {
+    let (width, height) = crossterm::terminal::size()
+        .map_err(|e| nxsh_core::ShellError::io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+    Ok((width, height))
+}
 
-    /// Handle key event. Returns false if should quit.
-    pub fn handle_key(&mut self, key: crossterm::event::KeyEvent, ctx: &mut ShellContext, exec: &mut Executor) -> ShellResult<bool> {
-        match key.code {
-            KeyCode::Char('c') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
-                return Ok(false);
+/// Handle terminal events and return true if execution should continue.
+pub async fn handle_events(app: &mut App, _ctx: &mut ShellContext) -> ShellResult<bool> {
+    if event::poll(Duration::from_millis(100))
+        .map_err(|e| nxsh_core::ShellError::io(std::io::Error::new(std::io::ErrorKind::Other, e)))? {
+        if let Event::Key(key) = event::read()
+            .map_err(|e| nxsh_core::ShellError::io(std::io::Error::new(std::io::ErrorKind::Other, e)))? {
+            // Add your key handling logic here
+            match key.code {
+                crossterm::event::KeyCode::Esc => return Ok(false),
+                crossterm::event::KeyCode::Char('q') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => return Ok(false),
+                _ => {}
             }
-            KeyCode::Char('d') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
-                return Ok(false);
-            }
-            KeyCode::Char(ch) => {
-                self.state.input.push(ch);
-            }
-            KeyCode::Backspace => {
-                self.state.input.pop();
-            }
-            KeyCode::Enter => {
-                let cmd = self.state.input.trim().to_string();
-                if cmd == ":quit" {
-                    return Ok(false);
-                }
-                if !cmd.is_empty() {
-                    match exec.run(&cmd) {
-                        Ok(output) => {
-                            self.scroll.push(format!("$ {}", cmd));
-                            self.scroll.push(format!("=> {:?}", output));
-                        }
-                        Err(e) => {
-                            self.scroll.push(format!("$ {}", cmd));
-                            self.scroll.push(format!("error: {}", e));
-                        }
-                    }
-                }
-                self.state.input.clear();
-            }
-            KeyCode::Tab => {
-                // TODO: completion placeholder
-            }
-            KeyCode::Esc => {
-                self.state.input.clear();
-            }
-            _ => {}
         }
-        Ok(true)
     }
+    Ok(true)
+}
 
-    /// Periodic update.
-    pub fn update(&mut self) {
-        // Remove expired toasts
-        self.state.toasts.retain(|t| !t.expired());
-    }
-} 
+/// Draw the TUI interface.
+pub fn draw_ui(frame: &mut Frame, app: &mut App) -> Result<(), std::io::Error> {
+    app.render::<ratatui::backend::CrosstermBackend<std::io::Stdout>>(frame).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+}
+
+/// Initialize TUI system.
+pub fn init() -> ShellResult<()> {
+    Ok(())
+}
+
+/// Cleanup TUI system.
+pub fn cleanup() -> ShellResult<()> {
+    let _ = restore_terminal();
+    Ok(())
+}
+
+/// Run TUI in full-screen mode with proper error handling.
+pub async fn run_fullscreen(context: &mut ShellContext, executor: &mut Executor) -> ShellResult<()> {
+    let _terminal = setup_terminal()
+        .map_err(|e| nxsh_core::ShellError::io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+    
+    let result = run(context, executor).await;
+    
+    let _ = restore_terminal();
+    
+    result
+}
+
+/// Get current terminal dimensions.
+pub fn terminal_size() -> Result<(u16, u16), std::io::Error> {
+    crossterm::terminal::size()
+}
+
+/// Check if terminal supports colors.
+pub fn supports_color() -> bool {
+    true // Most modern terminals support color
+}
+
+/// Clear the terminal screen.
+pub fn clear_screen() -> ShellResult<()> {
+    execute!(io::stdout(), crossterm::terminal::Clear(crossterm::terminal::ClearType::All))
+        .map_err(|e| nxsh_core::ShellError::io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+    Ok(())
+}
+
+/// Move cursor to position.
+pub fn move_cursor(x: u16, y: u16) -> ShellResult<()> {
+    execute!(io::stdout(), crossterm::cursor::MoveTo(x, y))
+        .map_err(|e| nxsh_core::ShellError::io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+    Ok(())
+}
