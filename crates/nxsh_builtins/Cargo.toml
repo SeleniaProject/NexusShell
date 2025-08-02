@@ -23,7 +23,8 @@ pulldown-cmark = "0.10"
 ansi_term = "0.12" 
 fancy-regex = "0.11"  # Pure Rust regex with advanced features
 regex = "1"
-meval = "0.2"
+# meval = "0.2"  # Replaced with exmex to eliminate C/C++ dependency (nom v1.2.4)
+exmex = "0.20.4"  # Pure Rust expression evaluator
 deflate = "1.0"  # Pure Rust deflate implementation
 flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }  # Pure Rust gzip
 indicatif = "0.17"
@@ -180,8 +181,8 @@ whoami = "1.6"
 [target.'cfg(unix)'.dependencies]
 # Unix-specific dependencies
 uzers = "0.11"
-nix = "0.27"
-libc = "0.2"
+nix = { version = "0.27", features = ["signal", "sched", "fs", "process"] }
+# libc = "0.2"  # Removed C/C++ dependency - replaced with nix
 
 [dev-dependencies]
 tempfile = "3" 
