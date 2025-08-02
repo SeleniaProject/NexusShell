@@ -5,13 +5,9 @@ WHITESPACE = _{ " " | "\t" }
 COMMENT = _{ "#" ~ (!"\n" ~ ANY)* }
 
 // Basic tokens
-identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+identifier = @{ (ASCII_ALPHA | "_" | "-" | "/" | ".") ~ (ASCII_ALPHANUMERIC | "_" | "." | "/" | "-")* }
 number = @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
 string_literal = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" | "'" ~ (!"'" ~ ANY)* ~ "'" }
-
-// Variables
-variable = { "$" ~ identifier | "${" ~ identifier ~ "}" }
-command_substitution = { "$(" ~ program ~ ")" | "`" ~ program ~ "`" }
 
 // Operators
 pipe = { "|" }
@@ -45,17 +41,22 @@ with_kw = { "with" }
 
 // Expressions
 word = { identifier | string_literal | number }
+simple_word = { identifier }
+
+// Variables
+variable = { "$" ~ identifier | "${" ~ identifier ~ "}" }
+command_substitution = { "$(" ~ simple_word ~ ")" | "`" ~ simple_word ~ "`" }
+
 argument = { word | variable | command_substitution }
-arguments = { argument* }
 
 // Commands
-simple_command = { word ~ arguments }
+simple_command = { word ~ argument* }
 pipeline = { simple_command ~ (pipe ~ simple_command)* }
 command = { pipeline }
 
 // Control structures
 if_statement = { if_kw ~ command ~ then_kw ~ program ~ (elif_kw ~ command ~ then_kw ~ program)* ~ (else_kw ~ program)? ~ fi_kw }
-for_statement = { for_kw ~ identifier ~ "in" ~ arguments ~ do_kw ~ program ~ done_kw }
+for_statement = { for_kw ~ identifier ~ "in" ~ argument+ ~ do_kw ~ program ~ done_kw }
 while_statement = { while_kw ~ command ~ do_kw ~ program ~ done_kw }
 case_statement = { case_kw ~ word ~ "in" ~ case_item* ~ esac_kw }
 case_item = { pattern ~ ")" ~ program ~ ";;" }
@@ -81,7 +82,4 @@ statement = {
 
 // Program structure
 line = { statement ~ (and_op ~ statement | or_op ~ statement | semicolon ~ statement)* ~ background? }
-program = { SOI ~ (line ~ ("\n" | EOI))* ~ EOI }
-
-// Special rules
-Rule = { program } 
+program = { SOI ~ (line ~ ("\n" | EOI))* ~ EOI } 
