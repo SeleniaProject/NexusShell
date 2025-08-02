@@ -9,16 +9,33 @@ use crate::error::{HalError, HalResult};
 #[cfg(unix)]
 pub fn pipe_nonblock() -> std::io::Result<(std::fs::File, std::fs::File)> {
     let (read_fd, write_fd) = pipe()?;
+    
+    // Use nix for safe flag setting instead of direct libc calls
+    use nix::fcntl::{fcntl, FcntlArg, OFlag, FdFlag};
+    
+    // Set non-blocking flags using nix
+    match fcntl(read_fd, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)) {
+        Ok(_) => {},
+        Err(_) => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to set O_NONBLOCK on read_fd")),
+    }
+    
+    match fcntl(write_fd, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)) {
+        Ok(_) => {},
+        Err(_) => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to set O_NONBLOCK on write_fd")),
+    }
+    
+    // Set close-on-exec flags using nix
+    match fcntl(read_fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)) {
+        Ok(_) => {},
+        Err(_) => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to set FD_CLOEXEC on read_fd")),
+    }
+    
+    match fcntl(write_fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC)) {
+        Ok(_) => {},
+        Err(_) => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Failed to set FD_CLOEXEC on write_fd")),
+    }
+    
     unsafe {
-        // Set non-blocking and close-on-exec flags
-        let flags = libc::fcntl(read_fd, libc::F_GETFL);
-        libc::fcntl(read_fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-        libc::fcntl(read_fd, libc::F_SETFD, libc::FD_CLOEXEC);
-        
-        let flags = libc::fcntl(write_fd, libc::F_GETFL);
-        libc::fcntl(write_fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-        libc::fcntl(write_fd, libc::F_SETFD, libc::FD_CLOEXEC);
-        
         Ok((
             std::fs::File::from_raw_fd(read_fd),
             std::fs::File::from_raw_fd(write_fd),

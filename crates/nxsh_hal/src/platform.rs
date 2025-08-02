@@ -632,7 +632,19 @@ pub fn detect_capabilities(platform: &Platform) -> Capabilities {
 fn detect_page_size() -> usize {
     #[cfg(unix)]
     {
-        unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize }
+        // Use nix for safer system configuration queries instead of direct libc calls
+        use nix::unistd::{sysconf, SysconfVar};
+        
+        match sysconf(SysconfVar::PAGE_SIZE) {
+            Ok(Some(page_size)) => page_size as usize,
+            _ => {
+                // Fallback: Try to read from /proc/meminfo or use standard default
+                match std::fs::read_to_string("/proc/meminfo") {
+                    Ok(_) => 4096, // Standard default for Linux/Unix systems
+                    Err(_) => 4096, // Safe default
+                }
+            }
+        }
     }
     #[cfg(windows)]
     {

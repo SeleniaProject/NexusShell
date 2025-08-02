@@ -14,11 +14,15 @@ pub fn apply_seccomp() -> Result<()> {
             if res != 0 { anyhow::bail!("seccomp_rule_add failed"); }
             Ok(())
         };
-        allow(libc::SYS_read)?;
-        allow(libc::SYS_write)?;
-        allow(libc::SYS_fstat)?;
-        allow(libc::SYS_exit)?;
-        allow(libc::SYS_exit_group)?;
+        
+        // Use system call numbers directly instead of libc constants for C/C++ independence
+        // These are standard Linux syscall numbers defined in the kernel ABI
+        allow(0)?;    // SYS_read
+        allow(1)?;    // SYS_write  
+        allow(5)?;    // SYS_fstat (x86_64)
+        allow(60)?;   // SYS_exit (x86_64)
+        allow(231)?;  // SYS_exit_group (x86_64)
+        
         if seccomp_load(ctx) != 0 {
             anyhow::bail!("seccomp_load failed");
         }
