@@ -1,4 +1,4 @@
-//! `zip` builtin — create ZIP archives.
+//! `zip` builtin  Ecreate ZIP archives.
 //!
 //! Strategy:
 //! 1. Use system `zip` binary when present for full feature coverage.
