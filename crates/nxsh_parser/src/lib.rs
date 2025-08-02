@@ -3,15 +3,42 @@
 pub mod lexer;
 pub mod ast;
 
+// Re-export the Parser for external use
+pub use ShellCommandParser as Parser;
+
 use anyhow::Result;
 
-use pest::Parser;
+use pest::Parser as PestParser;
 use pest::error::{Error as PestError, LineColLocation};
 use pest_derive::Parser;
 
 #[derive(Parser)]
 #[grammar = "grammar/shell.pest"]
 struct ShellParser;
+
+/// Public parser interface for shell commands
+pub struct ShellCommandParser {
+    _private: (),
+}
+
+impl ShellCommandParser {
+    /// Create a new parser instance
+    pub fn new() -> Self {
+        Self { _private: () }
+    }
+
+    /// Parse shell command text into an AST
+    pub fn parse(&self, input: &str) -> Result<ast::AstNode<'static>> {
+        // For now, return a simple command node as placeholder
+        // TODO: Implement full parsing logic using the PEST grammar
+        Ok(ast::AstNode::Command {
+            name: Box::new(ast::AstNode::Word("echo")),
+            args: vec![ast::AstNode::Word(Box::leak(input.to_string().into_boxed_str()))],
+            redirections: Vec::new(),
+            background: false,
+        })
+    }
+}
 
 /// Highlight parsing error with line and column.
 pub fn highlight_error(input: &str, err: PestError<Rule>) -> String {
