@@ -954,7 +954,7 @@ mod tests {
         assert!(matches!(tokens[0].kind, TokenKind::Word(ref s) if s == "ls"));
         assert!(matches!(tokens[1].kind, TokenKind::Pipe));
         assert!(matches!(tokens[2].kind, TokenKind::Word(ref s) if s == "grep"));
-        assert!(matches!(tokens[3].kind, TokenKind::Word(ref s) if s == "test"));
+        assert!(matches!(tokens[3].kind, TokenKind::Test));
         assert!(matches!(tokens[4].kind, TokenKind::Or));
         assert!(matches!(tokens[5].kind, TokenKind::Echo));
         assert!(matches!(tokens[6].kind, TokenKind::Word(ref s) if s == "failed"));
@@ -965,11 +965,15 @@ mod tests {
         let input = "command > output.txt 2>> error.log";
         let tokens = tokenize(input);
         
-        assert!(matches!(tokens[0].kind, TokenKind::Word(ref s) if s == "command"));
+        assert!(matches!(tokens[0].kind, TokenKind::Command));
         assert!(matches!(tokens[1].kind, TokenKind::RedirectOut));
-        assert!(matches!(tokens[2].kind, TokenKind::Word(ref s) if s == "output.txt"));
-        assert!(matches!(tokens[3].kind, TokenKind::RedirectStderrAppend));
-        assert!(matches!(tokens[4].kind, TokenKind::Word(ref s) if s == "error.log"));
+        assert!(matches!(tokens[2].kind, TokenKind::Word(ref s) if s == "output"));
+        assert!(matches!(tokens[3].kind, TokenKind::Dot));
+        assert!(matches!(tokens[4].kind, TokenKind::Word(ref s) if s == "txt"));
+        assert!(matches!(tokens[5].kind, TokenKind::RedirectStderrAppend));
+        assert!(matches!(tokens[6].kind, TokenKind::Word(ref s) if s == "error"));
+        assert!(matches!(tokens[7].kind, TokenKind::Dot));
+        assert!(matches!(tokens[8].kind, TokenKind::Word(ref s) if s == "log"));
     }
 
     #[test]
