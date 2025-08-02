@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use meval::Expr;
+use exmex::Express;  // Replaced meval with exmex for better C/C++ dependency elimination
 use std::str::FromStr;
 use nxsh_core::context::ShellContext;
 use regex::Regex;
@@ -19,8 +19,9 @@ pub fn let_cli(exprs: &[String], ctx: &ShellContext) -> Result<()> {
     let var = &caps[1];
     let op = &caps[2];
     let rhs = &caps[3];
-    // Evaluate RHS numeric expression
-    let val: f64 = Expr::from_str(rhs)?.eval()?;
+    // Evaluate RHS numeric expression using exmex instead of meval
+    let expr = exmex::parse::<f64>(rhs)?;
+    let val: f64 = expr.eval(&[])?;
     let new_val = if op == "+=" {
         let cur = ctx.get_var(var).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
         cur + val

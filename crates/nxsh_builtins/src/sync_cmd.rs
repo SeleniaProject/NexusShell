@@ -6,7 +6,11 @@ use anyhow::Result;
 
 pub async fn sync_cli(_args: &[String]) -> Result<()> {
     #[cfg(unix)]
-    unsafe { libc::sync(); }
+    {
+        // Use nix crate for safe system call instead of direct libc
+        use nix::unistd::sync;
+        sync();
+    }
     #[cfg(windows)]
     {
         use windows_sys::Win32::Storage::FileSystem::{FindFirstVolumeW, FindNextVolumeW, FindVolumeClose, CreateFileW, FlushFileBuffers, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL};
