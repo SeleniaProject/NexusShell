@@ -4,7 +4,7 @@
 //! This functionality needs to be reimplemented using pure Rust alternatives
 
 use anyhow::{anyhow, Context, Result};
-use std::{fs::File, io::{copy, Write}, path::Path, process::Command};
+use std::{fs::File, path::Path, process::Command};
 use which::which;
 // Using pure Rust LZMA decompression as xz alternative
 
@@ -29,7 +29,7 @@ pub fn unxz_cli(args: &[String]) -> Result<()> {
     }
     if !input.is_file() { return Err(anyhow!("unxz: '{}' is not a regular file", input.display())); }
     let output = input.with_extension("");
-    let mut infile = File::open(&input).with_context(|| format!("unxz: cannot open {:?}", input))?;
+    let infile = File::open(&input).with_context(|| format!("unxz: cannot open {:?}", input))?;
     let mut outfile = File::create(&output).with_context(|| format!("unxz: cannot create {:?}", output))?;
     // Use pure Rust LZMA decompression as xz alternative
     let mut buf_reader = std::io::BufReader::new(infile);

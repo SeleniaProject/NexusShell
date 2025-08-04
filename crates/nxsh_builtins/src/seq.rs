@@ -11,7 +11,6 @@
 //!   -f FORMAT    Use printf-style floating-point FORMAT (default: %g)
 
 use anyhow::{anyhow, Result};
-use std::fmt::Write as FmtWrite;
 
 /// Entry point for the seq builtin.
 pub fn seq_cli(args: &[String]) -> Result<()> {

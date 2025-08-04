@@ -6,7 +6,7 @@
 //! When setting, `N` may be `unlimited`.
 //! On Windows this builtin only prints an unsupported message.
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 
 #[cfg(unix)]
 use nix::libc::{getrlimit, setrlimit, rlimit, RLIMIT_CORE, RLIMIT_NOFILE};

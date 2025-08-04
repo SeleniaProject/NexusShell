@@ -2,16 +2,12 @@
 //!
 //! Full ps implementation with process tree, filtering, and detailed process information
 
-use crate::common::{i18n::*, logging::*};
-use std::io::Write;
-use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use nxsh_core::{Builtin, ExecutionResult, executor::{ExecutionStrategy, ExecutionMetrics}, ShellResult, ShellError, ErrorKind};
 use nxsh_core::context::ShellContext;
 use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
 use nxsh_hal::{ProcessInfo, ProcessManager};
-use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::BufRead;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn runtime_error(message: &str) -> ShellError {

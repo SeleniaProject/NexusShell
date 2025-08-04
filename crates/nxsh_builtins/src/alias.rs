@@ -3,11 +3,8 @@
 //! This module implements the alias builtin command for creating
 //! and managing command aliases with cycle detection.
 
-use crate::common::{i18n::*, logging::*};
 use std::io::Write;
-use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError, ErrorKind, StreamData, context::ShellContext};
-use nxsh_core::error::{RuntimeErrorKind, IoErrorKind, InternalErrorKind};
+use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError, context::ShellContext};
 
 /// The `alias` builtin command implementation
 pub struct AliasCommand;

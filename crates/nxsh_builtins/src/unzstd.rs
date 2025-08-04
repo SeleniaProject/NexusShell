@@ -4,7 +4,7 @@
 //! This functionality needs to be reimplemented using pure Rust alternatives
 
 use anyhow::{anyhow, Context, Result};
-use std::{fs::File, io::copy, path::Path, process::Command};
+use std::{path::Path, process::Command};
 use which::which;
 // Note: zstd crate may not be available - using fallback implementation
 #[cfg(feature = "zstd")]

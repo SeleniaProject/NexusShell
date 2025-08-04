@@ -6,7 +6,7 @@
 //!
 //! On Unix uses `libc::umask`. On Windows prints unsupported message.
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 
 pub fn umask_cli(args: &[String]) -> Result<()> {
     #[cfg(windows)]

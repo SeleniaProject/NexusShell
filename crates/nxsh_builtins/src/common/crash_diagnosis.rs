@@ -13,16 +13,15 @@
 //! - Historical crash trend analysis
 
 use anyhow::{anyhow, Result, Context};
-use std::backtrace::Backtrace;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::panic::{self, PanicInfo};
-use std::sync::{Arc, Mutex, Once};
+use std::sync::{Mutex, Once};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use chrono::{DateTime, Utc};
-use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce, KeyInit};
+use chacha20poly1305::KeyInit;
 use chacha20poly1305::aead::Aead;
 use rand::{thread_rng, RngCore};
 use blake3;

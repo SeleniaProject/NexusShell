@@ -12,9 +12,6 @@
 //! On unsupported platforms the command prints a graceful message.
 
 use anyhow::{anyhow, Result};
-use std::time::Instant;
-use std::{fs::File, io::{Read, Seek, SeekFrom}};
-use std::path::Path;
 
 pub async fn hdparm_cli(args: &[String]) -> Result<()> {
     if args.is_empty() {

@@ -18,10 +18,6 @@
 //! degrades with an informative message.
 
 use anyhow::{anyhow, Result};
-use std::collections::HashSet;
-use std::fs::OpenOptions;
-use std::io::{Seek, SeekFrom};
-use std::path::Path;
 
 #[cfg(unix)]
 use fatfs::{FatType, File, FileSystem, FsOptions, OemCpConverter, ReadWriteSeek, FileAttributes};

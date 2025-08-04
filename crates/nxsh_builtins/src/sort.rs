@@ -2,13 +2,10 @@
 //!
 //! Full sort implementation with multiple sort keys, parallel processing, and various options
 
-use crate::common::{i18n::*, logging::*};
 use std::io::Write;
-use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ShellContext, ExecutionResult, ShellResult, ShellError};
+use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError};
 use nxsh_core::executor::{ExecutionStrategy, ExecutionMetrics};
 use rayon::prelude::*;
-use anyhow::{anyhow, Result};
 use std::cmp::Ordering;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter};

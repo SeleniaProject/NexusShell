@@ -19,25 +19,21 @@
 //! - Monitoring and alerting
 
 use anyhow::{anyhow, Result, Context};
-use chrono::{DateTime, Local, Utc, NaiveDateTime, TimeZone, Duration as ChronoDuration, Datelike, Timelike};
-use chrono_tz::{Tz, Asia::Tokyo, UTC};
+use chrono::{DateTime, Utc, TimeZone, Duration as ChronoDuration, Datelike};
+use chrono_tz::{Tz, UTC};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, BTreeMap, VecDeque},
-    fmt,
-    fs,
-    path::{Path, PathBuf},
-    process::{Command, Stdio},
+    collections::{HashMap, BTreeMap},
+    path::PathBuf,
+    process::Stdio,
     sync::{Arc, RwLock, atomic::{AtomicU64, Ordering}},
-    time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     fs as async_fs,
     process::Command as AsyncCommand,
-    sync::{broadcast, Mutex as AsyncMutex},
-    time::{sleep, sleep_until, interval, Duration, Instant},
+    sync::broadcast,
+    time::{interval, Duration},
 };
-use uuid::Uuid;
 use regex::Regex;
 use crate::common::i18n::I18n;
 
@@ -722,7 +718,7 @@ impl AtScheduler {
         });
     }
 
-    async fn execute_job(mut job: AtJob, config: AtConfig) -> Result<JobExecution> {
+    async fn execute_job(job: AtJob, config: AtConfig) -> Result<JobExecution> {
         let start_time = Utc::now();
         
         // Change to working directory
@@ -930,7 +926,7 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
         return Err(anyhow!("at: usage: at [OPTIONS] time [command...]"));
     }
 
-    let mut config = AtConfig::default();
+    let config = AtConfig::default();
     let mut options = JobOptions::default();
     let mut time_spec = String::new();
     let mut command_args = Vec::new();

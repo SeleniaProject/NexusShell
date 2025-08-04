@@ -17,35 +17,29 @@
 //! - Advanced statistics and performance monitoring
 
 use anyhow::{Result, anyhow, Context as AnyhowContext};
-use std::io::{self, Read, Write, BufRead, BufReader, BufWriter, Stdin, StdinLock, Seek, SeekFrom};
-use std::fs::{File, Metadata};
-use std::path::{Path, PathBuf};
-use std::collections::{VecDeque, HashMap};
-use std::sync::{Arc, Mutex, atomic::{AtomicU64, AtomicBool, Ordering}};
+use std::io::{self, Read, Write, BufRead, BufReader, BufWriter};
+use std::fs::File;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::time::{Instant, Duration};
 use std::thread;
 use std::cmp::min;
 
 // Advanced dependencies
-use memmap2::{Mmap, MmapOptions};
+use memmap2::MmapOptions;
 use encoding_rs::{Encoding, UTF_8, UTF_16LE, UTF_16BE, WINDOWS_1252, ISO_8859_2};
-use encoding_rs_io::DecodeReaderBytesBuilder;
 use content_inspector::{ContentType, inspect};
-use mime_guess::from_path;
 use rayon::prelude::*;
-use std::sync::mpsc::{self, Receiver, Sender};
 use indicatif::{ProgressBar, ProgressStyle, MultiProgress};
-use console::{Term, style};
-use tokio::fs::File as AsyncFile;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncBufReadExt, BufReader as AsyncBufReader};
-use futures::stream::{self, StreamExt};
+use console::style;
+use tokio::io::{AsyncReadExt, AsyncBufReadExt};
+use futures::stream::StreamExt;
 use url::Url;
 use flate2::read::{GzDecoder, DeflateDecoder};
-use lzma_rs::lzma_decompress;
 use base64::{Engine as _, engine::general_purpose};
 
-use crate::common::i18n::{t, t_args, init_i18n};
-use crate::{t, ShellError, ShellResult};
+use crate::common::i18n::init_i18n;
+use crate::t;
 
 /// Maximum size for memory mapping (1GB)
 const MMAP_THRESHOLD: u64 = 1024 * 1024 * 1024;
@@ -368,7 +362,7 @@ fn parse_cat_args(args: &[String]) -> Result<CatOptions> {
 
 fn process_stdin(options: &CatOptions) -> Result<()> {
     let stdin = io::stdin();
-    let mut reader = stdin.lock();
+    let reader = stdin.lock();
     let stdout = io::stdout();
     let mut writer = BufWriter::new(stdout.lock());
     
@@ -764,7 +758,7 @@ fn process_file_stream<W: Write>(
 }
 
 fn process_reader<R: BufRead, W: Write>(
-    mut reader: Box<R>,
+    reader: Box<R>,
     writer: &mut W,
     options: &CatOptions,
     filename: &str,
@@ -990,7 +984,7 @@ fn process_line_content(line: &str, options: &CatOptions) -> String {
 
 fn process_file_to_memory(filename: &str, options: &CatOptions) -> Result<(Vec<u8>, FileStats)> {
     let mut content = Vec::new();
-    let mut cursor = io::Cursor::new(&mut content);
+    let cursor = io::Cursor::new(&mut content);
     
     let stats = process_single_file(filename, options, None)?;
     

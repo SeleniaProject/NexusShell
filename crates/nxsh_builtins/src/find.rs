@@ -17,13 +17,11 @@
 //! - Integration with other shell commands
 
 use anyhow::{Result, anyhow, Context};
-use crate::{ShellError, ShellResult};
-use std::collections::{HashMap, VecDeque};
-use std::fs::{self, Metadata, DirEntry};
+use std::fs::{self, Metadata};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex, atomic::{AtomicU64, AtomicBool, Ordering}};
+use std::process::Command;
+use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
 use std::time::{SystemTime, Duration, UNIX_EPOCH};
 use std::thread;
 
@@ -33,13 +31,11 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 // Advanced dependencies
 use walkdir::{WalkDir, DirEntry as WalkDirEntry};
-use regex::{Regex, RegexBuilder};
+use regex::RegexBuilder;
 use glob::{Pattern, MatchOptions};
-use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
+use chrono::{DateTime, Local};
 use rayon::prelude::*;
-use std::sync::mpsc::{self, Receiver, Sender};
-use indicatif::{ProgressBar, ProgressStyle, MultiProgress};
-use console::{Term, style};
+use indicatif::{ProgressBar, ProgressStyle};
 
 // Pure Rust cross-platform user/group handling
 use sysinfo::{System, SystemExt, UserExt};

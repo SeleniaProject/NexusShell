@@ -37,7 +37,6 @@ use std::sync::Mutex;
 use chrono::{DateTime, Local};
 use ansi_term::{Colour, Style};
 use humansize::{format_size, BINARY};
-use is_terminal::IsTerminal;
 
 // Git repository integration
 #[derive(Debug, Clone)]

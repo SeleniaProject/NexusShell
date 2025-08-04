@@ -7,7 +7,7 @@
 //! This command runs indefinitely until interrupted (Ctrl+C).
 
 use anyhow::Result;
-use std::io::{self, Write, BufWriter, stdout};
+use std::io::{Write, BufWriter, stdout};
 
 /// Entry point for the yes builtin.
 pub fn yes_cli(args: &[String]) -> Result<()> {

@@ -18,9 +18,9 @@
 
 use anyhow::{anyhow, Result, Context};
 use std::collections::VecDeque;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Write, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, SystemTime};
 use std::thread;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};

@@ -9,8 +9,7 @@
 //! missing, it reports unsupported. On non-Unix platforms, an informative
 //! message is printed.
 
-use anyhow::{anyhow, Result};
-use std::process::Command;
+use anyhow::Result;
 
 pub async fn hwclock_cli(args: &[String]) -> Result<()> {
     #[cfg(not(unix))]

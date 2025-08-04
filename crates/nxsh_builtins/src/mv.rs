@@ -18,13 +18,12 @@
 //!   --version                 - Output version information and exit
 
 use anyhow::{Result, anyhow, Context};
-use std::fs::{self, Metadata, OpenOptions};
-use std::io::{self, Write, BufRead, BufReader};
+use std::fs::{self};
+use std::io::{self, Write, BufRead};
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-use chrono::{DateTime, Local};
 #[cfg(unix)]
 use uzers::{get_user_by_uid, get_group_by_gid};
 

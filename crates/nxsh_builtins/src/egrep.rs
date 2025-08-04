@@ -4,7 +4,7 @@
 //! supports extended regular expressions by default.
 
 use anyhow::{anyhow, Result};
-use crate::grep::{grep_cli, GrepOptions};
+use crate::grep::grep_cli;
 
 /// Execute `egrep` builtin.
 pub fn egrep_cli(args: &[String]) -> Result<()> {

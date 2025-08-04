@@ -13,7 +13,6 @@ use std::{
 };
 use tokio::sync::RwLock;
 use ansi_term::Colour;
-use crate::highlighting::SyntaxHighlighter;
 
 /// Main theme configuration for NexusShell
 #[derive(Debug, Clone, Serialize, Deserialize)]

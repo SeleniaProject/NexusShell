@@ -1,6 +1,5 @@
 use anyhow::{bail, Result};
 use exmex::Express;  // Replaced meval with exmex for better C/C++ dependency elimination
-use std::str::FromStr;
 use nxsh_core::context::ShellContext;
 use regex::Regex;
 

@@ -3,11 +3,11 @@
 //! This module provides real-time syntax highlighting for shell commands,
 //! scripts, and various programming languages using pure Rust regex-based highlighting.
 
-use anyhow::{Result, Context};
+use anyhow::Result;
 use regex::Regex;
 use ratatui::{
     prelude::*,
-    text::{Line, Span},
+    text::Span,
 };
 use std::collections::HashMap;
 

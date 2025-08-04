@@ -3,12 +3,11 @@
 //! Keys: Space/PageDown/Down/j -> forward, b/PageUp/Up/k -> back, g -> top, G -> bottom, q -> quit.
 //! Falls back to printing all content if not running in TTY.
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::Path;
 use std::time::Duration;
-use is_terminal::IsTerminal;
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent},

@@ -15,7 +15,7 @@
 
 use anyhow::{anyhow, Result, Context};
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Read, Write, Seek, SeekFrom};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::Path;
 
 #[derive(Debug, Clone)]

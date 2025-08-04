@@ -3,12 +3,10 @@
 //! This module implements the export builtin command for setting
 //! and exporting environment variables to child processes.
 
-use crate::common::{i18n::*, logging::*};
 use std::io::Write;
-use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ShellContext, ExecutionResult, ShellResult, ShellError, ErrorKind, StreamData};
+use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError, ErrorKind};
 use nxsh_core::context::ShellVariable;
-use nxsh_core::error::{RuntimeErrorKind, IoErrorKind, InternalErrorKind};
+use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
 
 /// The `export` builtin command implementation
 pub struct ExportCommand;

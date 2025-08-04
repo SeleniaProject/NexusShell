@@ -13,15 +13,15 @@
 
 use anyhow::{anyhow, Result, Context};
 use once_cell::sync::OnceCell;
-use tracing::{debug, error, info, warn, Level, span, Span};
+use tracing::{debug, error, info, warn, Level};
 use tracing_subscriber::{fmt::{self, format::FmtSpan}, EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use tracing_appender::{rolling, non_blocking};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, Duration, UNIX_EPOCH};
-use chrono::{DateTime, Utc, Local};
+use std::time::SystemTime;
+use chrono::{DateTime, Utc};
 
 static LOGGER_INSTANCE: OnceCell<LoggerInstance> = OnceCell::new();
 

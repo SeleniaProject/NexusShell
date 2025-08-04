@@ -10,9 +10,6 @@ use std::num::ParseIntError;
 
 #[cfg(unix)]
 use nix::libc::{c_int, setpriority, PRIO_PROCESS};
-#[cfg(windows)]
-// placeholder import to satisfy cfg path
-use core::marker::PhantomData;
 
 pub fn renice_cli(args: &[String]) -> Result<()> {
     if args.is_empty() {

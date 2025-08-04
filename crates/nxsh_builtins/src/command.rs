@@ -6,7 +6,7 @@
 //!   external command, bypassing shell aliases (not yet implemented, placeholder).
 
 use anyhow::{anyhow, Result};
-use std::{env, path::PathBuf, process::Command as SysCmd};
+use std::{env, path::PathBuf};
 use nxsh_core::context::ShellContext;
 
 pub const BUILTIN_NAMES: &[&str] = &[

@@ -3,9 +3,8 @@
 //! Full re-implementation of `lsof` is complex and platform-dependent,
 //! so this is a simplified version that covers common use cases.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use clap::Parser;
 
 #[derive(Parser, Debug)]

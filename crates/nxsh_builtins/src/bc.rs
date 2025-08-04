@@ -15,9 +15,9 @@
 use anyhow::{anyhow, Result};
 use num_bigint::BigInt;
 use num_rational::BigRational;
-use num_traits::{Zero, One, ToPrimitive, FromPrimitive};
+use num_traits::{Zero, One, ToPrimitive};
 use std::collections::HashMap;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader};
 use std::str::FromStr;
 
 /// BC calculator context with variables and settings

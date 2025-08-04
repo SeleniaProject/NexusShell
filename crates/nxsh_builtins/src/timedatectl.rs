@@ -19,23 +19,20 @@
 //! - Calendar system support
 
 use anyhow::{anyhow, Result, Context};
-use chrono::{DateTime, Local, Utc, TimeZone, Duration as ChronoDuration, NaiveDateTime, FixedOffset, Datelike, Timelike, Offset};
-use chrono_tz::{Tz, OffsetName};
+use chrono::{DateTime, Local, Utc, TimeZone, Duration as ChronoDuration, NaiveDateTime, Datelike, Offset};
+use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, BTreeMap},
-    fmt,
-    fs,
-    path::{Path, PathBuf},
-    process::{Command, Stdio},
+    collections::HashMap,
+    path::PathBuf,
     sync::{Arc, RwLock, atomic::{AtomicBool, AtomicU64, Ordering}},
     time::{SystemTime, UNIX_EPOCH, Duration},
 };
 use tokio::{
     fs as async_fs,
     process::Command as AsyncCommand,
-    sync::{broadcast, Mutex as AsyncMutex},
-    time::{sleep, interval, Instant},
+    sync::broadcast,
+    time::{interval, Instant},
 };
 use regex::Regex;
 use crate::common::i18n::I18n;
@@ -842,7 +839,7 @@ impl TimedatectlManager {
                 
                 // Update statistics
                 {
-                    let mut stats = statistics.write().unwrap();
+                    let stats = statistics.write().unwrap();
                     // Update various statistics here
                     // This is a placeholder for actual statistics calculation
                 }
@@ -1161,7 +1158,7 @@ pub enum LeapStatus {
 // Main CLI interface
 pub async fn timedatectl_cli(args: &[String]) -> Result<()> {
     let i18n = I18n::new(); // Use default I18n instance
-    let mut config = TimedatectlConfig::default();
+    let config = TimedatectlConfig::default();
     let ctl = TimedatectlManager::new(config.clone(), i18n).await?;
     let mut show_help = false;
     let mut show_status = true; // Default command

@@ -20,13 +20,13 @@
 //!   --version                 - Output version information and exit
 
 use anyhow::{Result, anyhow};
-use std::fs::{self, File};
+use std::fs::{self};
 use std::io::{self, Write};
 #[cfg(unix)]
 use std::os::unix::fs::{symlink, MetadataExt};
 #[cfg(windows)]
 use std::os::windows::fs::{symlink_file, symlink_dir};
-use std::path::{Path, PathBuf, Component};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct LnOptions {

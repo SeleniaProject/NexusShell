@@ -3,7 +3,7 @@
 //! TEMPORARILY DISABLED: C-dependent xz2 library removed
 //! This functionality needs to be reimplemented using pure Rust alternatives
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use std::{process::Command};
 use which::which;
 // Removed xz2 dependency - using alternative compression methods

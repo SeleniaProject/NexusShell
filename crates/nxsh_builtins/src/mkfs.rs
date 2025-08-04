@@ -17,9 +17,6 @@
 //! Platform: Unix-like only. On unsupported OSes the command exits gracefully.
 
 use anyhow::{anyhow, Result};
-use std::fs::OpenOptions;
-use std::io::Write;
-use std::path::Path;
 
 #[cfg(unix)]
 use fatfs::{format_volume, FormatVolumeOptions, FatType};

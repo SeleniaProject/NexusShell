@@ -16,13 +16,12 @@ use rustyline::{
 };
 use std::{
     borrow::Cow,
-    collections::HashMap,
     path::Path,
     sync::{Arc, Mutex},
 };
 use crate::{
     completion::NexusCompleter,
-    highlighting::{RealtimeHighlighter, SyntaxHighlighter},
+    highlighting::RealtimeHighlighter,
     themes::NexusTheme,
     config::EditorConfig,
 };

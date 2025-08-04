@@ -11,12 +11,7 @@
 //! Platform support: Unix-like systems only. On other platforms the command
 //! prints an informative message and exits successfully.
 
-use anyhow::{anyhow, Result};
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
-use std::path::PathBuf;
-use sysinfo::{System, SystemExt, DiskExt};
-use mbrman::MBR;
+use anyhow::Result;
 
 #[cfg(unix)]
 pub async fn fdisk_cli(args: &[String]) -> Result<()> {

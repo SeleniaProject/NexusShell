@@ -10,7 +10,6 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-use crate::themes::NexusTheme;
 
 /// Main configuration for NexusShell UI
 #[derive(Debug, Clone, Serialize, Deserialize)]

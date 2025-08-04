@@ -6,7 +6,6 @@ use std::{
     time::SystemTime,
 };
 use serde::{Deserialize, Serialize};
-use anyhow::Result;
 
 /// Basic logging system
 pub struct LoggingSystem {

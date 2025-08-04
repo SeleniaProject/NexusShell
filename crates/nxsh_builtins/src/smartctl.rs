@@ -15,7 +15,6 @@
 //! * On non-Unix systems the command is currently unsupported.
 
 use anyhow::{anyhow, Result};
-use std::process::Command;
 
 pub async fn smartctl_cli(args: &[String]) -> Result<()> {
     if args.is_empty() {

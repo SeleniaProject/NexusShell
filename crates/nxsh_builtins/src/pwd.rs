@@ -6,7 +6,6 @@
 use anyhow::Result;
 use nxsh_core::context::ShellContext;
 use std::env;
-use std::fs;
 
 pub fn pwd_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
     let mut physical = false;

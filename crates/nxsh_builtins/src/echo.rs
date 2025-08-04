@@ -3,11 +3,9 @@
 //! This module implements the echo builtin command with support for
 //! escape sequences, formatting options, and proper output handling.
 
-use crate::common::{i18n::*, logging::*};
 use std::io::Write;
-use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ShellContext, ExecutionResult, ShellResult, ShellError, ErrorKind, StreamData};
-use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
+use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError, ErrorKind};
+use nxsh_core::error::RuntimeErrorKind;
 
 /// The `echo` builtin command implementation
 pub struct EchoCommand;

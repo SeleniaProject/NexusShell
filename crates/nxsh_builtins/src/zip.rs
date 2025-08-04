@@ -13,7 +13,7 @@ use std::process::Command;
 use which::which;
 use std::{fs::File, path::Path};
 use zip::{write::FileOptions, ZipWriter};
-use std::io::{self, Write};
+use std::io::{self};
 
 pub fn zip_cli(args: &[String]) -> Result<()> {
     // Try system binary first

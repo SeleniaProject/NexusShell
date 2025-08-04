@@ -7,7 +7,7 @@
 //!
 //! Example fallback: `chgrp 1000 file.txt`.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use std::{path::Path, process::Command};
 use which::which;
 

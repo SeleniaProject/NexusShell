@@ -18,7 +18,6 @@
 
 use anyhow::{anyhow, Result};
 use regex::Regex;
-use std::cmp::Ordering;
 
 /// Entry point for the expr builtin.
 pub fn expr_cli(args: &[String]) -> Result<()> {

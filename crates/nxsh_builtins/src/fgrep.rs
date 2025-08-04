@@ -3,8 +3,7 @@
 //! It escapes all regex meta characters and forwards to the `grep` builtin.
 
 use anyhow::{anyhow, Result};
-use crate::grep::{grep_cli, GrepOptions};
-use regex::escape as regex_escape;
+use crate::grep::grep_cli;
 
 /// Execute `fgrep` builtin.
 pub fn fgrep_cli(args: &[String]) -> Result<()> {

@@ -39,7 +39,7 @@ macro_rules! histogram {
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use std::thread;
 use tokio::time::interval;
 use chrono::{DateTime, Utc};

@@ -6,7 +6,7 @@
 
 use anyhow::Result;
 use sysinfo::{ProcessExt, System, SystemExt, PidExt};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 static mut SHELL_START_TIME: Option<Instant> = None;
 static mut TOTAL_CHILD_CPU_TIME: f64 = 0.0;

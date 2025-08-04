@@ -10,8 +10,7 @@
 //!   --version                 - Output version information and exit
 
 use anyhow::{Result, anyhow};
-use std::fs::{self, Permissions};
-use std::io::{self, Write};
+use std::fs::{self};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};

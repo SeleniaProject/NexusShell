@@ -2,8 +2,7 @@
 //! Thin wrapper around the external `dmidecode` command. Requires root on most
 //! systems.
 
-use anyhow::{anyhow, Result};
-use std::process::Command;
+use anyhow::Result;
 
 pub async fn dmidecode_cli(args: &[String]) -> Result<()> {
     #[cfg(not(unix))]

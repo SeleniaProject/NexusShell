@@ -5,7 +5,7 @@
 
 use anyhow::{anyhow, Context, Result};
 // Using pure Rust compression with flate2 as bzip2 alternative
-use std::{fs::File, io::{copy, Read, Write}, path::Path};
+use std::{fs::File, io::{Read, Write}, path::Path};
 use std::process::Command;
 use which::which;
 

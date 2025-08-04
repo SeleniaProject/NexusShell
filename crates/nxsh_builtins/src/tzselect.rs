@@ -7,7 +7,6 @@
 //! On non-Unix platforms an informative message is shown.
 
 use anyhow::{Result};
-use std::process::Command;
 
 pub async fn tzselect_cli(_args: &[String]) -> Result<()> {
     #[cfg(not(unix))]

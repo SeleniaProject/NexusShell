@@ -2,13 +2,9 @@
 //!
 //! Full sed implementation with pattern matching, substitution, and editing commands
 
-use crate::common::{i18n::*, logging::*};
 use std::io::Write;
-use std::time::Duration;
-use anyhow::{anyhow, Result};
 use std::collections::HashMap;
-use nxsh_core::{Context, ShellContext, ExecutionResult, ShellResult, ShellError, Stream, StreamType};
-use nxsh_core::executor::{ExecutionStrategy, ExecutionMetrics};
+use nxsh_core::{ShellContext, ExecutionResult, ShellResult, ShellError};
 use crate::builtin::Builtin;
 use regex::{Regex, RegexBuilder};
 use std::fs::{File, OpenOptions};

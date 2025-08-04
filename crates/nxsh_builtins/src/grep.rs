@@ -39,22 +39,16 @@
 
 use anyhow::{Result, anyhow};
 use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, Read, Write};
-use std::path::{Path, PathBuf};
-use std::collections::{HashMap, VecDeque};
-use regex::{Regex, RegexBuilder, RegexSet};
+use std::io::{self, BufRead, BufReader, Read};
+use std::path::Path;
+use std::collections::VecDeque;
+use regex::{Regex, RegexBuilder};
 use fancy_regex::Regex as FancyRegex;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use walkdir::{WalkDir, DirEntry};
-use globset::{Glob, GlobSet, GlobSetBuilder};
-use ansi_term::{Colour, Style};
-use is_terminal::IsTerminal;
-use memchr::{memchr, memmem};
+use globset::Glob;
+use ansi_term::Colour;
 use rayon::prelude::*;
-use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
-use std::sync::Arc;
-use std::thread;
 
 #[derive(Debug, Clone)]
 pub struct GrepOptions {
@@ -510,7 +504,7 @@ fn create_matcher(patterns: Vec<String>, options: &GrepOptions) -> Result<GrepMa
             format!("({})", patterns.join("|"))
         };
         
-        let mut pattern = if options.word_regexp {
+        let pattern = if options.word_regexp {
             format!(r"\b({})\b", pattern)
         } else if options.line_regexp {
             format!("^({})$", pattern)

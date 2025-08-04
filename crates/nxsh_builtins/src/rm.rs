@@ -24,8 +24,7 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use std::env;
-use walkdir::{WalkDir, DirEntry};
-use chrono::{DateTime, Local};
+use chrono::Local;
 
 // Cross-platform device ID helper function
 #[cfg(unix)]

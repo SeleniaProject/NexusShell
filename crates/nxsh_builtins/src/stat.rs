@@ -2,8 +2,8 @@
 
 use anyhow::{Result, anyhow};
 use std::fs::{self, Metadata};
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::path::PathBuf;
+use std::time::UNIX_EPOCH;
 use chrono::{DateTime, Local};
 
 // Platform-specific imports
@@ -13,11 +13,9 @@ use std::os::unix::fs::{MetadataExt, FileTypeExt};
 use uzers::{get_user_by_uid, get_group_by_gid};
 
 #[cfg(windows)]
-use std::os::windows::fs::MetadataExt;
-#[cfg(windows)]
 use whoami;
 
-use nxsh_core::{Context, ExecutionResult, ShellError, ErrorKind};
+use nxsh_core::{Context, ExecutionResult, ShellError};
 
 pub struct StatBuiltin;
 

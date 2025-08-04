@@ -5,7 +5,6 @@
 
 use anyhow::Result;
 use walkdir::WalkDir;
-use bytesize::ByteSize;
 use std::path::Path;
 use tokio::task;
 

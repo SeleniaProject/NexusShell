@@ -13,7 +13,7 @@
 
 use anyhow::{anyhow, Result};
 use std::fs::File;
-use std::io::{self, Read, BufRead, BufReader, Write};
+use std::io::{self, Read, BufRead, Write};
 use std::path::Path;
 
 bitflags::bitflags! {

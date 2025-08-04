@@ -14,7 +14,7 @@ pub fn getopts_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
     }
     let optstr = &args[0];
     let name = &args[1];
-    let mut argv: Vec<String> = if args.len() > 2 { args[2..].to_vec() } else { vec![] };
+    let argv: Vec<String> = if args.len() > 2 { args[2..].to_vec() } else { vec![] };
 
     // Pointer index variable maintains current index in argv within context ($OPTIND style)
     let mut optind: usize = ctx

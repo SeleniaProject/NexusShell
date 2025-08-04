@@ -1657,7 +1657,7 @@ impl App {
 
     /// Update shell history from current entries
     async fn update_shell_history(&mut self) -> Result<()> {
-        let mut context = self.shell_context.lock().await;
+        let context = self.shell_context.lock().await;
         let mut shell_history = context.history.lock().unwrap();
         
         // Update shell context history to match our entries

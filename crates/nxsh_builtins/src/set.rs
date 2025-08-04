@@ -1,5 +1,5 @@
 use anyhow::Result;
-use nxsh_core::context::{ShellContext, ShellOptions};
+use nxsh_core::context::ShellContext;
 
 /// Handle `set` builtin for flags -e, -x, -o pipefail.
 pub fn set_cli(args: &[String], ctx: &ShellContext) -> Result<()> {

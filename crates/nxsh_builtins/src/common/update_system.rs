@@ -19,7 +19,6 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "updates")]
 #[cfg(feature = "updates")]
 use semver::Version;
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -27,7 +26,7 @@ use chrono::{DateTime, Utc};
 #[cfg(feature = "updates")]
 use tokio::time::{interval, sleep};
 #[cfg(not(feature = "updates"))]
-use tokio::time::{interval, sleep, Duration as TokioDuration};
+use tokio::time::interval;
 #[cfg(feature = "updates")]
 use ureq;
 #[cfg(feature = "updates")]

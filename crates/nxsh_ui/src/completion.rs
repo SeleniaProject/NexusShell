@@ -3,17 +3,17 @@
 //! This module provides context-aware completion for commands, files, variables,
 //! and more, with fuzzy matching and smart filtering capabilities.
 
-use anyhow::{Result, Context};
+use anyhow::Result;
 use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
 use rustyline::{
-    completion::{Completer, FilenameCompleter, Pair},
+    completion::{Completer, Pair},
     Context as RustylineContext,
 };
 use std::{
     collections::{HashMap, HashSet},
     env,
     fs,
-    path::{Path, PathBuf},
+    path::Path,
 };
 use nxsh_core::context::ShellContext;
 // use nxsh_builtins::Builtin;  // Temporarily disabled

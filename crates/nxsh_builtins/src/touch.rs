@@ -15,15 +15,13 @@
 //!   --version                 - Output version information and exit
 
 use anyhow::{Result, anyhow};
-use std::fs::{self, OpenOptions, File, Metadata};
-use std::io::Write;
+use std::fs::{self, File};
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH, Duration};
-use chrono::{DateTime, Local, NaiveDateTime, TimeZone, Utc, ParseResult, Datelike};
+use std::time::{SystemTime, Duration};
+use chrono::{Local, NaiveDateTime, TimeZone, Utc, Datelike};
 use filetime::{FileTime, set_file_times, set_symlink_file_times};
-use std::ffi::CString;
 
 #[derive(Debug, Clone)]
 pub struct TouchOptions {
@@ -254,7 +252,7 @@ fn parse_timestamp(timestamp: &str) -> Result<SystemTime> {
     }
     
     let mut chars: Vec<char> = timestamp.chars().collect();
-    let mut pos = 0;
+    let pos = 0;
     
     // Parse seconds if present (after the dot)
     let seconds = if let Some(dot_pos) = timestamp.find('.') {

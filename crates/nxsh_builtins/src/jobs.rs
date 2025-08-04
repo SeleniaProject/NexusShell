@@ -1,7 +1,5 @@
-use crate::common::{i18n::*, logging::*};
-use std::io::Write;
 use std::collections::HashMap;
-use nxsh_core::{Context, JobManager, JobStatus as JobState, ShellResult, ExecutionResult, Job};
+use nxsh_core::Job;
 use anyhow::Result;
 use tabled::{Table, Tabled};
 use std::sync::{Arc, Mutex};

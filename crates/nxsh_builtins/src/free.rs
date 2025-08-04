@@ -2,12 +2,7 @@
 //!
 //! Full free implementation with various formatting options and memory statistics
 
-use crate::common::{i18n::*, logging::*};
-use std::io::Write;
-use anyhow::{anyhow, Result};
-use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ShellContext, ExecutionResult, executor::{ExecutionStrategy, ExecutionMetrics}, ShellResult, ShellError, ErrorKind};
-use std::fs;
+use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError};
 use std::thread;
 use std::time::Duration;
 

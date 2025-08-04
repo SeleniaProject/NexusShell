@@ -35,28 +35,23 @@
 //!   ping -Q TOS HOST           - Set Quality of Service related bits
 
 use anyhow::{Result, anyhow};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+use std::time::{Duration, Instant};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::collections::{VecDeque, HashMap, BTreeMap};
+use std::collections::{VecDeque, BTreeMap};
 use std::io::{self, Write};
-use chrono::{DateTime, Local, TimeZone, Utc};
+use chrono::Local;
 use hickory_resolver::{Resolver, config::*};
-use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt, BigEndian, LittleEndian};
-use std::io::Cursor;
-use std::sync::mpsc::{self, Receiver, Sender};
-use parking_lot::{Mutex, RwLock};
+use std::sync::mpsc::{self, Sender};
+use parking_lot::Mutex;
 use socket2::{Socket, Domain, Type, Protocol, SockAddr};
-use crate::{ShellError, ShellResult};
 // TODO: Replace pnet with pure Rust alternative or delegate to system ping
 // use pnet::packet::icmp::{IcmpPacket, MutableIcmpPacket, IcmpTypes, echo_request, echo_reply};
 // use pnet::packet::icmpv6::{Icmpv6Packet, MutableIcmpv6Packet, Icmpv6Types};
 // use pnet::packet::ip::IpNextHeaderProtocols;
 // use pnet::packet::Packet;
-use rand::Rng;
-use memchr::memchr;
 use dashmap::DashMap;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
@@ -1177,7 +1172,7 @@ fn receive_packets(
     running: Arc<AtomicBool>,
     tx: Sender<PingResponse>,
 ) {
-    let mut buffer = [0u8; 65536];
+    let buffer = [0u8; 65536];
     
     while running.load(Ordering::Relaxed) {
         let mut uninit_buffer = [std::mem::MaybeUninit::<u8>::uninit(); 65536];

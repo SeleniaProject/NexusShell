@@ -11,7 +11,7 @@
 
 use anyhow::{anyhow, Result};
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 
 pub fn paste_cli(args: &[String]) -> Result<()> {

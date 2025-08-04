@@ -11,11 +11,9 @@
 use anyhow::{anyhow, Result};
 use once_cell::sync::Lazy;
 use signal_hook::consts::*;
-use crate::{ShellError, ShellResult};
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::thread;
-use nxsh_core::{context::ShellContext, executor::Executor};
+use nxsh_core::context::ShellContext;
 
 static HANDLERS: Lazy<Mutex<HashMap<i32, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 

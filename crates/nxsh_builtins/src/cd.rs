@@ -4,12 +4,9 @@
 //! with support for various shell features like directory stack,
 //! CDPATH, and symbolic link handling.
 
-use crate::common::{i18n::*, logging::*};
-use std::io::Write;
-use std::collections::HashMap;
-use nxsh_core::{Builtin, ExecutionResult, ShellResult, ShellError, ErrorKind, StreamData};
+use nxsh_core::{Builtin, ExecutionResult, ShellResult, ShellError, ErrorKind};
 use nxsh_core::context::ShellContext;
-use nxsh_core::error::{RuntimeErrorKind, IoErrorKind, InternalErrorKind};
+use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
 use std::env;
 use std::path::{Path, PathBuf};
 

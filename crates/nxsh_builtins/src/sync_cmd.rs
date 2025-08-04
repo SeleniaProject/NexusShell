@@ -14,8 +14,8 @@ pub async fn sync_cli(_args: &[String]) -> Result<()> {
     #[cfg(windows)]
     {
         use windows_sys::Win32::Storage::FileSystem::{FindFirstVolumeW, FindNextVolumeW, FindVolumeClose, CreateFileW, FlushFileBuffers, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL};
-        use std::ptr::null_mut;
-        use std::os::windows::prelude::*;
+        
+        
         let mut vol_name: [u16; 1024] = [0; 1024];
         let handle = unsafe { FindFirstVolumeW(vol_name.as_mut_ptr(), vol_name.len() as u32) };
         if handle != std::ptr::null_mut() {

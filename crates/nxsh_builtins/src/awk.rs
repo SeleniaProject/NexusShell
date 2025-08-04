@@ -2,13 +2,10 @@
 //!
 //! Complete awk implementation with pattern matching, field processing, and scripting
 
-use crate::common::{i18n::*, logging::*};
-use std::io::Write;
 use anyhow::Result;
 use std::collections::HashMap;
-use nxsh_core::{Context, ShellContext, ExecutionResult, ShellResult, ShellError, ErrorKind};
+use nxsh_core::{ExecutionResult, ShellResult, ShellError, ErrorKind};
 use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
-use nxsh_core::executor::{ExecutionStrategy, ExecutionMetrics};
 use crate::builtin::Builtin;
 use regex::Regex;
 use std::fs::File;

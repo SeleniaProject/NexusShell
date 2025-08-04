@@ -2,12 +2,7 @@
 //!
 //! Full uptime implementation with load averages and user count
 
-use crate::common::{i18n::*, logging::*};
-use std::io::Write;
-use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ShellContext, ExecutionResult, executor::{ExecutionStrategy, ExecutionMetrics}, ShellResult, ShellError, ErrorKind};
-use std::fs;
-use anyhow::{anyhow, Result};
+use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub struct UptimeBuiltin;

@@ -4,7 +4,7 @@
 //! in various formats with extensive customization options.
 
 use nxsh_core::{ShellError, ErrorKind, error::RuntimeErrorKind, ShellResult, ExecutionResult, executor::{ExecutionStrategy, ExecutionMetrics}};
-use chrono::{NaiveDate, Datelike, Weekday, Month};
+use chrono::{NaiveDate, Datelike};
 use std::env;
 
 /// Calendar display command entry point

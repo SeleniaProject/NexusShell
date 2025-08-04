@@ -2,20 +2,15 @@
 //!
 //! Full top implementation with real-time monitoring, interactive controls, and system information
 
-use crate::common::{i18n::*, logging::*};
 use std::io::{self, Write};
-use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ShellContext, ExecutionResult, executor::{ExecutionStrategy, ExecutionMetrics}, ShellResult, ShellError, ErrorKind};
+use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError, ErrorKind};
 use nxsh_core::error::RuntimeErrorKind;
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent},
     execute,
-    style::{Color, Print, ResetColor, SetForegroundColor},
     terminal::{self, ClearType},
 };
-use std::fs;
-use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 

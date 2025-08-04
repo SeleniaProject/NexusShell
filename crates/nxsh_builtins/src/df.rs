@@ -6,7 +6,6 @@
 use anyhow::{anyhow, Result};
 use std::path::Path;
 use tokio::task;
-use bytesize::ByteSize;
 
 #[cfg(unix)]
 use nix::libc::{statvfs, c_ulong};
@@ -51,7 +50,7 @@ fn stat_fs(p: std::path::PathBuf) -> Result<(u64,u64,u64,u64)> {
 fn stat_fs(p: std::path::PathBuf) -> Result<(u64,u64,u64,u64)> {
     use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
     use std::os::windows::ffi::OsStrExt;
-    use std::ptr;
+    
     let mut free_bytes: u64 = 0;
     let mut total_bytes: u64 = 0;
     let mut avail_bytes: u64 = 0;

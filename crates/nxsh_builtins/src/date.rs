@@ -20,18 +20,15 @@
 
 use anyhow::{anyhow, Result, Context};
 use chrono::{
-    DateTime, Local, Utc, NaiveDateTime, NaiveDate, NaiveTime, TimeZone, 
-    Duration as ChronoDuration, Datelike, Timelike, FixedOffset, Weekday
+    DateTime, Utc, NaiveDateTime, NaiveDate, TimeZone, 
+    Duration as ChronoDuration, Datelike, Timelike, Weekday
 };
-use chrono_tz::{Tz, OffsetName};
+use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fmt,
     fs,
-    io::{self, Write},
-    str::FromStr,
-    time::{SystemTime, UNIX_EPOCH},
 };
 use crate::common::i18n::I18n;
 
@@ -252,7 +249,7 @@ impl DateManager {
         // Unix timestamp with nanoseconds
         if let Ok(timestamp_ns) = date_str.parse::<f64>() {
             let secs = timestamp_ns.floor() as i64;
-            let nanos = ((timestamp_ns.fract() * 1_000_000_000.0) as u32);
+            let nanos = (timestamp_ns.fract() * 1_000_000_000.0) as u32;
             return DateTime::from_timestamp(secs, nanos)
                 .ok_or_else(|| anyhow!("Invalid timestamp: {}", timestamp_ns))
                 .map(|dt| dt.with_timezone(&Utc));

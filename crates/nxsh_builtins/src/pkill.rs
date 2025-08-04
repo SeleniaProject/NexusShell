@@ -7,7 +7,6 @@
 use anyhow::{anyhow, Result};
 use regex::Regex;
 use sysinfo::{ProcessExt, System, SystemExt, PidExt};
-use std::num::ParseIntError;
 
 #[cfg(unix)]
 use nix::libc::{c_int, kill as libc_kill, pid_t};

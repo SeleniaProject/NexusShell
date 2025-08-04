@@ -6,7 +6,6 @@
 //! On non-Unix systems a graceful unsupported message is printed.
 
 use anyhow::{anyhow, Result};
-use std::process::Command;
 
 pub async fn lsusb_cli(args: &[String]) -> Result<()> {
     if !args.is_empty() {

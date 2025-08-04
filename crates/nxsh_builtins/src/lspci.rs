@@ -2,8 +2,7 @@
 //! This command relies on the external `lspci` utility (pciutils). If the
 //! binary is not found, an informative message is shown.
 
-use anyhow::{anyhow, Result};
-use std::process::Command;
+use anyhow::Result;
 
 pub async fn lspci_cli(args: &[String]) -> Result<()> {
     #[cfg(not(unix))]

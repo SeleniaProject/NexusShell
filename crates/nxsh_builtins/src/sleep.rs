@@ -19,27 +19,17 @@
 //! - Custom callback functions
 
 use anyhow::{anyhow, Result, Context};
-use chrono::{DateTime, Local, Duration as ChronoDuration, Utc};
-use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent},
-    execute,
-    style::{Color, Print, ResetColor, SetForegroundColor},
-    terminal::{self, Clear, ClearType},
-    cursor::{Hide, Show, MoveTo},
-};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    fmt,
-    io::{stdout, Write},
     sync::{Arc, atomic::{AtomicBool, Ordering}},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     signal,
     sync::{broadcast},
-    time::{sleep as async_sleep, sleep_until, interval, MissedTickBehavior, Interval},
+    time::{sleep as async_sleep, sleep_until},
 };
 use crate::common::i18n::I18n;
 
