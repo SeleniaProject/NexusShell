@@ -27,6 +27,7 @@ regex = "1"
 exmex = "0.20.4"  # Pure Rust expression evaluator
 deflate = "1.0"  # Pure Rust deflate implementation
 flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }  # Pure Rust gzip
+# gix = "0.55"  # Pure Rust Git implementation - temporarily disabled due to dependency issues
 indicatif = "0.17"
 walkdir = "2" 
 bitflags = "1" 
@@ -35,6 +36,7 @@ ureq = { version = "2.8", features = ["json"], default-features = false }  # Pur
 html2text = "0.4"
 thiserror = "1"
 once_cell = "1"
+lazy_static = "1.4"  # For static user/group name caches
 bytesize = "1.3"
 chacha20poly1305 = "0.10"  # Pure Rust AEAD cipher replacing aes-gcm
 blake3 = { version = "1.5", default-features = false, features = ["pure"] }  # Pure Rust hash

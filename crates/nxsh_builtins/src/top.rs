@@ -5,7 +5,7 @@
 use crate::common::{i18n::*, logging::*};
 use std::io::{self, Write};
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError, ErrorKind};
+use nxsh_core::{Builtin, Context, ShellContext, ExecutionResult, executor::{ExecutionStrategy, ExecutionMetrics}, ShellResult, ShellError, ErrorKind};
 use nxsh_core::error::RuntimeErrorKind;
 use crossterm::{
     cursor,
@@ -110,12 +110,15 @@ impl Builtin for TopBuiltin {
         "display and update sorted information about running processes"
     }
 
+    fn help(&self) -> &'static str {
+        "Display and update sorted information about running processes in real-time"
+    }
+
     fn description(&self) -> &'static str {
         "Display and update sorted information about running processes in real-time"
     }
 
-    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
-        let args = &ctx.args;
+    fn execute(&self, ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
         let options = parse_top_args(args)?;
         
         if options.batch_mode {
@@ -124,14 +127,7 @@ impl Builtin for TopBuiltin {
             run_interactive_mode(&options)?;
         }
         
-        Ok(ExecutionResult {
-            exit_code: 0,
-            output: None,
-            error: None,
-            duration: std::time::Duration::from_secs(0),
-            pid: None,
-            job_id: None,
-        })
+        Ok(ExecutionResult::success(0))
     }
 
     fn usage(&self) -> &'static str {

@@ -32,12 +32,297 @@ use std::fs::{self, Metadata};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+use std::collections::HashMap;
+use std::sync::Mutex;
 use chrono::{DateTime, Local};
-// TODO: Replace uzers with pure Rust alternative for Unix user/group lookups
-// use uzers::{Users, UsersCache, Groups};
 use ansi_term::{Colour, Style};
 use humansize::{format_size, BINARY};
 use is_terminal::IsTerminal;
+
+// Git repository integration
+#[derive(Debug, Clone)]
+pub struct GitRepository {
+    pub root_path: PathBuf,
+    pub is_initialized: bool,
+}
+
+impl GitRepository {
+    /// Create a Git repository instance
+    pub fn new(path: &Path) -> Option<Self> {
+        if let Some(git_root) = Self::find_git_root(path) {
+            Some(GitRepository {
+                root_path: git_root,
+                is_initialized: true,
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Find the Git repository root by walking up directories
+    fn find_git_root(start_path: &Path) -> Option<PathBuf> {
+        let mut current = start_path;
+        loop {
+            let git_dir = current.join(".git");
+            if git_dir.exists() {
+                return Some(current.to_path_buf());
+            }
+            match current.parent() {
+                Some(parent) => current = parent,
+                None => return None,
+            }
+        }
+    }
+
+    /// Get Git status for a specific file
+    pub fn get_file_status(&self, file_path: &Path) -> GitStatus {
+        if !self.is_initialized {
+            return GitStatus::None;
+        }
+
+        // Convert to relative path from repo root
+        let relative_path = match file_path.strip_prefix(&self.root_path) {
+            Ok(rel) => rel,
+            Err(_) => return GitStatus::None,
+        };
+
+        // Use git command to get status
+        if let Ok(output) = std::process::Command::new("git")
+            .args(&["status", "--porcelain", "--"])
+            .arg(&relative_path)
+            .current_dir(&self.root_path)
+            .output()
+        {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                if let Some(line) = output_str.lines().next() {
+                    if line.len() >= 2 {
+                        return match &line[..2] {
+                            "??" => GitStatus::Untracked,
+                            "A " | " A" => GitStatus::Added,
+                            "M " | " M" => GitStatus::Modified,
+                            "D " | " D" => GitStatus::Deleted,
+                            "R " | " R" => GitStatus::Renamed,
+                            "C " | " C" => GitStatus::Copied,
+                            "UU" | "AA" | "DD" => GitStatus::Conflicted,
+                            _ => GitStatus::None,
+                        };
+                    }
+                }
+            }
+        }
+
+        GitStatus::None
+    }
+}
+
+// Pure Rust user/group name resolution system
+lazy_static::lazy_static! {
+    static ref USER_CACHE: Mutex<HashMap<u32, String>> = Mutex::new(HashMap::new());
+    static ref GROUP_CACHE: Mutex<HashMap<u32, String>> = Mutex::new(HashMap::new());
+}
+
+/// Get user name from UID with caching
+fn get_user_name(uid: u32) -> String {
+    // Check cache first
+    if let Ok(cache) = USER_CACHE.lock() {
+        if let Some(name) = cache.get(&uid) {
+            return name.clone();
+        }
+    }
+
+    // Try to resolve from system
+    let name = resolve_user_name(uid).unwrap_or_else(|| uid.to_string());
+    
+    // Cache the result
+    if let Ok(mut cache) = USER_CACHE.lock() {
+        cache.insert(uid, name.clone());
+    }
+    
+    name
+}
+
+/// Get group name from GID with caching
+fn get_group_name(gid: u32) -> String {
+    // Check cache first
+    if let Ok(cache) = GROUP_CACHE.lock() {
+        if let Some(name) = cache.get(&gid) {
+            return name.clone();
+        }
+    }
+
+    // Try to resolve from system
+    let name = resolve_group_name(gid).unwrap_or_else(|| gid.to_string());
+    
+    // Cache the result
+    if let Ok(mut cache) = GROUP_CACHE.lock() {
+        cache.insert(gid, name.clone());
+    }
+    
+    name
+}
+
+/// Resolve user name from UID using multiple methods for maximum compatibility
+#[cfg(unix)]
+fn resolve_user_name(uid: u32) -> Option<String> {
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
+    
+    // Method 1: Try reading /etc/passwd directly (fastest)
+    if let Ok(file) = File::open("/etc/passwd") {
+        let reader = BufReader::new(file);
+        for line in reader.lines().flatten() {
+            let parts: Vec<&str> = line.split(':').collect();
+            if parts.len() >= 3 {
+                if let Ok(file_uid) = parts[2].parse::<u32>() {
+                    if file_uid == uid {
+                        return Some(parts[0].to_string());
+                    }
+                }
+            }
+        }
+    }
+    
+    // Method 2: Use libc getpwuid for system integration
+    #[cfg(target_os = "linux")]
+    {
+        use std::ffi::CStr;
+        use std::ptr;
+        
+        unsafe {
+            let pwd = libc::getpwuid(uid);
+            if !pwd.is_null() {
+                let name_ptr = (*pwd).pw_name;
+                if !name_ptr.is_null() {
+                    if let Ok(name) = CStr::from_ptr(name_ptr).to_str() {
+                        return Some(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+    
+    // Method 3: Try getent command (handles NSS/LDAP users)
+    if let Ok(output) = std::process::Command::new("getent")
+        .args(&["passwd", &uid.to_string()])
+        .output()
+    {
+        if output.status.success() {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            let parts: Vec<&str> = output_str.trim().split(':').collect();
+            if !parts.is_empty() {
+                return Some(parts[0].to_string());
+            }
+        }
+    }
+    
+    // Method 4: Try id command as final fallback
+    if let Ok(output) = std::process::Command::new("id")
+        .args(&["-nu", &uid.to_string()])
+        .output()
+    {
+        if output.status.success() {
+            let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !name.is_empty() && name != uid.to_string() {
+                return Some(name);
+            }
+        }
+    }
+    
+    None
+}
+
+/// Resolve group name from GID using multiple methods for maximum compatibility
+#[cfg(unix)]
+fn resolve_group_name(gid: u32) -> Option<String> {
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
+    
+    // Method 1: Try reading /etc/group directly (fastest)
+    if let Ok(file) = File::open("/etc/group") {
+        let reader = BufReader::new(file);
+        for line in reader.lines().flatten() {
+            let parts: Vec<&str> = line.split(':').collect();
+            if parts.len() >= 3 {
+                if let Ok(file_gid) = parts[2].parse::<u32>() {
+                    if file_gid == gid {
+                        return Some(parts[0].to_string());
+                    }
+                }
+            }
+        }
+    }
+    
+    // Method 2: Use libc getgrgid for system integration
+    #[cfg(target_os = "linux")]
+    {
+        use std::ffi::CStr;
+        use std::ptr;
+        
+        unsafe {
+            let grp = libc::getgrgid(gid);
+            if !grp.is_null() {
+                let name_ptr = (*grp).gr_name;
+                if !name_ptr.is_null() {
+                    if let Ok(name) = CStr::from_ptr(name_ptr).to_str() {
+                        return Some(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+    
+    // Method 3: Try getent command (handles NSS/LDAP groups)
+    if let Ok(output) = std::process::Command::new("getent")
+        .args(&["group", &gid.to_string()])
+        .output()
+    {
+        if output.status.success() {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            let parts: Vec<&str> = output_str.trim().split(':').collect();
+            if !parts.is_empty() {
+                return Some(parts[0].to_string());
+            }
+        }
+    }
+    
+    // Method 4: Try id command as final fallback
+    if let Ok(output) = std::process::Command::new("id")
+        .args(&["-ng", &gid.to_string()])
+        .output()
+    {
+        if output.status.success() {
+            let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !name.is_empty() && name != gid.to_string() {
+                return Some(name);
+            }
+        }
+    }
+    
+    None
+}
+
+/// Windows fallback implementations
+#[cfg(windows)]
+fn resolve_user_name(uid: u32) -> Option<String> {
+    // On Windows, use whoami or fallback to numeric ID
+    if let Ok(output) = std::process::Command::new("whoami").output() {
+        if output.status.success() {
+            let username = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !username.is_empty() {
+                return Some(username);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(windows)]
+fn resolve_group_name(gid: u32) -> Option<String> {
+    // Windows doesn't have Unix-style group resolution
+    // Return the GID as string
+    Some(format!("group{}", gid))
+}
 
 
 #[cfg(unix)]
@@ -161,11 +446,14 @@ pub struct FileInfo {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum GitStatus {
+    None,
+    Clean,
     Untracked,
     Modified,
     Added,
     Deleted,
     Renamed,
+    Copied,
     TypeChange,
     Ignored,
     Conflicted,
@@ -224,9 +512,11 @@ pub fn ls_cli(args: &[String]) -> Result<()> {
     let use_colors = should_use_colors(&options.color);
     
     // Initialize git repository if needed
+    let default_path = PathBuf::from(".");
     let git_repo = if options.git_status {
-        None // TODO: Implement using gix
-        // git2::Repository::discover(".").ok()
+        // Try to find Git repository starting from first path
+        let start_path = paths.first().unwrap_or(&default_path);
+        GitRepository::new(start_path)
     } else {
         None
     };
@@ -240,7 +530,7 @@ pub fn ls_cli(args: &[String]) -> Result<()> {
             println!("{}:", path.display());
         }
         
-        list_directory(path, &options, use_colors, &git_repo)?;
+        list_directory(path, &options, use_colors, git_repo.as_ref())?;
     }
     
     Ok(())
@@ -346,11 +636,11 @@ fn list_directory(
     path: &Path,
     options: &LsOptions,
     use_colors: bool,
-    git_repo: &Option<()>, // TODO: Replace with gix repository type
+    git_repo: Option<&GitRepository>,
 ) -> Result<()> {
     if options.directory_only {
         // Just list the directory itself
-        let file_info = get_file_info(path, git_repo.as_ref())?;
+        let file_info = get_file_info(path, git_repo)?;
         if options.long_format {
             print_long_format(&[file_info], options, use_colors)?;
         } else {
@@ -359,7 +649,7 @@ fn list_directory(
         return Ok(());
     }
     
-    let entries = read_directory_sync(path, options, git_repo.as_ref())?;
+    let entries = read_directory_sync(path, options, git_repo)?;
     
     if entries.is_empty() {
         return Ok(());
@@ -382,7 +672,7 @@ fn list_directory(
 fn read_directory_sync(
     path: &Path,
     options: &LsOptions,
-    git_repo: Option<&()>, // TODO: Replace with gix repository type
+    git_repo: Option<&GitRepository>, // Reference to Git repository
 ) -> Result<Vec<FileInfo>> {
     let mut entries = Vec::new();
     
@@ -407,7 +697,7 @@ fn read_directory_sync(
     Ok(entries)
 }
 
-fn get_file_info(path: &Path, git_repo: Option<&()>) -> Result<FileInfo> { // TODO: Replace with gix
+fn get_file_info(path: &Path, git_repo: Option<&GitRepository>) -> Result<FileInfo> {
     let metadata = fs::symlink_metadata(path)?;
     let is_symlink = metadata.file_type().is_symlink();
     let name = path.file_name()
@@ -421,8 +711,8 @@ fn get_file_info(path: &Path, git_repo: Option<&()>) -> Result<FileInfo> { // TO
         None
     };
     
-    let git_status = if git_repo.is_some() {
-        get_git_status(path).ok()
+    let git_status = if let Some(repo) = git_repo {
+        Some(get_git_status(repo, path))
     } else {
         None
     };
@@ -437,55 +727,10 @@ fn get_file_info(path: &Path, git_repo: Option<&()>) -> Result<FileInfo> { // TO
     })
 }
 
-fn get_git_status(_path: &Path) -> Result<GitStatus, Box<dyn std::error::Error>> {
-    // TODO: Implement using gix (pure Rust Git implementation)
-    // For now, return default status to avoid compilation errors
-    Ok(GitStatus::Untracked)
+// Git status checking implementation using pure Rust
+fn get_git_status(git_repo: &GitRepository, path: &Path) -> GitStatus {
+    git_repo.get_file_status(path)
 }
-
-// TODO: Implement git status checking with gix
-/*
-fn get_git_status_old(repo: &git2::Repository, path: &Path) -> Result<GitStatus, git2::Error> {
-    let mut status_opts = git2::StatusOptions::new();
-    status_opts.include_untracked(true);
-    status_opts.include_ignored(false);
-    
-    let statuses = repo.statuses(Some(&mut status_opts))?;
-    
-    let relative_path = path.strip_prefix(repo.workdir().unwrap_or(Path::new(".")))
-        .unwrap_or(path);
-    
-    for entry in statuses.iter() {
-        if Path::new(entry.path().unwrap_or("")) == relative_path {
-            let flags = entry.status();
-            
-            if flags.contains(git2::Status::CONFLICTED) {
-                return Ok(GitStatus::Conflicted);
-            }
-            if flags.contains(git2::Status::WT_NEW) || flags.contains(git2::Status::INDEX_NEW) {
-                return Ok(GitStatus::Added);
-            }
-            if flags.contains(git2::Status::WT_MODIFIED) || flags.contains(git2::Status::INDEX_MODIFIED) {
-                return Ok(GitStatus::Modified);
-            }
-            if flags.contains(git2::Status::WT_DELETED) || flags.contains(git2::Status::INDEX_DELETED) {
-                return Ok(GitStatus::Deleted);
-            }
-            if flags.contains(git2::Status::WT_RENAMED) || flags.contains(git2::Status::INDEX_RENAMED) {
-                return Ok(GitStatus::Renamed);
-            }
-            if flags.contains(git2::Status::WT_TYPECHANGE) || flags.contains(git2::Status::INDEX_TYPECHANGE) {
-                return Ok(GitStatus::TypeChange);
-            }
-            if flags.contains(git2::Status::IGNORED) {
-                return Ok(GitStatus::Ignored);
-            }
-        }
-    }
-    
-    Ok(GitStatus::Untracked)
-}
-*/
 
 fn sort_entries(entries: &mut [FileInfo], options: &LsOptions) {
     entries.sort_by(|a, b| {
@@ -544,13 +789,13 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
         
         if !options.long_no_owner && !options.numeric_ids {
             let uid = get_uid(&entry.metadata);
-            let user_name = uid.to_string(); // TODO: get_user_name(get_uid(&entry.metadata), &users_cache);
+            let user_name = get_user_name(uid);
             max_user = max_user.max(user_name.len());
         }
         
         if !options.long_no_group && !options.no_group && !options.numeric_ids {
             let gid = get_gid(&entry.metadata);
-            let group_name = gid.to_string(); // TODO: get_group_name(get_gid(&entry.metadata), &users_cache);
+            let group_name = get_group_name(gid);
             max_group = max_group.max(group_name.len());
         }
     }
@@ -596,7 +841,7 @@ fn print_long_entry(
         let owner = if options.numeric_ids {
             get_uid(&entry.metadata).to_string()
         } else {
-            get_uid(&entry.metadata).to_string() // TODO: get_user_name(get_uid(&entry.metadata), users_cache)
+            get_user_name(get_uid(&entry.metadata))
         };
         line.push_str(&format!(" {:width$}", owner, width = max_user));
     }
@@ -606,7 +851,7 @@ fn print_long_entry(
         let group = if options.numeric_ids {
             get_gid(&entry.metadata).to_string()
         } else {
-            get_gid(&entry.metadata).to_string() // TODO: get_group_name(get_gid(&entry.metadata), users_cache)
+            get_group_name(get_gid(&entry.metadata))
         };
         line.push_str(&format!(" {:width$}", group, width = max_group));
     }
@@ -857,29 +1102,35 @@ fn format_file_name(entry: &FileInfo, use_colors: bool, classify: bool) -> Strin
     // Add git status indicator
     if let Some(ref git_status) = entry.git_status {
         let git_indicator = match git_status {
+            GitStatus::None => "",
+            GitStatus::Clean => "",
             GitStatus::Untracked => "?",
             GitStatus::Modified => "M",
             GitStatus::Added => "A",
             GitStatus::Deleted => "D",
             GitStatus::Renamed => "R",
+            GitStatus::Copied => "C",
             GitStatus::TypeChange => "T",
             GitStatus::Ignored => "!",
             GitStatus::Conflicted => "U",
         };
         
         let git_color = match git_status {
+            GitStatus::None => Colour::White,
+            GitStatus::Clean => Colour::Green,
             GitStatus::Untracked => Colour::Red,
             GitStatus::Modified => Colour::Yellow,
             GitStatus::Added => Colour::Green,
             GitStatus::Deleted => Colour::Red,
             GitStatus::Renamed => Colour::Blue,
+            GitStatus::Copied => Colour::Blue,
             GitStatus::TypeChange => Colour::Purple,
             GitStatus::Ignored => Colour::Fixed(8), // Dark gray
             GitStatus::Conflicted => Colour::Red,
         };
         
         return format!("{} {}", 
-            git_color.paint(git_indicator),
+            if git_indicator.is_empty() { "".to_string() } else { git_color.paint(git_indicator).to_string() },
             style.paint(name)
         );
     }

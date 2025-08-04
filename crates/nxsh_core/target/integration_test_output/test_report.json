@@ -1,0 +1,68 @@
+{
+  "total_tests": 18,
+  "passed_tests": 16,
+  "failed_tests": 2,
+  "skipped_tests": 0,
+  "test_coverage": 88.88888888888889,
+  "quality_score": 80.22222222222221,
+  "execution_time": {
+    "secs": 2,
+    "nanos": 775749900
+  },
+  "performance_summary": {
+    "avg_startup_time": {
+      "secs": 0,
+      "nanos": 14641680
+    },
+    "avg_command_response": {
+      "secs": 0,
+      "nanos": 11811675
+    },
+    "memory_usage": 33554432,
+    "performance_grade": "C"
+  },
+  "category_breakdown": {
+    "Unit": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "pass_rate": 0.0
+    },
+    "Performance": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "pass_rate": 0.0
+    },
+    "EndToEnd": {
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "pass_rate": 100.0
+    },
+    "Integration": {
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "pass_rate": 100.0
+    },
+    "Stress": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "pass_rate": 100.0
+    },
+    "Security": {
+      "total": 4,
+      "passed": 4,
+      "failed": 0,
+      "pass_rate": 100.0
+    },
+    "Compatibility": {
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "pass_rate": 100.0
+    }
+  }
+}

@@ -5,9 +5,11 @@ members = [
     "crates/nxsh_parser",
     "crates/nxsh_ui",
     "crates/nxsh_hal",
-    # "crates/nxsh_plugin",  # Temporarily disabled
     "crates/nxsh_builtins",
     "crates/nxsh_cli",
+]
+exclude = [
+    "crates/nxsh_plugin",  # Temporarily disabled due to C++ dependency issues
 ]
 
 [workspace.dependencies]

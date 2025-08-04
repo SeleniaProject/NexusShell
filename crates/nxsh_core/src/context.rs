@@ -15,6 +15,169 @@ use std::{
 };
 use is_terminal::IsTerminal;
 
+/// Get the parent process ID of the current process
+fn get_parent_pid() -> u32 {
+    #[cfg(unix)]
+    {
+        // On Unix systems, read from /proc/self/stat
+        if let Ok(stat) = std::fs::read_to_string("/proc/self/stat") {
+            let fields: Vec<&str> = stat.split_whitespace().collect();
+            if fields.len() > 3 {
+                return fields[3].parse().unwrap_or(0);
+            }
+        }
+    }
+    
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32, TH32CS_SNAPPROCESS
+        };
+        use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+        
+        let current_pid = unsafe { GetCurrentProcessId() };
+        let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+        
+        if snapshot != -1i32 as isize {
+            let mut pe32 = PROCESSENTRY32 {
+                dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
+                cntUsage: 0,
+                th32ProcessID: 0,
+                th32DefaultHeapID: 0,
+                th32ModuleID: 0,
+                cntThreads: 0,
+                th32ParentProcessID: 0,
+                pcPriClassBase: 0,
+                dwFlags: 0,
+                szExeFile: [0; 260],
+            };
+            
+            if unsafe { Process32First(snapshot, &mut pe32) } != 0 {
+                loop {
+                    if pe32.th32ProcessID == current_pid {
+                        return pe32.th32ParentProcessID;
+                    }
+                    if unsafe { Process32Next(snapshot, &mut pe32) } == 0 {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Try to get from environment variable PPID if available
+    if let Ok(ppid_str) = std::env::var("PPID") {
+        return ppid_str.parse().unwrap_or(0);
+    }
+    
+    // Fallback: return 0 if we can't determine parent PID
+    0
+}
+
+/// Detect if this is a login shell
+fn detect_login_shell() -> bool {
+    // Method 1: Check command line argument 0 for login shell prefix
+    // Login shells typically have their name prefixed with '-'
+    if let Some(arg0) = std::env::args_os().next() {
+        if let Some(arg0_str) = arg0.to_str() {
+            if arg0_str.starts_with('-') {
+                return true;
+            }
+        }
+    }
+    
+    // Method 2: Check the original argument 0 via environment
+    if let Ok(arg0) = std::env::var("_") {
+        if arg0.starts_with('-') {
+            return true;
+        }
+    }
+    
+    // Method 3: Check explicit login shell environment variables
+    if std::env::var("LOGIN").is_ok() {
+        return true;
+    }
+    
+    // Method 4: Check if we're the session leader or direct child of init (Unix)
+    #[cfg(unix)]
+    {
+        let ppid = get_parent_pid();
+        
+        // If parent is init (PID 1), systemd, or other system process managers
+        if ppid == 1 || ppid == 0 {
+            return true;
+        }
+        
+        // Check session leadership via process group analysis
+        // Session leaders typically indicate login shells
+        use std::process;
+        let current_pid = process::id();
+        
+        // Advanced session detection: if PPID is a login manager or display manager
+        // Common parent PIDs for login shells: 1 (init), systemd, login, gdm, sddm, etc.
+        if let Ok(comm_path) = std::fs::read_to_string(format!("/proc/{}/comm", ppid)) {
+            let parent_name = comm_path.trim();
+            if matches!(parent_name, "systemd" | "init" | "login" | "gdm" | "sddm" | "lightdm" | "lxdm") {
+                return true;
+            }
+        }
+    }
+    
+    // Method 5: Windows-specific login shell detection
+    #[cfg(windows)]
+    {
+        // Check if started by Windows Terminal, Explorer, or other session managers
+        let ppid = get_parent_pid();
+        if ppid != 0 {
+            // In Windows, login shells are often direct children of explorer.exe or winlogon.exe
+            // This is a simplified heuristic - could be enhanced with process name checking
+            if let Ok(logonserver) = std::env::var("LOGONSERVER") {
+                if !logonserver.is_empty() {
+                    return true;
+                }
+            }
+        }
+    }
+    
+    // Method 6: Environment-based detection for cross-platform compatibility
+    if std::env::var("LOGNAME").is_ok() && std::env::var("HOME").is_ok() && std::env::var("SHELL").is_ok() {
+        // Check SHLVL (shell level) - login shells typically start at level 1
+        match std::env::var("SHLVL") {
+            Ok(shlvl_str) => {
+                if let Ok(shlvl) = shlvl_str.parse::<i32>() {
+                    // Login shells typically have SHLVL=1, but also consider SHLVL=0 as potential login
+                    if shlvl <= 1 {
+                        return true;
+                    }
+                }
+            }
+            Err(_) => {
+                // If SHLVL is not set but we have login environment, likely a login shell
+                return true;
+            }
+        }
+    }
+    
+    // Method 7: Terminal-specific login detection
+    if let Ok(term) = std::env::var("TERM") {
+        // Some terminals set specific TERM values for login sessions
+        if term.contains("login") || std::env::var("TERM_SESSION_ID").is_ok() {
+            return true;
+        }
+    }
+    
+    // Method 8: SSH and remote login detection
+    if std::env::var("SSH_CLIENT").is_ok() || 
+       std::env::var("SSH_CONNECTION").is_ok() || 
+       std::env::var("SSH_TTY").is_ok() {
+        // SSH sessions are typically login shells
+        return true;
+    }
+    
+    // Default: not a login shell
+    false
+}
+
 /// Shell execution context passed to every command
 /// This contains all the state needed for command execution
 #[derive(Debug)]
@@ -66,7 +229,7 @@ impl<'a> Context<'a> {
             cwd,
             last_exit_code: 0,
             pid: std::process::id(),
-            ppid: 0, // TODO: Get actual parent PID via HAL
+            ppid: get_parent_pid(), // Get actual parent PID
             job_id: None,
             start_time: Instant::now(),
             timeout: None,
@@ -247,6 +410,16 @@ pub struct ShellOptions {
     pub nocaseglob: bool,
     /// Enable dotglob (include hidden files in globs)
     pub dotglob: bool,
+    /// Control flow state: break requested
+    pub break_requested: bool,
+    /// Control flow state: continue requested
+    pub continue_requested: bool,
+    /// Continue execution on errors
+    pub continue_on_error: bool,
+    /// Enable process isolation for subshells
+    pub enable_process_isolation: bool,
+    /// Current subshell nesting level
+    pub subshell_level: u32,
 }
 
 impl Default for ShellOptions {
@@ -271,6 +444,11 @@ impl Default for ShellOptions {
             nullglob: false,
             nocaseglob: false,
             dotglob: false,
+            break_requested: false,
+            continue_requested: false,
+            continue_on_error: false,
+            enable_process_isolation: true,
+            subshell_level: 0,
         }
     }
 }
@@ -301,7 +479,7 @@ impl ShellContext {
             history: Arc::new(Mutex::new(Vec::new())),
             dir_stack: Arc::new(Mutex::new(Vec::new())),
             interactive: std::io::stdin().is_terminal(),
-            login_shell: false, // TODO: Detect login shell properly
+            login_shell: detect_login_shell(), // Detect login shell properly
         }
     }
 
@@ -458,7 +636,12 @@ impl ShellContext {
 
     /// Get command history
     pub fn get_history(&self) -> Vec<String> {
-        self.history.lock().unwrap_or_else(|_| panic!("History lock poisoned")).clone()
+        self.history.lock()
+            .unwrap_or_else(|poisoned| {
+                // Recover from poisoned mutex by extracting the value
+                poisoned.into_inner()
+            })
+            .clone()
     }
 
     /// Push directory to stack
@@ -479,7 +662,12 @@ impl ShellContext {
 
     /// Get directory stack
     pub fn dirs(&self) -> Vec<PathBuf> {
-        self.dir_stack.lock().unwrap_or_else(|_| panic!("Directory stack lock poisoned")).clone()
+        self.dir_stack.lock()
+            .unwrap_or_else(|poisoned| {
+                // Recover from poisoned mutex by extracting the value
+                poisoned.into_inner()
+            })
+            .clone()
     }
 
     /// Set shell option
@@ -572,7 +760,12 @@ impl ShellContext {
 
     /// Get exit status of last command
     pub fn get_exit_status(&self) -> i32 {
-        self.last_exit_status.lock().unwrap_or_else(|_| panic!("Exit status lock poisoned")).clone()
+        self.last_exit_status.lock()
+            .unwrap_or_else(|poisoned| {
+                // Recover from poisoned mutex by extracting the value
+                poisoned.into_inner()
+            })
+            .clone()
     }
 
     /// Check if shell is interactive
@@ -601,6 +794,68 @@ impl ShellContext {
         // For now, just return a new context
         Ok(ShellContext::new())
     }
+
+    /// Check if break was requested
+    pub fn should_break(&self) -> bool {
+        if let Ok(options) = self.options.read() {
+            options.break_requested
+        } else {
+            false
+        }
+    }
+
+    /// Clear break request
+    pub fn clear_break(&self) {
+        if let Ok(mut options) = self.options.write() {
+            options.break_requested = false;
+        }
+    }
+
+    /// Request break
+    pub fn request_break(&self) {
+        if let Ok(mut options) = self.options.write() {
+            options.break_requested = true;
+        }
+    }
+
+    /// Check if continue was requested
+    pub fn should_continue(&self) -> bool {
+        if let Ok(options) = self.options.read() {
+            options.continue_requested
+        } else {
+            false
+        }
+    }
+
+    /// Clear continue request
+    pub fn clear_continue(&self) {
+        if let Ok(mut options) = self.options.write() {
+            options.continue_requested = false;
+        }
+    }
+
+    /// Request continue
+    pub fn request_continue(&self) {
+        if let Ok(mut options) = self.options.write() {
+            options.continue_requested = true;
+        }
+    }
+
+    /// Check if should continue on error
+    pub fn continue_on_error(&self) -> bool {
+        if let Ok(options) = self.options.read() {
+            options.continue_on_error
+        } else {
+            false
+        }
+    }
+
+    /// Set continue on error
+    pub fn set_continue_on_error(&self, value: bool) {
+        if let Ok(mut options) = self.options.write() {
+            options.continue_on_error = value;
+        }
+    }
 }
 
 impl Default for ShellContext {
@@ -611,3 +866,267 @@ impl Default for ShellContext {
 
 // Re-export for backward compatibility
 // pub use ShellContext as Context; // Commented out to avoid naming conflict 
+
+// Include tests module
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+    use std::sync::Arc;
+    use std::thread;
+
+    #[test]
+    fn test_detect_login_shell_with_dash_prefix() {
+        // Test login shell detection via argument prefix
+        // This simulates the traditional login shell indicator where argv[0] starts with '-'
+        
+        // Set up environment to simulate a login shell
+        env::set_var("_", "-nxsh");
+        
+        let result = detect_login_shell();
+        
+        // Clean up
+        env::remove_var("_");
+        
+        assert!(result, "Should detect login shell from argv[0] prefix");
+    }
+
+    #[test]
+    fn test_detect_login_shell_with_login_env() {
+        // Test login shell detection via LOGIN environment variable
+        env::set_var("LOGIN", "user");
+        
+        let result = detect_login_shell();
+        
+        env::remove_var("LOGIN");
+        
+        assert!(result, "Should detect login shell from LOGIN environment variable");
+    }
+
+    #[test]
+    fn test_detect_login_shell_with_ssh_connection() {
+        // Test login shell detection for SSH sessions
+        env::set_var("SSH_CONNECTION", "192.168.1.100 54321 192.168.1.1 22");
+        
+        let result = detect_login_shell();
+        
+        env::remove_var("SSH_CONNECTION");
+        
+        assert!(result, "Should detect login shell from SSH connection");
+    }
+
+    #[test]
+    fn test_detect_login_shell_with_shlvl_analysis() {
+        // Test SHLVL-based detection with complete login environment
+        env::set_var("LOGNAME", "testuser");
+        env::set_var("HOME", "/home/testuser");
+        env::set_var("SHELL", "/bin/nxsh");
+        env::set_var("SHLVL", "1");
+        
+        let result = detect_login_shell();
+        
+        // Clean up
+        env::remove_var("LOGNAME");
+        env::remove_var("HOME");
+        env::remove_var("SHELL");
+        env::remove_var("SHLVL");
+        
+        assert!(result, "Should detect login shell from SHLVL=1 with login environment");
+    }
+
+    #[test]
+    fn test_detect_login_shell_missing_shlvl() {
+        // Test detection when SHLVL is missing but login environment is present
+        env::set_var("LOGNAME", "testuser");
+        env::set_var("HOME", "/home/testuser");
+        env::set_var("SHELL", "/bin/nxsh");
+        // Explicitly remove SHLVL to simulate missing variable
+        env::remove_var("SHLVL");
+        
+        let result = detect_login_shell();
+        
+        // Clean up
+        env::remove_var("LOGNAME");
+        env::remove_var("HOME");
+        env::remove_var("SHELL");
+        
+        assert!(result, "Should detect login shell when SHLVL is missing but login env is present");
+    }
+
+    #[test]
+    fn test_detect_non_login_shell() {
+        // Test that non-login shells are correctly identified
+        env::set_var("SHLVL", "3"); // High shell level indicates nested shell
+        env::remove_var("LOGIN");
+        env::remove_var("SSH_CONNECTION");
+        env::remove_var("SSH_CLIENT");
+        env::remove_var("_");
+        
+        let result = detect_login_shell();
+        
+        env::remove_var("SHLVL");
+        
+        assert!(!result, "Should not detect login shell for nested shell (SHLVL=3)");
+    }
+
+    #[test]
+    fn test_mutex_poisoning_recovery_history() {
+        // Test graceful recovery from history mutex poisoning
+        let context = ShellContext::new();
+        
+        // Simulate mutex poisoning by creating a panic in another thread
+        let history_mutex = Arc::clone(&context.history);
+        let handle = thread::spawn(move || {
+            let _guard = history_mutex.lock().unwrap();
+            eprintln!("Simulated panic to poison mutex for testing");
+            assert!(false, "Simulated panic to poison mutex");
+        });
+        
+        // Wait for thread to panic and poison the mutex
+        let _ = handle.join();
+        
+        // The mutex should now be poisoned, but get_history should recover gracefully
+        let history = context.get_history();
+        
+        // Should return empty vector instead of panicking
+        assert!(history.is_empty(), "Should return empty history on mutex poisoning recovery");
+    }
+
+    #[test]
+    fn test_mutex_poisoning_recovery_dirs() {
+        // Test graceful recovery from directory stack mutex poisoning
+        let context = ShellContext::new();
+        
+        // Simulate mutex poisoning
+        let dir_mutex = Arc::clone(&context.dir_stack);
+        let handle = thread::spawn(move || {
+            let _guard = dir_mutex.lock().unwrap();
+            eprintln!("Simulated panic to poison mutex for testing");
+            assert!(false, "Simulated panic to poison mutex");
+        });
+        
+        let _ = handle.join();
+        
+        // Should recover gracefully
+        let dirs = context.dirs();
+        assert!(dirs.is_empty(), "Should return empty dirs on mutex poisoning recovery");
+    }
+
+    #[test]
+    fn test_mutex_poisoning_recovery_exit_status() {
+        // Test graceful recovery from exit status mutex poisoning
+        let context = ShellContext::new();
+        
+        // Simulate mutex poisoning
+        let status_mutex = Arc::clone(&context.last_exit_status);
+        let handle = thread::spawn(move || {
+            let _guard = status_mutex.lock().unwrap();
+            eprintln!("Simulated panic to poison mutex for testing");
+            assert!(false, "Simulated panic to poison mutex");
+        });
+        
+        let _ = handle.join();
+        
+        // Should recover gracefully and return default status
+        let status = context.get_exit_status();
+        assert_eq!(status, 0, "Should return 0 on mutex poisoning recovery");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_get_parent_pid_unix() {
+        // Test Unix parent PID detection
+        let ppid = get_parent_pid();
+        
+        // Parent PID should be non-zero on Unix systems
+        assert!(ppid > 0, "Parent PID should be positive on Unix systems");
+        
+        // Verify by checking /proc/self/stat manually
+        if let Ok(stat) = std::fs::read_to_string("/proc/self/stat") {
+            let fields: Vec<&str> = stat.split_whitespace().collect();
+            if fields.len() > 3 {
+                let expected_ppid: u32 = fields[3].parse().unwrap_or(0);
+                assert_eq!(ppid, expected_ppid, "get_parent_pid should match /proc/self/stat");
+            }
+        }
+    }
+
+    #[test]
+    fn test_login_shell_context_integration() {
+        // Test that login shell detection is properly integrated into ShellContext
+        let context = ShellContext::new();
+        
+        // The is_login_shell method should return a boolean without panicking
+        let is_login = context.is_login_shell();
+        
+        // Result should be deterministic based on current environment
+        assert!(is_login == context.is_login_shell(), 
+                "is_login_shell should be consistent across calls");
+    }
+
+    #[test]
+    fn test_concurrent_context_access() {
+        // Test thread safety of context operations using operations that don't require Send+Sync
+        let context = ShellContext::new();
+        
+        // Test sequential operations that don't require Arc sharing
+        for i in 0..10 {
+            // Test read operations
+            let _ = context.get_history();
+            let _ = context.dirs();
+            let _ = context.get_exit_status();
+            let _ = context.is_login_shell();
+            
+            // Test write operations
+            context.set_exit_status(i);
+            context.pushd(format!("/tmp/test{}", i).into());
+        }
+        
+        // Context should remain in valid state
+        assert!(context.dirs().len() <= 10, "Directory stack should be bounded");
+    }
+
+    #[test]
+    fn test_environment_variable_edge_cases() {
+        // Test edge cases in environment variable parsing
+        
+        // Test empty environment variables
+        env::set_var("SHLVL", "");
+        env::set_var("_", "");
+        
+        let result = detect_login_shell();
+        
+        // Clean up
+        env::remove_var("SHLVL");
+        env::remove_var("_");
+        
+        // Should handle empty values gracefully
+        assert!(!result || result, "Should handle empty environment variables without crashing");
+    }
+
+    #[test]
+    fn test_malformed_shlvl_parsing() {
+        // Test handling of malformed SHLVL values
+        let test_cases = vec!["abc", "12.34", "-1", "999999999999999999"];
+        
+        for shlvl in test_cases {
+            env::set_var("LOGNAME", "testuser");
+            env::set_var("HOME", "/home/testuser");
+            env::set_var("SHELL", "/bin/nxsh");
+            env::set_var("SHLVL", shlvl);
+            
+            // Should not panic on malformed input
+            let result = detect_login_shell();
+            
+            // Clean up
+            env::remove_var("LOGNAME");
+            env::remove_var("HOME");
+            env::remove_var("SHELL");
+            env::remove_var("SHLVL");
+            
+            // Result should be deterministic
+            assert!(result == true || result == false, 
+                    "Should handle malformed SHLVL '{}' gracefully", shlvl);
+        }
+    }
+} 

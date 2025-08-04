@@ -19,6 +19,9 @@ pub mod security;
 pub mod component;
 pub mod signature;
 pub mod permissions;
+pub mod resource_table;
+pub mod dynamic_loader;
+pub mod enhanced_runtime;
 
 use crate::runtime::WasiPluginRuntime;
 use crate::manager::PluginManager;

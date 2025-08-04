@@ -5,11 +5,10 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
     Frame, Terminal,
 };
 use std::{
-    io,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -17,13 +16,13 @@ use tokio::sync::Mutex;
 
 use crate::{
     config::{ConfigManager, NexusConfig},
-    themes::{NexusTheme, ThemeManager},
+    themes::ThemeManager,
     line_editor::NexusLineEditor,
     completion::NexusCompleter,
     highlighting::RealtimeHighlighter,
 };
 use nxsh_core::{context::ShellContext, executor::Executor};
-use nxsh_builtins::BuiltinRegistry;
+// use nxsh_builtins::BuiltinRegistry;  // Temporarily disabled
 
 /// Maximum frames per second for the TUI
 pub const MAX_FPS: u64 = 60;
@@ -52,7 +51,7 @@ pub struct App {
     executor: Arc<Mutex<Executor>>,
     
     /// Builtin command registry
-    builtin_registry: Arc<BuiltinRegistry>,
+    // builtin_registry: Arc<BuiltinRegistry>,  // Temporarily disabled
     
     /// Application state
     state: AppState,
@@ -80,6 +79,18 @@ pub struct App {
     
     /// Performance metrics
     metrics: AppMetrics,
+    
+    /// Completion suggestions for overlay display
+    completion_suggestions: Vec<String>,
+    
+    /// History entries for overlay display  
+    history_entries: Vec<HistoryEntry>,
+    
+    /// Current selection in history mode
+    history_selection: usize,
+    
+    /// History filter for search
+    history_filter: String,
 }
 
 /// Application mode
@@ -89,8 +100,10 @@ pub enum AppMode {
     InputMode,
     CompletionMode,
     HistoryMode,
+    HistorySearchMode,
     ConfigMode,
     ThemeMode,
+    ThemeSelection,
     HelpMode,
 }
 
@@ -109,6 +122,14 @@ pub struct AppState {
     pub input: String,
     /// Scroll history for output
     pub toasts: Vec<String>,
+    /// Completion system state
+    pub completion_selected_index: usize,
+    /// History system state
+    pub history_selected_index: usize,
+    /// Theme selection state
+    pub theme_selection_index: usize,
+    /// Help overlay scroll position
+    pub help_scroll_offset: u16,
 }
 
 impl AppState {
@@ -127,6 +148,10 @@ impl Default for AppState {
             mode: AppMode::default(),
             input: String::new(),
             toasts: Vec::new(),
+            completion_selected_index: 0,
+            history_selected_index: 0,
+            theme_selection_index: 0,
+            help_scroll_offset: 0,
         }
     }
 }
@@ -139,6 +164,15 @@ pub struct OutputEntry {
     pub error: Option<String>,
     pub timestamp: chrono::DateTime<chrono::Utc>,
     pub execution_time: Duration,
+}
+
+/// History entry for command history overlay
+#[derive(Debug, Clone)]
+pub struct HistoryEntry {
+    pub command: String,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub success: bool,
+    pub execution_time: Option<Duration>,
 }
 
 /// Status message
@@ -157,6 +191,9 @@ pub enum MessageLevel {
     Error,
     Success,
 }
+
+/// Alias for MessageLevel
+pub type MessageType = MessageLevel;
 
 /// Application performance metrics
 #[derive(Debug, Clone, Default)]
@@ -226,16 +263,40 @@ impl App {
         ));
         
         // Initialize builtin registry
-        let builtin_registry = Arc::new(
-            BuiltinRegistry::default()
-        );
+        // let builtin_registry = Arc::new(
+        //     BuiltinRegistry::default()
+        // );  // Temporarily disabled
         
         // TODO: Setup completion system
-        // {
-        //     let mut completer = completer.lock().await;
-        //     let context = shell_context.lock().await;
-        //     completer.setup_shell_completion(&context);
-        // }
+        // Setup completion system with comprehensive shell features
+        {
+            let mut completer = completer.lock().await;
+            let context = shell_context.lock().await;
+            completer.setup_shell_completion(&context);
+            
+            // Add built-in command completion
+            completer.add_builtin_commands(&[
+                "cd", "ls", "pwd", "echo", "cat", "grep", "find", "which",
+                "export", "unset", "alias", "unalias", "history", "jobs",
+                "bg", "fg", "kill", "ps", "top", "df", "du", "free",
+                "chmod", "chown", "chgrp", "ln", "cp", "mv", "rm", "mkdir",
+                "rmdir", "touch", "head", "tail", "sort", "uniq", "wc",
+                "cut", "sed", "awk", "tar", "gzip", "gunzip", "zip", "unzip"
+            ]);
+            
+            // Add shell keywords completion
+            completer.add_keywords(&[
+                "if", "then", "else", "elif", "fi", "case", "esac",
+                "for", "while", "until", "do", "done", "function",
+                "select", "time", "coproc", "declare", "local", "readonly",
+                "typeset", "export", "unset", "return", "break", "continue"
+            ]);
+            
+            // Setup path completion
+            completer.enable_path_completion(true);
+            completer.enable_variable_completion(true);
+            completer.enable_history_completion(true);
+        }
         
         let startup_time = startup_start.elapsed();
         
@@ -247,11 +308,15 @@ impl App {
             completer,
             shell_context,
             executor,
-            builtin_registry,
+            // builtin_registry,  // Temporarily disabled
             state: AppState {
                 mode: AppMode::Normal,
                 input: String::new(),
                 toasts: Vec::new(),
+                completion_selected_index: 0,
+                history_selected_index: 0,
+                theme_selection_index: 0,
+                help_scroll_offset: 0,
             },
             command_history: Vec::new(),
             output_history: Vec::new(),
@@ -264,6 +329,10 @@ impl App {
                 startup_time,
                 ..Default::default()
             },
+            completion_suggestions: Vec::new(),
+            history_entries: Vec::new(),
+            history_selection: 0,
+            history_filter: String::new(),
         })
     }
     
@@ -527,32 +596,883 @@ impl App {
     }
     
     /// Draw completion overlay
-    fn draw_completion_overlay(&mut self, _f: &mut Frame, _area: Rect) -> Result<()> {
-        // TODO: Implement completion overlay
+    fn draw_completion_overlay(&mut self, f: &mut Frame, area: Rect) -> Result<()> {
+        // Only draw if in completion mode and have suggestions
+        if !matches!(self.state.mode, AppMode::CompletionMode) || self.completion_suggestions.is_empty() {
+            return Ok(());
+        }
+
+        // Calculate overlay size - show up to 10 suggestions
+        let max_suggestions = 10.min(self.completion_suggestions.len());
+        let overlay_height = (max_suggestions + 2) as u16; // +2 for borders
+        let overlay_width = area.width.saturating_sub(4).max(40); // Leave some margin
+        
+        // Position overlay below the input line if possible, otherwise above
+        let input_line_y = area.height.saturating_sub(3); // Input is at bottom-2
+        let overlay_y = if input_line_y + overlay_height < area.height {
+            input_line_y + 1
+        } else {
+            input_line_y.saturating_sub(overlay_height)
+        };
+        
+        let overlay_area = Rect {
+            x: 2,
+            y: overlay_y,
+            width: overlay_width,
+            height: overlay_height,
+        };
+
+        // Get current theme for styling
+        let theme = self.theme_manager.current_theme();
+        
+        // Create completion list items
+        let completion_items: Vec<ListItem> = self.completion_suggestions
+            .iter()
+            .take(max_suggestions)
+            .enumerate()
+            .map(|(index, suggestion)| {
+                let style = if index == self.state.completion_selected_index {
+                    // Highlighted selection style
+                    Style::default()
+                        .bg(Color::Rgb(
+                            theme.ui_colors.selection.r,
+                            theme.ui_colors.selection.g, 
+                            theme.ui_colors.selection.b,
+                        ))
+                        .fg(Color::Rgb(
+                            theme.ui_colors.primary.r,
+                            theme.ui_colors.primary.g,
+                            theme.ui_colors.primary.b,
+                        ))
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    // Normal item style
+                    Style::default()
+                        .fg(Color::Rgb(
+                            theme.ui_colors.foreground.r,
+                            theme.ui_colors.foreground.g,
+                            theme.ui_colors.foreground.b,
+                        ))
+                };
+
+                // Format suggestion with description if available
+                let text = format!("{}", suggestion);
+
+                ListItem::new(text).style(style)
+            })
+            .collect();
+
+        // Create completion list widget
+        let completion_list = List::new(completion_items)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Completions ")
+                    .title_style(Style::default().fg(Color::Rgb(
+                        theme.ui_colors.accent.r,
+                        theme.ui_colors.accent.g,
+                        theme.ui_colors.accent.b,
+                    )))
+                    .border_style(Style::default().fg(Color::Rgb(
+                        theme.ui_colors.border.r,
+                        theme.ui_colors.border.g,
+                        theme.ui_colors.border.b,
+                    )))
+            );
+
+        // Clear area behind overlay for better visibility
+        let clear_area = Block::default()
+            .style(Style::default().bg(Color::Rgb(
+                theme.ui_colors.background.r,
+                theme.ui_colors.background.g,
+                theme.ui_colors.background.b,
+            )));
+        f.render_widget(clear_area, overlay_area);
+        
+        // Render the completion list
+        f.render_widget(completion_list, overlay_area);
+        
         Ok(())
     }
     
     /// Draw history overlay
-    fn draw_history_overlay(&mut self, _f: &mut Frame, _area: Rect) -> Result<()> {
-        // TODO: Implement history overlay
+    fn draw_history_overlay(&mut self, f: &mut Frame, area: Rect) -> Result<()> {
+        // Only draw if in history mode and have history entries
+        if !matches!(self.state.mode, AppMode::HistoryMode) || self.history_entries.is_empty() {
+            return Ok(());
+        }
+
+        // Calculate overlay size - show up to 15 history entries
+        let max_entries = 15.min(self.history_entries.len());
+        let overlay_height = (max_entries + 2) as u16; // +2 for borders
+        let overlay_width = area.width.saturating_sub(4).max(60); // Wider for command history
+        
+        // Position overlay in the center-left area
+        let overlay_y = (area.height.saturating_sub(overlay_height)) / 2;
+        let overlay_x = 2;
+        
+        let overlay_area = Rect {
+            x: overlay_x,
+            y: overlay_y,
+            width: overlay_width,
+            height: overlay_height,
+        };
+
+        // Get current theme for styling
+        let theme = self.theme_manager.current_theme();
+        
+        // Create history list items (reverse order - newest first)
+        let history_items: Vec<ListItem> = self.history_entries
+            .iter()
+            .rev() // Show newest entries first
+            .take(max_entries)
+            .enumerate()
+            .map(|(index, entry)| {
+                let style = if index == self.state.history_selected_index {
+                    // Highlighted selection style
+                    Style::default()
+                        .bg(Color::Rgb(
+                            theme.ui_colors.selection.r,
+                            theme.ui_colors.selection.g,
+                            theme.ui_colors.selection.b,
+                        ))
+                        .fg(Color::Rgb(
+                            theme.ui_colors.primary.r,
+                            theme.ui_colors.primary.g,
+                            theme.ui_colors.primary.b,
+                        ))
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    // Normal item style with alternating subtle background
+                    let bg_color = if index % 2 == 0 {
+                        Color::Rgb(
+                            theme.ui_colors.background.r,
+                            theme.ui_colors.background.g,
+                            theme.ui_colors.background.b,
+                        )
+                    } else {
+                        Color::Rgb(
+                            (theme.ui_colors.background.r as u16 + 10).min(255) as u8,
+                            (theme.ui_colors.background.g as u16 + 10).min(255) as u8,
+                            (theme.ui_colors.background.b as u16 + 10).min(255) as u8,
+                        )
+                    };
+                    
+                    Style::default()
+                        .bg(bg_color)
+                        .fg(Color::Rgb(
+                            theme.ui_colors.foreground.r,
+                            theme.ui_colors.foreground.g,
+                            theme.ui_colors.foreground.b,
+                        ))
+                };
+
+                // Format history entry with timestamp
+                let time_str = entry.timestamp.format("%H:%M").to_string();
+                let text = format!("{:<6} {}", time_str, entry.command);
+
+                // Truncate long commands for display
+                let display_text = if text.len() > (overlay_width - 4) as usize {
+                    format!("{}...", &text[..(overlay_width - 7) as usize])
+                } else {
+                    text
+                };
+
+                ListItem::new(display_text).style(style)
+            })
+            .collect();
+
+        // Create history list widget
+        let history_list = List::new(history_items)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Command History ")
+                    .title_style(Style::default().fg(Color::Rgb(
+                        theme.ui_colors.info.r,
+                        theme.ui_colors.info.g,
+                        theme.ui_colors.info.b,
+                    )))
+                    .border_style(Style::default().fg(Color::Rgb(
+                        theme.ui_colors.border.r,
+                        theme.ui_colors.border.g,
+                        theme.ui_colors.border.b,
+                    )))
+            );
+
+        // Clear area behind overlay
+        let clear_area = Block::default()
+            .style(Style::default().bg(Color::Rgb(
+                theme.ui_colors.background.r,
+                theme.ui_colors.background.g,
+                theme.ui_colors.background.b,
+            )));
+        f.render_widget(clear_area, overlay_area);
+        
+        // Render the history list
+        f.render_widget(history_list, overlay_area);
+        
+        // Add navigation hint at the bottom
+        let hint_area = Rect {
+            x: overlay_x,
+            y: overlay_y + overlay_height,
+            width: overlay_width,
+            height: 1,
+        };
+        
+        let hint_text = Paragraph::new("↑↓: Navigate, Enter: Select, Esc: Cancel")
+            .style(Style::default().fg(Color::Rgb(
+                theme.ui_colors.secondary.r,
+                theme.ui_colors.secondary.g,
+                theme.ui_colors.secondary.b,
+            )));
+        f.render_widget(hint_text, hint_area);
+        
         Ok(())
     }
     
     /// Draw configuration overlay
-    fn draw_config_overlay(&mut self, _f: &mut Frame, _area: Rect) -> Result<()> {
-        // TODO: Implement configuration overlay
+    fn draw_config_overlay(&mut self, f: &mut Frame, area: Rect) -> Result<()> {
+        // Only draw if in configuration mode
+        if !matches!(self.state.mode, AppMode::ConfigMode) {
+            return Ok(());
+        }
+
+        // Calculate overlay size for configuration panel
+        let overlay_width = area.width.saturating_sub(10).max(50);
+        let overlay_height = area.height.saturating_sub(6).max(20);
+        
+        // Center the overlay
+        let overlay_x = (area.width.saturating_sub(overlay_width)) / 2;
+        let overlay_y = (area.height.saturating_sub(overlay_height)) / 2;
+        
+        let overlay_area = Rect {
+            x: overlay_x,
+            y: overlay_y,
+            width: overlay_width,
+            height: overlay_height,
+        };
+
+        // Get current theme and configuration
+        let theme = self.theme_manager.current_theme();
+        let config = self.config_manager.config();
+        
+        // Create configuration sections
+        let config_sections = vec![
+            ("Editor", vec![
+                format!("Vi mode: {}", config.editor.vi_mode),
+                format!("Tab width: {}", config.editor.tab_width),
+                format!("Auto-indent: {}", config.editor.auto_indent),
+                format!("Show line numbers: {}", config.editor.show_line_numbers),
+                format!("Max history size: {}", config.editor.max_history_size),
+                format!("Auto completion: {}", config.editor.auto_completion),
+            ]),
+            ("Theme", vec![
+                format!("Current theme: {}", config.theme.current_theme),
+                format!("Auto-detect dark mode: {}", config.theme.auto_detect_dark_mode),
+                format!("Syntax highlighting: {}", config.theme.syntax_highlighting),
+                format!("Color output: {}", config.theme.color_output),
+                format!("True color: {}", config.theme.true_color),
+            ]),
+            ("UI", vec![
+                format!("Show status bar: {}", config.ui.show_status_bar),
+                format!("Show suggestions: {}", config.ui.show_suggestions),
+                format!("Max suggestions: {}", config.ui.max_suggestions),
+                format!("Mouse support: {}", config.ui.mouse_support),
+                format!("Auto scroll output: {}", config.ui.auto_scroll_output),
+            ]),
+            ("History", vec![
+                format!("Max size: {}", config.history.max_size),
+                format!("Save to file: {}", config.history.save_to_file),
+                format!("Ignore duplicates: {}", config.history.ignore_duplicates),
+                format!("Auto save: {}", config.history.auto_save),
+            ]),
+        ];
+
+        // Create configuration text
+        let mut config_text = Vec::new();
+        
+        for (section_name, items) in &config_sections {
+            // Add section header
+            config_text.push(Line::from(vec![
+                Span::styled(
+                    format!("┌─ {} ", section_name),
+                    Style::default()
+                        .fg(Color::Rgb(
+                            theme.ui_colors.accent.r,
+                            theme.ui_colors.accent.g,
+                            theme.ui_colors.accent.b,
+                        ))
+                        .add_modifier(Modifier::BOLD)
+                )
+            ]));
+            
+            // Add configuration items
+            for item in items {
+                config_text.push(Line::from(vec![
+                    Span::styled(
+                        format!("│ {}", item),
+                        Style::default().fg(Color::Rgb(
+                            theme.ui_colors.secondary.r,
+                            theme.ui_colors.secondary.g,
+                            theme.ui_colors.secondary.b,
+                        ))
+                    )
+                ]));
+            }
+            
+            // Add section separator
+            config_text.push(Line::from(vec![
+                Span::styled(
+                    "│",
+                    Style::default().fg(Color::Rgb(
+                        theme.ui_colors.accent.r,
+                        theme.ui_colors.accent.g,
+                        theme.ui_colors.accent.b,
+                    ))
+                )
+            ]));
+        }
+
+        // Create configuration display paragraph
+        let config_paragraph = Paragraph::new(config_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" NexusShell Configuration ")
+                    .title_style(Style::default()
+                        .fg(Color::Rgb(
+                            theme.ui_colors.accent.r,
+                            theme.ui_colors.accent.g,
+                            theme.ui_colors.accent.b,
+                        ))
+                        .add_modifier(Modifier::BOLD)
+                    )
+                    .border_style(Style::default().fg(Color::Rgb(
+                        theme.ui_colors.border.r,
+                        theme.ui_colors.border.g,
+                        theme.ui_colors.border.b,
+                    )))
+            )
+            .wrap(Wrap { trim: true });
+
+        // Clear area behind overlay
+        let clear_area = Block::default()
+            .style(Style::default().bg(Color::Rgb(
+                theme.ui_colors.background.r,
+                theme.ui_colors.background.g,
+                theme.ui_colors.background.b,
+            )));
+        f.render_widget(clear_area, overlay_area);
+        
+        // Render the configuration panel
+        f.render_widget(config_paragraph, overlay_area);
+        
+        // Add navigation hint
+        let hint_area = Rect {
+            x: overlay_x,
+            y: overlay_y + overlay_height,
+            width: overlay_width,
+            height: 1,
+        };
+        
+        let hint_text = Paragraph::new("Esc: Close, F2: Edit config file")
+            .style(Style::default().fg(Color::Rgb(
+                theme.ui_colors.secondary.r,
+                theme.ui_colors.secondary.g,
+                theme.ui_colors.secondary.b,
+            )));
+        f.render_widget(hint_text, hint_area);
+        
         Ok(())
     }
     
-    /// Draw theme overlay
-    fn draw_theme_overlay(&mut self, _f: &mut Frame, _area: Rect) -> Result<()> {
-        // TODO: Implement theme overlay
+    /// Draw theme selection overlay
+    fn draw_theme_overlay(&mut self, f: &mut Frame, area: Rect) -> Result<()> {
+        // Only draw if in theme selection mode
+        if !matches!(self.state.mode, AppMode::ThemeSelection) {
+            return Ok(());
+        }
+
+        // Calculate overlay size for theme selector
+        let overlay_width = area.width.saturating_sub(20).max(40);
+        let overlay_height = area.height.saturating_sub(8).max(15);
+        
+        // Center the overlay
+        let overlay_x = (area.width.saturating_sub(overlay_width)) / 2;
+        let overlay_y = (area.height.saturating_sub(overlay_height)) / 2;
+        
+        let overlay_area = Rect {
+            x: overlay_x,
+            y: overlay_y,
+            width: overlay_width,
+            height: overlay_height,
+        };
+
+        // Get current theme and available themes
+        let current_theme = self.theme_manager.current_theme();
+        let available_themes = self.theme_manager.available_themes();
+        let current_theme_name = self.theme_manager.current_theme_name();
+        
+        // Create theme list items
+        let mut theme_items = Vec::new();
+        
+        // Theme selector header
+        theme_items.push(Line::from(vec![
+            Span::styled(
+                "🎨 Theme Selection",
+                Style::default()
+                    .fg(Color::Rgb(
+                        current_theme.ui_colors.accent.r,
+                        current_theme.ui_colors.accent.g,
+                        current_theme.ui_colors.accent.b,
+                    ))
+                    .add_modifier(Modifier::BOLD)
+            )
+        ]));
+        
+        theme_items.push(Line::from(""));
+
+        // List available themes
+        for (i, theme_name) in available_themes.iter().enumerate() {
+            let is_current = theme_name == &current_theme_name;
+            let is_selected = i == self.state.theme_selection_index;
+            
+            let mut line_spans = Vec::new();
+            
+            // Selection indicator
+            if is_selected {
+                line_spans.push(Span::styled(
+                    "► ",
+                    Style::default()
+                        .fg(Color::Rgb(
+                            current_theme.ui_colors.accent.r,
+                            current_theme.ui_colors.accent.g,
+                            current_theme.ui_colors.accent.b,
+                        ))
+                        .add_modifier(Modifier::BOLD)
+                ));
+            } else {
+                line_spans.push(Span::raw("  "));
+            }
+            
+            // Current theme indicator
+            if is_current {
+                line_spans.push(Span::styled(
+                    "✓ ",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD)
+                ));
+            } else {
+                line_spans.push(Span::raw("  "));
+            }
+            
+            // Theme name
+            let theme_style = if is_selected {
+                Style::default()
+                    .fg(Color::Rgb(
+                        current_theme.ui_colors.primary.r,
+                        current_theme.ui_colors.primary.g,
+                        current_theme.ui_colors.primary.b,
+                    ))
+                    .bg(Color::Rgb(
+                        current_theme.ui_colors.selection.r,
+                        current_theme.ui_colors.selection.g,
+                        current_theme.ui_colors.selection.b,
+                    ))
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Rgb(
+                    current_theme.ui_colors.primary.r,
+                    current_theme.ui_colors.primary.g,
+                    current_theme.ui_colors.primary.b,
+                ))
+            };
+            
+            line_spans.push(Span::styled(
+                format!("{:<15}", theme_name),
+                theme_style
+            ));
+            
+            // Theme preview
+            if let Ok(preview_theme) = self.theme_manager.get_theme(theme_name) {
+                line_spans.push(Span::styled(
+                    " ● ",
+                    Style::default().fg(Color::Rgb(
+                        preview_theme.ui_colors.primary.r,
+                        preview_theme.ui_colors.primary.g,
+                        preview_theme.ui_colors.primary.b,
+                    ))
+                ));
+                line_spans.push(Span::styled(
+                    "Syntax ",
+                    Style::default().fg(Color::Rgb(
+                        preview_theme.ui_colors.accent.r,
+                        preview_theme.ui_colors.accent.g,
+                        preview_theme.ui_colors.accent.b,
+                    ))
+                ));
+                line_spans.push(Span::styled(
+                    "● ",
+                    Style::default().fg(Color::Rgb(
+                        preview_theme.ui_colors.warning.r,
+                        preview_theme.ui_colors.warning.g,
+                        preview_theme.ui_colors.warning.b,
+                    ))
+                ));
+                line_spans.push(Span::styled(
+                    "Warning ",
+                    Style::default().fg(Color::Rgb(
+                        preview_theme.ui_colors.warning.r,
+                        preview_theme.ui_colors.warning.g,
+                        preview_theme.ui_colors.warning.b,
+                    ))
+                ));
+                line_spans.push(Span::styled(
+                    "● ",
+                    Style::default().fg(Color::Rgb(
+                        preview_theme.ui_colors.error.r,
+                        preview_theme.ui_colors.error.g,
+                        preview_theme.ui_colors.error.b,
+                    ))
+                ));
+                line_spans.push(Span::styled(
+                    "Error",
+                    Style::default().fg(Color::Rgb(
+                        preview_theme.ui_colors.error.r,
+                        preview_theme.ui_colors.error.g,
+                        preview_theme.ui_colors.error.b,
+                    ))
+                ));
+            }
+            
+            theme_items.push(Line::from(line_spans));
+        }
+
+        // Create theme selector paragraph
+        let theme_paragraph = Paragraph::new(theme_items)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Available Themes ")
+                    .title_style(Style::default()
+                        .fg(Color::Rgb(
+                            current_theme.ui_colors.accent.r,
+                            current_theme.ui_colors.accent.g,
+                            current_theme.ui_colors.accent.b,
+                        ))
+                        .add_modifier(Modifier::BOLD)
+                    )
+                    .border_style(Style::default().fg(Color::Rgb(
+                        current_theme.ui_colors.border.r,
+                        current_theme.ui_colors.border.g,
+                        current_theme.ui_colors.border.b,
+                    )))
+            )
+            .wrap(Wrap { trim: true });
+
+        // Clear area behind overlay
+        let clear_area = Block::default()
+            .style(Style::default().bg(Color::Rgb(
+                current_theme.ui_colors.background.r,
+                current_theme.ui_colors.background.g,
+                current_theme.ui_colors.background.b,
+            )));
+        f.render_widget(clear_area, overlay_area);
+        
+        // Render the theme selector
+        f.render_widget(theme_paragraph, overlay_area);
+        
+        // Add navigation hint
+        let hint_area = Rect {
+            x: overlay_x,
+            y: overlay_y + overlay_height,
+            width: overlay_width,
+            height: 1,
+        };
+        
+        let hint_text = Paragraph::new("↑↓: Navigate, Enter: Select, Esc: Cancel")
+            .style(Style::default().fg(Color::Rgb(
+                current_theme.ui_colors.secondary.r,
+                current_theme.ui_colors.secondary.g,
+                current_theme.ui_colors.secondary.b,
+            )));
+        f.render_widget(hint_text, hint_area);
+        
         Ok(())
     }
     
     /// Draw help overlay
-    fn draw_help_overlay(&mut self, _f: &mut Frame, _area: Rect) -> Result<()> {
-        // TODO: Implement help overlay
+    fn draw_help_overlay(&mut self, f: &mut Frame, area: Rect) -> Result<()> {
+        // Only draw if in help mode
+        if !matches!(self.state.mode, AppMode::HelpMode) {
+            return Ok(());
+        }
+
+        // Calculate overlay size for help panel
+        let overlay_width = area.width.saturating_sub(8).max(60);
+        let overlay_height = area.height.saturating_sub(4).max(25);
+        
+        // Center the overlay
+        let overlay_x = (area.width.saturating_sub(overlay_width)) / 2;
+        let overlay_y = (area.height.saturating_sub(overlay_height)) / 2;
+        
+        let overlay_area = Rect {
+            x: overlay_x,
+            y: overlay_y,
+            width: overlay_width,
+            height: overlay_height,
+        };
+
+        // Get current theme
+        let theme = self.theme_manager.current_theme();
+        
+        // Create help content
+        let help_content = vec![
+            Line::from(vec![
+                Span::styled(
+                    "🚀 NexusShell - Interactive Help System",
+                    Style::default()
+                        .fg(Color::Rgb(
+                            theme.ui_colors.accent.r,
+                            theme.ui_colors.accent.g,
+                            theme.ui_colors.accent.b,
+                        ))
+                        .add_modifier(Modifier::BOLD)
+                )
+            ]),
+            Line::from(""),
+            
+            // Navigation section
+            Line::from(vec![
+                Span::styled(
+                    "📍 Navigation & Control",
+                    Style::default()
+                        .fg(Color::Rgb(
+                            theme.ui_colors.primary.r,
+                            theme.ui_colors.primary.g,
+                            theme.ui_colors.primary.b,
+                        ))
+                        .add_modifier(Modifier::BOLD)
+                )
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("Tab", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw("         Auto-completion suggestions"),
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("↑/↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw("         Command history navigation"),
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("Ctrl+C", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw("      Interrupt current command"),
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("Ctrl+D", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw("      Exit NexusShell"),
+            ]),
+            Line::from(""),
+            
+            // Editor shortcuts
+            Line::from(vec![
+                Span::styled(
+                    "✏️  Editor Shortcuts",
+                    Style::default()
+                        .fg(Color::Rgb(
+                            theme.ui_colors.primary.r,
+                            theme.ui_colors.primary.g,
+                            theme.ui_colors.primary.b,
+                        ))
+                        .add_modifier(Modifier::BOLD)
+                )
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("Ctrl+A", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw("      Move to beginning of line"),
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("Ctrl+E", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw("      Move to end of line"),
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("Ctrl+K", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw("      Delete from cursor to end"),
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("Ctrl+U", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw("      Delete entire line"),
+            ]),
+            Line::from(""),
+            
+            // System features
+            Line::from(vec![
+                Span::styled(
+                    "⚙️  System Features",
+                    Style::default()
+                        .fg(Color::Rgb(
+                            theme.ui_colors.primary.r,
+                            theme.ui_colors.primary.g,
+                            theme.ui_colors.primary.b,
+                        ))
+                        .add_modifier(Modifier::BOLD)
+                )
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("F1", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw("          Show this help panel"),
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("F2", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw("          Open configuration editor"),
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("F3", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw("          Theme selection"),
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("F12", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw("         Toggle developer tools"),
+            ]),
+            Line::from(""),
+            
+            // Built-in commands
+            Line::from(vec![
+                Span::styled(
+                    "🔧 Built-in Commands",
+                    Style::default()
+                        .fg(Color::Rgb(
+                            theme.ui_colors.primary.r,
+                            theme.ui_colors.primary.g,
+                            theme.ui_colors.primary.b,
+                        ))
+                        .add_modifier(Modifier::BOLD)
+                )
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("help", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::raw("        Show command help and usage"),
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("history", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::raw("     View command history"),
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("jobs", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::raw("        List background jobs"),
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("alias", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::raw("       Create command aliases"),
+            ]),
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("cd", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::raw("          Change directory"),
+            ]),
+            Line::from(""),
+            
+            // Tips section
+            Line::from(vec![
+                Span::styled(
+                    "💡 Pro Tips",
+                    Style::default()
+                        .fg(Color::Rgb(
+                            theme.ui_colors.primary.r,
+                            theme.ui_colors.primary.g,
+                            theme.ui_colors.primary.b,
+                        ))
+                        .add_modifier(Modifier::BOLD)
+                )
+            ]),
+            Line::from(vec![
+                Span::raw("  • Use "),
+                Span::styled("command &", Style::default().fg(Color::Green)),
+                Span::raw(" to run commands in background"),
+            ]),
+            Line::from(vec![
+                Span::raw("  • Type "),
+                Span::styled("!!", Style::default().fg(Color::Green)),
+                Span::raw(" to repeat the last command"),
+            ]),
+            Line::from(vec![
+                Span::raw("  • Use "),
+                Span::styled("Ctrl+R", Style::default().fg(Color::Green)),
+                Span::raw(" for reverse history search"),
+            ]),
+            Line::from(vec![
+                Span::raw("  • Double-click to select words"),
+            ]),
+        ];
+
+        // Create help paragraph
+        let help_paragraph = Paragraph::new(help_content)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" NexusShell Help & Documentation ")
+                    .title_style(Style::default()
+                        .fg(Color::Rgb(
+                            theme.ui_colors.accent.r,
+                            theme.ui_colors.accent.g,
+                            theme.ui_colors.accent.b,
+                        ))
+                        .add_modifier(Modifier::BOLD)
+                    )
+                    .border_style(Style::default().fg(Color::Rgb(
+                        theme.ui_colors.border.r,
+                        theme.ui_colors.border.g,
+                        theme.ui_colors.border.b,
+                    )))
+            )
+            .wrap(Wrap { trim: true })
+            .scroll((self.state.help_scroll_offset, 0));
+
+        // Clear area behind overlay
+        let clear_area = Block::default()
+            .style(Style::default().bg(Color::Rgb(
+                theme.ui_colors.background.r,
+                theme.ui_colors.background.g,
+                theme.ui_colors.background.b,
+            )));
+        f.render_widget(clear_area, overlay_area);
+        
+        // Render the help panel
+        f.render_widget(help_paragraph, overlay_area);
+        
+        // Add navigation hint
+        let hint_area = Rect {
+            x: overlay_x,
+            y: overlay_y + overlay_height,
+            width: overlay_width,
+            height: 1,
+        };
+        
+        let hint_text = Paragraph::new("↑↓: Scroll, Esc: Close, F1: Toggle help")
+            .style(Style::default().fg(Color::Rgb(
+                theme.ui_colors.secondary.r,
+                theme.ui_colors.secondary.g,
+                theme.ui_colors.secondary.b,
+            )));
+        f.render_widget(hint_text, hint_area);
+        
         Ok(())
     }
     
@@ -563,8 +1483,10 @@ impl App {
             AppMode::InputMode => self.handle_input_mode_key(key).await?,
             AppMode::CompletionMode => self.handle_completion_mode_key(key).await?,
             AppMode::HistoryMode => self.handle_history_mode_key(key).await?,
+            AppMode::HistorySearchMode => self.handle_history_search_mode_key(key).await?,
             AppMode::ConfigMode => self.handle_config_mode_key(key).await?,
             AppMode::ThemeMode => self.handle_theme_mode_key(key).await?,
+            AppMode::ThemeSelection => self.handle_theme_selection_mode_key(key).await?,
             AppMode::HelpMode => self.handle_help_mode_key(key).await?,
         }
         Ok(())
@@ -662,9 +1584,107 @@ impl App {
             KeyCode::Esc => {
                 self.state.mode = AppMode::InputMode;
             }
+            KeyCode::Up => {
+                if self.history_selection > 0 {
+                    self.history_selection -= 1;
+                }
+            }
+            KeyCode::Down => {
+                if self.history_selection < self.history_entries.len().saturating_sub(1) {
+                    self.history_selection += 1;
+                }
+            }
+            KeyCode::Enter => {
+                // Select the highlighted history entry
+                if self.history_selection < self.history_entries.len() {
+                    let selected_command = self.history_entries[self.history_selection].command.clone();
+                    self.input_buffer = selected_command;
+                    self.cursor_position = self.input_buffer.len();
+                    self.state.mode = AppMode::InputMode;
+                }
+            }
+            KeyCode::Delete | KeyCode::Char('d') => {
+                // Delete selected history entry
+                if self.history_selection < self.history_entries.len() {
+                    self.history_entries.remove(self.history_selection);
+                    if self.history_selection >= self.history_entries.len() && !self.history_entries.is_empty() {
+                        self.history_selection = self.history_entries.len() - 1;
+                    }
+                    // Also remove from shell context history
+                    self.update_shell_history().await?;
+                }
+            }
+            KeyCode::Char('/') => {
+                // Enter history search mode
+                self.state.mode = AppMode::HistorySearchMode;
+                self.history_filter.clear();
+            }
+            KeyCode::Char('c') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
+                // Clear all history
+                self.history_entries.clear();
+                self.history_selection = 0;
+                self.update_shell_history().await?;
+            }
             _ => {}
         }
         Ok(())
+    }
+
+    /// Handle keys in history search mode
+    async fn handle_history_search_mode_key(&mut self, key: KeyEvent) -> Result<()> {
+        match key.code {
+            KeyCode::Esc => {
+                self.state.mode = AppMode::HistoryMode;
+                self.history_filter.clear();
+            }
+            KeyCode::Enter => {
+                // Apply filter and return to history mode
+                self.filter_history_entries();
+                self.state.mode = AppMode::HistoryMode;
+            }
+            KeyCode::Backspace => {
+                self.history_filter.pop();
+                self.filter_history_entries();
+            }
+            KeyCode::Char(c) => {
+                self.history_filter.push(c);
+                self.filter_history_entries();
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Update shell history from current entries
+    async fn update_shell_history(&mut self) -> Result<()> {
+        let mut context = self.shell_context.lock().await;
+        let mut shell_history = context.history.lock().unwrap();
+        
+        // Update shell context history to match our entries
+        shell_history.clear();
+        for entry in &self.history_entries {
+            shell_history.push(entry.command.clone());
+        }
+        
+        Ok(())
+    }
+
+    /// Filter history entries based on current filter
+    fn filter_history_entries(&mut self) {
+        if self.history_filter.is_empty() {
+            // Show all entries
+            return;
+        }
+
+        // Filter entries that contain the filter string
+        let filtered: Vec<HistoryEntry> = self.history_entries
+            .iter()
+            .filter(|entry| entry.command.contains(&self.history_filter))
+            .cloned()
+            .collect();
+        
+        self.history_entries = filtered;
+        self.history_selection = 0;
     }
     
     /// Handle keys in config mode
@@ -693,6 +1713,39 @@ impl App {
     async fn handle_help_mode_key(&mut self, key: KeyEvent) -> Result<()> {
         match key.code {
             KeyCode::Esc => {
+                self.state.mode = AppMode::Normal;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    
+    /// Handle keys in theme selection mode
+    async fn handle_theme_selection_mode_key(&mut self, key: KeyEvent) -> Result<()> {
+        match key.code {
+            KeyCode::Esc => {
+                self.state.mode = AppMode::Normal;
+            }
+            KeyCode::Up => {
+                if self.state.theme_selection_index > 0 {
+                    self.state.theme_selection_index -= 1;
+                }
+            }
+            KeyCode::Down => {
+                let available_themes = self.theme_manager.available_themes();
+                if self.state.theme_selection_index < available_themes.len().saturating_sub(1) {
+                    self.state.theme_selection_index += 1;
+                }
+            }
+            KeyCode::Enter => {
+                let available_themes = self.theme_manager.available_themes();
+                if let Some(theme_name) = available_themes.get(self.state.theme_selection_index) {
+                    if let Err(e) = self.theme_manager.switch_theme_sync(theme_name) {
+                        self.show_status_message(format!("Failed to switch theme: {}", e), MessageType::Error);
+                    } else {
+                        self.show_status_message(format!("Switched to theme: {}", theme_name), MessageType::Success);
+                    }
+                }
                 self.state.mode = AppMode::Normal;
             }
             _ => {}
@@ -738,8 +1791,8 @@ impl App {
         let output_entry = match result {
             Ok(output) => OutputEntry {
                 command: command.clone(),
-                output: output.output.as_ref().map(|o| String::from_utf8_lossy(o).to_string()).unwrap_or_default(),
-                error: output.error.as_ref().map(|e| String::from_utf8_lossy(e).to_string()),
+                output: output.stdout.clone(),
+                error: if output.stderr.is_empty() { None } else { Some(output.stderr.clone()) },
                 timestamp: chrono::Utc::now(),
                 execution_time,
             },

@@ -20,6 +20,54 @@ use pest_derive::Parser;
 #[grammar = "grammar/shell.pest"]
 struct ShellParser;
 
+/// Parse states for if statement processing
+#[derive(Debug, Clone, PartialEq)]
+enum IfParseState {
+    Condition,
+    ThenBranch,
+    ElifCondition,
+    ElifBranch,
+    ElseBranch,
+}
+
+/// Parse states for for statement processing
+#[derive(Debug, Clone, PartialEq)]
+enum ForParseState {
+    Variable,
+    In,
+    Arguments,
+    Body,
+}
+
+/// Parse states for while statement processing
+#[derive(Debug, Clone, PartialEq)]
+enum WhileParseState {
+    Condition,
+    Body,
+}
+
+/// Parse states for case statement processing
+#[derive(Debug, Clone, PartialEq)]
+enum CaseParseState {
+    Expression,
+    Items,
+}
+
+/// Parse states for function definition processing
+#[derive(Debug, Clone, PartialEq)]
+enum FunctionParseState {
+    Name,
+    Parameters,
+    Body,
+}
+
+/// Parse states for match statement processing
+#[derive(Debug, Clone, PartialEq)]
+enum MatchParseState {
+    Expression,
+    Arms,
+}
+
 /// Public parser interface for shell commands
 pub struct ShellCommandParser {
     _private: (),
@@ -54,8 +102,34 @@ impl ShellCommandParser {
                             if let Some(stmt) = statement {
                                 statements.push(stmt);
                             }
+                        } else if inner_pair.as_rule() == Rule::inner_program {
+                            // Handle inner_program
+                            let inner_ast = self.build_ast_from_pairs(inner_pair.into_inner(), input)?;
+                            statements.push(inner_ast);
                         }
                     }
+                }
+                Rule::inner_program => {
+                    // Process inner program directly
+                    for inner_pair in pair.into_inner() {
+                        if inner_pair.as_rule() == Rule::line {
+                            let statement = self.parse_line(inner_pair, input)?;
+                            if let Some(stmt) = statement {
+                                statements.push(stmt);
+                            }
+                        }
+                    }
+                }
+                Rule::line => {
+                    let statement = self.parse_line(pair, input)?;
+                    if let Some(stmt) = statement {
+                        statements.push(stmt);
+                    }
+                }
+                Rule::statement => {
+                    // Handle statement rule directly
+                    let statement = self.parse_statement(pair, input)?;
+                    statements.push(statement);
                 }
                 Rule::EOI => {
                     // End of input - ignore
@@ -75,45 +149,96 @@ impl ShellCommandParser {
 
     /// Parse a line (statement with optional operators)
     fn parse_line(&self, pair: Pair<Rule>, input: &str) -> Result<Option<ast::AstNode<'static>>> {
-        let mut statements = Vec::new();
+        let mut current_node: Option<ast::AstNode<'static>> = None;
         let mut background = false;
         
-        for inner_pair in pair.into_inner() {
+        let inner_pairs: Vec<_> = pair.into_inner().collect();
+        let mut i = 0;
+        
+        while i < inner_pairs.len() {
+            let inner_pair = &inner_pairs[i];
+            
             match inner_pair.as_rule() {
                 Rule::statement => {
-                    let stmt = self.parse_statement(inner_pair, input)?;
-                    statements.push(stmt);
+                    let stmt = self.parse_statement(inner_pair.clone(), input)?;
+                    
+                    if current_node.is_none() {
+                        current_node = Some(stmt);
+                    } else {
+                        // This should not happen with proper grammar parsing
+                        return Err(anyhow::anyhow!("Unexpected statement sequence"));
+                    }
                 }
                 Rule::and_op => {
-                    // TODO: Handle && operator
+                    // Handle && operator: execute next command only if current succeeds
+                    if let Some(left) = current_node.take() {
+                        i += 1; // Move to next statement
+                        if i < inner_pairs.len() && inner_pairs[i].as_rule() == Rule::statement {
+                            let right = self.parse_statement(inner_pairs[i].clone(), input)?;
+                            current_node = Some(ast::AstNode::LogicalAnd {
+                                left: Box::new(left),
+                                right: Box::new(right),
+                            });
+                        } else {
+                            return Err(anyhow::anyhow!("Expected statement after && operator"));
+                        }
+                    } else {
+                        return Err(anyhow::anyhow!("No left operand for && operator"));
+                    }
                 }
                 Rule::or_op => {
-                    // TODO: Handle || operator
+                    // Handle || operator: execute next command only if current fails
+                    if let Some(left) = current_node.take() {
+                        i += 1; // Move to next statement
+                        if i < inner_pairs.len() && inner_pairs[i].as_rule() == Rule::statement {
+                            let right = self.parse_statement(inner_pairs[i].clone(), input)?;
+                            current_node = Some(ast::AstNode::LogicalOr {
+                                left: Box::new(left),
+                                right: Box::new(right),
+                            });
+                        } else {
+                            return Err(anyhow::anyhow!("Expected statement after || operator"));
+                        }
+                    } else {
+                        return Err(anyhow::anyhow!("No left operand for || operator"));
+                    }
                 }
                 Rule::semicolon => {
-                    // TODO: Handle ; operator
+                    // Handle ; operator: execute commands sequentially regardless of exit status
+                    if let Some(left) = current_node.take() {
+                        i += 1; // Move to next statement
+                        if i < inner_pairs.len() && inner_pairs[i].as_rule() == Rule::statement {
+                            let right = self.parse_statement(inner_pairs[i].clone(), input)?;
+                            current_node = Some(ast::AstNode::Sequence {
+                                left: Box::new(left),
+                                right: Box::new(right),
+                            });
+                        } else {
+                            return Err(anyhow::anyhow!("Expected statement after ; operator"));
+                        }
+                    } else {
+                        return Err(anyhow::anyhow!("No left operand for ; operator"));
+                    }
                 }
                 Rule::background => {
                     background = true;
                 }
-                _ => {}
+                _ => {
+                    // Ignore other rules that might be present
+                }
             }
+            
+            i += 1;
         }
         
-        if statements.is_empty() {
-            return Ok(None);
-        }
-        
-        if statements.len() == 1 && !background {
-            Ok(Some(statements.into_iter().next().unwrap()))
-        } else {
-            // For now, just return the first statement
-            // TODO: Implement proper compound statement handling
-            let mut stmt = statements.into_iter().next().unwrap();
+        // Apply background flag if present
+        if let Some(mut node) = current_node.take() {
             if background {
-                stmt = self.mark_background(stmt);
+                node = self.mark_background(node);
             }
-            Ok(Some(stmt))
+            Ok(Some(node))
+        } else {
+            Ok(None)
         }
     }
 
@@ -194,6 +319,7 @@ impl ShellCommandParser {
     fn parse_simple_command(&self, pair: Pair<Rule>, input: &str) -> Result<ast::AstNode<'static>> {
         let mut name: Option<Box<ast::AstNode<'static>>> = None;
         let mut args = Vec::new();
+        let mut redirections = Vec::new();
         
         for inner_pair in pair.into_inner() {
             match inner_pair.as_rule() {
@@ -211,6 +337,10 @@ impl ShellCommandParser {
                     let arg = self.parse_argument(inner_pair, input)?;
                     args.push(arg);
                 }
+                Rule::redirection => {
+                    let redirect = self.parse_redirection(inner_pair, input)?;
+                    redirections.push(redirect);
+                }
                 _ => {}
             }
         }
@@ -220,7 +350,7 @@ impl ShellCommandParser {
         Ok(ast::AstNode::Command {
             name,
             args,
-            redirections: Vec::new(), // TODO: Parse redirections
+            redirections,
             background: false,
         })
     }
@@ -249,12 +379,29 @@ impl ShellCommandParser {
                 }
                 Rule::command_substitution => {
                     let sub_text = inner_pair.as_str();
-                    // For now, create a dummy command
-                    // TODO: Parse the inner command properly
-                    let dummy_command = ast::AstNode::Word(self.leak_string("placeholder"));
+                    let is_legacy = sub_text.starts_with("`");
+                    
+                    // Extract the command part
+                    let command_str = if is_legacy {
+                        // Legacy backtick syntax: `command`
+                        &sub_text[1..sub_text.len()-1]
+                    } else {
+                        // Modern syntax: $(command)
+                        &sub_text[2..sub_text.len()-1]
+                    };
+                    
+                    // Parse the inner command
+                    let inner_command = if command_str.trim().is_empty() {
+                        ast::AstNode::Word(self.leak_string(""))
+                    } else {
+                        // For now, treat as a simple word, but this could be enhanced
+                        // to recursively parse the command
+                        ast::AstNode::Word(self.leak_string(command_str))
+                    };
+                    
                     return Ok(ast::AstNode::CommandSubstitution {
-                        command: Box::new(dummy_command),
-                        is_legacy: sub_text.starts_with("`"),
+                        command: Box::new(inner_command),
+                        is_legacy,
                     });
                 }
                 _ => {}
@@ -264,35 +411,603 @@ impl ShellCommandParser {
         Err(anyhow::anyhow!("Unable to parse argument"))
     }
 
-    /// Helper functions for control structures (stubs for now)
-    fn parse_if_statement(&self, _pair: Pair<Rule>, _input: &str) -> Result<ast::AstNode<'static>> {
-        // TODO: Implement if statement parsing
-        Ok(ast::AstNode::Word(self.leak_string("if_placeholder")))
+    /// Parse a redirection
+    fn parse_redirection(&self, pair: Pair<Rule>, _input: &str) -> Result<ast::Redirection<'static>> {
+        let mut operator = None;
+        let mut redir_type = None;
+        let mut target = None;
+        
+        for inner_pair in pair.into_inner() {
+            match inner_pair.as_rule() {
+                Rule::redirect_in => {
+                    operator = Some(ast::RedirectionOperator::Input);
+                    redir_type = Some(ast::RedirectionType::Input);
+                }
+                Rule::redirect_out => {
+                    operator = Some(ast::RedirectionOperator::Output);
+                    redir_type = Some(ast::RedirectionType::Output);
+                }
+                Rule::redirect_append => {
+                    operator = Some(ast::RedirectionOperator::OutputAppend);
+                    redir_type = Some(ast::RedirectionType::Append);
+                }
+                Rule::redirect_err => {
+                    operator = Some(ast::RedirectionOperator::Output);
+                    redir_type = Some(ast::RedirectionType::Error);
+                }
+                Rule::redirect_both => {
+                    operator = Some(ast::RedirectionOperator::OutputBoth);
+                    redir_type = Some(ast::RedirectionType::Both);
+                }
+                Rule::word => {
+                    let word_node = ast::AstNode::Word(self.leak_string(inner_pair.as_str()));
+                    target = Some(ast::RedirectionTarget::File(Box::new(word_node)));
+                }
+                _ => {}
+            }
+        }
+        
+        let operator = operator.ok_or_else(|| anyhow::anyhow!("Redirection must have an operator"))?;
+        let redir_type = redir_type.ok_or_else(|| anyhow::anyhow!("Redirection must have a type"))?;
+        let target = target.ok_or_else(|| anyhow::anyhow!("Redirection must have a target"))?;
+        
+        Ok(ast::Redirection {
+            fd: None,
+            operator,
+            target,
+            redir_type,
+        })
     }
 
-    fn parse_for_statement(&self, _pair: Pair<Rule>, _input: &str) -> Result<ast::AstNode<'static>> {
-        // TODO: Implement for statement parsing
-        Ok(ast::AstNode::Word(self.leak_string("for_placeholder")))
+    /// Parse if statement with complete condition and branch handling
+    fn parse_if_statement(&self, pair: Pair<Rule>, input: &str) -> Result<ast::AstNode<'static>> {
+        let mut condition: Option<ast::AstNode<'static>> = None;
+        let mut then_branch: Option<ast::AstNode<'static>> = None;
+        let mut elif_branches = Vec::new();
+        let mut else_branch: Option<ast::AstNode<'static>> = None;
+        let mut current_state = IfParseState::Condition;
+        
+        let inner_pairs: Vec<_> = pair.into_inner().collect();
+        let mut i = 0;
+        
+        while i < inner_pairs.len() {
+            let inner_pair = &inner_pairs[i];
+            
+            match inner_pair.as_rule() {
+                Rule::if_kw => {
+                    current_state = IfParseState::Condition;
+                }
+                Rule::test_command => {
+                    match current_state {
+                        IfParseState::Condition => {
+                            condition = Some(self.parse_test_command(inner_pair.clone(), input)?);
+                        }
+                        IfParseState::ElifCondition => {
+                            // This is a condition for an elif branch
+                            let elif_condition = self.parse_test_command(inner_pair.clone(), input)?;
+                            // The body will be parsed when we encounter the command_list rule
+                            elif_branches.push((elif_condition, ast::AstNode::Word(self.leak_string("placeholder"))));
+                        }
+                        _ => {
+                            return Err(anyhow::anyhow!("Unexpected test_command in if statement"));
+                        }
+                    }
+                }
+                Rule::command => {
+                    match current_state {
+                        IfParseState::Condition => {
+                            condition = Some(self.parse_command(inner_pair.clone(), input)?);
+                        }
+                        IfParseState::ElifCondition => {
+                            // This is a condition for an elif branch
+                            let elif_condition = self.parse_command(inner_pair.clone(), input)?;
+                            // The body will be parsed when we encounter the command_list rule
+                            elif_branches.push((elif_condition, ast::AstNode::Word(self.leak_string("placeholder"))));
+                        }
+                        _ => {
+                            return Err(anyhow::anyhow!("Unexpected command in if statement"));
+                        }
+                    }
+                }
+                Rule::then_kw => {
+                    current_state = IfParseState::ThenBranch;
+                }
+                Rule::command_list => {
+                    let body = self.parse_command_list(inner_pair.clone(), input)?;
+                    match current_state {
+                        IfParseState::ThenBranch => {
+                            then_branch = Some(body);
+                        }
+                        IfParseState::ElifBranch => {
+                            // Update the last elif branch with the actual body
+                            if let Some((condition, _)) = elif_branches.pop() {
+                                elif_branches.push((condition, body));
+                            }
+                        }
+                        IfParseState::ElseBranch => {
+                            else_branch = Some(body);
+                        }
+                        _ => {
+                            return Err(anyhow::anyhow!("Unexpected command_list in if statement"));
+                        }
+                    }
+                }
+                Rule::program => {
+                    let body = self.build_ast_from_pairs(inner_pair.clone().into_inner(), input)?;
+                    match current_state {
+                        IfParseState::ThenBranch => {
+                            then_branch = Some(body);
+                        }
+                        IfParseState::ElifBranch => {
+                            // Update the last elif branch with the actual body
+                            if let Some((condition, _)) = elif_branches.pop() {
+                                elif_branches.push((condition, body));
+                            }
+                        }
+                        IfParseState::ElseBranch => {
+                            else_branch = Some(body);
+                        }
+                        _ => {
+                            return Err(anyhow::anyhow!("Unexpected program block in if statement"));
+                        }
+                    }
+                }
+                Rule::inner_program => {
+                    // Handle inner_program rule as well for nested structures
+                    let body = self.build_ast_from_pairs(inner_pair.clone().into_inner(), input)?;
+                    match current_state {
+                        IfParseState::ThenBranch => {
+                            then_branch = Some(body);
+                        }
+                        IfParseState::ElifBranch => {
+                            if let Some((condition, _)) = elif_branches.pop() {
+                                elif_branches.push((condition, body));
+                            }
+                        }
+                        IfParseState::ElseBranch => {
+                            else_branch = Some(body);
+                        }
+                        _ => {
+                            return Err(anyhow::anyhow!("Unexpected inner_program block in if statement"));
+                        }
+                    }
+                }
+                Rule::elif_kw => {
+                    current_state = IfParseState::ElifCondition;
+                }
+                Rule::else_kw => {
+                    current_state = IfParseState::ElseBranch;
+                }
+                Rule::fi_kw => {
+                    // End of if statement
+                    break;
+                }
+                _ => {
+                    // Ignore other tokens
+                }
+            }
+            
+            // Update state transitions
+            if current_state == IfParseState::ElifCondition && inner_pair.as_rule() == Rule::then_kw {
+                current_state = IfParseState::ElifBranch;
+            }
+            
+            i += 1;
+        }
+        
+        // Validate required components
+        let condition = condition.ok_or_else(|| anyhow::anyhow!("If statement missing condition"))?;
+        let then_branch = then_branch.ok_or_else(|| anyhow::anyhow!("If statement missing then branch"))?;
+        
+        Ok(ast::AstNode::If {
+            condition: Box::new(condition),
+            then_branch: Box::new(then_branch),
+            elif_branches,
+            else_branch: else_branch.map(Box::new),
+        })
     }
 
-    fn parse_while_statement(&self, _pair: Pair<Rule>, _input: &str) -> Result<ast::AstNode<'static>> {
-        // TODO: Implement while statement parsing
-        Ok(ast::AstNode::Word(self.leak_string("while_placeholder")))
+    /// Parse for statement with variable, iterable, and body
+    fn parse_for_statement(&self, pair: Pair<Rule>, input: &str) -> Result<ast::AstNode<'static>> {
+        let mut variable: Option<&str> = None;
+        let mut iterable_args = Vec::new();
+        let mut body: Option<ast::AstNode<'static>> = None;
+        let mut current_state = ForParseState::Variable;
+        
+        for inner_pair in pair.into_inner() {
+            match inner_pair.as_rule() {
+                Rule::for_kw => {
+                    current_state = ForParseState::Variable;
+                }
+                Rule::identifier => {
+                    match current_state {
+                        ForParseState::Variable => {
+                            variable = Some(self.leak_string(inner_pair.as_str()));
+                            current_state = ForParseState::In;
+                        }
+                        _ => {
+                            return Err(anyhow::anyhow!("Unexpected identifier in for statement"));
+                        }
+                    }
+                }
+                Rule::in_kw => {
+                    current_state = ForParseState::Arguments;
+                }
+                Rule::argument => {
+                    if current_state == ForParseState::Arguments {
+                        // Parse the argument as part of the iterable list
+                        let arg_text = inner_pair.as_str();
+                        iterable_args.push(ast::AstNode::Word(self.leak_string(arg_text)));
+                    }
+                }
+                Rule::do_kw => {
+                    current_state = ForParseState::Body;
+                }
+                Rule::command_list => {
+                    if current_state == ForParseState::Body {
+                        body = Some(self.parse_command_list(inner_pair, input)?);
+                    }
+                }
+                Rule::program | Rule::inner_program => {
+                    if current_state == ForParseState::Body {
+                        body = Some(self.build_ast_from_pairs(inner_pair.into_inner(), input)?);
+                    }
+                }
+                Rule::done_kw => {
+                    // End of for statement
+                    break;
+                }
+                _ => {
+                    // Ignore other rules
+                }
+            }
+        }
+        
+        // Validate required components
+        let variable = variable.ok_or_else(|| anyhow::anyhow!("For statement missing variable"))?;
+        let body = body.ok_or_else(|| anyhow::anyhow!("For statement missing body"))?;
+        
+        // Create iterable from arguments
+        let iterable = if iterable_args.is_empty() {
+            // Default to $@ (all positional parameters) if no explicit iterable
+            ast::AstNode::Variable("@")
+        } else if iterable_args.len() == 1 {
+            iterable_args.into_iter().next().unwrap()
+        } else {
+            ast::AstNode::ArgumentList(iterable_args)
+        };
+        
+        Ok(ast::AstNode::For {
+            variable,
+            iterable: Box::new(iterable),
+            body: Box::new(body),
+            is_async: false, // Standard for loops are synchronous
+        })
     }
 
-    fn parse_case_statement(&self, _pair: Pair<Rule>, _input: &str) -> Result<ast::AstNode<'static>> {
-        // TODO: Implement case statement parsing
-        Ok(ast::AstNode::Word(self.leak_string("case_placeholder")))
+    /// Parse while statement with condition and body
+    fn parse_while_statement(&self, pair: Pair<Rule>, input: &str) -> Result<ast::AstNode<'static>> {
+        let mut condition: Option<ast::AstNode<'static>> = None;
+        let mut body: Option<ast::AstNode<'static>> = None;
+        let mut current_state = WhileParseState::Condition;
+        
+        for inner_pair in pair.into_inner() {
+            match inner_pair.as_rule() {
+                Rule::while_kw => {
+                    current_state = WhileParseState::Condition;
+                }
+                Rule::test_command => {
+                    if current_state == WhileParseState::Condition {
+                        condition = Some(self.parse_test_command(inner_pair, input)?);
+                    } else {
+                        return Err(anyhow::anyhow!("Unexpected test_command in while statement"));
+                    }
+                }
+                Rule::command => {
+                    if current_state == WhileParseState::Condition {
+                        condition = Some(self.parse_command(inner_pair, input)?);
+                    } else {
+                        return Err(anyhow::anyhow!("Unexpected command in while statement"));
+                    }
+                }
+                Rule::do_kw => {
+                    current_state = WhileParseState::Body;
+                }
+                Rule::command_list => {
+                    if current_state == WhileParseState::Body {
+                        body = Some(self.parse_command_list(inner_pair, input)?);
+                    }
+                }
+                Rule::program | Rule::inner_program => {
+                    if current_state == WhileParseState::Body {
+                        body = Some(self.build_ast_from_pairs(inner_pair.into_inner(), input)?);
+                    }
+                }
+                Rule::done_kw => {
+                    // End of while statement
+                    break;
+                }
+                _ => {
+                    // Ignore other tokens
+                }
+            }
+        }
+        
+        // Validate required components
+        let condition = condition.ok_or_else(|| anyhow::anyhow!("While statement missing condition"))?;
+        let body = body.ok_or_else(|| anyhow::anyhow!("While statement missing body"))?;
+        
+        Ok(ast::AstNode::While {
+            condition: Box::new(condition),
+            body: Box::new(body),
+        })
     }
 
-    fn parse_function_def(&self, _pair: Pair<Rule>, _input: &str) -> Result<ast::AstNode<'static>> {
-        // TODO: Implement function definition parsing
-        Ok(ast::AstNode::Word(self.leak_string("function_placeholder")))
+    /// Parse case statement with expression, patterns, and bodies
+    fn parse_case_statement(&self, pair: Pair<Rule>, input: &str) -> Result<ast::AstNode<'static>> {
+        let mut expr: Option<ast::AstNode<'static>> = None;
+        let mut arms = Vec::new();
+        let mut current_state = CaseParseState::Expression;
+        
+        for inner_pair in pair.into_inner() {
+            match inner_pair.as_rule() {
+                Rule::case_kw => {
+                    current_state = CaseParseState::Expression;
+                }
+                Rule::word => {
+                    if current_state == CaseParseState::Expression {
+                        expr = Some(ast::AstNode::Word(self.leak_string(inner_pair.as_str())));
+                        current_state = CaseParseState::Items;
+                    }
+                }
+                Rule::case_item => {
+                    if current_state == CaseParseState::Items {
+                        let arm = self.parse_case_item(inner_pair, input)?;
+                        arms.push(arm);
+                    }
+                }
+                Rule::esac_kw => {
+                    // End of case statement
+                    break;
+                }
+                Rule::in_kw => {
+                    // Transition to case items
+                    current_state = CaseParseState::Items;
+                }
+                _ => {
+                    // Ignore other tokens
+                }
+            }
+        }
+        
+        // Validate required components
+        let expr = expr.ok_or_else(|| anyhow::anyhow!("Case statement missing expression"))?;
+        
+        Ok(ast::AstNode::Case {
+            expr: Box::new(expr),
+            arms,
+        })
+    }
+    
+    /// Parse a single case item (pattern => body)
+    fn parse_case_item(&self, pair: Pair<Rule>, input: &str) -> Result<ast::CaseArm<'static>> {
+        let mut patterns = Vec::new();
+        let mut body: Option<ast::AstNode<'static>> = None;
+        
+        for inner_pair in pair.into_inner() {
+            match inner_pair.as_rule() {
+                Rule::pattern => {
+                    let pattern = self.parse_pattern(inner_pair)?;
+                    patterns.push(pattern);
+                }
+                Rule::program | Rule::inner_program => {
+                    body = Some(self.build_ast_from_pairs(inner_pair.into_inner(), input)?);
+                }
+                _ => {
+                    // Ignore other tokens like ")" and ";;"
+                }
+            }
+        }
+        
+        let body = body.ok_or_else(|| anyhow::anyhow!("Case item missing body"))?;
+        
+        Ok(ast::CaseArm { patterns, body })
+    }
+    
+    /// Parse a pattern for case statements
+    fn parse_pattern(&self, pair: Pair<Rule>) -> Result<ast::Pattern<'static>> {
+        let mut alternatives = Vec::new();
+        
+        for inner_pair in pair.into_inner() {
+            match inner_pair.as_rule() {
+                Rule::word => {
+                    let word = inner_pair.as_str();
+                    // Check if this is a glob pattern
+                    if word.contains('*') || word.contains('?') || word.contains('[') {
+                        let glob_pattern = ast::GlobPattern {
+                            elements: vec![
+                                if word.contains('*') {
+                                    ast::GlobElement::Wildcard
+                                } else if word.contains('?') {
+                                    ast::GlobElement::SingleChar
+                                } else {
+                                    ast::GlobElement::Literal(self.leak_string(word))
+                                }
+                            ],
+                        };
+                        alternatives.push(ast::Pattern::Glob(glob_pattern));
+                    } else {
+                        alternatives.push(ast::Pattern::Literal(self.leak_string(word)));
+                    }
+                }
+                _ => {
+                    // Ignore other rules
+                }
+            }
+        }
+        
+        if alternatives.len() == 1 {
+            Ok(alternatives.into_iter().next().unwrap())
+        } else {
+            Ok(ast::Pattern::Alternative(alternatives))
+        }
     }
 
-    fn parse_match_statement(&self, _pair: Pair<Rule>, _input: &str) -> Result<ast::AstNode<'static>> {
-        // TODO: Implement match statement parsing
-        Ok(ast::AstNode::Word(self.leak_string("match_placeholder")))
+    /// Parse function definition with name, parameters, and body
+    fn parse_function_def(&self, pair: Pair<Rule>, input: &str) -> Result<ast::AstNode<'static>> {
+        let mut name: Option<&str> = None;
+        let mut params = Vec::new();
+        let mut body: Option<ast::AstNode<'static>> = None;
+        let mut current_state = FunctionParseState::Name;
+        
+        for inner_pair in pair.into_inner() {
+            match inner_pair.as_rule() {
+                Rule::function_kw => {
+                    current_state = FunctionParseState::Name;
+                }
+                Rule::identifier => {
+                    match current_state {
+                        FunctionParseState::Name => {
+                            name = Some(self.leak_string(inner_pair.as_str()));
+                            current_state = FunctionParseState::Body;  // 直接Body状態に移行
+                        }
+                        FunctionParseState::Parameters => {
+                            // Parameter names inside parentheses
+                            let param = ast::Parameter {
+                                name: self.leak_string(inner_pair.as_str()),
+                                default: None,
+                                is_variadic: false,
+                            };
+                            params.push(param);
+                        }
+                        _ => {
+                            return Err(anyhow::anyhow!("Unexpected identifier in function definition"));
+                        }
+                    }
+                }
+                Rule::program | Rule::inner_program | Rule::command_list => {
+                    if current_state == FunctionParseState::Body {
+                        // command_listの中身をstatementとして解析
+                        let mut statements = Vec::new();
+                        for cmd_pair in inner_pair.into_inner() {
+                            if cmd_pair.as_rule() == Rule::statement {
+                                let stmt = self.parse_statement(cmd_pair, input)?;
+                                statements.push(stmt);
+                            }
+                        }
+                        body = Some(ast::AstNode::Program(statements));
+                    }
+                }
+                _ => {
+                    // Handle transitions based on literal characters
+                    match inner_pair.as_str() {
+                        "(" => {
+                            // Start of parameters
+                            current_state = FunctionParseState::Parameters;
+                        }
+                        ")" => {
+                            // End of parameters
+                            current_state = FunctionParseState::Body;
+                        }
+                        "{" => {
+                            // Start of body
+                            current_state = FunctionParseState::Body;
+                        }
+                        "}" => {
+                            // End of function
+                            break;
+                        }
+                        _ => {
+                            // Ignore other tokens
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Validate required components
+        let name = name.ok_or_else(|| anyhow::anyhow!("Function definition missing name"))?;
+        let body = body.ok_or_else(|| anyhow::anyhow!("Function definition missing body"))?;
+        
+        Ok(ast::AstNode::Function {
+            name,
+            params,
+            body: Box::new(body),
+            is_async: false, // Standard functions are synchronous
+        })
+    }
+
+    /// Parse modern match statement with expression and arms
+    fn parse_match_statement(&self, pair: Pair<Rule>, input: &str) -> Result<ast::AstNode<'static>> {
+        let mut expr: Option<ast::AstNode<'static>> = None;
+        let mut arms = Vec::new();
+        let mut current_state = MatchParseState::Expression;
+        
+        for inner_pair in pair.into_inner() {
+            match inner_pair.as_rule() {
+                Rule::match_kw => {
+                    current_state = MatchParseState::Expression;
+                }
+                Rule::argument => {
+                    if current_state == MatchParseState::Expression {
+                        // Parse the match expression
+                        let arg_text = inner_pair.as_str();
+                        expr = Some(ast::AstNode::Word(self.leak_string(arg_text)));
+                        current_state = MatchParseState::Arms;
+                    }
+                }
+                Rule::with_kw => {
+                    current_state = MatchParseState::Arms;
+                }
+                Rule::match_arm => {
+                    if current_state == MatchParseState::Arms {
+                        let arm = self.parse_match_arm(inner_pair, input)?;
+                        arms.push(arm);
+                    }
+                }
+                _ => {
+                    // Ignore other tokens
+                }
+            }
+        }
+        
+        // Validate required components
+        let expr = expr.ok_or_else(|| anyhow::anyhow!("Match statement missing expression"))?;
+        
+        Ok(ast::AstNode::Match {
+            expr: Box::new(expr),
+            arms,
+        })
+    }
+    
+    /// Parse a single match arm (pattern => body)
+    fn parse_match_arm(&self, pair: Pair<Rule>, input: &str) -> Result<ast::MatchArm<'static>> {
+        let mut pattern: Option<ast::Pattern<'static>> = None;
+        let guard: Option<ast::AstNode<'static>> = None;
+        let mut body: Option<ast::AstNode<'static>> = None;
+        
+        for inner_pair in pair.into_inner() {
+            match inner_pair.as_rule() {
+                Rule::pattern => {
+                    pattern = Some(self.parse_pattern(inner_pair)?);
+                }
+                Rule::program | Rule::inner_program => {
+                    body = Some(self.build_ast_from_pairs(inner_pair.into_inner(), input)?);
+                }
+                _ => {
+                    // Handle "=>" separator and potential guard clauses
+                }
+            }
+        }
+        
+        let pattern = pattern.ok_or_else(|| anyhow::anyhow!("Match arm missing pattern"))?;
+        let body = body.ok_or_else(|| anyhow::anyhow!("Match arm missing body"))?;
+        
+        Ok(ast::MatchArm {
+            pattern,
+            guard,
+            body,
+        })
     }
 
     /// Mark an AST node as background
@@ -307,6 +1022,46 @@ impl ShellCommandParser {
             }
         }
         node
+    }
+
+    /// Parse a test command (command with optional semicolon)
+    fn parse_test_command(&self, pair: Pair<Rule>, input: &str) -> Result<ast::AstNode<'static>> {
+        for inner_pair in pair.into_inner() {
+            match inner_pair.as_rule() {
+                Rule::command => {
+                    return self.parse_command(inner_pair, input);
+                }
+                Rule::semicolon => {
+                    // Ignore semicolon
+                }
+                _ => {}
+            }
+        }
+        Err(anyhow::anyhow!("Unable to parse test command"))
+    }
+
+    /// Parse a command list
+    fn parse_command_list(&self, pair: Pair<Rule>, input: &str) -> Result<ast::AstNode<'static>> {
+        let mut statements = Vec::new();
+        
+        for inner_pair in pair.into_inner() {
+            match inner_pair.as_rule() {
+                Rule::statement => {
+                    let stmt = self.parse_statement(inner_pair, input)?;
+                    statements.push(stmt);
+                }
+                Rule::line_terminator => {
+                    // Ignore line terminators
+                }
+                _ => {}
+            }
+        }
+        
+        if statements.len() == 1 {
+            Ok(statements.into_iter().next().unwrap())
+        } else {
+            Ok(ast::AstNode::Program(statements))
+        }
     }
 
     /// Helper to leak strings for 'static lifetime
@@ -335,12 +1090,9 @@ pub fn highlight_error(input: &str, err: PestError<Rule>) -> String {
 /// Parse raw input into AST using PEG grammar.
 pub fn parse(input: &str) -> Result<ast::AstNode> {
     match ShellParser::parse(Rule::program, input) {
-        Ok(_pairs) => {
-            // For now, create a simple AST node
-            // TODO: Implement proper AST construction from pest pairs
-            Ok(ast::AstNode::Program(vec![ast::AstNode::Word(
-                input.trim(),
-            )]))
+        Ok(pairs) => {
+            let parser = ShellCommandParser::new();
+            parser.build_ast_from_pairs(pairs, input)
         },
         Err(e) => Err(anyhow::anyhow!(highlight_error(input, e))),
     }

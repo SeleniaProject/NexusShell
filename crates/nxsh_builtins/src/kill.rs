@@ -6,7 +6,7 @@ use crate::common::{i18n::*, logging::*};
 use std::io::Write;
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError, ErrorKind};
+use nxsh_core::{Builtin, Context, ShellContext, ExecutionResult, executor::{ExecutionStrategy, ExecutionMetrics}, ShellResult, ShellError, ErrorKind};
 use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
 
 fn runtime_error(message: &str) -> ShellError {
@@ -57,50 +57,27 @@ impl Builtin for KillBuiltin {
         "Send signals to processes identified by PID"
     }
 
-    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
-        let args = &ctx.args;
+    fn help(&self) -> &'static str {
+        "Send signals to processes identified by PID"
+    }
+
+    fn execute(&self, ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
         let options = parse_kill_args(&args)?;
         
         if options.list_signals {
             list_signals();
-            return Ok(ExecutionResult {
-                exit_code: 0,
-                output: Some(Vec::new()),
-                error: Some(Vec::new()),
-                duration: std::time::Duration::default(),
-                pid: Some(std::process::id()),
-                job_id: None,
-            });
+            return Ok(ExecutionResult::success(0));
         }
         
         if options.targets.is_empty() {
             return Err(ShellError::command_not_found("No process specified"));
         }
-        
-        let mut exit_code = 0;
-        
+
         for target in &options.targets {
-            match kill_target(target, options.signal, &options) {
-                Ok(_) => {
-                    if options.verbose {
-                        println!("Signal {} sent to {:?}", options.signal_name, target);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("kill: {:?}: {}", target, e);
-                    exit_code = 1;
-                }
-            }
+            kill_target(target, options.signal, &options)?;
         }
-        
-        Ok(ExecutionResult {
-            exit_code,
-            output: Some(Vec::new()),
-            error: Some(Vec::new()),
-            duration: std::time::Duration::default(),
-            pid: Some(std::process::id()),
-            job_id: None,
-        })
+
+        Ok(ExecutionResult::success(0))
     }
 
     fn usage(&self) -> &'static str {

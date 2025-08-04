@@ -23,6 +23,29 @@ anyhow = { version = "1.0", default-features = false }
 serde = { version = "1.0", default-features = false, features = ["std", "derive"] }
 serde_json = { version = "1.0", default-features = false, features = ["std"] }
 
+# Async runtime for integration tests
+tokio = { version = "1.0", features = ["full"] }
+uuid = { version = "1.6", default-features = false, features = ["v4", "std"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
+
+# Local crates
+nxsh_parser = { path = "../nxsh_parser" }
+nxsh_hal = { path = "../nxsh_hal" }
+
+# Additional dependencies
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+is-terminal = { version = "0.4", default-features = false }
+tempfile = { version = "3.8", default-features = false }
+hostname = { version = "0.3", default-features = false }
+sysinfo = { version = "0.30", default-features = false }
+
+# Platform-specific dependencies
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = [
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Threading",
+] }
+
 # Pure Rust cryptography
 blake3 = { version = "1.5", default-features = false, features = ["pure"] }
 rand = { version = "0.8", default-features = false, features = ["std", "std_rng"] }
@@ -30,7 +53,6 @@ base64 = { version = "0.21", default-features = false, features = ["std"] }
 
 # Time utilities - minimal
 time = { version = "0.3", default-features = false, features = ["std"] }
-chrono = { version = "0.4", default-features = false, features = ["std"] }
 
 # Logging - pure Rust
 tracing = { version = "0.1", default-features = false, features = ["std"] }
@@ -38,12 +60,35 @@ tracing = { version = "0.1", default-features = false, features = ["std"] }
 # Terminal detection - pure Rust
 is-terminal = "0.4"  # Replacement for atty
 
+# Temporary files for subshell execution
+tempfile = "3.8"
+
+# System information - pure Rust
+sysinfo = { version = "0.30", default-features = false }
+hostname = "0.3"
+
 # Collections - using standard library instead of dashmap
 # Standard library HashMap, BTreeMap, etc. will be used
 
 # HAL and parser dependencies
 nxsh_hal = { path = "../nxsh_hal" }
 nxsh_parser = { path = "../nxsh_parser" }
+
+[[example]]
+name = "mir_test"
+path = "../../examples/mir_test.rs"
+
+[[example]]
+name = "i18n_test"
+path = "../../examples/i18n_test.rs"
+
+[[example]]
+name = "crash_handler_test"
+path = "../../examples/crash_handler_test.rs"
+
+[[example]]
+name = "plugin_runtime_test"
+path = "src/plugin_runtime_test.rs"
 
 # Unix system calls
 nix = "0.27"
@@ -53,4 +98,9 @@ tempfile = "3.8"
 proptest = "1.4"
 criterion = "0.5"
 tracing-test = "0.2"
-tokio-test = "0.4" 
+tokio-test = "0.4"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+anyhow = "1.0"
+env_logger = "0.11"
+semver = "1.0"
+sha2 = "0.10" 

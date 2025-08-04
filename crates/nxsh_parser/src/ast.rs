@@ -255,6 +255,24 @@ pub enum AstNode<'src> {
     Continue(Option<&'src str>), // Optional label
     Exit(Option<Box<AstNode<'src>>>),
     
+    // Logical operators for command sequences
+    LogicalAnd {
+        left: Box<AstNode<'src>>,
+        right: Box<AstNode<'src>>,
+    },
+    LogicalOr {
+        left: Box<AstNode<'src>>,
+        right: Box<AstNode<'src>>,
+    },
+    Sequence {
+        left: Box<AstNode<'src>>,
+        right: Box<AstNode<'src>>,
+    },
+    
+    // Argument collections
+    ArgumentList(Vec<AstNode<'src>>),
+    Variable(&'src str),
+    
     // Modern language features
     ImportStatement {
         module_path: ModulePath<'src>,

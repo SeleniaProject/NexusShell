@@ -171,6 +171,7 @@ pub enum SystemErrorKind {
     SystemCallError,
     UnsupportedOperation,
     PlatformError,
+    LockError,
 }
 
 /// Plugin error subcategories

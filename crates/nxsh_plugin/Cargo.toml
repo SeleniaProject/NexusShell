@@ -47,4 +47,8 @@ serde_yaml = "0.9"
 # Hex encoding
 hex = "0.4"
 # SHA-2 hashing
-sha2 = "0.10" 
+sha2 = "0.10"
+# UUID generation for resource tracking
+uuid = { version = "1.6", features = ["v4", "serde"] }
+# File system watching for hot reload
+notify = "4.0" 

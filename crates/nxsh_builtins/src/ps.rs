@@ -6,7 +6,8 @@ use crate::common::{i18n::*, logging::*};
 use std::io::Write;
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError, ErrorKind};
+use nxsh_core::{Builtin, ExecutionResult, executor::{ExecutionStrategy, ExecutionMetrics}, ShellResult, ShellError, ErrorKind};
+use nxsh_core::context::ShellContext;
 use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
 use nxsh_hal::{ProcessInfo, ProcessManager};
 use std::fs;
@@ -89,19 +90,21 @@ impl Builtin for PsBuiltin {
         "Display information about running processes"
     }
 
-    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
-        let args = &ctx.args;
-        let args = &args[1..];
+    fn help(&self) -> &'static str {
+        "Process status command. Use 'ps --help' for detailed usage information."
+    }
+
+    fn execute(&self, ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
         let options = parse_ps_args(args)?;
         let processes = collect_processes(&options)?;
         display_processes(&processes, &options)?;
         Ok(ExecutionResult {
             exit_code: 0,
-            output: Some(Vec::new()),
-            error: Some(Vec::new()),
-            duration: std::time::Duration::default(),
-            pid: Some(std::process::id()),
-            job_id: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            execution_time: 0,
+            strategy: ExecutionStrategy::DirectInterpreter,
+            metrics: ExecutionMetrics::default(),
         })
     }
 

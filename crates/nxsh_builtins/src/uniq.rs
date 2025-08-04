@@ -2,11 +2,8 @@
 //!
 //! Full uniq implementation with various filtering and counting options
 
-use crate::common::{i18n::*, logging::*};
 use std::io::Write;
-use anyhow::{anyhow, Result};
-use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError};
+use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter};
 
@@ -45,6 +42,12 @@ pub struct UniqOptions {
 }
 
 impl Builtin for UniqBuiltin {
+    fn execute(&self, _ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
+        let options = parse_uniq_args(args)?;
+        process_uniq(&options)?;
+        Ok(ExecutionResult::success(0))
+    }
+    
     fn name(&self) -> &'static str {
         "uniq"
     }
@@ -57,18 +60,8 @@ impl Builtin for UniqBuiltin {
         "Filter adjacent duplicate lines from input"
     }
 
-    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
-        let args = &ctx.args;
-        let options = parse_uniq_args(args)?;
-        process_uniq(&options)?;
-        Ok(ExecutionResult {
-            exit_code: 0,
-            output: None,
-            error: None,
-            duration: std::time::Duration::from_secs(0),
-            pid: None,
-            job_id: None,
-        })
+    fn help(&self) -> &'static str {
+        self.usage()
     }
 
     fn usage(&self) -> &'static str {

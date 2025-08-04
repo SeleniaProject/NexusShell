@@ -3,6 +3,15 @@
 // Re-export common types from nxsh_core
 pub use nxsh_core::{ShellError, ShellResult, ExecutionResult};
 
+/// Trait for builtin commands that can be executed with arguments
+pub trait BuiltinCommand {
+    /// Execute the command with the given arguments
+    fn execute(&self, args: Vec<String>) -> ShellResult<ExecutionResult>;
+    
+    /// Get help text for the command
+    fn help(&self) -> String;
+}
+
 pub mod registry;
 pub use registry::{Builtin, BuiltinRegistry};
 
@@ -27,12 +36,10 @@ pub mod help;
 pub use help::help_cli as help;
 
 pub mod alias;
-
-pub use alias::alias_cli as alias;
+pub use alias::AliasCommand;
 
 pub mod export;
-
-pub use export::export_cli as export;
+pub use export::ExportCommand;
 
 pub mod set;
 
@@ -92,8 +99,7 @@ pub mod dirs;
 pub use dirs::dirs_cli as dirs_builtin; 
 
 pub mod echo;
-
-pub use echo::echo_cli as echo_builtin; 
+pub use echo::EchoCommand; 
 
 pub mod eval;
 pub mod exec;
@@ -141,7 +147,7 @@ pub mod shift;
 
 pub use shift::shift_cli as shift_builtin; 
 
-pub mod source; 
+// pub mod source; 
 
 pub mod suspend;
 
@@ -258,8 +264,8 @@ pub mod sort;
 pub mod uniq;
 
 pub use sed::SedBuiltin;
-pub use awk::AwkBuiltin;
-pub use sort::SortBuiltin;
+pub use awk::AwkCommand;
+pub use sort::SortCommand;
 pub use uniq::UniqBuiltin;
  
 pub mod tr;
@@ -526,11 +532,11 @@ pub use lspci::lspci_cli as lspci_builtin;
 pub mod dmidecode;
 pub use dmidecode::dmidecode_cli as dmidecode_builtin; 
 
-// pub mod date; // Temporarily disabled due to encoding issues
-// pub use date::date_cli as date_builtin; 
+pub mod date;
+pub use date::date_cli as date_builtin; 
 
-// pub mod cal; // Temporarily disabled due to encoding issues
-// pub use cal::cal_cli as cal_builtin; 
+pub mod cal;
+pub use cal::cal_cli as cal_builtin; 
 
 pub mod sleep;
 pub use sleep::sleep_cli as sleep_builtin; 

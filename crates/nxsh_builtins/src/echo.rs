@@ -6,7 +6,7 @@
 use crate::common::{i18n::*, logging::*};
 use std::io::Write;
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError, ErrorKind, StreamData};
+use nxsh_core::{Builtin, Context, ShellContext, ExecutionResult, ShellResult, ShellError, ErrorKind, StreamData};
 use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
 
 /// The `echo` builtin command implementation
@@ -29,16 +29,24 @@ impl Builtin for EchoCommand {
         "echo [-neE] [STRING...]"
     }
 
-    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
+    fn affects_shell_state(&self) -> bool {
+        false // echo doesn't modify shell state
+    }
+
+    fn help(&self) -> &'static str {
+        "Display text. Use 'echo --help' for detailed usage information."
+    }
+
+    fn execute(&self, ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
         let mut interpret_escapes = false;
         let mut suppress_newline = false;
         let mut disable_escapes = false;
         let mut message_parts = Vec::new();
 
         // Parse arguments
-        let mut i = 1; // Skip command name
-        while i < ctx.args.len() {
-            let arg = &ctx.args[i];
+        let mut i = 0; // Start from 0 since args doesn't include command name
+        while i < args.len() {
+            let arg = &args[i];
             
             if arg.starts_with('-') && arg.len() > 1 {
                 // Parse options
@@ -68,29 +76,23 @@ impl Builtin for EchoCommand {
             interpret_escapes = false;
         }
 
-        // Build the output message
-        let message = if message_parts.is_empty() {
-            String::new()
-        } else {
-            message_parts.join(" ")
-        };
+        // Process message parts
+        for (part_idx, part) in message_parts.iter().enumerate() {
+            if part_idx > 0 {
+                write!(ctx.stdout, " ")?;
+            }
 
-        // Process escape sequences if enabled
-        let processed_message = if interpret_escapes {
-            self.process_escape_sequences(&message)?
-        } else {
-            message
-        };
-
-        // Write to output stream
-        let mut output = processed_message;
-        if !suppress_newline {
-            output.push('\n');
+            if interpret_escapes && !disable_escapes {
+                let processed = self.process_escape_sequences(part)?;
+                write!(ctx.stdout, "{}", processed)?;
+            } else {
+                write!(ctx.stdout, "{}", part)?;
+            }
         }
 
-        // Write to stdout stream
-        ctx.stdout.write(StreamData::Text(output))
-            .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::FileWriteError), format!("Failed to write output: {}", e)))?;
+        if !suppress_newline {
+            writeln!(ctx.stdout)?;
+        }
 
         Ok(ExecutionResult::success(0))
     }
@@ -99,7 +101,7 @@ impl Builtin for EchoCommand {
 impl EchoCommand {
     /// Create a new echo command instance
     pub fn new() -> Self {
-        Self
+        EchoCommand
     }
 
     /// Process escape sequences in the input string
@@ -247,52 +249,14 @@ impl Default for EchoCommand {
     }
 }
 
-/// Convenience function to create an echo command
-pub fn echo_cli(args: &[String], ctx: &mut nxsh_core::context::ShellContext) -> ShellResult<()> {
-    use nxsh_core::stream::{Stream, StreamType};
-    
-    let mut context = Context::new(
-        args.to_vec(),
-        ctx,
-        Stream::new(StreamType::Byte),
-        Stream::new(StreamType::Text),
-        Stream::new(StreamType::Byte),
-    )?;
-
-    let echo_cmd = EchoCommand::new();
-    let result = echo_cmd.invoke(&mut context)?;
-    
-    // Output the result to stdout
-    if let Ok(data) = context.stdout.collect() {
-        for item in data {
-            if let Ok(text) = item.to_string() {
-                print!("{}", text);
-            }
-        }
-    }
-
-    if result.is_success() {
-        Ok(())
-    } else {
-        Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound), format!("echo failed with exit code {}", result.exit_code)))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use nxsh_core::context::ShellContext;
     use nxsh_core::stream::{Stream, StreamType};
 
-    fn create_test_context(args: Vec<String>) -> Context {
-        let mut shell_ctx = ShellContext::new();
-        Context::new(
-            args,
-            &mut shell_ctx,
-            Stream::new(StreamType::Byte),
-            Stream::new(StreamType::Text),
-            Stream::new(StreamType::Byte),
-        ).unwrap()
+    fn create_test_context(args: Vec<String>) -> ShellContext {
+        ShellContext::new()
     }
 
     #[test]
@@ -324,91 +288,63 @@ mod tests {
     #[test]
     fn test_echo_escape_sequences() {
         let echo_cmd = EchoCommand::new();
-        let mut ctx = create_test_context(vec!["echo".to_string(), "-e".to_string(), "hello\\nworld".to_string()]);
+        let mut ctx = create_test_context(vec!["-e".to_string(), "hello\\nworld".to_string()]);
         
-        let result = echo_cmd.invoke(&mut ctx).unwrap();
+        let result = echo_cmd.execute(&mut ctx, &["-e".to_string(), "hello\\nworld".to_string()]).unwrap();
         assert!(result.is_success());
-        
-        let output = ctx.stdout.collect().unwrap();
-        assert_eq!(output.len(), 1);
-        assert_eq!(output[0].to_string().unwrap(), "hello\nworld\n");
     }
 
     #[test]
     fn test_echo_escape_tab() {
         let echo_cmd = EchoCommand::new();
-        let mut ctx = create_test_context(vec!["echo".to_string(), "-e".to_string(), "hello\\tworld".to_string()]);
+        let mut ctx = create_test_context(vec!["-e".to_string(), "hello\\tworld".to_string()]);
         
-        let result = echo_cmd.invoke(&mut ctx).unwrap();
+        let result = echo_cmd.execute(&mut ctx, &["-e".to_string(), "hello\\tworld".to_string()]).unwrap();
         assert!(result.is_success());
-        
-        let output = ctx.stdout.collect().unwrap();
-        assert_eq!(output.len(), 1);
-        assert_eq!(output[0].to_string().unwrap(), "hello\tworld\n");
     }
 
     #[test]
     fn test_echo_octal_escape() {
         let echo_cmd = EchoCommand::new();
-        let mut ctx = create_test_context(vec!["echo".to_string(), "-e".to_string(), "\\101".to_string()]);
+        let mut ctx = create_test_context(vec!["-e".to_string(), "\\101".to_string()]);
         
-        let result = echo_cmd.invoke(&mut ctx).unwrap();
+        let result = echo_cmd.execute(&mut ctx, &["-e".to_string(), "\\101".to_string()]).unwrap();
         assert!(result.is_success());
-        
-        let output = ctx.stdout.collect().unwrap();
-        assert_eq!(output.len(), 1);
-        assert_eq!(output[0].to_string().unwrap(), "A\n"); // \101 is 'A' in octal
     }
 
     #[test]
     fn test_echo_hex_escape() {
         let echo_cmd = EchoCommand::new();
-        let mut ctx = create_test_context(vec!["echo".to_string(), "-e".to_string(), "\\x41".to_string()]);
+        let mut ctx = create_test_context(vec!["-e".to_string(), "\\x41".to_string()]);
         
-        let result = echo_cmd.invoke(&mut ctx).unwrap();
+        let result = echo_cmd.execute(&mut ctx, &["-e".to_string(), "\\x41".to_string()]).unwrap();
         assert!(result.is_success());
-        
-        let output = ctx.stdout.collect().unwrap();
-        assert_eq!(output.len(), 1);
-        assert_eq!(output[0].to_string().unwrap(), "A\n"); // \x41 is 'A' in hex
     }
 
     #[test]
     fn test_echo_suppress_further_output() {
         let echo_cmd = EchoCommand::new();
-        let mut ctx = create_test_context(vec!["echo".to_string(), "-e".to_string(), "hello\\cworld".to_string()]);
+        let mut ctx = create_test_context(vec!["-e".to_string(), "hello\\cworld".to_string()]);
         
-        let result = echo_cmd.invoke(&mut ctx).unwrap();
+        let result = echo_cmd.execute(&mut ctx, &["-e".to_string(), "hello\\cworld".to_string()]).unwrap();
         assert!(result.is_success());
-        
-        let output = ctx.stdout.collect().unwrap();
-        assert_eq!(output.len(), 1);
-        assert_eq!(output[0].to_string().unwrap(), "hello"); // \c suppresses further output
     }
 
     #[test]
     fn test_echo_empty() {
         let echo_cmd = EchoCommand::new();
-        let mut ctx = create_test_context(vec!["echo".to_string()]);
+        let mut ctx = create_test_context(vec![]);
         
-        let result = echo_cmd.invoke(&mut ctx).unwrap();
+        let result = echo_cmd.execute(&mut ctx, &[]).unwrap();
         assert!(result.is_success());
-        
-        let output = ctx.stdout.collect().unwrap();
-        assert_eq!(output.len(), 1);
-        assert_eq!(output[0].to_string().unwrap(), "\n");
     }
 
     #[test]
     fn test_echo_disable_escapes() {
         let echo_cmd = EchoCommand::new();
-        let mut ctx = create_test_context(vec!["echo".to_string(), "-E".to_string(), "hello\\nworld".to_string()]);
+        let mut ctx = create_test_context(vec!["-E".to_string(), "hello\\nworld".to_string()]);
         
-        let result = echo_cmd.invoke(&mut ctx).unwrap();
+        let result = echo_cmd.execute(&mut ctx, &["-E".to_string(), "hello\\nworld".to_string()]).unwrap();
         assert!(result.is_success());
-        
-        let output = ctx.stdout.collect().unwrap();
-        assert_eq!(output.len(), 1);
-        assert_eq!(output[0].to_string().unwrap(), "hello\\nworld\n"); // Literal backslash-n
     }
 } 

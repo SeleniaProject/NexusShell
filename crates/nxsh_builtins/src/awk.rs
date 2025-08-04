@@ -6,27 +6,34 @@ use crate::common::{i18n::*, logging::*};
 use std::io::Write;
 use anyhow::Result;
 use std::collections::HashMap;
-use nxsh_core::{Context, ExecutionResult, ShellResult, ShellError, ErrorKind};
+use nxsh_core::{Context, ShellContext, ExecutionResult, ShellResult, ShellError, ErrorKind};
 use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
+use nxsh_core::executor::{ExecutionStrategy, ExecutionMetrics};
 use crate::builtin::Builtin;
 use regex::Regex;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
 /// Convenience function for the awk command
-pub fn awk_cli(args: &[String], ctx: &mut nxsh_core::Context) -> anyhow::Result<()> {
-    let builtin = AwkBuiltin;
-    let result = builtin.invoke(ctx)?;
-    if result.exit_code != 0 {
-        return Err(anyhow::anyhow!("Awk command failed with exit code {}", result.exit_code));
+pub fn awk_cli(args: &[String], ctx: &mut nxsh_core::context::ShellContext) -> anyhow::Result<()> {
+    let builtin = AwkCommand::new();
+    let result = builtin.execute(ctx, args)
+        .map_err(|e| anyhow::anyhow!("AWK command failed: {}", e))?;
+    
+    match result.exit_code {
+        0 => Ok(()),
+        code => Err(anyhow::anyhow!("AWK command failed with exit code {}", code))
     }
-    Ok(())
 }
 
-pub struct AwkBuiltin;
+pub struct AwkCommand;
 
-impl AwkBuiltin {
-    pub fn execute(&self, ctx: &mut nxsh_core::Context, args: Vec<String>) -> Result<ExecutionResult, ShellError> {
+impl AwkCommand {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn execute(&self, ctx: &mut nxsh_core::context::ShellContext, args: &[String]) -> Result<ExecutionResult, ShellError> {
         match awk_cli(&args, ctx) {
             Ok(()) => Ok(ExecutionResult::success(0)),
             Err(e) => Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound), e.to_string())),
@@ -120,7 +127,7 @@ pub enum AwkValue {
     Number(f64),
 }
 
-impl Builtin for AwkBuiltin {
+impl Builtin for AwkCommand {
     fn name(&self) -> &'static str {
         "awk"
     }
@@ -133,8 +140,19 @@ impl Builtin for AwkBuiltin {
         "AWK programming language implementation for pattern scanning and data extraction"
     }
 
-    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
-        let args = &ctx.args;
+    fn usage(&self) -> &'static str {
+        "awk [-F fs] [-v var=value] 'program' [file ...]"
+    }
+
+    fn affects_shell_state(&self) -> bool {
+        false // awk doesn't modify shell state
+    }
+
+    fn help(&self) -> &'static str {
+        "AWK programming language. Use 'awk --help' for detailed usage information."
+    }
+
+    fn execute(&self, ctx: &mut nxsh_core::context::ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
         let options = parse_awk_args(args)?;
         
         let program = if let Some(ref file) = options.program_file {
@@ -171,62 +189,7 @@ impl Builtin for AwkBuiltin {
             execute_awk_action(action, &mut awk_context)?;
         }
 
-        Ok(ExecutionResult {
-            exit_code: 0,
-            output: None,
-            error: None,
-            duration: std::time::Duration::from_secs(0),
-            pid: None,
-            job_id: None,
-        })
-    }
-
-    fn usage(&self) -> &'static str {
-        "awk - pattern scanning and data extraction language
-
-USAGE:
-    awk [OPTIONS] 'program' [file...]
-    awk [OPTIONS] -f program-file [file...]
-
-OPTIONS:
-    -F fs, --field-separator=fs    Use fs as field separator
-    -f file, --file=file           Read program from file
-    -v var=val, --assign=var=val   Set variable var to val
-    -W option, --compat-mode       Compatibility mode options
-    --help                         Display this help and exit
-
-BUILT-IN VARIABLES:
-    FS          Field separator (default: whitespace)
-    OFS         Output field separator (default: space)
-    RS          Record separator (default: newline)
-    ORS         Output record separator (default: newline)
-    NF          Number of fields in current record
-    NR          Number of records processed
-    FNR         Number of records in current file
-    FILENAME    Name of current file
-    RSTART      Start of match for match() function
-    RLENGTH     Length of match for match() function
-
-BUILT-IN FUNCTIONS:
-    length(s)           Length of string s
-    substr(s,i,n)       Substring of s starting at i, length n
-    index(s1,s2)        Position of s2 in s1
-    split(s,a,fs)       Split s into array a using fs
-    sub(re,s,t)         Substitute first match of re with s in t
-    gsub(re,s,t)        Substitute all matches of re with s in t
-    match(s,re)         Match re against s, set RSTART and RLENGTH
-    sprintf(fmt,...)    Format string
-    sin(x), cos(x), atan2(y,x)  Math functions
-    int(x), sqrt(x), exp(x), log(x)  Math functions
-    rand(), srand(x)    Random number functions
-    system(cmd)         Execute system command
-    tolower(s), toupper(s)  Case conversion
-
-EXAMPLES:
-    awk '{print $1}' file.txt               Print first field
-    awk -F: '{print $1, $3}' /etc/passwd    Print username and UID
-    awk 'NR > 1 {sum += $2} END {print sum}' data.txt  Sum second column
-    awk '/pattern/ {print NR, $0}' file.txt Print matching lines with line numbers"
+        Ok(ExecutionResult::success(0))
     }
 }
 

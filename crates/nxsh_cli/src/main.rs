@@ -12,7 +12,7 @@ struct Cli {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let mut context = nxsh_core::context::ShellContext::new();
-    let mut exec = nxsh_core::executor::Executor::new()?;
+    let mut exec = nxsh_core::executor::Executor::new();
 
     if let Some(cmd) = cli.command {
         // TODO: Implement command execution

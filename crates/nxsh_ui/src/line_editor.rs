@@ -27,7 +27,7 @@ use crate::{
     config::EditorConfig,
 };
 use nxsh_core::context::ShellContext;
-use nxsh_builtins::Builtin;
+// use nxsh_builtins::Builtin;  // Temporarily disabled
 
 /// Advanced line editor with integrated syntax highlighting and completion
 pub struct NexusLineEditor {
@@ -74,10 +74,25 @@ impl NexusLineEditor {
         Ok(editor)
     }
 
-    /// Set up custom key bindings
+    /// Set up custom key bindings with comprehensive configuration
     fn setup_key_bindings(editor: &mut Editor<NexusHelper, DefaultHistory>, config: &EditorConfig) -> Result<()> {
-        // TODO: Configure key bindings for rustyline 16.0.0
-        // Using default key bindings for now
+        use rustyline::config::Configurer;
+        
+        // Configure editing mode based on config
+        if config.vi_mode {
+            editor.set_edit_mode(rustyline::EditMode::Vi);
+        } else {
+            editor.set_edit_mode(rustyline::EditMode::Emacs);
+        }
+
+        // For rustyline 16.0.0, most key bindings are handled by default
+        // We'll use the default key bindings which are comprehensive
+        
+        // Configure additional behaviors
+        editor.set_completion_type(rustyline::CompletionType::List);
+        editor.set_history_ignore_space(true);
+        editor.set_tab_stop(config.tab_width as u8);
+        
         Ok(())
     }
 
@@ -166,10 +181,11 @@ impl NexusLineEditor {
 
     /// Set the syntax highlighting theme
     pub fn set_theme(&mut self, theme: NexusTheme) -> Result<()> {
-        self.theme = theme;
         if let Ok(mut highlighter) = self.highlighter.lock() {
-            highlighter.set_theme(&self.theme.syntax_theme)?;
+            let theme_config = theme.get_theme_config(&theme.syntax_theme)?;
+            highlighter.set_theme(&theme_config)?;
         }
+        self.theme = theme;
         Ok(())
     }
 
@@ -203,7 +219,7 @@ impl NexusLineEditor {
 
     /// Clear history
     pub fn clear_history(&mut self) {
-        self.editor.clear_history();
+        let _ = self.editor.clear_history();
     }
 
     /// Set up completion for shell context
@@ -311,7 +327,7 @@ impl Validator for NexusHelper {
         let input = ctx.input();
         
         // Check for unclosed quotes
-        let mut quote_count = 0;
+        let mut _quote_count = 0;
         let mut in_single_quote = false;
         let mut in_double_quote = false;
         
@@ -319,11 +335,11 @@ impl Validator for NexusHelper {
             match ch {
                 '\'' if !in_double_quote => {
                     in_single_quote = !in_single_quote;
-                    quote_count += 1;
+                    _quote_count += 1;
                 }
                 '"' if !in_single_quote => {
                     in_double_quote = !in_double_quote;
-                    quote_count += 1;
+                    _quote_count += 1;
                 }
                 _ => {}
             }

@@ -7,7 +7,8 @@
 use crate::common::{i18n::*, logging::*};
 use std::io::Write;
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError, ErrorKind, StreamData};
+use nxsh_core::{Builtin, ExecutionResult, ShellResult, ShellError, ErrorKind, StreamData};
+use nxsh_core::context::ShellContext;
 use nxsh_core::error::{RuntimeErrorKind, IoErrorKind, InternalErrorKind};
 use std::env;
 use std::path::{Path, PathBuf};
@@ -32,18 +33,22 @@ impl Builtin for CdCommand {
         "cd [-L|-P] [DIR]"
     }
 
+    fn help(&self) -> &'static str {
+        "Change directory command. Use 'cd --help' for detailed usage information."
+    }
+
     fn affects_shell_state(&self) -> bool {
         true // cd changes the shell's working directory
     }
 
-    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
+    fn execute(&self, ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
         let mut follow_symlinks = true;
         let mut target_dir: Option<String> = None;
         
         // Parse arguments
-        let mut i = 1; // Skip command name
-        while i < ctx.args.len() {
-            match ctx.args[i].as_str() {
+        let mut i = 0; // Start from first argument (not command name)
+        while i < args.len() {
+            match args[i].as_str() {
                 "-L" => follow_symlinks = true,
                 "-P" => follow_symlinks = false,
                 arg if arg.starts_with('-') => {
@@ -70,7 +75,7 @@ impl Builtin for CdCommand {
             Some(dir) => self.resolve_target_directory(&dir, ctx)?,
             None => {
                 // No argument - go to HOME directory
-                ctx.env.get_var("HOME")
+                ctx.get_var("HOME")
                     .ok_or_else(|| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::VariableNotFound), "cd: HOME not set"))?
             }
         };
@@ -79,7 +84,7 @@ impl Builtin for CdCommand {
         let resolved_target = match target.as_str() {
             "-" => {
                 // Go to previous directory (stored in OLDPWD)
-                let oldpwd = ctx.env.get_var("OLDPWD")
+                let oldpwd = ctx.get_var("OLDPWD")
                     .ok_or_else(|| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::VariableNotFound), "cd: OLDPWD not set"))?;
                 
                 // Print the directory we're changing to (bash behavior)
@@ -106,11 +111,11 @@ impl Builtin for CdCommand {
             .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::NotFound), format!("cd: {}: {}", resolved_target, e)))?;
 
         // Update shell context
-        ctx.set_cwd(canonical_path.clone())?;
+        ctx.cwd = canonical_path.clone();
 
         // Update environment variables
-        ctx.env.set_var("OLDPWD", current_dir.to_string_lossy().to_string());
-        ctx.env.set_var("PWD", canonical_path.to_string_lossy().to_string());
+        ctx.set_var("OLDPWD", current_dir.to_string_lossy().to_string());
+        ctx.set_var("PWD", canonical_path.to_string_lossy().to_string());
 
         // Add to directory stack if pushd/popd is being used
         // (This would integrate with a directory stack implementation)
@@ -129,7 +134,7 @@ impl CdCommand {
     }
 
     /// Resolve target directory using CDPATH if necessary
-    fn resolve_target_directory(&self, target: &str, ctx: &Context) -> ShellResult<String> {
+    fn resolve_target_directory(&self, target: &str, ctx: &ShellContext) -> ShellResult<String> {
         let path = Path::new(target);
         
         // If path is absolute or starts with ./ or ../, use it directly
@@ -147,7 +152,7 @@ impl CdCommand {
         }
 
         // Try CDPATH
-        if let Some(cdpath) = ctx.env.get_var("CDPATH") {
+        if let Some(cdpath) = ctx.get_var("CDPATH") {
             for path_dir in env::split_paths(&cdpath) {
                 let candidate = path_dir.join(target);
                 if candidate.exists() && candidate.is_dir() {
@@ -215,7 +220,7 @@ impl CdCommand {
     }
 
     /// Check for directory-specific hooks (like .nvmrc, .python-version, etc.)
-    fn check_directory_hooks(&self, path: &Path, ctx: &Context) -> ShellResult<()> {
+    fn check_directory_hooks(&self, path: &Path, ctx: &ShellContext) -> ShellResult<()> {
         // This could be extended to support various directory hooks
         // For example:
         // - .nvmrc for Node.js version switching
@@ -225,14 +230,14 @@ impl CdCommand {
 
         // Check for .env file
         let env_file = path.join(".env");
-        if env_file.exists() && ctx.env.get_option("auto_load_env").unwrap_or(false) {
+        if env_file.exists() && false { // TODO: implement auto_load_env option
             // Load environment variables from .env file
             // This would be implemented based on shell options
         }
 
         // Check for directory-specific aliases or functions
         let shell_config = path.join(".nxshrc");
-        if shell_config.exists() && ctx.env.get_option("auto_source_dir_config").unwrap_or(false) {
+        if shell_config.exists() && false { // TODO: implement auto_source_dir_config option
             // Source directory-specific configuration
             // This would be implemented based on shell options
         }
@@ -263,18 +268,8 @@ impl Default for CdCommand {
 
 /// Convenience function to create a cd command
 pub fn cd_cli(args: &[String], ctx: &mut nxsh_core::context::ShellContext) -> ShellResult<()> {
-    use nxsh_core::stream::{Stream, StreamType};
-    
-    let mut context = Context::new(
-        args.to_vec(),
-        ctx,
-        Stream::new(StreamType::Byte),
-        Stream::new(StreamType::Byte),
-        Stream::new(StreamType::Byte),
-    )?;
-
-    let cd_cmd = CdCommand::new();
-    let result = cd_cmd.invoke(&mut context)?;
+    let cd_cmd = CdCommand;
+    let result = cd_cmd.execute(ctx, args)?;
     
     if result.is_success() {
         Ok(())
@@ -340,9 +335,9 @@ mod tests {
 }
 
 /// Convenience function for the cd command
-pub fn cd(args: &[String], ctx: &mut nxsh_core::Context) -> anyhow::Result<()> {
+pub fn cd(args: &[String], ctx: &mut ShellContext) -> anyhow::Result<()> {
     let command = CdCommand;
-    let result = command.invoke(ctx)?;
+    let result = command.execute(ctx, args)?;
     match result.exit_code {
         0 => Ok(()),
         code => Err(anyhow::anyhow!("cd failed with exit code {}", code)),

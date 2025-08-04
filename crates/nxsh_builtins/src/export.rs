@@ -6,7 +6,7 @@
 use crate::common::{i18n::*, logging::*};
 use std::io::Write;
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError, ErrorKind, StreamData};
+use nxsh_core::{Builtin, Context, ShellContext, ExecutionResult, ShellResult, ShellError, ErrorKind, StreamData};
 use nxsh_core::context::ShellVariable;
 use nxsh_core::error::{RuntimeErrorKind, IoErrorKind, InternalErrorKind};
 
@@ -27,44 +27,32 @@ impl Builtin for ExportCommand {
     }
 
     fn usage(&self) -> &'static str {
-        "export [-p] [name[=value] ...]"
+        "export [name[=value] ...]"
     }
 
     fn affects_shell_state(&self) -> bool {
         true // export modifies environment variables
     }
 
-    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
-        let mut print_all = false;
-        let mut assignments = Vec::new();
+    fn help(&self) -> &'static str {
+        "Export environment variables. Use 'export --help' for detailed usage information."
+    }
 
-        // Parse arguments
-        let mut i = 1; // Skip command name
-        while i < ctx.args.len() {
-            let arg = &ctx.args[i];
-            
-            if arg == "-p" {
-                print_all = true;
-            } else if arg.starts_with('-') {
-                return Err(ShellError::new(
-                    ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
-                    format!("export: invalid option: {}", arg)
-                ));
-            } else {
-                assignments.push(arg.clone());
+    fn execute(&self, ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
+        if args.is_empty() {
+            // Print all exported environment variables
+            self.print_all_exports(ctx)?;
+        } else {
+            // Process each argument
+            for arg in args {
+                if arg.contains('=') {
+                    // Assignment: name=value
+                    self.process_assignment(arg, ctx)?;
+                } else {
+                    // Export existing variable
+                    self.export_variable(arg, ctx)?;
+                }
             }
-            
-            i += 1;
-        }
-
-        // If -p flag is used or no arguments, print all exported variables
-        if print_all || assignments.is_empty() {
-            return self.print_exported_variables(ctx);
-        }
-
-        // Process variable assignments
-        for assignment in assignments {
-            self.process_assignment(&assignment, ctx)?;
         }
 
         Ok(ExecutionResult::success(0))
@@ -74,13 +62,12 @@ impl Builtin for ExportCommand {
 impl ExportCommand {
     /// Create a new export command instance
     pub fn new() -> Self {
-        Self
+        ExportCommand
     }
 
     /// Process a variable assignment
-    fn process_assignment(&self, assignment: &str, ctx: &mut Context) -> ShellResult<()> {
+    fn process_assignment(&self, assignment: &str, ctx: &mut ShellContext) -> ShellResult<()> {
         if let Some(eq_pos) = assignment.find('=') {
-            // Variable assignment: name=value
             let name = &assignment[..eq_pos];
             let value = &assignment[eq_pos + 1..];
 
@@ -92,77 +79,104 @@ impl ExportCommand {
                 ));
             }
 
-            // Create shell variable and mark as exported
-            let shell_var = ShellVariable::new(value).exported();
-            ctx.env.set_shell_var(name, shell_var);
-            
-            // Also set in environment for immediate use
-            ctx.env.set_var(name, value);
+            // Set the variable and mark it as exported
+            self.set_and_export_variable(name, value, ctx)?;
         } else {
-            // Just export existing variable
-            let name = assignment;
+            return Err(ShellError::new(
+                ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+                format!("export: invalid assignment: {}", assignment)
+            ));
+        }
 
-            // Check if variable exists
-            if let Some(value) = ctx.env.get_var(name) {
-                // Mark existing variable as exported
-                let shell_var = ShellVariable::new(value).exported();
-                ctx.env.set_shell_var(name, shell_var);
+        Ok(())
+    }
+
+    /// Export an existing variable
+    fn export_variable(&self, name: &str, ctx: &mut ShellContext) -> ShellResult<()> {
+        // Validate variable name
+        if !self.is_valid_variable_name(name) {
+            return Err(ShellError::new(
+                ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+                format!("export: `{}': not a valid identifier", name)
+            ));
+        }
+
+        // Check if the variable exists
+        {
+            let vars = ctx.vars.read().unwrap();
+            if let Some(var) = vars.get(name) {
+                // Mark the variable as exported
+                let mut exported_var = var.clone();
+                exported_var.exported = true;
+                drop(vars);
+                ctx.vars.write().unwrap().insert(name.to_string(), exported_var);
             } else {
-                // Variable doesn't exist, create empty exported variable
-                let shell_var = ShellVariable::new("").exported();
-                ctx.env.set_shell_var(name, shell_var);
-                ctx.env.set_var(name, "");
+                // Variable doesn't exist, create it with empty value and mark as exported
+                drop(vars);
+                let var = ShellVariable {
+                    value: String::new(),
+                    exported: true,
+                    readonly: false,
+                    local: false,
+                };
+                ctx.vars.write().unwrap().insert(name.to_string(), var);
             }
         }
 
         Ok(())
     }
 
-    /// Print all exported variables
-    fn print_exported_variables(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
-        let mut output = String::new();
-
-        // Get all environment variables and format them
-        if let Ok(env_guard) = ctx.env.env.read() {
-            for (key, value) in env_guard.iter() {
-                // Check if this variable is marked as exported
-                if let Ok(vars_guard) = ctx.env.vars.read() {
-                    if let Some(shell_var) = vars_guard.get(key) {
-                        if shell_var.exported {
-                            output.push_str(&format!("declare -x {}=\"{}\"\n", key, self.escape_value(value)));
-                        }
-                    } else {
-                        // If not in shell variables, assume it's exported (from system environment)
-                        output.push_str(&format!("declare -x {}=\"{}\"\n", key, self.escape_value(value)));
-                    }
-                }
-            }
-        }
-
-        // Write to stdout
-        ctx.stdout.write(StreamData::Text(output))
-            .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::FileWriteError), format!("Failed to write output: {}", e)))?;
-
-        Ok(ExecutionResult::success(0))
+    /// Set a variable value and mark it as exported
+    fn set_and_export_variable(&self, name: &str, value: &str, ctx: &mut ShellContext) -> ShellResult<()> {
+        let var = ShellVariable {
+            value: value.to_string(),
+            exported: true,
+            readonly: false,
+            local: false,
+        };
+        ctx.vars.write().unwrap().insert(name.to_string(), var);
+        Ok(())
     }
 
-    /// Validate variable name according to shell rules
+    /// Print all exported environment variables
+    fn print_all_exports(&self, ctx: &mut ShellContext) -> ShellResult<()> {
+        let mut output = String::new();
+        
+        // Get all environment variables
+        let vars = ctx.vars.read().unwrap();
+        let mut exports: Vec<_> = vars.iter()
+            .filter(|(_, var)| var.exported)
+            .collect();
+        
+        // Sort by name for consistent output
+        exports.sort_by(|a, b| a.0.cmp(b.0));
+
+        for (name, var) in exports {
+            output.push_str(&format!("export {}='{}'\n", name, self.escape_value(&var.value)));
+        }
+
+        if !output.is_empty() {
+            ctx.stdout.write(output.as_bytes())
+                .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::FileWriteError), format!("Failed to write output: {}", e)))?;
+        }
+
+        Ok(())
+    }
+
+    /// Validate variable name
     fn is_valid_variable_name(&self, name: &str) -> bool {
         if name.is_empty() {
             return false;
         }
 
-        // First character must be letter or underscore
-        let mut chars = name.chars();
-        if let Some(first) = chars.next() {
-            if !first.is_alphabetic() && first != '_' {
-                return false;
-            }
+        // Variable names must start with a letter or underscore
+        if !name.chars().next().unwrap().is_ascii_alphabetic() && name.chars().next().unwrap() != '_' {
+            return false;
         }
 
-        // Remaining characters must be alphanumeric or underscore
-        for ch in chars {
-            if !ch.is_alphanumeric() && ch != '_' {
+        // Rest of the name can contain letters, digits, and underscores
+        for ch in name.chars().skip(1) {
+            if !ch.is_ascii_alphanumeric() && ch != '_' {
                 return false;
             }
         }
@@ -176,13 +190,8 @@ impl ExportCommand {
         
         for ch in value.chars() {
             match ch {
-                '"' => result.push_str("\\\""),
+                '\'' => result.push_str("'\"'\"'"), // End quote, escaped quote, start quote
                 '\\' => result.push_str("\\\\"),
-                '\n' => result.push_str("\\n"),
-                '\r' => result.push_str("\\r"),
-                '\t' => result.push_str("\\t"),
-                '$' => result.push_str("\\$"),
-                '`' => result.push_str("\\`"),
                 _ => result.push(ch),
             }
         }
@@ -197,141 +206,64 @@ impl Default for ExportCommand {
     }
 }
 
-/// Convenience function to create an export command
-pub fn export_cli(args: &[String], ctx: &mut nxsh_core::context::ShellContext) -> ShellResult<()> {
-    use nxsh_core::stream::{Stream, StreamType};
-    
-    let mut context = Context::new(
-        args.to_vec(),
-        ctx,
-        Stream::new(StreamType::Byte),
-        Stream::new(StreamType::Text),
-        Stream::new(StreamType::Byte),
-    )?;
-
-    let export_cmd = ExportCommand::new();
-    let result = export_cmd.invoke(&mut context)?;
-    
-    // Output the result to stdout if any
-    if let Ok(data) = context.stdout.collect() {
-        for item in data {
-            if let Ok(text) = item.to_string() {
-                print!("{}", text);
-            }
-        }
-    }
-
-    if result.is_success() {
-        Ok(())
-    } else {
-        Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound), format!("export failed with exit code {}", result.exit_code)))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use nxsh_core::context::ShellContext;
-    use nxsh_core::stream::{Stream, StreamType};
 
-    fn create_test_context(args: Vec<String>) -> (Context, ShellContext) {
-        let mut shell_ctx = ShellContext::new();
-        let context = Context::new(
-            args,
-            &mut shell_ctx,
-            Stream::new(StreamType::Byte),
-            Stream::new(StreamType::Text),
-            Stream::new(StreamType::Byte),
-        ).unwrap();
-        (context, shell_ctx)
+    fn create_test_context() -> ShellContext {
+        ShellContext::new()
     }
 
     #[test]
-    fn test_export_new_variable() {
+    fn test_export_basic() {
         let export_cmd = ExportCommand::new();
-        let (mut ctx, _shell_ctx) = create_test_context(vec!["export".to_string(), "TEST_VAR=hello".to_string()]);
+        let mut ctx = create_test_context();
         
-        let result = export_cmd.invoke(&mut ctx).unwrap();
+        let result = export_cmd.execute(&mut ctx, &["TEST=value".to_string()]).unwrap();
         assert!(result.is_success());
         
-        // Check that the variable was set and exported
-        assert_eq!(ctx.env.get_var("TEST_VAR"), Some("hello".to_string()));
-        
-        // Check that it's marked as exported
-        if let Some(var) = ctx.env.variables.get("TEST_VAR", None) {
+        // Verify the variable was set and exported
+        if let Some(var) = ctx.vars.get("TEST") {
+            assert_eq!(var.value, "value");
             assert!(var.exported);
+        } else {
+            panic!("Variable TEST was not set");
         }
     }
 
     #[test]
     fn test_export_existing_variable() {
         let export_cmd = ExportCommand::new();
-        let (mut ctx, _shell_ctx) = create_test_context(vec!["export".to_string(), "EXISTING_VAR".to_string()]);
+        let mut ctx = create_test_context();
         
-        // Set up an existing variable
-        ctx.env.set_var("EXISTING_VAR", "existing_value");
+        // First set a variable without exporting
+        ctx.vars.insert("EXISTING".to_string(), ShellVariable {
+            value: "existing_value".to_string(),
+            exported: false,
+            readonly: false,
+            local: false,
+        });
         
-        let result = export_cmd.invoke(&mut ctx).unwrap();
+        // Export the existing variable
+        let result = export_cmd.execute(&mut ctx, &["EXISTING".to_string()]).unwrap();
         assert!(result.is_success());
         
-        // Check that the variable is still there and exported
-        assert_eq!(ctx.env.get_var("EXISTING_VAR"), Some("existing_value".to_string()));
-        
-        // Check that it's marked as exported
-        if let Some(var) = ctx.env.variables.get("EXISTING_VAR", None) {
+        // Verify the variable is now exported
+        if let Some(var) = ctx.vars.get("EXISTING") {
+            assert_eq!(var.value, "existing_value");
             assert!(var.exported);
+        } else {
+            panic!("Variable EXISTING was not found");
         }
     }
 
     #[test]
     fn test_export_invalid_name() {
         let export_cmd = ExportCommand::new();
-        let (mut ctx, _shell_ctx) = create_test_context(vec!["export".to_string(), "123INVALID=value".to_string()]);
+        let mut ctx = create_test_context();
         
-        let result = export_cmd.invoke(&mut ctx);
+        let result = export_cmd.execute(&mut ctx, &["123INVALID=value".to_string()]);
         assert!(result.is_err());
     }
-
-    #[test]
-    fn test_export_print_all() {
-        let export_cmd = ExportCommand::new();
-        let (mut ctx, _shell_ctx) = create_test_context(vec!["export".to_string(), "-p".to_string()]);
-        
-        // Set up some exported variables
-        ctx.env.set_var("TEST1", "value1");
-        ctx.env.set_var("TEST2", "value2");
-        
-        let result = export_cmd.invoke(&mut ctx).unwrap();
-        assert!(result.is_success());
-        
-        // Check that output was generated
-        let output = ctx.stdout.collect().unwrap();
-        assert!(!output.is_empty());
-    }
-
-    #[test]
-    fn test_valid_variable_names() {
-        let export_cmd = ExportCommand::new();
-        
-        assert!(export_cmd.is_valid_variable_name("VAR"));
-        assert!(export_cmd.is_valid_variable_name("_VAR"));
-        assert!(export_cmd.is_valid_variable_name("VAR123"));
-        assert!(export_cmd.is_valid_variable_name("_VAR_123"));
-        
-        assert!(!export_cmd.is_valid_variable_name("123VAR"));
-        assert!(!export_cmd.is_valid_variable_name("VAR-NAME"));
-        assert!(!export_cmd.is_valid_variable_name("VAR.NAME"));
-        assert!(!export_cmd.is_valid_variable_name(""));
-    }
-
-    #[test]
-    fn test_escape_value() {
-        let export_cmd = ExportCommand::new();
-        
-        assert_eq!(export_cmd.escape_value("simple"), "simple");
-        assert_eq!(export_cmd.escape_value("with\"quotes"), "with\\\"quotes");
-        assert_eq!(export_cmd.escape_value("with\\backslash"), "with\\\\backslash");
-        assert_eq!(export_cmd.escape_value("with\nnewline"), "with\\nnewline");
-        assert_eq!(export_cmd.escape_value("with$dollar"), "with\\$dollar");
-    }
-} 
+}

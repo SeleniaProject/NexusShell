@@ -5,7 +5,7 @@
 use crate::common::{i18n::*, logging::*};
 use std::io::Write;
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError};
+use nxsh_core::{Builtin, Context, ShellContext, ExecutionResult, executor::{ExecutionStrategy, ExecutionMetrics}, ShellResult, ShellError, ErrorKind};
 use std::fs;
 use anyhow::{anyhow, Result};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -36,12 +36,15 @@ impl Builtin for UptimeBuiltin {
         "show how long the system has been running"
     }
 
+    fn help(&self) -> &'static str {
+        "Display system uptime and load averages"
+    }
+
     fn description(&self) -> &'static str {
         "Display system uptime and load averages"
     }
 
-    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
-        let args = &ctx.args;
+    fn execute(&self, ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
         let options = parse_uptime_args(&args)?;
         
         let uptime_info = collect_uptime_info()?;
@@ -54,14 +57,7 @@ impl Builtin for UptimeBuiltin {
             display_standard(&uptime_info);
         }
         
-        Ok(ExecutionResult {
-            exit_code: 0,
-            output: Some(Vec::new()),
-            error: Some(Vec::new()),
-            duration: std::time::Duration::default(),
-            pid: Some(std::process::id()),
-            job_id: None,
-        })
+        Ok(ExecutionResult::success(0))
     }
 
     fn usage(&self) -> &'static str {

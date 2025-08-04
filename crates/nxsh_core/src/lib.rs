@@ -27,6 +27,8 @@ pub mod crash_handler;
 pub mod updater;
 pub mod network_security;
 pub mod i18n;
+pub mod mir;  // MIR System - Phase 1: Basic types  // Temporarily disabled for compilation stability
+pub mod integration_test_system;
 
 /// Initialize the NexusShell core runtime
 pub fn initialize() -> ShellResult<()> {

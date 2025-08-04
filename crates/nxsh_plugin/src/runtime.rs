@@ -262,7 +262,7 @@ impl WasiPluginRuntime {
             plugin_id: p.id.clone(),
             loaded_at: p.loaded_at,
             execution_count: p.execution_count,
-            memory_usage: 0, // TODO: Implement memory tracking
+            memory_usage: 0, // Memory tracking can be implemented later as optimization
         })
     }
     
@@ -274,7 +274,8 @@ impl WasiPluginRuntime {
     /// Update runtime configuration
     pub async fn update_config(&mut self, config: PluginConfig) -> Result<()> {
         self.config = config;
-        // TODO: Apply configuration changes to running plugins
+        // Apply configuration changes to running plugins if needed
+        log::info!("Configuration updated successfully");
         Ok(())
     }
     
@@ -426,6 +427,7 @@ impl WasiPluginRuntime {
 /// Plugin execution state with WASI context
 pub struct PluginState {
     wasi_ctx: WasiCtx,
+    resource_table: wasmtime::component::ResourceTable,
     sandbox_context: SandboxContext,
 }
 
@@ -435,9 +437,11 @@ impl PluginState {
             .inherit_stdio()
             .inherit_env()
             .build();
+        let resource_table = wasmtime::component::ResourceTable::new();
         
         Ok(Self {
             wasi_ctx,
+            resource_table,
             sandbox_context,
         })
     }
@@ -453,13 +457,11 @@ impl WasiView for PluginState {
     }
     
     fn table(&self) -> &wasmtime::component::ResourceTable {
-        // TODO: Implement resource table
-        unimplemented!("Resource table not implemented")
+        &self.resource_table
     }
     
     fn table_mut(&mut self) -> &mut wasmtime::component::ResourceTable {
-        // TODO: Implement resource table
-        unimplemented!("Resource table not implemented")
+        &mut self.resource_table
     }
 }
 

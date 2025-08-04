@@ -6,7 +6,7 @@ use crate::common::{i18n::*, logging::*};
 use std::io::Write;
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError};
+use nxsh_core::{Builtin, Context, ShellContext, ExecutionResult, executor::{ExecutionStrategy, ExecutionMetrics}, ShellResult, ShellError, ErrorKind};
 use std::fs;
 use std::thread;
 use std::time::Duration;
@@ -97,8 +97,11 @@ impl Builtin for FreeBuiltin {
         "Display information about system memory usage"
     }
 
-    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
-        let args = &ctx.args;
+    fn help(&self) -> &'static str {
+        "Display information about system memory usage"
+    }
+
+    fn execute(&self, ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
         let options = parse_free_args(args)?;
         
         if options.continuous {
@@ -107,14 +110,7 @@ impl Builtin for FreeBuiltin {
             display_memory_info(&options)?;
         }
         
-        Ok(ExecutionResult {
-            exit_code: 0,
-            output: None,
-            error: None,
-            duration: std::time::Duration::default(),
-            pid: Some(std::process::id()),
-            job_id: None,
-        })
+        Ok(ExecutionResult::success(0))
     }
 
     fn usage(&self) -> &'static str {

@@ -159,7 +159,7 @@ async fn handle_check(force: bool, verbose: bool) -> Result<()> {
 }
 
 async fn handle_download(version: Option<String>, force: bool) -> Result<()> {
-    println!("â¬E¸E Downloading update...");
+    println!("â¬Eï¿½ï¿½E Downloading update...");
 
     let manifest = check_for_updates().await?
         .ok_or_else(|| anyhow!("No updates available"))?;
@@ -386,7 +386,10 @@ mod tests {
         let args = UpdateArgs::parse_from(&["update", "check", "--force"]);
         match args.action {
             UpdateAction::Check { force, .. } => assert!(force),
-            _ => panic!("Expected Check action"),
+            other => {
+                eprintln!("Expected Check action, got {:?}", other);
+                assert!(false, "Expected Check action");
+            }
         }
     }
 
@@ -403,7 +406,10 @@ mod tests {
                 assert_eq!(channel, Some("beta".to_string()));
                 assert_eq!(auto, Some(true));
             }
-            _ => panic!("Expected Config action"),
+            other => {
+                eprintln!("Expected Config action, got {:?}", other);
+                assert!(false, "Expected Config action");
+            }
         }
     }
 }

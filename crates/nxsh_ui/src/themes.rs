@@ -105,11 +105,19 @@ impl NexusTheme {
         Ok(())
     }
     
-    /// Get a theme configuration by name (placeholder for syntect replacement)
-    pub fn get_theme_config(&self, theme_name: &str) -> Result<String> {
-        // TODO: Implement pure Rust theme management
-        // For now, return the theme name as a placeholder
-        Ok(theme_name.to_string())
+    /// Get a theme configuration by name (pure Rust implementation)
+    pub fn get_theme_config(&self, theme_name: &str) -> Result<ThemeConfig> {
+        let config = match theme_name {
+            "base16-ocean.dark" | "Dark" => ThemeConfig::base16_ocean_dark(),
+            "base16-ocean.light" | "Light" => ThemeConfig::base16_ocean_light(),
+            "base16-eighties.dark" => ThemeConfig::base16_eighties_dark(),
+            "base16-mocha.dark" | "Monokai" => ThemeConfig::base16_mocha_dark(),
+            "InspiredGitHub" => ThemeConfig::inspired_github(),
+            "Solarized (dark)" | "Solarized Dark" => ThemeConfig::solarized_dark(),
+            "Solarized (light)" => ThemeConfig::solarized_light(),
+            _ => return Err(anyhow::anyhow!("Unknown theme: {}", theme_name)),
+        };
+        Ok(config)
     }
     
     /// Get available theme names
@@ -187,10 +195,49 @@ impl ThemeManager {
         }
     }
     
+    /// Switch to a different theme (synchronous version)
+    pub fn switch_theme_sync(&self, theme_name: &str) -> Result<()> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                self.switch_theme(theme_name).await
+            })
+        })
+    }
+    
     /// Get list of available theme names
     pub async fn available_theme_names(&self) -> Vec<String> {
         let themes = self.available_themes.read().await;
         themes.keys().cloned().collect()
+    }
+    
+    /// Get list of available theme names (synchronous version)
+    pub fn available_themes(&self) -> Vec<String> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                self.available_theme_names().await
+            })
+        })
+    }
+    
+    /// Get current theme name
+    pub fn current_theme_name(&self) -> String {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                self.current_theme.read().await.name.clone()
+            })
+        })
+    }
+    
+    /// Get theme by name
+    pub fn get_theme(&self, theme_name: &str) -> Result<NexusTheme> {
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let themes = self.available_themes.read().await;
+                themes.get(theme_name)
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("Theme '{}' not found", theme_name))
+            })
+        })
     }
     
     /// Install a new theme from file
@@ -500,6 +547,286 @@ impl From<Colour> for RgbColor {
     }
 }
 
+/// Pure Rust theme configuration for syntax highlighting
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThemeConfig {
+    pub name: String,
+    pub background: RgbColor,
+    pub foreground: RgbColor,
+    pub caret: RgbColor,
+    pub selection: RgbColor,
+    pub selection_border: RgbColor,
+    pub inactive_selection: RgbColor,
+    pub line_highlight: RgbColor,
+    pub bracket_highlight: RgbColor,
+    pub keywords: RgbColor,
+    pub strings: RgbColor,
+    pub numbers: RgbColor,
+    pub comments: RgbColor,
+    pub functions: RgbColor,
+    pub variables: RgbColor,
+    pub operators: RgbColor,
+    pub punctuation: RgbColor,
+    pub types: RgbColor,
+    pub constants: RgbColor,
+    pub preprocessor: RgbColor,
+    pub escapes: RgbColor,
+    pub errors: RgbColor,
+    pub warnings: RgbColor,
+}
+
+impl ThemeConfig {
+    /// Base16 Ocean Dark theme
+    pub fn base16_ocean_dark() -> Self {
+        Self {
+            name: "Base16 Ocean Dark".to_string(),
+            background: RgbColor { r: 45, g: 55, b: 71 },
+            foreground: RgbColor { r: 192, g: 197, b: 206 },
+            caret: RgbColor { r: 192, g: 197, b: 206 },
+            selection: RgbColor { r: 79, g: 91, b: 102 },
+            selection_border: RgbColor { r: 79, g: 91, b: 102 },
+            inactive_selection: RgbColor { r: 65, g: 73, b: 87 },
+            line_highlight: RgbColor { r: 65, g: 73, b: 87 },
+            bracket_highlight: RgbColor { r: 216, g: 222, b: 233 },
+            keywords: RgbColor { r: 180, g: 142, b: 173 },
+            strings: RgbColor { r: 163, g: 190, b: 140 },
+            numbers: RgbColor { r: 208, g: 135, b: 112 },
+            comments: RgbColor { r: 101, g: 115, b: 126 },
+            functions: RgbColor { r: 129, g: 161, b: 193 },
+            variables: RgbColor { r: 192, g: 197, b: 206 },
+            operators: RgbColor { r: 192, g: 197, b: 206 },
+            punctuation: RgbColor { r: 192, g: 197, b: 206 },
+            types: RgbColor { r: 235, g: 203, b: 139 },
+            constants: RgbColor { r: 208, g: 135, b: 112 },
+            preprocessor: RgbColor { r: 129, g: 161, b: 193 },
+            escapes: RgbColor { r: 154, g: 206, b: 168 },
+            errors: RgbColor { r: 191, g: 97, b: 106 },
+            warnings: RgbColor { r: 235, g: 203, b: 139 },
+        }
+    }
+
+    /// Base16 Ocean Light theme
+    pub fn base16_ocean_light() -> Self {
+        Self {
+            name: "Base16 Ocean Light".to_string(),
+            background: RgbColor { r: 239, g: 241, b: 245 },
+            foreground: RgbColor { r: 79, g: 91, b: 102 },
+            caret: RgbColor { r: 79, g: 91, b: 102 },
+            selection: RgbColor { r: 192, g: 197, b: 206 },
+            selection_border: RgbColor { r: 192, g: 197, b: 206 },
+            inactive_selection: RgbColor { r: 216, g: 222, b: 233 },
+            line_highlight: RgbColor { r: 216, g: 222, b: 233 },
+            bracket_highlight: RgbColor { r: 65, g: 73, b: 87 },
+            keywords: RgbColor { r: 160, g: 105, b: 151 },
+            strings: RgbColor { r: 136, g: 157, b: 108 },
+            numbers: RgbColor { r: 208, g: 135, b: 112 },
+            comments: RgbColor { r: 101, g: 115, b: 126 },
+            functions: RgbColor { r: 88, g: 117, b: 155 },
+            variables: RgbColor { r: 79, g: 91, b: 102 },
+            operators: RgbColor { r: 79, g: 91, b: 102 },
+            punctuation: RgbColor { r: 79, g: 91, b: 102 },
+            types: RgbColor { r: 235, g: 203, b: 139 },
+            constants: RgbColor { r: 208, g: 135, b: 112 },
+            preprocessor: RgbColor { r: 88, g: 117, b: 155 },
+            escapes: RgbColor { r: 95, g: 151, b: 121 },
+            errors: RgbColor { r: 191, g: 97, b: 106 },
+            warnings: RgbColor { r: 235, g: 203, b: 139 },
+        }
+    }
+
+    /// Base16 Eighties Dark theme
+    pub fn base16_eighties_dark() -> Self {
+        Self {
+            name: "Base16 Eighties Dark".to_string(),
+            background: RgbColor { r: 45, g: 45, b: 45 },
+            foreground: RgbColor { r: 211, g: 208, b: 200 },
+            caret: RgbColor { r: 211, g: 208, b: 200 },
+            selection: RgbColor { r: 81, g: 81, b: 81 },
+            selection_border: RgbColor { r: 81, g: 81, b: 81 },
+            inactive_selection: RgbColor { r: 57, g: 57, b: 57 },
+            line_highlight: RgbColor { r: 57, g: 57, b: 57 },
+            bracket_highlight: RgbColor { r: 242, g: 240, b: 236 },
+            keywords: RgbColor { r: 204, g: 153, b: 204 },
+            strings: RgbColor { r: 153, g: 204, b: 153 },
+            numbers: RgbColor { r: 249, g: 145, b: 87 },
+            comments: RgbColor { r: 116, g: 115, b: 105 },
+            functions: RgbColor { r: 102, g: 153, b: 204 },
+            variables: RgbColor { r: 211, g: 208, b: 200 },
+            operators: RgbColor { r: 211, g: 208, b: 200 },
+            punctuation: RgbColor { r: 211, g: 208, b: 200 },
+            types: RgbColor { r: 255, g: 204, b: 102 },
+            constants: RgbColor { r: 249, g: 145, b: 87 },
+            preprocessor: RgbColor { r: 102, g: 153, b: 204 },
+            escapes: RgbColor { r: 102, g: 204, b: 204 },
+            errors: RgbColor { r: 242, g: 119, b: 122 },
+            warnings: RgbColor { r: 255, g: 204, b: 102 },
+        }
+    }
+
+    /// Base16 Mocha Dark theme
+    pub fn base16_mocha_dark() -> Self {
+        Self {
+            name: "Base16 Mocha Dark".to_string(),
+            background: RgbColor { r: 59, g: 50, b: 40 },
+            foreground: RgbColor { r: 208, g: 200, b: 184 },
+            caret: RgbColor { r: 208, g: 200, b: 184 },
+            selection: RgbColor { r: 83, g: 70, b: 54 },
+            selection_border: RgbColor { r: 83, g: 70, b: 54 },
+            inactive_selection: RgbColor { r: 71, g: 60, b: 47 },
+            line_highlight: RgbColor { r: 71, g: 60, b: 47 },
+            bracket_highlight: RgbColor { r: 245, g: 238, b: 215 },
+            keywords: RgbColor { r: 203, g: 157, b: 210 },
+            strings: RgbColor { r: 181, g: 189, b: 104 },
+            numbers: RgbColor { r: 232, g: 135, b: 133 },
+            comments: RgbColor { r: 126, g: 112, b: 90 },
+            functions: RgbColor { r: 122, g: 162, b: 247 },
+            variables: RgbColor { r: 208, g: 200, b: 184 },
+            operators: RgbColor { r: 208, g: 200, b: 184 },
+            punctuation: RgbColor { r: 208, g: 200, b: 184 },
+            types: RgbColor { r: 247, g: 209, b: 119 },
+            constants: RgbColor { r: 232, g: 135, b: 133 },
+            preprocessor: RgbColor { r: 122, g: 162, b: 247 },
+            escapes: RgbColor { r: 115, g: 181, b: 156 },
+            errors: RgbColor { r: 203, g: 111, b: 111 },
+            warnings: RgbColor { r: 247, g: 209, b: 119 },
+        }
+    }
+
+    /// Inspired GitHub theme
+    pub fn inspired_github() -> Self {
+        Self {
+            name: "Inspired GitHub".to_string(),
+            background: RgbColor { r: 255, g: 255, b: 255 },
+            foreground: RgbColor { r: 51, g: 51, b: 51 },
+            caret: RgbColor { r: 51, g: 51, b: 51 },
+            selection: RgbColor { r: 181, g: 213, b: 255 },
+            selection_border: RgbColor { r: 181, g: 213, b: 255 },
+            inactive_selection: RgbColor { r: 204, g: 204, b: 204 },
+            line_highlight: RgbColor { r: 204, g: 204, b: 204 },
+            bracket_highlight: RgbColor { r: 0, g: 0, b: 0 },
+            keywords: RgbColor { r: 215, g: 58, b: 73 },
+            strings: RgbColor { r: 3, g: 47, b: 98 },
+            numbers: RgbColor { r: 0, g: 92, b: 197 },
+            comments: RgbColor { r: 106, g: 115, b: 125 },
+            functions: RgbColor { r: 111, g: 66, b: 193 },
+            variables: RgbColor { r: 51, g: 51, b: 51 },
+            operators: RgbColor { r: 51, g: 51, b: 51 },
+            punctuation: RgbColor { r: 51, g: 51, b: 51 },
+            types: RgbColor { r: 0, g: 92, b: 197 },
+            constants: RgbColor { r: 0, g: 92, b: 197 },
+            preprocessor: RgbColor { r: 215, g: 58, b: 73 },
+            escapes: RgbColor { r: 215, g: 58, b: 73 },
+            errors: RgbColor { r: 215, g: 58, b: 73 },
+            warnings: RgbColor { r: 227, g: 98, b: 9 },
+        }
+    }
+
+    /// Solarized Dark theme
+    pub fn solarized_dark() -> Self {
+        Self {
+            name: "Solarized Dark".to_string(),
+            background: RgbColor { r: 0, g: 43, b: 54 },
+            foreground: RgbColor { r: 131, g: 148, b: 150 },
+            caret: RgbColor { r: 131, g: 148, b: 150 },
+            selection: RgbColor { r: 7, g: 54, b: 66 },
+            selection_border: RgbColor { r: 7, g: 54, b: 66 },
+            inactive_selection: RgbColor { r: 0, g: 43, b: 54 },
+            line_highlight: RgbColor { r: 7, g: 54, b: 66 },
+            bracket_highlight: RgbColor { r: 238, g: 232, b: 213 },
+            keywords: RgbColor { r: 181, g: 137, b: 0 },
+            strings: RgbColor { r: 42, g: 161, b: 152 },
+            numbers: RgbColor { r: 211, g: 54, b: 130 },
+            comments: RgbColor { r: 88, g: 110, b: 117 },
+            functions: RgbColor { r: 38, g: 139, b: 210 },
+            variables: RgbColor { r: 131, g: 148, b: 150 },
+            operators: RgbColor { r: 131, g: 148, b: 150 },
+            punctuation: RgbColor { r: 131, g: 148, b: 150 },
+            types: RgbColor { r: 203, g: 75, b: 22 },
+            constants: RgbColor { r: 211, g: 54, b: 130 },
+            preprocessor: RgbColor { r: 38, g: 139, b: 210 },
+            escapes: RgbColor { r: 220, g: 50, b: 47 },
+            errors: RgbColor { r: 220, g: 50, b: 47 },
+            warnings: RgbColor { r: 181, g: 137, b: 0 },
+        }
+    }
+
+    /// Solarized Light theme
+    pub fn solarized_light() -> Self {
+        Self {
+            name: "Solarized Light".to_string(),
+            background: RgbColor { r: 253, g: 246, b: 227 },
+            foreground: RgbColor { r: 101, g: 123, b: 131 },
+            caret: RgbColor { r: 101, g: 123, b: 131 },
+            selection: RgbColor { r: 238, g: 232, b: 213 },
+            selection_border: RgbColor { r: 238, g: 232, b: 213 },
+            inactive_selection: RgbColor { r: 253, g: 246, b: 227 },
+            line_highlight: RgbColor { r: 238, g: 232, b: 213 },
+            bracket_highlight: RgbColor { r: 7, g: 54, b: 66 },
+            keywords: RgbColor { r: 181, g: 137, b: 0 },
+            strings: RgbColor { r: 42, g: 161, b: 152 },
+            numbers: RgbColor { r: 211, g: 54, b: 130 },
+            comments: RgbColor { r: 147, g: 161, b: 161 },
+            functions: RgbColor { r: 38, g: 139, b: 210 },
+            variables: RgbColor { r: 101, g: 123, b: 131 },
+            operators: RgbColor { r: 101, g: 123, b: 131 },
+            punctuation: RgbColor { r: 101, g: 123, b: 131 },
+            types: RgbColor { r: 203, g: 75, b: 22 },
+            constants: RgbColor { r: 211, g: 54, b: 130 },
+            preprocessor: RgbColor { r: 38, g: 139, b: 210 },
+            escapes: RgbColor { r: 220, g: 50, b: 47 },
+            errors: RgbColor { r: 220, g: 50, b: 47 },
+            warnings: RgbColor { r: 181, g: 137, b: 0 },
+        }
+    }
+
+    /// Get color for specific syntax element
+    pub fn get_syntax_color(&self, element: SyntaxElement) -> RgbColor {
+        match element {
+            SyntaxElement::Background => self.background,
+            SyntaxElement::Foreground => self.foreground,
+            SyntaxElement::Keyword => self.keywords,
+            SyntaxElement::String => self.strings,
+            SyntaxElement::Number => self.numbers,
+            SyntaxElement::Comment => self.comments,
+            SyntaxElement::Function => self.functions,
+            SyntaxElement::Variable => self.variables,
+            SyntaxElement::Operator => self.operators,
+            SyntaxElement::Punctuation => self.punctuation,
+            SyntaxElement::Type => self.types,
+            SyntaxElement::Constant => self.constants,
+            SyntaxElement::Preprocessor => self.preprocessor,
+            SyntaxElement::Escape => self.escapes,
+            SyntaxElement::Error => self.errors,
+            SyntaxElement::Warning => self.warnings,
+            SyntaxElement::Selection => self.selection,
+            SyntaxElement::LineHighlight => self.line_highlight,
+        }
+    }
+}
+
+/// Syntax highlighting elements
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyntaxElement {
+    Background,
+    Foreground,
+    Keyword,
+    String,
+    Number,
+    Comment,
+    Function,
+    Variable,
+    Operator,
+    Punctuation,
+    Type,
+    Constant,
+    Preprocessor,
+    Escape,
+    Error,
+    Warning,
+    Selection,
+    LineHighlight,
+}
+
 /// Theme file formats
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThemeFormat {
@@ -510,7 +837,6 @@ pub enum ThemeFormat {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     
     #[test]
     fn test_theme_creation() {
@@ -572,5 +898,62 @@ mod tests {
         assert_eq!(rgb_color.r, converted_back.r);
         assert_eq!(rgb_color.g, converted_back.g);
         assert_eq!(rgb_color.b, converted_back.b);
+    }
+
+    #[test]
+    fn test_theme_config_creation() {
+        let dark_config = ThemeConfig::base16_ocean_dark();
+        assert_eq!(dark_config.name, "Base16 Ocean Dark");
+        assert!(dark_config.background.r < 128);
+
+        let light_config = ThemeConfig::base16_ocean_light();
+        assert_eq!(light_config.name, "Base16 Ocean Light");
+        assert!(light_config.background.r > 128);
+    }
+
+    #[test]
+    fn test_syntax_highlighting() {
+        let theme = ThemeConfig::solarized_dark();
+        
+        let keyword_color = theme.get_syntax_color(SyntaxElement::Keyword);
+        let string_color = theme.get_syntax_color(SyntaxElement::String);
+        let comment_color = theme.get_syntax_color(SyntaxElement::Comment);
+        
+        // Should be different colors
+        assert_ne!(keyword_color.r, string_color.r);
+        assert_ne!(string_color.g, comment_color.g);
+    }
+
+    #[test]
+    fn test_pure_rust_theme_config() {
+        let theme = NexusTheme::default();
+        
+        // Test all built-in theme configurations
+        let dark_config = theme.get_theme_config("Dark").unwrap();
+        assert_eq!(dark_config.name, "Base16 Ocean Dark");
+        
+        let light_config = theme.get_theme_config("Light").unwrap();
+        assert_eq!(light_config.name, "Base16 Ocean Light");
+        
+        let monokai_config = theme.get_theme_config("Monokai").unwrap();
+        assert_eq!(monokai_config.name, "Base16 Mocha Dark");
+        
+        let solarized_config = theme.get_theme_config("Solarized Dark").unwrap();
+        assert_eq!(solarized_config.name, "Solarized Dark");
+        
+        let github_config = theme.get_theme_config("InspiredGitHub").unwrap();
+        assert_eq!(github_config.name, "Inspired GitHub");
+        
+        // Test unknown theme
+        assert!(theme.get_theme_config("Unknown").is_err());
+    }
+
+    #[test]
+    fn test_available_theme_names() {
+        let names = NexusTheme::available_theme_names();
+        assert!(!names.is_empty());
+        assert!(names.contains(&"base16-ocean.dark".to_string()));
+        assert!(names.contains(&"Solarized (dark)".to_string()));
+        assert!(names.contains(&"InspiredGitHub".to_string()));
     }
 } 

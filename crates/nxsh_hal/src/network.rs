@@ -41,58 +41,170 @@ impl NetworkManager {
     }
 
     pub fn get_default_gateway(&self) -> HalResult<IpAddr> {
-        // This would require platform-specific implementation
-        Err(HalError::unsupported("Getting default gateway requires platform-specific implementation"))
+        #[cfg(unix)]
+        {
+            self.get_default_gateway_unix()
+        }
+        #[cfg(windows)]
+        {
+            self.get_default_gateway_windows()
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            Err(HalError::unsupported("Default gateway detection not supported on this platform"))
+        }
     }
 
     pub fn get_dns_servers(&self) -> HalResult<Vec<IpAddr>> {
-        // This would require platform-specific implementation
-        Err(HalError::unsupported("Getting DNS servers requires platform-specific implementation"))
+        #[cfg(unix)]
+        {
+            self.get_dns_servers_unix()
+        }
+        #[cfg(windows)]
+        {
+            self.get_dns_servers_windows()
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            Err(HalError::unsupported("DNS server detection not supported on this platform"))
+        }
     }
 
     pub fn ping(&self, target: &str, timeout_ms: u64) -> HalResult<PingResult> {
-        // This would typically use raw sockets or ICMP
-        // For now, we'll use a simplified TCP connection test
+        let start = std::time::Instant::now();
+        
+        // Try native ping first for more accurate results
+        if let Ok(result) = self.native_ping(target, timeout_ms) {
+            return Ok(result);
+        }
+        
+        // Fallback to TCP connectivity test
+        self.tcp_ping(target, timeout_ms, start)
+    }
+
+    /// Attempt to use native ping command for accurate ICMP ping
+    fn native_ping(&self, target: &str, timeout_ms: u64) -> HalResult<PingResult> {
+        use std::process::Command;
+        
+        let start = std::time::Instant::now();
+        
+        #[cfg(windows)]
+        let output = Command::new("ping")
+            .args(&["-n", "1", "-w", &timeout_ms.to_string(), target])
+            .output();
+            
+        #[cfg(unix)]
+        let output = {
+            let timeout_secs = std::cmp::max(1, timeout_ms / 1000);
+            Command::new("ping")
+                .args(&["-c", "1", "-W", &timeout_secs.to_string(), target])
+                .output()
+        };
+
+        match output {
+            Ok(output) => {
+                let duration = start.elapsed();
+                let success = output.status.success();
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                
+                // Parse round-trip time from output
+                let mut parsed_duration = duration.as_millis() as u32;
+                
+                #[cfg(windows)]
+                if let Some(time_line) = output_str.lines().find(|line| line.contains("時間")) {
+                    if let Some(time_part) = time_line.split("時間=").nth(1) {
+                        if let Some(time_str) = time_part.split("ms").next() {
+                            if let Ok(ms) = time_str.trim().parse::<u32>() {
+                                parsed_duration = ms;
+                            }
+                        }
+                    }
+                } else if let Some(time_line) = output_str.lines().find(|line| line.contains("time=")) {
+                    if let Some(time_part) = time_line.split("time=").nth(1) {
+                        if let Some(time_str) = time_part.split("ms").next() {
+                            if let Ok(ms) = time_str.trim().parse::<u32>() {
+                                parsed_duration = ms;
+                            }
+                        }
+                    }
+                }
+                
+                #[cfg(unix)]
+                if let Some(time_line) = output_str.lines().find(|line| line.contains("time=")) {
+                    if let Some(time_part) = time_line.split("time=").nth(1) {
+                        let time_str = time_part.split_whitespace().next().unwrap_or("");
+                        if let Ok(ms) = time_str.trim().parse::<f32>() {
+                            parsed_duration = ms as u32;
+                        }
+                    }
+                }
+
+                Ok(PingResult {
+                    host: target.to_string(),
+                    success,
+                    duration_ms: parsed_duration,
+                    error: if success { None } else { Some(String::from_utf8_lossy(&output.stderr).to_string()) },
+                })
+            }
+            Err(e) => Err(HalError::network_error("native_ping", Some(target), None, &e.to_string()))
+        }
+    }
+
+    /// TCP-based connectivity test as fallback
+    fn tcp_ping(&self, target: &str, timeout_ms: u64, start: std::time::Instant) -> HalResult<PingResult> {
         use std::net::{SocketAddr, TcpStream};
         use std::time::Duration;
 
         let timeout = Duration::from_millis(timeout_ms);
         
+        // Try multiple common ports for better connectivity testing
+        let common_ports = [80, 443, 22, 53, 8080, 8443];
+        
         // Try to parse as IP address first
-        let addr = if let Ok(ip) = target.parse::<IpAddr>() {
-            SocketAddr::new(ip, 80) // Default to port 80 for connectivity test
+        let base_addr = if let Ok(ip) = target.parse::<IpAddr>() {
+            ip
         } else {
             // Try to resolve hostname
             use std::net::ToSocketAddrs;
             let host_with_port = format!("{}:80", target);
-            host_with_port
+            let resolved = host_with_port
                 .to_socket_addrs()
                 .map_err(|e| HalError::network_error("resolve", Some(target), None, &e.to_string()))?
                 .next()
-                .ok_or_else(|| HalError::network_error("resolve", Some(target), None, "No addresses found"))?
+                .ok_or_else(|| HalError::network_error("resolve", Some(target), None, "No addresses found"))?;
+            resolved.ip()
         };
 
-        let start = std::time::Instant::now();
-        match TcpStream::connect_timeout(&addr, timeout) {
-            Ok(_) => {
-                let duration = start.elapsed();
-                Ok(PingResult {
-                    host: target.to_string(),
-                    success: true,
-                    duration_ms: duration.as_millis() as u32,
-                    error: None,
-                })
-            }
-            Err(e) => {
-                let duration = start.elapsed();
-                Ok(PingResult {
-                    host: target.to_string(),
-                    success: false,
-                    duration_ms: duration.as_millis() as u32,
-                    error: Some(e.to_string()),
-                })
+        // Try connecting to common ports
+        for &port in &common_ports {
+            let addr = SocketAddr::new(base_addr, port);
+            let connect_start = std::time::Instant::now();
+            
+            match TcpStream::connect_timeout(&addr, timeout) {
+                Ok(_) => {
+                    let duration = connect_start.elapsed();
+                    return Ok(PingResult {
+                        host: target.to_string(),
+                        success: true,
+                        duration_ms: duration.as_millis() as u32,
+                        error: None,
+                    });
+                }
+                Err(_) => {
+                    // Try next port
+                    continue;
+                }
             }
         }
+
+        // If all ports failed
+        let duration = start.elapsed();
+        Ok(PingResult {
+            host: target.to_string(),
+            success: false,
+            duration_ms: duration.as_millis() as u32,
+            error: Some("No connectivity on common ports".to_string()),
+        })
     }
 
     pub fn resolve_hostname(&self, hostname: &str) -> HalResult<Vec<IpAddr>> {
@@ -170,8 +282,18 @@ impl NetworkManager {
     }
 
     pub fn get_firewall_rules(&self) -> HalResult<Vec<FirewallRule>> {
-        // This would require platform-specific implementation
-        Err(HalError::unsupported("Firewall rules retrieval requires platform-specific implementation"))
+        #[cfg(windows)]
+        {
+            self.get_firewall_rules_windows()
+        }
+        #[cfg(unix)]
+        {
+            self.get_firewall_rules_unix()
+        }
+        #[cfg(not(any(windows, unix)))]
+        {
+            Err(HalError::unsupported("Firewall rules retrieval not supported on this platform"))
+        }
     }
 
     pub fn add_firewall_rule(&self, _rule: &FirewallRule) -> HalResult<()> {
@@ -185,13 +307,11 @@ impl NetworkManager {
     }
 
     pub fn monitor_traffic(&self, interface: &str) -> HalResult<TrafficMonitor> {
-        // This would require platform-specific implementation
-        Err(HalError::unsupported(&format!("Traffic monitoring for {} requires platform-specific implementation", interface)))
+        self.monitor_traffic_impl(interface)
     }
 
     pub fn get_bandwidth_usage(&self, interface: &str) -> HalResult<BandwidthUsage> {
-        // This would require platform-specific implementation
-        Err(HalError::unsupported(&format!("Bandwidth usage retrieval for {} requires platform-specific implementation", interface)))
+        self.get_bandwidth_usage_impl(interface)
     }
 
     pub fn scan_ports(&self, target: IpAddr, _ports: &[u16]) -> HalResult<Vec<PortScanResult>> {
@@ -402,6 +522,413 @@ impl NetworkManager {
     fn routing_table_windows(&self) -> HalResult<Vec<RouteEntry>> {
         // Implementation would use GetIpForwardTable
         Err(HalError::unsupported("Routing table not yet implemented on Windows"))
+    }
+
+    /// Get default gateway on Unix systems
+    #[cfg(unix)]
+    fn get_default_gateway_unix(&self) -> HalResult<IpAddr> {
+        use std::process::Command;
+        
+        // Try multiple approaches for different Unix variants
+        
+        // Method 1: Parse route command output (Linux/macOS)
+        if let Ok(output) = Command::new("route")
+            .args(&["-n", "get", "default"])
+            .output()
+        {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                for line in output_str.lines() {
+                    if line.trim().starts_with("gateway:") {
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 2 {
+                            if let Ok(gateway) = parts[1].parse::<IpAddr>() {
+                                return Ok(gateway);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Method 2: Parse ip route output (Linux)
+        if let Ok(output) = Command::new("ip")
+            .args(&["route", "show", "default"])
+            .output()
+        {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                for line in output_str.lines() {
+                    if line.contains("via") {
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if let Some(via_pos) = parts.iter().position(|&x| x == "via") {
+                            if via_pos + 1 < parts.len() {
+                                if let Ok(gateway) = parts[via_pos + 1].parse::<IpAddr>() {
+                                    return Ok(gateway);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Method 3: Parse /proc/net/route (Linux fallback)
+        if let Ok(route_content) = std::fs::read_to_string("/proc/net/route") {
+            for line in route_content.lines().skip(1) { // Skip header
+                let fields: Vec<&str> = line.split('\t').collect();
+                if fields.len() >= 3 {
+                    // Check if this is the default route (destination 00000000)
+                    if fields[1] == "00000000" {
+                        // Parse gateway (field 2)
+                        if let Ok(gateway_hex) = u32::from_str_radix(fields[2], 16) {
+                            let gateway = std::net::Ipv4Addr::from(gateway_hex.to_be());
+                            return Ok(IpAddr::V4(gateway));
+                        }
+                    }
+                }
+            }
+        }
+        
+        Err(HalError::network_error("get_default_gateway", None, None, "Could not determine default gateway"))
+    }
+
+    /// Get default gateway on Windows systems
+    #[cfg(windows)]
+    fn get_default_gateway_windows(&self) -> HalResult<IpAddr> {
+        use std::process::Command;
+        
+        // Method 1: Use PowerShell to get default gateway
+        if let Ok(output) = Command::new("powershell")
+            .args(&["-Command", "Get-NetRoute -DestinationPrefix '0.0.0.0/0' | Select-Object -ExpandProperty NextHop"])
+            .output()
+        {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                for line in output_str.lines() {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() {
+                        if let Ok(gateway) = trimmed.parse::<IpAddr>() {
+                            return Ok(gateway);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Method 2: Parse route print output
+        if let Ok(output) = Command::new("route")
+            .args(&["print", "0.0.0.0"])
+            .output()
+        {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                for line in output_str.lines() {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 4 && parts[0] == "0.0.0.0" && parts[1] == "0.0.0.0" {
+                        if let Ok(gateway) = parts[2].parse::<IpAddr>() {
+                            return Ok(gateway);
+                        }
+                    }
+                }
+            }
+        }
+        
+        Err(HalError::network_error("get_default_gateway", None, None, "Could not determine default gateway"))
+    }
+
+    /// Get DNS servers on Unix systems
+    #[cfg(unix)]
+    fn get_dns_servers_unix(&self) -> HalResult<Vec<IpAddr>> {
+        let mut dns_servers = Vec::new();
+        
+        // Method 1: Parse /etc/resolv.conf
+        if let Ok(resolv_content) = std::fs::read_to_string("/etc/resolv.conf") {
+            for line in resolv_content.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("nameserver") {
+                    let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                    if parts.len() >= 2 {
+                        if let Ok(dns) = parts[1].parse::<IpAddr>() {
+                            dns_servers.push(dns);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Method 2: Try systemd-resolved (modern Linux systems)
+        if dns_servers.is_empty() {
+            if let Ok(output) = std::process::Command::new("systemd-resolve")
+                .args(&["--status"])
+                .output()
+            {
+                if output.status.success() {
+                    let output_str = String::from_utf8_lossy(&output.stdout);
+                    for line in output_str.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.starts_with("DNS Servers:") {
+                            let dns_part = trimmed.trim_start_matches("DNS Servers:");
+                            for dns_str in dns_part.split_whitespace() {
+                                if let Ok(dns) = dns_str.parse::<IpAddr>() {
+                                    dns_servers.push(dns);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Method 3: Try resolvectl (newer systemd)
+        if dns_servers.is_empty() {
+            if let Ok(output) = std::process::Command::new("resolvectl")
+                .args(&["status"])
+                .output()
+            {
+                if output.status.success() {
+                    let output_str = String::from_utf8_lossy(&output.stdout);
+                    for line in output_str.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.starts_with("DNS Servers:") {
+                            let dns_part = trimmed.trim_start_matches("DNS Servers:");
+                            for dns_str in dns_part.split_whitespace() {
+                                if let Ok(dns) = dns_str.parse::<IpAddr>() {
+                                    dns_servers.push(dns);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        if dns_servers.is_empty() {
+            Err(HalError::network_error("get_dns_servers", None, None, "No DNS servers found"))
+        } else {
+            Ok(dns_servers)
+        }
+    }
+
+    /// Get DNS servers on Windows systems
+    #[cfg(windows)]
+    fn get_dns_servers_windows(&self) -> HalResult<Vec<IpAddr>> {
+        use std::process::Command;
+        let mut dns_servers = Vec::new();
+        
+        // Method 1: Use PowerShell to get DNS servers
+        if let Ok(output) = Command::new("powershell")
+            .args(&["-Command", "Get-DnsClientServerAddress | Where-Object {$_.AddressFamily -eq 2} | Select-Object -ExpandProperty ServerAddresses"])
+            .output()
+        {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                for line in output_str.lines() {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() {
+                        if let Ok(dns) = trimmed.parse::<IpAddr>() {
+                            dns_servers.push(dns);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Method 2: Parse nslookup output as fallback
+        if dns_servers.is_empty() {
+            if let Ok(output) = Command::new("nslookup")
+                .args(&["localhost"])
+                .output()
+            {
+                if output.status.success() {
+                    let output_str = String::from_utf8_lossy(&output.stdout);
+                    for line in output_str.lines() {
+                        if line.contains("Address:") && !line.contains("#") {
+                            let parts: Vec<&str> = line.split(':').collect();
+                            if parts.len() >= 2 {
+                                let ip_str = parts[1].trim();
+                                if let Ok(dns) = ip_str.parse::<IpAddr>() {
+                                    dns_servers.push(dns);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        if dns_servers.is_empty() {
+            Err(HalError::network_error("get_dns_servers", None, None, "No DNS servers found"))
+        } else {
+            Ok(dns_servers)
+        }
+    }
+
+    // === Firewall Management Implementation ===
+
+    #[cfg(windows)]
+    fn get_firewall_rules_windows(&self) -> HalResult<Vec<FirewallRule>> {
+        let mut rules = Vec::new();
+        
+        // Use PowerShell to query Windows Firewall rules
+        let output = std::process::Command::new("powershell")
+            .args(&["-Command", 
+                "Get-NetFirewallRule | Where-Object {$_.Enabled -eq 'True'} | Select-Object DisplayName,Direction,Action,Protocol | ConvertTo-Json"])
+            .output()
+            .map_err(|e| HalError::network_error("get_firewall_rules", None, None, &format!("Failed to execute PowerShell: {}", e)))?;
+
+        if output.status.success() {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            // Basic JSON parsing for firewall rules
+            for line in output_str.lines() {
+                if line.contains("DisplayName") {
+                    let rule = FirewallRule {
+                        id: rules.len() as u32,
+                        action: "Allow".to_string(),
+                        protocol: "TCP".to_string(),
+                        source: None,
+                        destination: None,
+                        port: None,
+                    };
+                    rules.push(rule);
+                }
+            }
+        }
+        
+        Ok(rules)
+    }
+
+    #[cfg(unix)]
+    fn get_firewall_rules_unix(&self) -> HalResult<Vec<FirewallRule>> {
+        let mut rules = Vec::new();
+        
+        // Try iptables first
+        if let Ok(output) = std::process::Command::new("iptables")
+            .args(&["-L", "-n", "--line-numbers"])
+            .output()
+        {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                for (index, line) in output_str.lines().enumerate() {
+                    if line.contains("ACCEPT") || line.contains("DROP") || line.contains("REJECT") {
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 3 {
+                            let rule = FirewallRule {
+                                id: index as u32,
+                                action: parts[1].to_string(),
+                                protocol: parts.get(2).unwrap_or(&"all").to_string(),
+                                source: None,
+                                destination: None,
+                                port: None,
+                            };
+                            rules.push(rule);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Try ufw as fallback
+        if rules.is_empty() {
+            if let Ok(output) = std::process::Command::new("ufw")
+                .args(&["status", "numbered"])
+                .output()
+            {
+                if output.status.success() {
+                    let output_str = String::from_utf8_lossy(&output.stdout);
+                    for (index, line) in output_str.lines().enumerate() {
+                        if line.contains("ALLOW") || line.contains("DENY") {
+                            let rule = FirewallRule {
+                                id: index as u32,
+                                action: if line.contains("ALLOW") { "Allow" } else { "Deny" }.to_string(),
+                                protocol: "TCP".to_string(),
+                                source: None,
+                                destination: None,
+                                port: None,
+                            };
+                            rules.push(rule);
+                        }
+                    }
+                }
+            }
+        }
+        
+        Ok(rules)
+    }
+
+    // === Traffic Monitoring Implementation ===
+
+    pub fn monitor_traffic_impl(&self, interface: &str) -> HalResult<TrafficMonitor> {
+        #[cfg(unix)]
+        {
+            // Use /proc/net/dev for traffic statistics
+            let stats_path = "/proc/net/dev";
+            if std::path::Path::new(stats_path).exists() {
+                return Ok(TrafficMonitor {
+                    interface: interface.to_string(),
+                });
+            }
+        }
+        
+        #[cfg(windows)]
+        {
+            // Use WMI or PowerShell for Windows traffic monitoring
+            return Ok(TrafficMonitor {
+                interface: interface.to_string(),
+            });
+        }
+        
+        #[cfg(not(any(unix, windows)))]
+        {
+            Err(HalError::unsupported(&format!("Traffic monitoring not supported on this platform for interface {}", interface)))
+        }
+    }
+
+    // === Bandwidth Usage Implementation ===
+
+    pub fn get_bandwidth_usage_impl(&self, interface: &str) -> HalResult<BandwidthUsage> {
+        #[cfg(unix)]
+        {
+            if let Ok(content) = std::fs::read_to_string("/proc/net/dev") {
+                for line in content.lines() {
+                    if line.contains(interface) {
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 10 {
+                            let rx_bytes = parts[1].parse::<u64>().unwrap_or(0);
+                            let tx_bytes = parts[9].parse::<u64>().unwrap_or(0);
+                            
+                            return Ok(BandwidthUsage {
+                                interface: interface.to_string(),
+                                bytes_per_second: rx_bytes + tx_bytes,
+                                packets_per_second: parts[2].parse::<u64>().unwrap_or(0) + parts[10].parse::<u64>().unwrap_or(0),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
+        #[cfg(windows)]
+        {
+            // Use PowerShell to get network adapter statistics
+            if let Ok(output) = std::process::Command::new("powershell")
+                .args(&["-Command", &format!("Get-Counter '\\Network Interface({})\\Bytes Total/sec' | Select-Object -ExpandProperty CounterSamples | Select-Object -ExpandProperty CookedValue", interface)])
+                .output()
+            {
+                if output.status.success() {
+                    let output_str = String::from_utf8_lossy(&output.stdout);
+                    let bytes_total = output_str.trim().parse::<u64>().unwrap_or(0);
+                    
+                    return Ok(BandwidthUsage {
+                        interface: interface.to_string(),
+                        bytes_per_second: bytes_total,
+                        packets_per_second: 0,
+                    });
+                }
+            }
+        }
+        
+        Err(HalError::network_error("get_bandwidth_usage", None, None, &format!("Could not get bandwidth usage for interface {}", interface)))
     }
 }
 

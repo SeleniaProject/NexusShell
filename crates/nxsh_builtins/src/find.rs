@@ -1533,17 +1533,26 @@ mod tests {
     fn test_parse_size_test() {
         match parse_size_test("+100").unwrap() {
             SizeTest::Greater(100) => {},
-            _ => panic!("Expected Greater(100)"),
+            other => {
+                eprintln!("Expected Greater(100), got {:?}", other);
+                assert!(false, "Expected Greater(100)");
+            }
         }
         
         match parse_size_test("-100").unwrap() {
             SizeTest::Less(100) => {},
-            _ => panic!("Expected Less(100)"),
+            other => {
+                eprintln!("Expected Less(100), got {:?}", other);
+                assert!(false, "Expected Less(100)");
+            }
         }
         
         match parse_size_test("100").unwrap() {
             SizeTest::Exact(100) => {},
-            _ => panic!("Expected Exact(100)"),
+            other => {
+                eprintln!("Expected Exact(100), got {:?}", other);
+                assert!(false, "Expected Exact(100)");
+            }
         }
     }
 

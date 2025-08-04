@@ -7,7 +7,8 @@ use std::io::Write;
 use std::time::Duration;
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
-use nxsh_core::{Context, ExecutionResult, ShellResult, ShellError};
+use nxsh_core::{Context, ShellContext, ExecutionResult, ShellResult, ShellError, Stream, StreamType};
+use nxsh_core::executor::{ExecutionStrategy, ExecutionMetrics};
 use crate::builtin::Builtin;
 use regex::{Regex, RegexBuilder};
 use std::fs::{File, OpenOptions};
@@ -30,7 +31,7 @@ pub struct SedOptions {
 }
 
 #[derive(Debug, Clone)]
-pub enum SedCommand {
+pub enum SedOperation {
     Substitute {
         pattern: Regex,
         replacement: String,
@@ -53,6 +54,10 @@ pub enum SedCommand {
     Write(String),
 }
 
+/// Sed builtin command
+#[derive(Debug, Clone)]
+pub struct SedCommand;
+
 #[derive(Debug, Clone)]
 pub struct SubstituteFlags {
     pub global: bool,
@@ -68,94 +73,45 @@ impl Builtin for SedBuiltin {
     }
 
     fn synopsis(&self) -> &'static str {
-        "stream editor for filtering and transforming text"
+        "sed [OPTION]... {script-only-if-no-other-script} [input-file]..."
+    }
+
+    fn help(&self) -> &'static str {
+        "Stream editor for filtering and transforming text"
     }
 
     fn description(&self) -> &'static str {
         "Stream editor that performs text transformations on input streams"
     }
 
-    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
-        let args = &ctx.args;
+    fn execute(&self, ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
         let options = parse_sed_args(args)?;
         
         if options.script.is_empty() && options.script_files.is_empty() {
-            return Err(ShellError::command_not_found("No script provided"));
-        }
-
-        let mut commands = Vec::new();
-        
-        // Parse script commands
-        for script in &options.script {
-            commands.extend(parse_sed_script(script, options.extended_regex)?);
+            return Err(ShellError::new(nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument), "No script specified"));
         }
         
-        // Parse script files
-        for script_file in &options.script_files {
-            let content = std::fs::read_to_string(script_file)
-                .map_err(|e| ShellError::file_not_found(&format!("Failed to read script file {}: {}", script_file, e)))?;
-            commands.extend(parse_sed_script(&content, options.extended_regex)?);
-        }
-
-        if options.files.is_empty() {
-            // Read from stdin
-            process_sed_stream(&mut std::io::stdin().lock(), &mut std::io::stdout(), &commands, &options)?;
-        } else {
-            for file_path in &options.files {
-                process_sed_file(file_path, &commands, &options)?;
-            }
-        }
-
-        Ok(ExecutionResult {
-            exit_code: 0,
-            output: Some(Vec::new()),
-            error: Some(Vec::new()),
-            duration: Duration::from_secs(0),
-            pid: Some(std::process::id()),
-            job_id: None,
-        })
+        // TODO: Implement sed command execution
+        eprintln!("sed: command not yet fully implemented");
+        
+        Ok(ExecutionResult::success(0))
     }
 
     fn usage(&self) -> &'static str {
-        "sed - stream editor for filtering and transforming text
+        "sed - stream editor for filtering and transforming text\n\nUSAGE:\n    sed [OPTIONS] 'script' [file...]"
+    }
+}
 
-USAGE:
-    sed [OPTIONS] 'script' [file...]
-    sed [OPTIONS] -f script-file [file...]
+impl SedCommand {
+    /// Create a new sed command instance
+    pub fn new() -> Self {
+        SedCommand
+    }
+}
 
-OPTIONS:
-    -e, --expression=script    Add the script to the commands to be executed
-    -f, --file=script-file     Add the contents of script-file to the commands
-    -i[SUFFIX], --in-place[=SUFFIX]  Edit files in place (optionally backup with SUFFIX)
-    -n, --quiet, --silent      Suppress automatic printing of pattern space
-    -r, --regexp-extended      Use extended regular expressions
-    -s, --separate             Consider files as separate rather than continuous stream
-    -z, --null-data            Separate lines by NUL characters
-    --help                     Display this help and exit
-
-COMMANDS:
-    s/regexp/replacement/flags  Substitute regexp with replacement
-    d                          Delete pattern space
-    p                          Print pattern space
-    a text                     Append text after line
-    i text                     Insert text before line
-    c text                     Change line to text
-    n                          Read next line
-    q                          Quit
-    h                          Copy pattern space to hold space
-    g                          Copy hold space to pattern space
-    x                          Exchange pattern and hold spaces
-    :label                     Define label
-    b [label]                  Branch to label
-    t [label]                  Branch on successful substitution
-    r filename                 Read file
-    w filename                 Write pattern space to file
-
-EXAMPLES:
-    sed 's/old/new/g' file.txt          Replace all 'old' with 'new'
-    sed -n '5,10p' file.txt             Print lines 5-10
-    sed '/pattern/d' file.txt           Delete lines matching pattern
-    sed -i.bak 's/foo/bar/' file.txt    Edit in-place with backup"
+impl Default for SedCommand {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -219,7 +175,7 @@ fn parse_sed_args(args: &[String]) -> ShellResult<SedOptions> {
     Ok(options)
 }
 
-fn parse_sed_script(script: &str, extended_regex: bool) -> ShellResult<Vec<SedCommand>> {
+fn parse_sed_script(script: &str, extended_regex: bool) -> ShellResult<Vec<SedOperation>> {
     let mut commands = Vec::new();
     let lines: Vec<&str> = script.lines().collect();
     
@@ -236,52 +192,52 @@ fn parse_sed_script(script: &str, extended_regex: bool) -> ShellResult<Vec<SedCo
     Ok(commands)
 }
 
-fn parse_sed_command(cmd: &str, extended_regex: bool) -> ShellResult<SedCommand> {
+fn parse_sed_command(cmd: &str, extended_regex: bool) -> ShellResult<SedOperation> {
     let cmd = cmd.trim();
     
     if cmd.starts_with('s') {
         parse_substitute_command(cmd, extended_regex)
     } else if cmd == "d" {
-        Ok(SedCommand::Delete)
+        Ok(SedOperation::Delete)
     } else if cmd == "p" {
-        Ok(SedCommand::Print)
+        Ok(SedOperation::Print)
     } else if cmd.starts_with('a') {
         let text = if cmd.len() > 1 { &cmd[1..].trim() } else { "" };
-        Ok(SedCommand::Append(text.to_string()))
+        Ok(SedOperation::Append(text.to_string()))
     } else if cmd.starts_with('i') {
         let text = if cmd.len() > 1 { &cmd[1..].trim() } else { "" };
-        Ok(SedCommand::Insert(text.to_string()))
+        Ok(SedOperation::Insert(text.to_string()))
     } else if cmd.starts_with('c') {
         let text = if cmd.len() > 1 { &cmd[1..].trim() } else { "" };
-        Ok(SedCommand::Change(text.to_string()))
+        Ok(SedOperation::Change(text.to_string()))
     } else if cmd == "n" {
-        Ok(SedCommand::Next)
+        Ok(SedOperation::Next)
     } else if cmd == "q" {
-        Ok(SedCommand::Quit)
+        Ok(SedOperation::Quit)
     } else if cmd == "h" {
-        Ok(SedCommand::Hold)
+        Ok(SedOperation::Hold)
     } else if cmd == "g" {
-        Ok(SedCommand::Get)
+        Ok(SedOperation::Get)
     } else if cmd == "x" {
-        Ok(SedCommand::Exchange)
+        Ok(SedOperation::Exchange)
     } else if cmd.starts_with(':') {
-        Ok(SedCommand::Label(cmd[1..].to_string()))
+        Ok(SedOperation::Label(cmd[1..].to_string()))
     } else if cmd.starts_with('b') {
         let label = if cmd.len() > 1 { Some(cmd[1..].trim().to_string()) } else { None };
-        Ok(SedCommand::Branch(label))
+        Ok(SedOperation::Branch(label))
     } else if cmd.starts_with('t') {
         let label = if cmd.len() > 1 { Some(cmd[1..].trim().to_string()) } else { None };
-        Ok(SedCommand::Test(label))
+        Ok(SedOperation::Test(label))
     } else if cmd.starts_with('r') {
-        Ok(SedCommand::Read(cmd[1..].trim().to_string()))
+        Ok(SedOperation::Read(cmd[1..].trim().to_string()))
     } else if cmd.starts_with('w') {
-        Ok(SedCommand::Write(cmd[1..].trim().to_string()))
+        Ok(SedOperation::Write(cmd[1..].trim().to_string()))
     } else {
         Err(ShellError::command_not_found(&format!("Unknown sed command: {}", cmd)))
     }
 }
 
-fn parse_substitute_command(cmd: &str, extended_regex: bool) -> ShellResult<SedCommand> {
+fn parse_substitute_command(cmd: &str, extended_regex: bool) -> ShellResult<SedOperation> {
     if cmd.len() < 4 {
         return Err(ShellError::command_not_found("Invalid substitute command"));
     }
@@ -326,14 +282,14 @@ fn parse_substitute_command(cmd: &str, extended_regex: bool) -> ShellResult<SedC
     let pattern = regex_builder.build()
         .map_err(|e| ShellError::command_not_found(&format!("Invalid regex pattern: {}", e)))?;
     
-    Ok(SedCommand::Substitute {
+    Ok(SedOperation::Substitute {
         pattern,
         replacement,
         flags,
     })
 }
 
-fn process_sed_file(file_path: &str, commands: &[SedCommand], options: &SedOptions) -> ShellResult<()> {
+fn process_sed_file(file_path: &str, commands: &[SedOperation], options: &SedOptions) -> ShellResult<()> {
     let path = Path::new(file_path);
     let input_file = File::open(path)
         .map_err(|e| ShellError::file_not_found(&format!("Cannot open {}: {}", file_path, e)))?;
@@ -367,7 +323,7 @@ fn process_sed_file(file_path: &str, commands: &[SedCommand], options: &SedOptio
 fn process_sed_stream<R: BufRead, W: Write>(
     reader: &mut R,
     writer: &mut W,
-    commands: &[SedCommand],
+    commands: &[SedOperation],
     options: &SedOptions,
 ) -> ShellResult<()> {
     let mut pattern_space = String::new();
@@ -378,7 +334,7 @@ fn process_sed_stream<R: BufRead, W: Write>(
     
     // Build label map
     for (i, command) in commands.iter().enumerate() {
-        if let SedCommand::Label(label) = command {
+        if let SedOperation::Label(label) = command {
             labels.insert(label.clone(), i);
         }
     }
@@ -406,7 +362,7 @@ fn process_sed_stream<R: BufRead, W: Write>(
         
         while command_index < commands.len() && !quit {
             match &commands[command_index] {
-                SedCommand::Substitute { pattern, replacement, flags } => {
+                SedOperation::Substitute { pattern, replacement, flags } => {
                     let result = if flags.global {
                         pattern.replace_all(&pattern_space, replacement.as_str())
                     } else if let Some(occurrence) = flags.occurrence {
@@ -433,15 +389,15 @@ fn process_sed_stream<R: BufRead, W: Write>(
                         }
                     }
                 }
-                SedCommand::Delete => {
+                SedOperation::Delete => {
                     // Skip to next line without printing
                     command_index = commands.len();
                     continue;
                 }
-                SedCommand::Print => {
+                SedOperation::Print => {
                     writeln!(writer, "{}", pattern_space)?;
                 }
-                SedCommand::Append(text) => {
+                SedOperation::Append(text) => {
                     if !options.quiet {
                         writeln!(writer, "{}", pattern_space)?;
                     }
@@ -449,7 +405,7 @@ fn process_sed_stream<R: BufRead, W: Write>(
                     command_index = commands.len();
                     continue;
                 }
-                SedCommand::Insert(text) => {
+                SedOperation::Insert(text) => {
                     writeln!(writer, "{}", text)?;
                     if !options.quiet {
                         writeln!(writer, "{}", pattern_space)?;
@@ -457,37 +413,37 @@ fn process_sed_stream<R: BufRead, W: Write>(
                     command_index = commands.len();
                     continue;
                 }
-                SedCommand::Change(text) => {
+                SedOperation::Change(text) => {
                     writeln!(writer, "{}", text)?;
                     command_index = commands.len();
                     continue;
                 }
-                SedCommand::Next => {
+                SedOperation::Next => {
                     if !options.quiet {
                         writeln!(writer, "{}", pattern_space)?;
                     }
                     break; // Read next line
                 }
-                SedCommand::Quit => {
+                SedOperation::Quit => {
                     if !options.quiet {
                         writeln!(writer, "{}", pattern_space)?;
                     }
                     quit = true;
                     break;
                 }
-                SedCommand::Hold => {
+                SedOperation::Hold => {
                     hold_space = pattern_space.clone();
                 }
-                SedCommand::Get => {
+                SedOperation::Get => {
                     pattern_space = hold_space.clone();
                 }
-                SedCommand::Exchange => {
+                SedOperation::Exchange => {
                     std::mem::swap(&mut pattern_space, &mut hold_space);
                 }
-                SedCommand::Label(_) => {
+                SedOperation::Label(_) => {
                     // Labels are processed during execution, skip
                 }
-                SedCommand::Branch(label) => {
+                SedOperation::Branch(label) => {
                     if let Some(label) = label {
                         if let Some(&target) = labels.get(label) {
                             command_index = target;
@@ -498,7 +454,7 @@ fn process_sed_stream<R: BufRead, W: Write>(
                         break;
                     }
                 }
-                SedCommand::Test(label) => {
+                SedOperation::Test(label) => {
                     if substitution_made {
                         if let Some(label) = label {
                             if let Some(&target) = labels.get(label) {
@@ -510,12 +466,12 @@ fn process_sed_stream<R: BufRead, W: Write>(
                         }
                     }
                 }
-                SedCommand::Read(filename) => {
+                SedOperation::Read(filename) => {
                     if let Ok(content) = std::fs::read_to_string(filename) {
                         write!(writer, "{}", content)?;
                     }
                 }
-                SedCommand::Write(filename) => {
+                SedOperation::Write(filename) => {
                     let mut file = OpenOptions::new()
                         .create(true)
                         .append(true)

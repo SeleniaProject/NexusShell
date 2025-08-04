@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 nxsh_core = { path = "../nxsh_core" }
-nxsh_builtins = { path = "../nxsh_builtins" }
+# nxsh_builtins = { path = "../nxsh_builtins" }  # Temporarily disabled
 nxsh_parser = { path = "../nxsh_parser" }
 ratatui = "0.26"
 crossterm = "0.27"
@@ -35,4 +35,11 @@ unicode-segmentation = "1.10"
 
 [features]
 default = ["async"]
-async = ["tokio"] 
+async = ["tokio"]
+
+[[example]]
+name = "theme_system_test"
+path = "src/theme_system_test.rs"
+
+[dev-dependencies]
+tempfile = "3.8"

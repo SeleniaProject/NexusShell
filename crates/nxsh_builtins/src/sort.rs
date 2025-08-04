@@ -5,7 +5,8 @@
 use crate::common::{i18n::*, logging::*};
 use std::io::Write;
 use std::collections::HashMap;
-use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError};
+use nxsh_core::{Builtin, Context, ShellContext, ExecutionResult, ShellResult, ShellError};
+use nxsh_core::executor::{ExecutionStrategy, ExecutionMetrics};
 use rayon::prelude::*;
 use anyhow::{anyhow, Result};
 use std::cmp::Ordering;
@@ -28,7 +29,7 @@ fn io_error(msg: &str) -> ShellError {
     )
 }
 
-pub struct SortBuiltin;
+pub struct SortCommand;
 
 #[derive(Debug, Clone)]
 pub struct SortOptions {
@@ -75,7 +76,7 @@ pub struct SortKeyOptions {
     pub dictionary_order: bool,
 }
 
-impl Builtin for SortBuiltin {
+impl Builtin for SortCommand {
     fn name(&self) -> &'static str {
         "sort"
     }
@@ -84,20 +85,29 @@ impl Builtin for SortBuiltin {
         "sort lines of text files"
     }
 
+    fn help(&self) -> &'static str {
+        "Sort lines of text files according to various criteria"
+    }
+
     fn description(&self) -> &'static str {
         "Sort lines of text files according to various criteria"
     }
 
-    fn invoke(&self, ctx: &mut Context) -> ShellResult<ExecutionResult> {
-        let args = &ctx.args;
+    fn usage(&self) -> &'static str {
+        "sort [OPTIONS] [FILE...]"
+    }
+
+    fn execute(&self, ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
         let options = parse_sort_args(args)?;
 
         if options.check || options.check_silent {
-            return check_sorted(&options);
+            check_sorted(&options)?;
+            return Ok(ExecutionResult::success(0));
         }
 
         if options.merge {
-            return merge_sorted_files(&options);
+            merge_sorted_files(&options)?;
+            return Ok(ExecutionResult::success(0));
         }
 
         let mut lines = collect_lines(&options)?;
@@ -116,60 +126,14 @@ impl Builtin for SortBuiltin {
         }
 
         output_lines(&lines, &options)?;
-        Ok(ExecutionResult {
-            exit_code: 0,
-            output: None,
-            error: None,
-            duration: std::time::Duration::from_secs(0),
-            pid: None,
-            job_id: None,
-        })
+        Ok(ExecutionResult::success(0))
     }
+}
 
-    fn usage(&self) -> &'static str {
-        "sort - sort lines of text files
-
-USAGE:
-    sort [OPTIONS] [FILE...]
-
-OPTIONS:
-    -b, --ignore-leading-blanks    Ignore leading blanks
-    -d, --dictionary-order         Consider only blanks and alphanumeric characters
-    -f, --ignore-case              Fold lower case to upper case characters
-    -g, --general-numeric-sort     Compare according to general numerical value
-    -h, --human-numeric-sort       Compare human readable numbers (e.g., 2K 1G)
-    -i, --ignore-nonprinting       Consider only printable characters
-    -M, --month-sort               Compare (unknown) < 'JAN' < ... < 'DEC'
-    -n, --numeric-sort             Compare according to string numerical value
-    -R, --random-sort              Shuffle, but group identical keys
-    -r, --reverse                  Reverse the result of comparisons
-    -V, --version-sort             Natural sort of (version) numbers within text
-    -k, --key=KEYDEF               Sort via a key; KEYDEF gives location and type
-    -m, --merge                    Merge already sorted files; do not sort
-    -o, --output=FILE              Write result to FILE instead of standard output
-    -s, --stable                   Stabilize sort by disabling last-resort comparison
-    -S, --buffer-size=SIZE         Use SIZE for main memory buffer
-    -t, --field-separator=SEP      Use SEP instead of non-blank to blank transition
-    -T, --temporary-directory=DIR  Use DIR for temporaries, not $TMPDIR or /tmp
-    -u, --unique                   Output only the first of an equal run
-    -z, --zero-terminated          Line delimiter is NUL, not newline
-    -c, --check                    Check for sorted order, don't sort
-    -C, --check=quiet              Like -c, but don't report first bad line
-    --parallel=N                   Change the number of sorts run concurrently to N
-    --help                         Display this help and exit
-
-KEY FORMAT:
-    F[.C][OPTS][,F[.C][OPTS]]
-    F is a field number, C a character position in the field
-    OPTS is one or more single-letter ordering options [bdfgiMhnRrV]
-
-EXAMPLES:
-    sort file.txt                  Sort file alphabetically
-    sort -n numbers.txt            Sort numerically
-    sort -k2,2 -k1,1 data.txt     Sort by 2nd field, then 1st field
-    sort -t: -k3,3n /etc/passwd   Sort by 3rd field numerically, using : as separator
-    sort -u file.txt               Sort and remove duplicates
-    sort -r file.txt               Sort in reverse order"
+impl SortCommand {
+    /// Create a new sort command instance
+    pub fn new() -> Self {
+        SortCommand
     }
 }
 
@@ -679,22 +643,22 @@ fn check_sorted(options: &SortOptions) -> ShellResult<ExecutionResult> {
             }
             return Ok(ExecutionResult {
                 exit_code: 1,
-                output: None,
-                error: None,
-                duration: std::time::Duration::from_secs(0),
-                pid: None,
-                job_id: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                execution_time: 0,
+                strategy: ExecutionStrategy::DirectInterpreter,
+                metrics: ExecutionMetrics::default(),
             });
         }
     }
     
     Ok(ExecutionResult {
         exit_code: 0,
-        output: None,
-        error: None,
-        duration: std::time::Duration::from_secs(0),
-        pid: None,
-        job_id: None,
+        stdout: String::new(),
+        stderr: String::new(),
+        execution_time: 0,
+        strategy: ExecutionStrategy::DirectInterpreter,
+        metrics: ExecutionMetrics::default(),
     })
 }
 
@@ -704,11 +668,11 @@ fn merge_sorted_files(options: &SortOptions) -> ShellResult<ExecutionResult> {
     output_lines(&lines, options)?;
     Ok(ExecutionResult {
         exit_code: 0,
-        output: None,
-        error: None,
-        duration: std::time::Duration::from_secs(0),
-        pid: None,
-        job_id: None,
+        stdout: String::new(),
+        stderr: String::new(),
+        execution_time: 0,
+        strategy: ExecutionStrategy::DirectInterpreter,
+        metrics: ExecutionMetrics::default(),
     })
 }
 

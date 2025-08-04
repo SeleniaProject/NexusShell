@@ -16,7 +16,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use nxsh_core::context::ShellContext;
-use nxsh_builtins::Builtin;
+// use nxsh_builtins::Builtin;  // Temporarily disabled
 
 /// Main completion engine for NexusShell
 pub struct NexusCompleter {
@@ -131,6 +131,35 @@ impl NexusCompleter {
         for (cmd, desc) in common_builtins {
             self.add_builtin(cmd, desc);
         }
+    }
+
+    /// Add built-in commands for completion
+    pub fn add_builtin_commands(&mut self, commands: &[&str]) {
+        for &cmd in commands {
+            self.builtin_cache.insert(cmd.to_string(), format!("Built-in command: {}", cmd));
+        }
+    }
+
+    /// Add shell keywords for completion  
+    pub fn add_keywords(&mut self, keywords: &[&str]) {
+        for &keyword in keywords {
+            self.builtin_cache.insert(keyword.to_string(), format!("Shell keyword: {}", keyword));
+        }
+    }
+
+    /// Enable or disable path completion
+    pub fn enable_path_completion(&mut self, enabled: bool) {
+        self.completion_config.enable_path_completion = enabled;
+    }
+
+    /// Enable or disable variable completion
+    pub fn enable_variable_completion(&mut self, enabled: bool) {
+        self.completion_config.enable_variable_completion = enabled;
+    }
+
+    /// Enable or disable history-based completion
+    pub fn enable_history_completion(&mut self, enabled: bool) {
+        self.completion_config.enable_history_completion = enabled;
     }
 
     /// Get completion candidates for the given context
@@ -509,6 +538,9 @@ pub struct CompletionConfig {
     pub max_candidates: usize,
     pub case_sensitive: bool,
     pub show_descriptions: bool,
+    pub enable_path_completion: bool,
+    pub enable_variable_completion: bool,
+    pub enable_history_completion: bool,
 }
 
 impl Default for CompletionConfig {
@@ -518,6 +550,9 @@ impl Default for CompletionConfig {
             max_candidates: 50,
             case_sensitive: false,
             show_descriptions: true,
+            enable_path_completion: true,
+            enable_variable_completion: true,
+            enable_history_completion: true,
         }
     }
 }

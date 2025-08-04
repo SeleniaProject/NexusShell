@@ -95,9 +95,153 @@ impl SyntaxHighlighter {
         spans
     }
 
-    /// Set highlighting theme (placeholder for future theme support)
-    pub fn set_theme(&mut self, _theme_name: &str) -> Result<()> {
-        // TODO: Implement theme changing
+    /// Set highlighting theme (complete theme integration)
+    pub fn set_theme(&mut self, theme_config: &crate::themes::ThemeConfig) -> Result<()> {
+        use crate::themes::SyntaxElement;
+        
+        // Update styles based on theme config
+        self.keyword_style = Style::default()
+            .fg(Color::Rgb(
+                theme_config.get_syntax_color(SyntaxElement::Keyword).r,
+                theme_config.get_syntax_color(SyntaxElement::Keyword).g,
+                theme_config.get_syntax_color(SyntaxElement::Keyword).b
+            ))
+            .add_modifier(Modifier::BOLD);
+            
+        self.string_style = Style::default()
+            .fg(Color::Rgb(
+                theme_config.get_syntax_color(SyntaxElement::String).r,
+                theme_config.get_syntax_color(SyntaxElement::String).g,
+                theme_config.get_syntax_color(SyntaxElement::String).b
+            ));
+            
+        self.comment_style = Style::default()
+            .fg(Color::Rgb(
+                theme_config.get_syntax_color(SyntaxElement::Comment).r,
+                theme_config.get_syntax_color(SyntaxElement::Comment).g,
+                theme_config.get_syntax_color(SyntaxElement::Comment).b
+            ))
+            .add_modifier(Modifier::ITALIC);
+            
+        self.variable_style = Style::default()
+            .fg(Color::Rgb(
+                theme_config.get_syntax_color(SyntaxElement::Variable).r,
+                theme_config.get_syntax_color(SyntaxElement::Variable).g,
+                theme_config.get_syntax_color(SyntaxElement::Variable).b
+            ));
+            
+        self.command_style = Style::default()
+            .fg(Color::Rgb(
+                theme_config.get_syntax_color(SyntaxElement::Function).r,
+                theme_config.get_syntax_color(SyntaxElement::Function).g,
+                theme_config.get_syntax_color(SyntaxElement::Function).b
+            ));
+
+        // Rebuild patterns with new styles
+        self.rebuild_patterns(theme_config)?;
+        
+        Ok(())
+    }
+    
+    /// Rebuild highlighting patterns with new theme colors
+    fn rebuild_patterns(&mut self, theme_config: &crate::themes::ThemeConfig) -> Result<()> {
+        use crate::themes::SyntaxElement;
+        
+        self.shell_patterns = vec![
+            // Shell keywords
+            (Regex::new(r"\b(if|then|else|elif|fi|for|while|do|done|case|esac|function|return|exit|break|continue|echo|cd|ls|pwd|mkdir|rm|cp|mv|grep|find|cat|head|tail|sort|uniq|cut|awk|sed)\b")?, 
+             Style::default()
+                .fg(Color::Rgb(
+                    theme_config.get_syntax_color(SyntaxElement::Keyword).r,
+                    theme_config.get_syntax_color(SyntaxElement::Keyword).g,
+                    theme_config.get_syntax_color(SyntaxElement::Keyword).b
+                ))
+                .add_modifier(Modifier::BOLD)),
+                
+            // Operators and punctuation
+            (Regex::new(r"[&|;()<>{}\[\]\\+*/%-=!]")?, 
+             Style::default()
+                .fg(Color::Rgb(
+                    theme_config.get_syntax_color(SyntaxElement::Operator).r,
+                    theme_config.get_syntax_color(SyntaxElement::Operator).g,
+                    theme_config.get_syntax_color(SyntaxElement::Operator).b
+                ))),
+                
+            // Numbers
+            (Regex::new(r"\b\d+(\.\d+)?\b")?, 
+             Style::default()
+                .fg(Color::Rgb(
+                    theme_config.get_syntax_color(SyntaxElement::Number).r,
+                    theme_config.get_syntax_color(SyntaxElement::Number).g,
+                    theme_config.get_syntax_color(SyntaxElement::Number).b
+                ))),
+                
+            // Double quoted strings
+            (Regex::new(r#""[^"]*""#)?, 
+             Style::default()
+                .fg(Color::Rgb(
+                    theme_config.get_syntax_color(SyntaxElement::String).r,
+                    theme_config.get_syntax_color(SyntaxElement::String).g,
+                    theme_config.get_syntax_color(SyntaxElement::String).b
+                ))),
+                
+            // Single quoted strings
+            (Regex::new(r"'[^']*'")?, 
+             Style::default()
+                .fg(Color::Rgb(
+                    theme_config.get_syntax_color(SyntaxElement::String).r,
+                    theme_config.get_syntax_color(SyntaxElement::String).g,
+                    theme_config.get_syntax_color(SyntaxElement::String).b
+                ))),
+                
+            // Comments
+            (Regex::new(r"#.*$")?, 
+             Style::default()
+                .fg(Color::Rgb(
+                    theme_config.get_syntax_color(SyntaxElement::Comment).r,
+                    theme_config.get_syntax_color(SyntaxElement::Comment).g,
+                    theme_config.get_syntax_color(SyntaxElement::Comment).b
+                ))
+                .add_modifier(Modifier::ITALIC)),
+                
+            // Environment variables
+            (Regex::new(r"\$\w+")?, 
+             Style::default()
+                .fg(Color::Rgb(
+                    theme_config.get_syntax_color(SyntaxElement::Variable).r,
+                    theme_config.get_syntax_color(SyntaxElement::Variable).g,
+                    theme_config.get_syntax_color(SyntaxElement::Variable).b
+                ))),
+                
+            // Brace-enclosed variables
+            (Regex::new(r"\$\{[^}]+\}")?, 
+             Style::default()
+                .fg(Color::Rgb(
+                    theme_config.get_syntax_color(SyntaxElement::Variable).r,
+                    theme_config.get_syntax_color(SyntaxElement::Variable).g,
+                    theme_config.get_syntax_color(SyntaxElement::Variable).b
+                ))),
+                
+            // File paths and URLs
+            (Regex::new(r"(?:/[^\s]*|https?://[^\s]*)")?, 
+             Style::default()
+                .fg(Color::Rgb(
+                    theme_config.get_syntax_color(SyntaxElement::Constant).r,
+                    theme_config.get_syntax_color(SyntaxElement::Constant).g,
+                    theme_config.get_syntax_color(SyntaxElement::Constant).b
+                ))
+                .add_modifier(Modifier::UNDERLINED)),
+                
+            // Escape sequences
+            (Regex::new(r"\\.")?, 
+             Style::default()
+                .fg(Color::Rgb(
+                    theme_config.get_syntax_color(SyntaxElement::Escape).r,
+                    theme_config.get_syntax_color(SyntaxElement::Escape).g,
+                    theme_config.get_syntax_color(SyntaxElement::Escape).b
+                ))),
+        ];
+        
         Ok(())
     }
 
@@ -140,8 +284,8 @@ impl RealtimeHighlighter {
     }
 
     /// Set highlighting theme
-    pub fn set_theme(&mut self, theme_name: &str) -> Result<()> {
-        self.highlighter.set_theme(theme_name)?;
+    pub fn set_theme(&mut self, theme_config: &crate::themes::ThemeConfig) -> Result<()> {
+        self.highlighter.set_theme(theme_config)?;
         self.clear_cache(); // Clear cache when theme changes
         Ok(())
     }
