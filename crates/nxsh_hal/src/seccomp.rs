@@ -1,34 +1,55 @@
-#[cfg(target_os = "linux")]
-use anyhow::Result;
-#[cfg(target_os = "linux")]
-use seccomp_sys::*;
+// Pure Rust seccomp implementation - no C/C++ dependencies
 
 #[cfg(target_os = "linux")]
-/// Apply a conservative seccomp filter allowing only read, write, exit, and fstat.
-pub fn apply_seccomp() -> Result<()> {
-    unsafe {
-        let ctx = seccomp_init(SCMP_ACT_KILL_PROCESS as u32);
-        if ctx.is_null() { anyhow::bail!("seccomp_init failed"); }
-        let allow = |call| {
-            let res = seccomp_rule_add(ctx, SCMP_ACT_ALLOW as u32, call as i32, 0);
-            if res != 0 { anyhow::bail!("seccomp_rule_add failed"); }
-            Ok(())
-        };
-        
-        // Use system call numbers directly instead of libc constants for C/C++ independence
-        // These are standard Linux syscall numbers defined in the kernel ABI
-        allow(0)?;    // SYS_read
-        allow(1)?;    // SYS_write  
-        allow(5)?;    // SYS_fstat (x86_64)
-        allow(60)?;   // SYS_exit (x86_64)
-        allow(231)?;  // SYS_exit_group (x86_64)
-        
-        if seccomp_load(ctx) != 0 {
-            anyhow::bail!("seccomp_load failed");
-        }
+use seccomp::{Context, Action, ScmpSyscall};
+
+/// Apply a conservative seccomp filter allowing only essential system calls for shell operations.
+/// This implementation uses pure Rust seccomp library instead of C bindings.
+#[cfg(target_os = "linux")]
+pub fn apply_seccomp() -> anyhow::Result<()> {
+    // Create seccomp context with default deny action
+    let mut ctx = Context::new(Action::KillProcess)?;
+    
+    // Allow essential system calls for shell operations
+    let allowed_syscalls = [
+        ScmpSyscall::from_name("read")?,
+        ScmpSyscall::from_name("write")?,
+        ScmpSyscall::from_name("exit")?,
+        ScmpSyscall::from_name("exit_group")?,
+        ScmpSyscall::from_name("fstat")?,
+        ScmpSyscall::from_name("newfstatat")?,
+        ScmpSyscall::from_name("close")?,
+        ScmpSyscall::from_name("mmap")?,
+        ScmpSyscall::from_name("munmap")?,
+        ScmpSyscall::from_name("brk")?,
+        ScmpSyscall::from_name("rt_sigaction")?,
+        ScmpSyscall::from_name("rt_sigprocmask")?,
+        ScmpSyscall::from_name("ioctl")?,
+        ScmpSyscall::from_name("poll")?,
+        ScmpSyscall::from_name("lseek")?,
+        ScmpSyscall::from_name("getcwd")?,
+        ScmpSyscall::from_name("chdir")?,
+        ScmpSyscall::from_name("openat")?,
+        ScmpSyscall::from_name("execve")?,
+        ScmpSyscall::from_name("wait4")?,
+        ScmpSyscall::from_name("pipe")?,
+        ScmpSyscall::from_name("dup2")?,
+        ScmpSyscall::from_name("fork")?,
+        ScmpSyscall::from_name("clone")?,
+    ];
+    
+    // Add rules to allow these system calls
+    for syscall in &allowed_syscalls {
+        ctx.add_rule(Action::Allow, *syscall)?;
     }
+    
+    // Load the seccomp filter
+    ctx.load()?;
     Ok(())
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn apply_seccomp() -> anyhow::Result<()> { Ok(()) } 
+pub fn apply_seccomp() -> anyhow::Result<()> { 
+    // Seccomp is Linux-specific, no-op on other platforms
+    Ok(()) 
+} 

@@ -2918,7 +2918,7 @@ dependencies = [
  "chrono",
  "nix 0.27.1",
  "num_cpus",
- "seccomp-sys",
+ "seccomp",
  "tempfile",
  "winapi 0.3.9",
  "windows-sys 0.52.0",
@@ -3876,6 +3876,16 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "seccomp"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ca3dd4474d15e6fdaea3c411bfa688c55cd1ae0051391a2b46581fffaed315b"
+dependencies = [
+ "libc",
+ "seccomp-sys",
+]
 
 [[package]]
 name = "seccomp-sys"

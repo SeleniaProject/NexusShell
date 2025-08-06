@@ -12,7 +12,8 @@ chrono = { version = "0.4", features = ["serde"] }
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.27", default-features = false, features = ["fs", "process", "signal", "sched", "mount", "mman"] }
 # libc = "0.2"  # Removed C/C++ dependency - replaced with nix
-seccomp-sys = "0.1"
+# seccomp-sys = "0.1"  # Removed C/C++ dependency - replaced with pure Rust seccomp
+seccomp = { version = "0.1", default-features = false }  # Pure Rust seccomp implementation
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["winsock2", "ws2def", "ws2ipdef", "iphlpapi"] }
