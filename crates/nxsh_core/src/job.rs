@@ -430,6 +430,38 @@ impl JobManager {
         }
     }
 
+    /// Safely acquire a read lock on jobs
+    fn get_jobs_read(&self) -> ShellResult<std::sync::RwLockReadGuard<'_, HashMap<JobId, Job>>> {
+        self.jobs.read().map_err(|_| ShellError::new(
+            ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+            "Failed to acquire read lock on jobs".to_string()
+        ))
+    }
+
+    /// Safely acquire a write lock on jobs  
+    fn get_jobs_write(&self) -> ShellResult<std::sync::RwLockWriteGuard<'_, HashMap<JobId, Job>>> {
+        self.jobs.write().map_err(|_| ShellError::new(
+            ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+            "Failed to acquire write lock on jobs".to_string()
+        ))
+    }
+
+    /// Safely acquire a lock on next job ID
+    fn get_next_job_id_lock(&self) -> ShellResult<std::sync::MutexGuard<'_, JobId>> {
+        self.next_job_id.lock().map_err(|_| ShellError::new(
+            ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+            "Failed to acquire lock on next job ID".to_string()
+        ))
+    }
+
+    /// Safely acquire a lock on foreground job
+    fn get_foreground_job_lock(&self) -> ShellResult<std::sync::MutexGuard<'_, Option<JobId>>> {
+        self.foreground_job.lock().map_err(|_| ShellError::new(
+            ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+            "Failed to acquire lock on foreground job".to_string()
+        ))
+    }
+
     /// Enable or disable job control
     pub fn set_job_control(&mut self, enabled: bool) {
         self.job_control_enabled = enabled;
@@ -441,9 +473,9 @@ impl JobManager {
     }
 
     /// Create a new job
-    pub fn create_job(&mut self, description: String) -> JobId {
+    pub fn create_job(&mut self, description: String) -> ShellResult<JobId> {
         let job_id = {
-            let mut next_id = self.next_job_id.lock().unwrap();
+            let mut next_id = self.get_next_job_id_lock()?;
             let id = *next_id;
             *next_id += 1;
             id
@@ -452,7 +484,7 @@ impl JobManager {
         let job = Job::new(job_id, description.clone());
         
         {
-            let mut jobs = self.jobs.write().unwrap();
+            let mut jobs = self.get_jobs_write()?;
             jobs.insert(job_id, job);
         }
 
@@ -462,13 +494,13 @@ impl JobManager {
             description,
         });
 
-        job_id
+        Ok(job_id)
     }
 
     /// Get a job by ID
-    pub fn get_job(&self, job_id: JobId) -> Option<Job> {
-        let jobs = self.jobs.read().unwrap();
-        jobs.get(&job_id).cloned()
+    pub fn get_job(&self, job_id: JobId) -> ShellResult<Option<Job>> {
+        let jobs = self.get_jobs_read()?;
+        Ok(jobs.get(&job_id).cloned())
     }
 
     /// Get a mutable reference to a job by ID
@@ -634,15 +666,196 @@ impl JobManager {
         
         #[cfg(windows)]
         {
-            // Windows doesn't have process groups in the same way
-            // This would need platform-specific implementation
-            return Err(ShellError::new(
-                ErrorKind::IoError(crate::error::IoErrorKind::Other),
-                "Background job execution not yet implemented".to_string()
-            ))
+            // Windows implementation using Win32 API for job objects and process management
+            use std::process::Command;
+            
+            match signal {
+                JobSignal::Terminate | JobSignal::Kill => {
+                    // Use taskkill for termination on Windows
+                    let kill_command = if signal == JobSignal::Kill { "/F" } else { "/T" };
+                    let _ = Command::new("taskkill")
+                        .args(&[kill_command, "/PID", &pgid.to_string()])
+                        .output()
+                        .map_err(|e| ShellError::new(
+                            ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
+                            format!("Failed to send signal on Windows: {}", e)
+                        ))?;
+                }
+                JobSignal::Stop => {
+                    // Windows doesn't have SIGSTOP equivalent, but we can suspend the process
+                    // This is a simplified implementation - real implementation would use Win32 API
+                    return Err(ShellError::new(
+                        ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
+                        "Process suspension not implemented on Windows".to_string()
+                    ));
+                }
+                JobSignal::Continue => {
+                    // Windows doesn't have SIGCONT equivalent
+                    return Err(ShellError::new(
+                        ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
+                        "Process continuation not implemented on Windows".to_string()
+                    ));
+                }
+                _ => {
+                    return Err(ShellError::new(
+                        ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
+                        format!("Signal {:?} not supported on Windows", signal)
+                    ));
+                }
+            }
         }
         
         Ok(())
+    }
+
+    /// Spawn a background job
+    pub fn spawn_background_job(&mut self, command: String, args: Vec<String>) -> ShellResult<JobId> {
+        let job_id = self.create_job(format!("{} {}", command, args.join(" ")))?;
+        
+        // Spawn the process
+        #[cfg(unix)]
+        {
+            use std::process::{Command, Stdio};
+            use nix::unistd::{setpgid, Pid};
+            
+            let mut cmd = Command::new(&command);
+            cmd.args(&args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            
+            let child = cmd.spawn()
+                .map_err(|e| ShellError::new(
+                    ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
+                    format!("Failed to spawn background process: {}", e)
+                ))?;
+            
+            let pid = child.id();
+            let pgid = pid; // Use PID as PGID for new process group
+            
+            // Set process group for job control
+            if let Err(e) = setpgid(Pid::from_raw(pid as i32), Pid::from_raw(pgid as i32)) {
+                eprintln!("Warning: Failed to set process group: {}", e);
+            }
+            
+            let process_info = crate::job::ProcessInfo::new(pid, pgid, format!("{} {}", command, args.join(" ")));
+            self.add_process_to_job(job_id, process_info)?;
+            
+            // Start monitoring thread for this job
+            self.start_job_monitor(job_id, child);
+        }
+        
+        #[cfg(windows)]
+        {
+            use std::process::{Command, Stdio};
+            
+            let mut cmd = Command::new(&command);
+            cmd.args(&args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            
+            let child = cmd.spawn()
+                .map_err(|e| ShellError::new(
+                    ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
+                    format!("Failed to spawn background process: {}", e)
+                ))?;
+            
+            let pid = child.id();
+            let pgid = pid; // Windows doesn't have process groups like Unix
+            
+            let process_info = crate::job::ProcessInfo::new(pid, pgid, format!("{} {}", command, args.join(" ")));
+            self.add_process_to_job(job_id, process_info)?;
+            
+            // Start monitoring thread for this job
+            self.start_job_monitor(job_id, child);
+        }
+        
+        // Move job to background
+        self.move_job_to_background(job_id)?;
+        
+        Ok(job_id)
+    }
+    
+    /// Start a monitoring thread for a background job
+    fn start_job_monitor(&self, job_id: JobId, mut child: std::process::Child) {
+        let jobs = Arc::clone(&self.jobs);
+        let notification_tx = self.notification_tx.clone();
+        
+        std::thread::spawn(move || {
+            // Wait for process completion
+            match child.wait() {
+                Ok(exit_status) => {
+                    let new_status = if exit_status.success() {
+                        JobStatus::Done(exit_status.code().unwrap_or(0))
+                    } else {
+                        JobStatus::Failed(format!("Process exited with code: {}", 
+                            exit_status.code().unwrap_or(-1)))
+                    };
+                    
+                    // Update job status
+                    if let Ok(mut jobs_guard) = jobs.write() {
+                        if let Some(job) = jobs_guard.get_mut(&job_id) {
+                            let old_status = job.status.clone();
+                            job.status = new_status.clone();
+                            job.completed_at = Some(std::time::Instant::now());
+                            
+                            // Update process status
+                            if let Some(process) = job.processes.get_mut(0) {
+                                process.status = new_status.clone();
+                                process.end_time = Some(std::time::Instant::now());
+                                process.exit_status = Some(exit_status);
+                            }
+                            
+                            // Send notification
+                            let _ = notification_tx.send(JobNotification::StatusChanged {
+                                job_id,
+                                old_status,
+                                new_status,
+                            });
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error waiting for background job {}: {}", job_id, e);
+                    
+                    // Update job as failed
+                    if let Ok(mut jobs_guard) = jobs.write() {
+                        if let Some(job) = jobs_guard.get_mut(&job_id) {
+                            let old_status = job.status.clone();
+                            let new_status = JobStatus::Failed(format!("Wait error: {}", e));
+                            job.status = new_status.clone();
+                            job.completed_at = Some(std::time::Instant::now());
+                            
+                            // Send notification
+                            let _ = notification_tx.send(JobNotification::StatusChanged {
+                                job_id,
+                                old_status,
+                                new_status,
+                            });
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    /// Get job notifications channel receiver
+    pub fn get_notification_receiver(&self) -> Arc<std::sync::Mutex<std::sync::mpsc::Receiver<JobNotification>>> {
+        Arc::clone(&self.notification_rx)
+    }
+
+    /// Process pending job notifications
+    pub fn process_notifications(&self) -> Vec<JobNotification> {
+        let mut notifications = Vec::new();
+        
+        if let Ok(rx) = self.notification_rx.lock() {
+            while let Ok(notification) = rx.try_recv() {
+                notifications.push(notification);
+            }
+        }
+        
+        notifications
     }
 
     /// Move job to foreground
@@ -706,8 +919,9 @@ impl JobManager {
     }
 
     /// Get current foreground job
-    pub fn get_foreground_job(&self) -> Option<JobId> {
-        *self.foreground_job.lock().unwrap()
+    pub fn get_foreground_job(&self) -> ShellResult<Option<JobId>> {
+        let fg_job = self.get_foreground_job_lock()?;
+        Ok(*fg_job)
     }
 
     /// Wait for a job to complete
@@ -732,9 +946,9 @@ impl JobManager {
     }
 
     /// Clean up finished jobs
-    pub fn cleanup_finished_jobs(&mut self) {
+    pub fn cleanup_finished_jobs(&mut self) -> ShellResult<()> {
         let finished_jobs: Vec<JobId> = {
-            let jobs = self.jobs.read().unwrap();
+            let jobs = self.get_jobs_read()?;
             jobs.iter()
                 .filter(|(_, job)| job.is_finished())
                 .map(|(id, _)| *id)
@@ -742,13 +956,15 @@ impl JobManager {
         };
 
         for job_id in finished_jobs {
-            self.remove_job(job_id);
+            let _ = self.remove_job(job_id); // Ignore return value since we only want cleanup
         }
+        
+        Ok(())
     }
 
     /// Get job statistics
-    pub fn get_statistics(&self) -> JobStatistics {
-        let jobs = self.jobs.read().unwrap();
+    pub fn get_statistics(&self) -> ShellResult<JobStatistics> {
+        let jobs = self.get_jobs_read()?;
         
         let total_jobs = jobs.len();
         let running_jobs = jobs.values().filter(|job| job.is_running()).count();
@@ -759,7 +975,7 @@ impl JobManager {
         let total_cpu_time: Duration = jobs.values().map(|job| job.total_cpu_time()).sum();
         let total_memory_usage: u64 = jobs.values().map(|job| job.total_memory_usage()).sum();
 
-        JobStatistics {
+        Ok(JobStatistics {
             total_jobs,
             running_jobs,
             stopped_jobs,
@@ -767,7 +983,7 @@ impl JobManager {
             total_processes,
             total_cpu_time,
             total_memory_usage,
-        }
+        })
     }
 }
 
@@ -809,11 +1025,11 @@ mod tests {
     #[test]
     fn test_job_creation() {
         let mut manager = JobManager::new();
-        let job_id = manager.create_job("test command".to_string());
+        let job_id = manager.create_job("test command".to_string()).expect("Failed to create job");
         
         assert_eq!(job_id, 1);
         
-        let job = manager.get_job(job_id).unwrap();
+        let job = manager.get_job(job_id).expect("Failed to get job").expect("Job not found");
         assert_eq!(job.description, "test command");
         assert_eq!(job.processes.len(), 0);
     }
@@ -821,12 +1037,12 @@ mod tests {
     #[test]
     fn test_process_management() {
         let mut manager = JobManager::new();
-        let job_id = manager.create_job("test command".to_string());
+        let job_id = manager.create_job("test command".to_string()).expect("Failed to create job");
         
         let process = ProcessInfo::new(12345, 12345, "test".to_string());
-        manager.add_process_to_job(job_id, process).unwrap();
+        manager.add_process_to_job(job_id, process).expect("Failed to add process");
         
-        let job = manager.get_job(job_id).unwrap();
+        let job = manager.get_job(job_id).expect("Failed to get job").expect("Job not found");
         assert_eq!(job.processes.len(), 1);
         assert_eq!(job.processes[0].pid, 12345);
     }
@@ -834,11 +1050,11 @@ mod tests {
     #[test]
     fn test_job_status_updates() {
         let mut manager = JobManager::new();
-        let job_id = manager.create_job("test command".to_string());
+        let job_id = manager.create_job("test command".to_string()).expect("Failed to create job");
         
-        manager.update_job_status(job_id, JobStatus::Stopped).unwrap();
+        manager.update_job_status(job_id, JobStatus::Stopped).expect("Failed to update job status");
         
-        let job = manager.get_job(job_id).unwrap();
+        let job = manager.get_job(job_id).expect("Failed to get job").expect("Job not found");
         assert_eq!(job.status, JobStatus::Stopped);
     }
 } 

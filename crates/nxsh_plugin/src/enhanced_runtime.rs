@@ -230,7 +230,9 @@ impl EnhancedPluginRuntime {
     async fn initialize(&self) -> Result<()> {
         // Initialize core runtime
         let mut core_runtime = self.core_runtime.clone();
-        Arc::get_mut(&mut core_runtime).unwrap().initialize().await?;
+        let runtime_ref = Arc::get_mut(&mut core_runtime)
+            .ok_or_else(|| anyhow::anyhow!("Failed to get mutable reference to core runtime"))?;
+        runtime_ref.initialize().await?;
         
         // Initialize dynamic loader with runtime reference
         self.dynamic_loader.initialize(self.core_runtime.clone()).await?;
@@ -754,7 +756,7 @@ mod tests {
     #[tokio::test]
     async fn test_enhanced_runtime_creation() {
         let config = RuntimeConfig::default();
-        let runtime = EnhancedPluginRuntime::new(config).await.unwrap();
+        let runtime = EnhancedPluginRuntime::new(config).await.expect("Failed to create enhanced runtime");
         
         let plugins = runtime.list_plugins().await;
         assert_eq!(plugins.len(), 0);
@@ -770,7 +772,7 @@ mod tests {
         
         monitor.update_plugin_metrics("test_plugin", Duration::from_millis(100), true, 1024);
         
-        let metrics = monitor.plugin_metrics.get("test_plugin").unwrap();
+        let metrics = monitor.plugin_metrics.get("test_plugin").expect("Plugin metrics should exist");
         assert_eq!(metrics.total_calls, 1);
         assert_eq!(metrics.successful_calls, 1);
         assert_eq!(metrics.memory_usage, 1024);
@@ -779,9 +781,9 @@ mod tests {
     #[tokio::test]
     async fn test_garbage_collection() {
         let config = RuntimeConfig::default();
-        let runtime = EnhancedPluginRuntime::new(config).await.unwrap();
+        let runtime = EnhancedPluginRuntime::new(config).await.expect("Failed to create enhanced runtime");
         
-        let report = runtime.garbage_collect().await.unwrap();
+        let report = runtime.garbage_collect().await.expect("Failed to run garbage collection");
         assert_eq!(report.plugin_results.len(), 0); // No plugins loaded
     }
 }

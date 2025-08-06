@@ -6,7 +6,10 @@
 //!
 //! On Unix uses `libc::umask`. On Windows prints unsupported message.
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
+
+#[cfg(unix)]
+use nix::sys::stat::{umask, Mode};
 
 pub fn umask_cli(args: &[String]) -> Result<()> {
     #[cfg(windows)]
@@ -15,22 +18,23 @@ pub fn umask_cli(args: &[String]) -> Result<()> {
         return Ok(());
     }
     #[cfg(unix)]
-    unsafe {
+    {
         if args.is_empty() {
-            let current = libc::umask(0);
-            libc::umask(current); // restore
-            println!("{:04o}", current);
+            // Get current umask by setting to 0 and restoring
+            let current = umask(Mode::empty());
+            umask(current); // restore
+            println!("{:04o}", current.bits());
             return Ok(());
         }
         if args[0] == "-S" {
             // symbolic representation not implemented yet
-            let current = libc::umask(0);
-            libc::umask(current);
-            println!("current mask {:04o}", current);
+            let current = umask(Mode::empty());
+            umask(current);
+            println!("current mask {:04o}", current.bits());
             return Ok(());
         }
         let new_mask = u32::from_str_radix(&args[0], 8).map_err(|_| anyhow!("umask: invalid mode"))?;
-        let _prev = libc::umask(new_mask as libc::mode_t);
+        let _prev = umask(Mode::from_bits_truncate(new_mask));
         Ok(())
     }
 }

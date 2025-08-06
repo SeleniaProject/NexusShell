@@ -224,12 +224,10 @@ mod tests {
         assert!(result.is_success());
         
         // Verify the variable was set and exported
-        if let Some(var) = ctx.environment.get("TEST") {
-            assert_eq!(var.value, "value");
-            assert!(var.exported);
-        } else {
-            panic!("Variable TEST was not set");
-        }
+        let var = ctx.environment.get("TEST")
+            .expect("Variable TEST should be set after export command");
+        assert_eq!(var.value, "value");
+        assert!(var.exported);
     }
 
     #[test]
@@ -249,12 +247,10 @@ mod tests {
         assert!(result.is_success());
         
         // Verify the variable is now exported
-        if let Some(var) = ctx.environment.get("EXISTING") {
-            assert_eq!(var.value, "existing_value");
-            assert!(var.exported);
-        } else {
-            panic!("Variable EXISTING was not found");
-        }
+        let var = ctx.environment.get("EXISTING")
+            .expect("Variable EXISTING should be found after export command");
+        assert_eq!(var.value, "existing_value");
+        assert!(var.exported);
     }
 
     #[test]

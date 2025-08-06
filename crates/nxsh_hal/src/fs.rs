@@ -200,24 +200,22 @@ impl FileSystem {
         
         #[cfg(unix)]
         {
-            use std::ffi::CString;
-            use std::mem;
-
-            let path_cstr = CString::new(path.as_os_str().to_string_lossy().as_bytes())
-                .map_err(|_| HalError::invalid("Invalid path"))?;
-            let mut statfs: libc::statvfs = unsafe { mem::zeroed() };
+            // Use nix crate for safe statvfs instead of direct libc calls
+            use nix::sys::statvfs::statvfs;
             
-            let result = unsafe { libc::statvfs(path_cstr.as_ptr(), &mut statfs) };
-            if result != 0 {
-                return Err(HalError::io_error("statvfs", Some(path.to_str().unwrap_or("<invalid>")), 
-                                             io::Error::last_os_error()));
+            match statvfs(path) {
+                Ok(stat) => {
+                    Ok(DiskUsage {
+                        total: stat.blocks() * stat.fragment_size(),
+                        free: stat.blocks_available() * stat.fragment_size(),
+                        available: stat.blocks_available() * stat.fragment_size(),
+                    })
+                }
+                Err(err) => {
+                    Err(HalError::io_error("statvfs", Some(path.to_str().unwrap_or("<invalid>")), 
+                                           io::Error::from(err)))
+                }
             }
-
-            Ok(DiskUsage {
-                total: statfs.f_blocks * statfs.f_frsize,
-                free: statfs.f_bavail * statfs.f_frsize,
-                available: statfs.f_bavail * statfs.f_frsize,
-            })
         }
 
         #[cfg(windows)]
@@ -372,154 +370,32 @@ impl FileSystem {
         Ok(total_copied)
     }
 
-    // Platform-specific optimized copy methods
+    // Platform-optimized copy methods - using safe Rust alternatives instead of C/C++ dependencies
     #[cfg(target_os = "linux")]
     fn copy_with_copy_file_range(&self, from: &Path, to: &Path) -> HalResult<u64> {
-        use std::os::unix::io::AsRawFd;
-        use std::fs::File;
-        
-        // Open source and destination files
-        let src_file = File::open(from)
-            .map_err(|e| HalError::io_error("copy_file_range_open_src", Some(from.to_str().unwrap_or("<invalid>")), e))?;
-        let dst_file = File::create(to)
-            .map_err(|e| HalError::io_error("copy_file_range_create_dst", Some(to.to_str().unwrap_or("<invalid>")), e))?;
-        
-        let src_fd = src_file.as_raw_fd();
-        let dst_fd = dst_file.as_raw_fd();
-        
-        // Get source file size
-        let src_metadata = src_file.metadata()
-            .map_err(|e| HalError::io_error("copy_file_range_metadata", Some(from.to_str().unwrap_or("<invalid>")), e))?;
-        let file_size = src_metadata.len();
-        
-        if file_size == 0 {
-            return Ok(0);
-        }
-        
-        // Use copy_file_range syscall for zero-copy operation
-        let mut total_copied = 0u64;
-        let mut offset = 0i64;
-        
-        while total_copied < file_size {
-            let remaining = file_size - total_copied;
-            let chunk_size = std::cmp::min(remaining, 1024 * 1024 * 16); // 16MB chunks
-            
-            let copied = unsafe {
-                libc::syscall(
-                    libc::SYS_copy_file_range,
-                    src_fd,
-                    &mut offset as *mut i64,
-                    dst_fd,
-                    std::ptr::null_mut::<i64>(),
-                    chunk_size,
-                    0u32
-                )
-            };
-            
-            if copied < 0 {
-                let errno = std::io::Error::last_os_error();
-                return Err(HalError::io_error("copy_file_range", Some(to.to_str().unwrap_or("<invalid>")), errno));
-            }
-            
-            if copied == 0 {
-                // End of file or error
-                break;
-            }
-            
-            total_copied += copied as u64;
-        }
-        
-        Ok(total_copied)
+        // Instead of using unsafe libc syscalls, use safe Rust standard library
+        // This provides good performance while maintaining safety
+        let copied = std::fs::copy(from, to)
+            .map_err(|e| HalError::io_error("copy_file_safe", Some(to.to_str().unwrap_or("<invalid>")), e))?;
+        Ok(copied)
     }
 
     #[cfg(target_os = "linux")]
     fn copy_with_sendfile(&self, from: &Path, to: &Path) -> HalResult<u64> {
-        use std::os::unix::io::AsRawFd;
-        use std::fs::File;
-        
-        // Open source and destination files
-        let src_file = File::open(from)
-            .map_err(|e| HalError::io_error("sendfile_open_src", Some(from.to_str().unwrap_or("<invalid>")), e))?;
-        let dst_file = File::create(to)
-            .map_err(|e| HalError::io_error("sendfile_create_dst", Some(to.to_str().unwrap_or("<invalid>")), e))?;
-        
-        let src_fd = src_file.as_raw_fd();
-        let dst_fd = dst_file.as_raw_fd();
-        
-        // Get source file size
-        let src_metadata = src_file.metadata()
-            .map_err(|e| HalError::io_error("sendfile_metadata", Some(from.to_str().unwrap_or("<invalid>")), e))?;
-        let file_size = src_metadata.len();
-        
-        if file_size == 0 {
-            return Ok(0);
-        }
-        
-        // Use sendfile for efficient kernel-space copying
-        let mut total_sent = 0u64;
-        let mut offset = 0isize;
-        
-        while total_sent < file_size {
-            let remaining = file_size - total_sent;
-            let chunk_size = std::cmp::min(remaining, 1024 * 1024 * 16) as usize; // 16MB chunks
-            
-            let sent = unsafe {
-                libc::sendfile(dst_fd, src_fd, &mut offset as *mut isize, chunk_size)
-            };
-            
-            if sent < 0 {
-                let errno = std::io::Error::last_os_error();
-                return Err(HalError::io_error("sendfile", Some(to.to_str().unwrap_or("<invalid>")), errno));
-            }
-            
-            if sent == 0 {
-                // End of file
-                break;
-            }
-            
-            total_sent += sent as u64;
-        }
-        
-        Ok(total_sent)
+        // Instead of using unsafe libc sendfile, use safe Rust standard library
+        // This provides good performance while maintaining safety
+        let copied = std::fs::copy(from, to)
+            .map_err(|e| HalError::io_error("copy_file_safe", Some(to.to_str().unwrap_or("<invalid>")), e))?;
+        Ok(copied)
     }
 
     #[cfg(target_os = "macos")]
     fn copy_with_copyfile(&self, from: &Path, to: &Path) -> HalResult<u64> {
-        use std::ffi::CString;
-        use std::os::raw::{c_char, c_int, c_uint};
-        
-        // Define copyfile constants
-        const COPYFILE_DATA: c_uint = 1 << 3;
-        const COPYFILE_METADATA: c_uint = 1 << 4;
-        const COPYFILE_XATTR: c_uint = 1 << 5;
-        const COPYFILE_ALL: c_uint = COPYFILE_DATA | COPYFILE_METADATA | COPYFILE_XATTR;
-        
-        // External function declaration for copyfile
-        extern "C" {
-            fn copyfile(from: *const c_char, to: *const c_char, state: *mut std::ffi::c_void, flags: c_uint) -> c_int;
-        }
-        
-        // Convert paths to C strings
-        let from_cstr = CString::new(from.as_os_str().to_string_lossy().as_bytes())
-            .map_err(|_| HalError::invalid("Invalid source path"))?;
-        let to_cstr = CString::new(to.as_os_str().to_string_lossy().as_bytes())
-            .map_err(|_| HalError::invalid("Invalid destination path"))?;
-        
-        // Call copyfile with all attributes
-        let result = unsafe {
-            copyfile(from_cstr.as_ptr(), to_cstr.as_ptr(), std::ptr::null_mut(), COPYFILE_ALL)
-        };
-        
-        if result != 0 {
-            let errno = std::io::Error::last_os_error();
-            return Err(HalError::io_error("copyfile", Some(to.to_str().unwrap_or("<invalid>")), errno));
-        }
-        
-        // Get file size to return
-        let metadata = std::fs::metadata(from)
-            .map_err(|e| HalError::io_error("copyfile_metadata", Some(from.to_str().unwrap_or("<invalid>")), e))?;
-        
-        Ok(metadata.len())
+        // Instead of using unsafe C copyfile, use safe Rust standard library
+        // This provides good performance while maintaining safety and avoiding C dependencies
+        let copied = std::fs::copy(from, to)
+            .map_err(|e| HalError::io_error("copy_file_safe", Some(to.to_str().unwrap_or("<invalid>")), e))?;
+        Ok(copied)
     }
 
     #[cfg(target_os = "windows")]

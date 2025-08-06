@@ -270,7 +270,7 @@ impl FindStats {
 }
 
 // Cross-platform metadata access helpers
-trait MetadataExt {
+trait CrossPlatformMetadataExt {
     fn get_uid(&self) -> u32;
     fn get_gid(&self) -> u32;
     fn get_mode(&self) -> u32;
@@ -280,7 +280,7 @@ trait MetadataExt {
     fn get_ctime(&self) -> SystemTime;
 }
 
-impl MetadataExt for Metadata {
+impl CrossPlatformMetadataExt for Metadata {
     #[cfg(unix)]
     fn get_uid(&self) -> u32 {
         self.uid()

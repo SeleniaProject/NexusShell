@@ -10,7 +10,7 @@ num_cpus = "1.16"
 chrono = { version = "0.4", features = ["serde"] }
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.27", default-features = false, features = ["fs", "process", "signal", "sched"] }
+nix = { version = "0.27", default-features = false, features = ["fs", "process", "signal", "sched", "mount", "mman"] }
 # libc = "0.2"  # Removed C/C++ dependency - replaced with nix
 seccomp-sys = "0.1"
 

@@ -158,11 +158,24 @@ pub struct ExecutorStats {
 impl Executor {
     /// Create a new executor with default settings
     pub fn new() -> Self {
-        Self {
+        let mut executor = Self {
             builtins: HashMap::new(),
             strategy: ExecutionStrategy::DirectInterpreter,
             stats: ExecutorStats::default(),
             mir_executor: MirExecutor::new(),
+        };
+        
+        // Register built-in commands
+        executor.register_all_builtins();
+        
+        executor
+    }
+    
+    /// Register all built-in commands
+    fn register_all_builtins(&mut self) {
+        let builtins = crate::builtins::register_all_builtins();
+        for builtin in builtins {
+            self.register_builtin(builtin);
         }
     }
     
@@ -848,7 +861,7 @@ impl Executor {
     fn execute_ast_direct(&mut self, node: &AstNode, context: &mut ShellContext) -> ShellResult<ExecutionResult> {
         let start_time = Instant::now();
         
-        // Direct AST interpretation (simplified implementation)
+        // Direct AST interpretation with background job support
         let result = match node {
             AstNode::Program(statements) => {
                 let mut result = ExecutionResult::success(0);
@@ -868,13 +881,9 @@ impl Executor {
                 };
                 self.execute_subshell(&commands, context)?
             },
-            AstNode::Command { name, args, .. } => {
-                // Extract name string from AST node
-                let name_str = match name.as_ref() {
-                    AstNode::SimpleCommand { name, .. } => name,
-                    _ => "unknown",
-                };
-                self.execute_command(name_str, args, context)?
+            AstNode::Command { name, args, redirections, background } => {
+                // Handle command execution with background support
+                self.execute_command_with_background(name, args, redirections, *background, context)?
             },
             AstNode::Pipeline { elements, .. } => {
                 self.execute_pipeline(elements, context)?
@@ -886,10 +895,32 @@ impl Executor {
                 // Simplified For loop execution
                 self.execute_ast_direct(body, context)?
             }
+            AstNode::VariableAssignment { name, value, operator: _, is_local: _, is_export: _, is_readonly: _ } => {
+                // Handle variable assignment
+                let value_result = self.execute_ast_direct(value, context)?;
+                context.set_var(name.clone(), value_result.stdout.trim().to_string());
+                ExecutionResult::success(0)
+            }
+            AstNode::StringLiteral { value, .. } => {
+                ExecutionResult::success(0).with_output(value.as_bytes().to_vec())
+            }
+            AstNode::NumberLiteral { value, .. } => {
+                ExecutionResult::success(0).with_output(value.as_bytes().to_vec())
+            }
+            AstNode::Word(word) => {
+                ExecutionResult::success(0).with_output(word.as_bytes().to_vec())
+            }
+            AstNode::VariableExpansion { name, .. } => {
+                let value = context.get_var(name).unwrap_or_default();
+                ExecutionResult::success(0).with_output(value.as_bytes().to_vec())
+            }
+            AstNode::CommandSubstitution { command, is_legacy: _ } => {
+                self.execute_ast_direct(command, context)?
+            }
             _ => {
                 return Err(ShellError::new(
                     ErrorKind::SystemError(crate::error::SystemErrorKind::UnsupportedOperation),
-                    "AST node type not supported in direct interpreter"
+                    format!("AST node type not supported in direct interpreter: {:?}", node)
                 ));
             }
         };
@@ -905,6 +936,128 @@ impl Executor {
             metrics: ExecutionMetrics {
                 execute_time_us: execution_time,
                 ..Default::default()
+            },
+        })
+    }
+
+    /// Execute command with background job support
+    fn execute_command_with_background(
+        &mut self, 
+        name: &AstNode, 
+        args: &[AstNode], 
+        _redirections: &[nxsh_parser::ast::Redirection],
+        background: bool,
+        context: &mut ShellContext
+    ) -> ShellResult<ExecutionResult> {
+        // Extract command name
+        let cmd_name = match name {
+            AstNode::Word(word) => word.to_string(),
+            AstNode::StringLiteral { value, .. } => value.to_string(),
+            _ => return Err(ShellError::new(
+                ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
+                "Invalid command name".to_string()
+            )),
+        };
+
+        // Extract arguments
+        let mut cmd_args = Vec::new();
+        for arg in args {
+            let arg_value = match arg {
+                AstNode::Word(word) => word.to_string(),
+                AstNode::StringLiteral { value, .. } => value.to_string(),
+                AstNode::NumberLiteral { value, .. } => value.to_string(),
+                AstNode::VariableExpansion { name, .. } => {
+                    context.get_var(name).unwrap_or_default()
+                }
+                _ => format!("{:?}", arg),
+            };
+            cmd_args.push(arg_value);
+        }
+
+        // Check if it's a builtin command
+        if let Some(builtin) = self.builtins.get(&cmd_name) {
+            return builtin.execute(context, &cmd_args);
+        }
+
+        // Handle background execution
+        if background {
+            return self.execute_background_command(&cmd_name, cmd_args, context);
+        }
+
+        // Execute as external command
+        self.execute_external_process(&cmd_name, &cmd_args, context)
+    }
+
+    /// Execute command in background
+    fn execute_background_command(
+        &mut self,
+        command: &str,
+        args: Vec<String>,
+        context: &mut ShellContext
+    ) -> ShellResult<ExecutionResult> {
+        // Get job manager from context
+        let job_manager = context.job_manager();
+        let mut job_manager_guard = job_manager.lock()
+            .map_err(|_| ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Job manager lock poisoned".to_string()
+            ))?;
+
+        // Spawn background job
+        let job_id = job_manager_guard.spawn_background_job(command.to_string(), args)?;
+        
+        // Return immediately with job information
+        let output = format!("[{}] Background job started: {}", job_id, command);
+        println!("{}", output); // Also print to console
+        
+        Ok(ExecutionResult::success(0).with_output(output.as_bytes().to_vec()))
+    }
+
+    /// Execute external process
+    fn execute_external_process(
+        &self,
+        command: &str,
+        args: &[String],
+        context: &ShellContext
+    ) -> ShellResult<ExecutionResult> {
+        use std::process::Command;
+        
+        let start_time = Instant::now();
+        
+        let mut cmd = Command::new(command);
+        cmd.args(args);
+        
+        // Set environment variables
+        if let Ok(env) = context.env.read() {
+            for (key, value) in env.iter() {
+                cmd.env(key, value);
+            }
+        }
+        
+        // Set working directory
+        cmd.current_dir(&context.cwd);
+        
+        // Execute command and capture output
+        let output = cmd.output()
+            .map_err(|e| ShellError::new(
+                ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
+                format!("Failed to execute command '{}': {}", command, e)
+            ))?;
+        
+        let execution_time = start_time.elapsed().as_micros() as u64;
+        
+        Ok(ExecutionResult {
+            exit_code: output.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            execution_time,
+            strategy: ExecutionStrategy::DirectInterpreter,
+            metrics: ExecutionMetrics {
+                compile_time_us: 0,
+                optimize_time_us: 0,
+                execute_time_us: execution_time,
+                instruction_count: 1,
+                memory_usage: (output.stdout.len() + output.stderr.len()) as u64,
             },
         })
     }

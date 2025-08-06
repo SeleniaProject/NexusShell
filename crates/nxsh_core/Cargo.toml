@@ -40,6 +40,9 @@ hostname = { version = "0.3", default-features = false }
 sysinfo = { version = "0.30", default-features = false }
 
 # Platform-specific dependencies
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.27", default-features = false, features = ["signal", "process"] }
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52", features = [
     "Win32_System_Diagnostics_ToolHelp",

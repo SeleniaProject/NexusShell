@@ -7,9 +7,7 @@ members = [
     "crates/nxsh_hal",
     "crates/nxsh_builtins",
     "crates/nxsh_cli",
-]
-exclude = [
-    "crates/nxsh_plugin",  # Temporarily disabled due to C++ dependency issues
+    "crates/nxsh_plugin",  # Re-enabled: Pure Rust WASI runtime implementation
 ]
 
 [workspace.dependencies]

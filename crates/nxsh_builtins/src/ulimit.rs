@@ -6,10 +6,10 @@
 //! When setting, `N` may be `unlimited`.
 //! On Windows this builtin only prints an unsupported message.
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 
 #[cfg(unix)]
-use nix::libc::{getrlimit, setrlimit, rlimit, RLIMIT_CORE, RLIMIT_NOFILE};
+use nix::sys::resource::{getrlimit, setrlimit, Resource};
 
 pub fn ulimit_cli(args: &[String]) -> Result<()> {
     #[cfg(windows)]
@@ -19,35 +19,46 @@ pub fn ulimit_cli(args: &[String]) -> Result<()> {
     }
     #[cfg(unix)]
     {
-        if args.is_empty() || args[0] == "-a" {
-            print_limit("core file size", RLIMIT_CORE as i32)?;
-            print_limit("open files", RLIMIT_NOFILE as i32)?;
+        if args.is_empty() || (args.len() == 1 && args[0] == "-a") {
+            print_limit("core file size", Resource::RLIMIT_CORE)?;
+            print_limit("open files", Resource::RLIMIT_NOFILE)?;
             return Ok(());
         }
         if args.len() == 2 {
-            let limit_type = match args[0].as_str() {
-                "-n" => RLIMIT_NOFILE,
-                "-c" => RLIMIT_CORE,
+            let resource = match args[0].as_str() {
+                "-n" => Resource::RLIMIT_NOFILE,
+                "-c" => Resource::RLIMIT_CORE,
                 _ => return Err(anyhow!("ulimit: unsupported option")),
             };
-            let val = if args[1] == "unlimited" { libc::RLIM_INFINITY } else { args[1].parse::<u64>()? };
-            let new_lim = rlimit { rlim_cur: val, rlim_max: val };
-            unsafe { setrlimit(limit_type, &new_lim) };
-            return Ok(());
+            let val = if args[1] == "unlimited" { 
+                u64::MAX 
+            } else { 
+                args[1].parse::<u64>()? 
+            };
+            match setrlimit(resource, val, val) {
+                Ok(_) => Ok(()),
+                Err(e) => Err(anyhow!("Failed to set limit: {}", e)),
+            }
+        } else {
+            Err(anyhow!("ulimit: invalid usage"))
         }
-        Err(anyhow!("ulimit: invalid usage"))
     }
 }
 
 #[cfg(unix)]
-fn print_limit(name: &str, res: i32) -> Result<()> {
-    unsafe {
-        let mut lim: rlimit = std::mem::zeroed();
-        getrlimit(res as u32, &mut lim);
-        let v = if lim.rlim_cur == libc::RLIM_INFINITY { "unlimited".into() } else { lim.rlim_cur.to_string() };
-        println!("{}: {}", name, v);
+fn print_limit(name: &str, resource: Resource) -> Result<()> {
+    match getrlimit(resource) {
+        Ok((soft, _hard)) => {
+            let v = if soft == u64::MAX { 
+                "unlimited".to_string() 
+            } else { 
+                soft.to_string() 
+            };
+            println!("{}: {}", name, v);
+            Ok(())
+        }
+        Err(e) => Err(anyhow!("Failed to get {}: {}", name, e))
     }
-    Ok(())
 }
 
 #[cfg(test)]

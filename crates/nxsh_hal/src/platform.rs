@@ -632,19 +632,31 @@ pub fn detect_capabilities(platform: &Platform) -> Capabilities {
 fn detect_page_size() -> usize {
     #[cfg(unix)]
     {
-        // Use nix for safer system configuration queries instead of direct libc calls
-        use nix::unistd::{sysconf, SysconfVar};
-        
-        match sysconf(SysconfVar::PAGE_SIZE) {
-            Ok(Some(page_size)) => page_size as usize,
-            _ => {
-                // Fallback: Try to read from /proc/meminfo or use standard default
-                match std::fs::read_to_string("/proc/meminfo") {
-                    Ok(_) => 4096, // Standard default for Linux/Unix systems
-                    Err(_) => 4096, // Safe default
+        // Use safe alternative to get page size instead of direct libc/nix calls
+        // Try to read from getconf if available, otherwise use reasonable defaults
+        match std::process::Command::new("getconf")
+            .arg("PAGE_SIZE")
+            .output()
+        {
+            Ok(output) if output.status.success() => {
+                if let Ok(size_str) = String::from_utf8(output.stdout) {
+                    if let Ok(size) = size_str.trim().parse::<usize>() {
+                        return size;
+                    }
                 }
             }
+            _ => {}
         }
+        
+        // Fallback: Use standard defaults based on common Unix systems
+        #[cfg(target_arch = "x86_64")]
+        return 4096;
+        #[cfg(target_arch = "aarch64")]
+        return 4096; 
+        #[cfg(target_arch = "arm")]
+        return 4096;
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm")))]
+        return 4096; // Safe default for other architectures
     }
     #[cfg(windows)]
     {

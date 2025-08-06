@@ -58,11 +58,11 @@ use std::os::fd::AsRawFd;
 
 // Signal handling - cross-platform
 #[cfg(unix)]
-use nxsh_core::Signals;
+use nxsh_core::job::JobSignal;
 
 // Cross-platform signal constants
 #[cfg(unix)]
-const SIGINT: i32 = nxsh_core::SIGINT;
+const SIGINT: i32 = 2; // SIGINT
 #[cfg(windows)]
 const SIGINT: i32 = 2; // Windows equivalent
 

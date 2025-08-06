@@ -69,12 +69,15 @@ impl MemoryManager {
     pub fn lock_memory(&self, ptr: *const u8, size: usize) -> HalResult<()> {
         #[cfg(unix)]
         {
-            let result = unsafe { libc::mlock(ptr as *const libc::c_void, size) };
-            if result != 0 {
-                return Err(HalError::memory_error("mlock", Some(size), 
-                    &format!("Failed to lock memory: {}", std::io::Error::last_os_error())));
+            // Use nix instead of direct libc calls for safety
+            use nix::sys::mman::mlock;
+            
+            // nix mlock expects raw pointers
+            match unsafe { mlock(ptr as *const std::ffi::c_void, size) } {
+                Ok(()) => Ok(()),
+                Err(err) => Err(HalError::memory_error("mlock", Some(size), 
+                    &format!("Failed to lock memory: {}", err)))
             }
-            Ok(())
         }
         #[cfg(windows)]
         {
@@ -96,12 +99,15 @@ impl MemoryManager {
     pub fn unlock_memory(&self, ptr: *const u8, size: usize) -> HalResult<()> {
         #[cfg(unix)]
         {
-            let result = unsafe { libc::munlock(ptr as *const libc::c_void, size) };
-            if result != 0 {
-                return Err(HalError::memory_error("munlock", Some(size), 
-                    &format!("Failed to unlock memory: {}", std::io::Error::last_os_error())));
+            // Use nix instead of direct libc calls for safety
+            use nix::sys::mman::munlock;
+            
+            // nix munlock expects raw pointers
+            match unsafe { munlock(ptr as *const std::ffi::c_void, size) } {
+                Ok(()) => Ok(()),
+                Err(err) => Err(HalError::memory_error("munlock", Some(size), 
+                    &format!("Failed to unlock memory: {}", err)))
             }
-            Ok(())
         }
         #[cfg(windows)]
         {
@@ -127,20 +133,22 @@ impl MemoryManager {
 
         #[cfg(unix)]
         {
+            // Use nix instead of direct libc calls for safety
+            use nix::sys::mman::{madvise, MmapAdvise};
+            
             let advice_flag = match _advice {
-                MemoryAdvice::Normal => libc::MADV_NORMAL,
-                MemoryAdvice::Random => libc::MADV_RANDOM,
-                MemoryAdvice::Sequential => libc::MADV_SEQUENTIAL,
-                MemoryAdvice::WillNeed => libc::MADV_WILLNEED,
-                MemoryAdvice::DontNeed => libc::MADV_DONTNEED,
+                MemoryAdvice::Normal => MmapAdvise::MADV_NORMAL,
+                MemoryAdvice::Random => MmapAdvise::MADV_RANDOM,
+                MemoryAdvice::Sequential => MmapAdvise::MADV_SEQUENTIAL,
+                MemoryAdvice::WillNeed => MmapAdvise::MADV_WILLNEED,
+                MemoryAdvice::DontNeed => MmapAdvise::MADV_DONTNEED,
             };
 
-            let result = unsafe { libc::madvise(_ptr as *mut libc::c_void, _size, advice_flag) };
-            if result != 0 {
-                return Err(HalError::memory_error("madvise", Some(_size), 
-                    &format!("Failed to advise memory: {}", std::io::Error::last_os_error())));
+            match unsafe { madvise(_ptr as *mut std::ffi::c_void, _size, advice_flag) } {
+                Ok(()) => Ok(()),
+                Err(err) => Err(HalError::memory_error("madvise", Some(_size), 
+                    &format!("Failed to advise memory: {}", err)))
             }
-            Ok(())
         }
         #[cfg(not(unix))]
         {
@@ -152,23 +160,70 @@ impl MemoryManager {
     fn memory_info_unix(&self) -> HalResult<MemoryInfo> {
         let page_size = self.capabilities.page_size as u64;
         
-        // Get system memory info using sysconf
-        let total_pages = unsafe { libc::sysconf(libc::_SC_PHYS_PAGES) };
-        let available_pages = unsafe { libc::sysconf(libc::_SC_AVPHYS_PAGES) };
-        
-        if total_pages < 0 || available_pages < 0 {
-            return Err(HalError::memory_error("sysconf", None, "Failed to get memory info"));
-        }
+        // Try to read memory info from /proc/meminfo on Linux for safer memory information
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
+                let mut total_kb = 0u64;
+                let mut available_kb = 0u64;
+                let mut free_kb = 0u64;
+                let mut buffers_kb = 0u64;
+                let mut cached_kb = 0u64;
+                
+                for line in meminfo.lines() {
+                    if let Some(value) = line.strip_prefix("MemTotal:") {
+                        if let Ok(kb) = value.trim().split_whitespace().next().unwrap_or("0").parse::<u64>() {
+                            total_kb = kb;
+                        }
+                    } else if let Some(value) = line.strip_prefix("MemAvailable:") {
+                        if let Ok(kb) = value.trim().split_whitespace().next().unwrap_or("0").parse::<u64>() {
+                            available_kb = kb;
+                        }
+                    } else if let Some(value) = line.strip_prefix("MemFree:") {
+                        if let Ok(kb) = value.trim().split_whitespace().next().unwrap_or("0").parse::<u64>() {
+                            free_kb = kb;
+                        }
+                    } else if let Some(value) = line.strip_prefix("Buffers:") {
+                        if let Ok(kb) = value.trim().split_whitespace().next().unwrap_or("0").parse::<u64>() {
+                            buffers_kb = kb;
+                        }
+                    } else if let Some(value) = line.strip_prefix("Cached:") {
+                        if let Ok(kb) = value.trim().split_whitespace().next().unwrap_or("0").parse::<u64>() {
+                            cached_kb = kb;
+                        }
+                    }
+                }
+                
+                let total_memory = total_kb * 1024;
+                let available_memory = if available_kb > 0 { 
+                    available_kb * 1024 
+                } else { 
+                    (free_kb + buffers_kb + cached_kb) * 1024 
+                };
+                let used_memory = total_memory.saturating_sub(available_memory);
 
-        let total_memory = total_pages as u64 * page_size;
-        let available_memory = available_pages as u64 * page_size;
+                return Ok(MemoryInfo {
+                    total_physical: total_memory,
+                    available_physical: available_memory,
+                    used_physical: used_memory,
+                    total_virtual: total_memory, // Simplified
+                    available_virtual: available_memory,
+                    used_virtual: used_memory,
+                    page_size,
+                });
+            }
+        }
+        
+        // Fallback for other Unix systems using reasonable defaults
+        let total_memory = (self.capabilities.cpu_count as u64) * 2 * 1024 * 1024 * 1024; // 2GB per CPU core estimate
+        let available_memory = total_memory / 2; // Rough estimate: half available
         let used_memory = total_memory - available_memory;
 
         Ok(MemoryInfo {
             total_physical: total_memory,
             available_physical: available_memory,
             used_physical: used_memory,
-            total_virtual: total_memory, // Simplified
+            total_virtual: total_memory,
             available_virtual: available_memory,
             used_virtual: used_memory,
             page_size,

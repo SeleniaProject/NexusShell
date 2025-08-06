@@ -1,7 +1,10 @@
-//! WASI-based plugin support for NexusShell.
+//! Native Rust Plugin Support for NexusShell.
 //! 
-//! This module provides a comprehensive plugin system using WebAssembly and WASI,
-//! with support for the Component Model, capability-based security, and dynamic loading.
+//! This module provides a comprehensive plugin system using native Rust dynamic libraries,
+//! with capability-based security and dynamic loading.
+//! 
+//! STAGE 1: Native Rust Plugin Support (100% Pure Rust)
+//! STAGE 2: WASI Plugin Support (planned for future milestone)
 
 use anyhow::Result;
 use std::sync::Arc;
@@ -10,28 +13,29 @@ use once_cell::sync::Lazy;
 
 pub mod json;
 pub mod registrar;
-pub mod loader;
+// pub mod loader;             // Stage 2: WASM plugin loading (commented out temporarily)
 pub mod key;
-pub mod remote;
-pub mod runtime;
+// pub mod remote;             // Stage 2: Remote plugin support (commented out temporarily)
+pub mod native_runtime;        // Stage 1: Native Rust plugins
+// pub mod runtime;            // Stage 2: WASI plugins (commented out temporarily)
 pub mod manager;
 pub mod security;
-pub mod component;
+// pub mod component;          // Stage 2: Component model (commented out temporarily)
 pub mod signature;
 pub mod permissions;
-pub mod resource_table;
-pub mod dynamic_loader;
-pub mod enhanced_runtime;
+// pub mod resource_table;     // Stage 2: WASM resource management (commented out temporarily)
+// pub mod dynamic_loader;     // Temporarily disabled due to syntax issues
+// pub mod enhanced_runtime;   // Temporarily disabled to resolve dependencies
 
-use crate::runtime::WasiPluginRuntime;
+use crate::native_runtime::NativePluginRuntime;
 use crate::manager::PluginManager;
 
 static PLUGIN_SYSTEM: Lazy<Arc<RwLock<PluginSystem>>> =
     Lazy::new(|| Arc::new(RwLock::new(PluginSystem::new())));
 
-/// Global plugin system state
+/// Global plugin system state with Native Rust Plugin support
 pub struct PluginSystem {
-    runtime: Option<WasiPluginRuntime>,
+    native_runtime: Option<NativePluginRuntime>,
     manager: Option<PluginManager>,
     initialized: bool,
 }
@@ -39,7 +43,7 @@ pub struct PluginSystem {
 impl PluginSystem {
     fn new() -> Self {
         Self {
-            runtime: None,
+            native_runtime: None,
             manager: None,
             initialized: false,
         }
@@ -50,30 +54,30 @@ impl PluginSystem {
             return Ok(());
         }
         
-        // Initialize runtime
-        let mut runtime = WasiPluginRuntime::new()?;
-        runtime.initialize().await?;
-        self.runtime = Some(runtime);
+        // Initialize native runtime
+        let mut native_runtime = NativePluginRuntime::new()?;
+        native_runtime.initialize().await?;
+        self.native_runtime = Some(native_runtime);
         
         // Initialize manager
         let manager = PluginManager::new();
         self.manager = Some(manager);
         
         self.initialized = true;
-        log::info!("Plugin system initialized successfully");
+        log::info!("Native Plugin system initialized successfully");
         Ok(())
     }
     
-    fn runtime(&self) -> Option<&WasiPluginRuntime> {
-        self.runtime.as_ref()
+    fn native_runtime(&self) -> Option<&NativePluginRuntime> {
+        self.native_runtime.as_ref()
     }
     
     fn manager(&self) -> Option<&PluginManager> {
         self.manager.as_ref()
     }
     
-    fn runtime_mut(&mut self) -> Option<&mut WasiPluginRuntime> {
-        self.runtime.as_mut()
+    fn native_runtime_mut(&mut self) -> Option<&mut NativePluginRuntime> {
+        self.native_runtime.as_mut()
     }
     
     fn manager_mut(&mut self) -> Option<&mut PluginManager> {
@@ -102,7 +106,7 @@ pub async fn shutdown() -> Result<()> {
         manager.unload_all_plugins().await?;
     }
     
-    system.runtime = None;
+    system.native_runtime = None;
     system.manager = None;
     system.initialized = false;
     
@@ -139,7 +143,7 @@ pub async fn list_plugins() -> Vec<String> {
     let system = PLUGIN_SYSTEM.clone();
     let system = system.read().await;
     
-    if let Some(runtime) = system.runtime() {
+    if let Some(runtime) = system.native_runtime() {
         runtime.list_plugins().await
     } else {
         vec![]
@@ -147,11 +151,11 @@ pub async fn list_plugins() -> Vec<String> {
 }
 
 /// Execute a plugin function
-pub async fn execute_plugin(plugin_id: &str, function: &str, args: &[u8]) -> Result<Vec<u8>> {
+pub async fn execute_plugin(plugin_id: &str, function: &str, args: &[String]) -> Result<String> {
     let system = PLUGIN_SYSTEM.clone();
     let system = system.read().await;
     
-    if let Some(runtime) = system.runtime() {
+    if let Some(runtime) = system.native_runtime() {
         runtime.execute_plugin(plugin_id, function, args).await
             .map_err(|e| anyhow::anyhow!("Plugin execution failed: {:?}", e))
     } else {
@@ -213,6 +217,7 @@ pub struct PluginMetadata {
     pub categories: Vec<String>,
     pub dependencies: HashMap<String, String>,
     pub capabilities: Vec<String>,
+    pub exports: Vec<String>,
     pub min_nexus_version: String,
     pub max_nexus_version: Option<String>,
 }
@@ -231,11 +236,12 @@ pub enum PluginEvent {
     SignatureVerificationFailed { plugin_id: String, reason: String },
     PermissionGranted { plugin_id: String, capability: String },
     PermissionDenied { plugin_id: String, capability: String, reason: String },
+    Updated { plugin_id: String, old_version: String, new_version: String },
 }
 
 /// Plugin event handler trait
 pub trait PluginEventHandler: Send + Sync {
-    async fn handle_event(&self, event: PluginEvent) -> Result<()>;
+    fn handle_event(&self, event: PluginEvent) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + '_>>;
 }
 
 /// Plugin system errors
@@ -276,6 +282,27 @@ pub enum PluginError {
     
     #[error("Plugin serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
+    
+    #[error("Plugin initialization error: {0}")]
+    InitializationError(String),
+    
+    #[error("Invalid argument: {0}")]
+    InvalidArgument(String),
+    
+    #[error("Validation failed: {0}")]
+    ValidationFailed(String),
+    
+    #[error("Capability denied: {0}")]
+    CapabilityDenied(String),
+    
+    #[error("Invalid format: {0}")]
+    InvalidFormat(String),
+}
+
+impl From<anyhow::Error> for PluginError {
+    fn from(err: anyhow::Error) -> Self {
+        PluginError::ExecutionError(err.to_string())
+    }
 }
 
 /// Security integration utilities

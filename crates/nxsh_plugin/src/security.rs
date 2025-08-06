@@ -12,7 +12,7 @@ use std::{
 };
 use tokio::sync::RwLock;
 
-use crate::{PluginMetadata, PluginError, PluginResult2};
+use crate::{PluginMetadata, PluginError, PluginResult};
 
 /// Capability-based security manager
 pub struct CapabilityManager {
@@ -163,7 +163,7 @@ impl CapabilityManager {
     }
 
     /// Validate a plugin's requested capabilities
-    pub async fn validate_plugin(&self, metadata: &PluginMetadata) -> PluginResult2<()> {
+    pub async fn validate_plugin_security(&self, metadata: &PluginMetadata) -> PluginResult<()> {
         log::debug!("Validating capabilities for plugin: {}", metadata.name);
 
         let capabilities = self.capabilities.read().await;
@@ -199,7 +199,7 @@ impl CapabilityManager {
     }
 
     /// Check if a plugin has permission to execute a specific function
-    pub async fn check_execution_permission(&self, plugin_id: &str, function: &str) -> PluginResult2<()> {
+    pub async fn check_capability_permission(&self, plugin_id: &str, function: &str) -> PluginResult<()> {
         // In a real implementation, this would check function-specific permissions
         // For now, allow all executions for loaded plugins
         log::debug!("Checking execution permission for {}::{}", plugin_id, function);
@@ -487,6 +487,16 @@ pub struct SandboxContext {
     pub resource_limits: ResourceLimits,
     pub allowed_paths: Vec<PathBuf>,
     pub allowed_hosts: Vec<String>,
+}
+
+impl SandboxContext {
+    /// Check if a command can be executed
+    pub fn can_execute_command(&self, _command: &str) -> bool {
+        // Basic implementation - check if execution capability is allowed
+        self.allowed_capabilities.iter().any(|cap| {
+            cap.name == "execution" || cap.name.contains("execute")
+        })
+    }
 }
 
 /// Resource limits for plugin execution

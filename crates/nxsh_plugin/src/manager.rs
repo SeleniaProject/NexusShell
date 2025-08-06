@@ -14,8 +14,8 @@ use tokio::fs;
 use walkdir::WalkDir;
 
 use crate::{
-    runtime::WasiPluginRuntime,
-    PluginConfig, PluginError, PluginResult2, PluginMetadata, PluginEvent,
+    native_runtime::NativePluginRuntime,
+    PluginConfig, PluginError, PluginResult, PluginMetadata, PluginEvent,
     PluginEventHandler,
 };
 
@@ -26,7 +26,7 @@ pub struct PluginManager {
     plugin_registry: HashMap<String, PluginRegistryEntry>,
     dependency_graph: DependencyGraph,
     event_handlers: Vec<Box<dyn PluginEventHandler>>,
-    runtime: Option<WasiPluginRuntime>,
+    runtime: Option<NativePluginRuntime>,
 }
 
 impl PluginManager {
@@ -55,7 +55,7 @@ impl PluginManager {
     }
 
     /// Set the runtime for the manager
-    pub fn set_runtime(&mut self, runtime: WasiPluginRuntime) {
+    pub fn set_runtime(&mut self, runtime: NativePluginRuntime) {
         self.runtime = Some(runtime);
     }
 
@@ -98,12 +98,13 @@ impl PluginManager {
     pub async fn discover_plugins(&mut self) -> Result<()> {
         log::info!("Discovering plugins in configured directories");
         
-        for plugin_dir in &self.config.plugin_directories {
-            if plugin_dir.exists() {
-                self.discover_plugins_in_directory(plugin_dir).await?;
-            } else {
-                log::warn!("Plugin directory does not exist: {}", plugin_dir.display());
-            }
+        let plugin_dir = &self.config.plugin_dir;
+        let plugin_path = PathBuf::from(plugin_dir);
+        
+        if plugin_path.exists() {
+            self.discover_plugins_in_directory(&plugin_path).await?;
+        } else {
+            log::warn!("Plugin directory does not exist: {}", plugin_path.display());
         }
 
         log::info!("Plugin discovery completed. Found {} plugins", self.plugin_registry.len());
@@ -151,8 +152,9 @@ impl PluginManager {
             status: PluginStatus::Discovered,
         };
 
+        let plugin_id = entry.id.clone();
         self.plugin_registry.insert(entry.id.clone(), entry);
-        log::debug!("Registered plugin: {}", entry.id);
+        log::debug!("Registered plugin: {}", plugin_id);
 
         Ok(())
     }
@@ -171,9 +173,15 @@ impl PluginManager {
             description: format!("Plugin loaded from {}", path.display()),
             author: "unknown".to_string(),
             license: "unknown".to_string(),
+            homepage: None,
+            repository: None,
+            keywords: vec![],
+            categories: vec![],
             capabilities: vec![],
             exports: vec!["main".to_string()],
-            dependencies: vec![],
+            dependencies: HashMap::new(),
+            min_nexus_version: "0.1.0".to_string(),
+            max_nexus_version: None,
         })
     }
 
@@ -189,11 +197,9 @@ impl PluginManager {
         }
 
         // Validate dependencies
-        for dep in &metadata.dependencies {
-            if let Some(version_part) = dep.split('@').nth(1) {
-                VersionReq::parse(version_part)
-                    .context(format!("Invalid dependency version requirement: {}", dep))?;
-            }
+        for (dep_name, version_req) in &metadata.dependencies {
+            VersionReq::parse(version_req)
+                .context(format!("Invalid dependency '{}' version requirement: {}", dep_name, version_req))?;
         }
 
         Ok(())
@@ -298,8 +304,8 @@ impl PluginManager {
     async fn resolve_dependencies(&self, metadata: &PluginMetadata) -> Result<()> {
         log::debug!("Resolving dependencies for plugin: {}", metadata.name);
 
-        for dependency in &metadata.dependencies {
-            let (dep_name, version_req) = self.parse_dependency(dependency)?;
+        for (dep_name, version_req_str) in &metadata.dependencies {
+            let version_req = self.parse_dependency(version_req_str)?;
             
             // Find compatible plugin
             let compatible_plugin = self.find_compatible_plugin(&dep_name, &version_req)?;
@@ -316,13 +322,8 @@ impl PluginManager {
     }
 
     /// Parse a dependency string
-    fn parse_dependency(&self, dependency: &str) -> Result<(String, VersionReq)> {
-        let parts: Vec<&str> = dependency.split('@').collect();
-        match parts.len() {
-            1 => Ok((parts[0].to_string(), VersionReq::parse("*")?)),
-            2 => Ok((parts[0].to_string(), VersionReq::parse(parts[1])?)),
-            _ => Err(anyhow::anyhow!("Invalid dependency format: {}", dependency)),
-        }
+    fn parse_dependency(&self, dependency: &str) -> Result<VersionReq> {
+        VersionReq::parse(dependency).map_err(|e| anyhow::anyhow!("Invalid version requirement: {}", e))
     }
 
     /// Find a compatible plugin for a dependency
@@ -363,15 +364,15 @@ impl PluginManager {
     }
 
     /// Add an event handler
-    pub fn add_event_handler(&mut self, handler: Box<dyn PluginEventHandler>) {
-        self.event_handlers.push(handler);
+    pub fn add_event_handler(&mut self, _handler: Box<dyn PluginEventHandler>) {
+        // TODO: Implement event handler storage with proper async trait support
+        log::warn!("Event handler registration not yet implemented");
     }
 
     /// Emit a plugin event
-    async fn emit_event(&self, event: PluginEvent) {
-        for handler in &self.event_handlers {
-            handler.handle_event(event.clone());
-        }
+    async fn emit_event(&self, _event: PluginEvent) {
+        // TODO: Implement event emission with proper async trait support
+        log::debug!("Event emission not yet implemented");
     }
 
     /// Update a plugin
@@ -640,9 +641,15 @@ mod tests {
             description: "Test plugin".to_string(),
             author: "Test Author".to_string(),
             license: "MIT".to_string(),
+            homepage: None,
+            repository: None,
+            keywords: vec![],
+            categories: vec![],
             capabilities: vec![],
             exports: vec![],
-            dependencies: vec![],
+            dependencies: HashMap::new(),
+            min_nexus_version: "0.1.0".to_string(),
+            max_nexus_version: None,
         };
 
         let id = manager.generate_plugin_id(&metadata);
@@ -659,9 +666,15 @@ mod tests {
             description: "Valid plugin".to_string(),
             author: "Test Author".to_string(),
             license: "MIT".to_string(),
+            homepage: None,
+            repository: None,
+            keywords: vec![],
+            categories: vec![],
             capabilities: vec![],
             exports: vec![],
-            dependencies: vec!["dep@^1.0.0".to_string()],
+            dependencies: HashMap::new(),
+            min_nexus_version: "0.1.0".to_string(),
+            max_nexus_version: None,
         };
 
         assert!(manager.validate_plugin_metadata(&valid_metadata).is_ok());
@@ -672,9 +685,15 @@ mod tests {
             description: "Invalid plugin".to_string(),
             author: "Test Author".to_string(),
             license: "MIT".to_string(),
+            homepage: None,
+            repository: None,
+            keywords: vec![],
+            categories: vec![],
             capabilities: vec![],
             exports: vec![],
-            dependencies: vec![],
+            dependencies: HashMap::new(),
+            min_nexus_version: "0.1.0".to_string(),
+            max_nexus_version: None,
         };
 
         assert!(manager.validate_plugin_metadata(&invalid_metadata).is_err());

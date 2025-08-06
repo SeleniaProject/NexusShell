@@ -936,9 +936,6 @@ impl DynamicPluginLoader {
     async fn load_plugin_version(&self, plugin_version: &PluginVersion) -> Result<()> {
         let version_req = VersionReq::parse(&format!("={}", plugin_version.version))?;
         self.load_plugin(&plugin_version.metadata.name, Some(&version_req)).await
-        }
-
-        Ok(())
     }
 
     async fn validate_plugin(&self, plugin_version: &PluginVersion) -> Result<ValidationResult> {
