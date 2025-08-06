@@ -10,10 +10,11 @@ num_cpus = "1.16"
 chrono = { version = "0.4", features = ["serde"] }
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.27", default-features = false, features = ["fs", "process", "signal", "sched", "mount", "mman"] }
+nix = { version = "0.27", default-features = false, features = ["fs", "process", "signal", "sched", "mount", "mman", "resource", "user"] }
 # libc = "0.2"  # Removed C/C++ dependency - replaced with nix
-# seccomp-sys = "0.1"  # Removed C/C++ dependency - replaced with pure Rust seccomp
-seccomp = { version = "0.1", default-features = false }  # Pure Rust seccomp implementation
+# seccomp-sys = "0.1"  # Removed C/C++ dependency - replaced with pure Rust seccomp  
+# seccomp = { version = "0.1", default-features = false }  # Removed - contains C dependencies through seccomp-sys
+# Pure Rust security implementation using process controls directly through nix
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["winsock2", "ws2def", "ws2ipdef", "iphlpapi"] }
