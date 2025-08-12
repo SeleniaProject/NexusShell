@@ -22,6 +22,14 @@ use crate::compat::{Result, Context};
 use sha2::{Sha256, Digest};
 use base64::Engine;
 
+fn home_dir_fallback() -> Option<std::path::PathBuf> {
+    if let Ok(h) = std::env::var("HOME") { return Some(std::path::PathBuf::from(h)); }
+    if cfg!(windows) {
+        if let Ok(p) = std::env::var("USERPROFILE") { return Some(std::path::PathBuf::from(p)); }
+    }
+    None
+}
+
 /// Comprehensive update system with delta updates and signature verification
 pub struct UpdateSystem {
     config: UpdateConfig,
@@ -857,7 +865,7 @@ impl UpdateSystem {
         let path = if let Ok(p) = std::env::var("NXSH_UPDATE_KEYS_PATH") {
             std::path::PathBuf::from(p)
         } else {
-            if let Some(mut home) = dirs::home_dir() {
+            if let Some(mut home) = home_dir_fallback() {
                 home.push(".nxsh");
                 home.push("keys");
                 home.push("update_keys.json");
@@ -893,7 +901,7 @@ impl UpdateSystem {
         let path = if let Ok(p) = std::env::var("NXSH_UPDATE_KEYS_PATH") {
             std::path::PathBuf::from(p)
         } else {
-            if let Some(mut home) = dirs::home_dir() {
+            if let Some(mut home) = home_dir_fallback() {
                 home.push(".nxsh");
                 home.push("keys");
                 let _ = std::fs::create_dir_all(&home);

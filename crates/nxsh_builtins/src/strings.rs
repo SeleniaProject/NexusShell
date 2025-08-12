@@ -49,6 +49,7 @@ pub fn strings_cli(args: &[String]) -> Result<()> {
     let mut encoding = Encoding::Ascii; // Default: 7-bit ASCII (now fully implemented)
     let mut print_filename = false;
     let mut files = Vec::new();
+    let mut all_encodings = false;
     let mut i = 0;
     
     while i < args.len() {
@@ -68,6 +69,9 @@ pub fn strings_cli(args: &[String]) -> Result<()> {
             "-f" | "--print-file-name" => {
                 print_filename = true;
             }
+            "--all-encodings" => {
+                all_encodings = true;
+            }
             "-h" | "--help" => {
                 println!("strings - print the sequences of printable characters in files");
                 println!("Usage: strings [OPTION]... [FILE]...");
@@ -80,6 +84,7 @@ pub fn strings_cli(args: &[String]) -> Result<()> {
                 println!("                           L, utf32le  - 32-bit little-endian");
                 println!("                           B, utf32be  - 32-bit big-endian");
                 println!("                           u, utf8     - UTF-8 variable width");
+                println!("  --all-encodings       scan with all supported encodings (union)");
                 println!("  -f, --print-file-name  print the name of the file before each string");
                 println!("  -h, --help             display this help and exit");
                 return Ok(());
@@ -95,18 +100,36 @@ pub fn strings_cli(args: &[String]) -> Result<()> {
         i += 1;
     }
     
+    let encodings_list: Vec<Encoding> = if all_encodings {
+        vec![
+            Encoding::Ascii,
+            Encoding::Latin1,
+            Encoding::Utf8,
+            Encoding::Utf16Le,
+            Encoding::Utf16Be,
+            Encoding::Utf32Le,
+            Encoding::Utf32Be,
+        ]
+    } else {
+        vec![encoding]
+    };
+
     if files.is_empty() {
         // Read from stdin
         let mut buffer = Vec::new();
         io::stdin().read_to_end(&mut buffer)?;
-        extract_strings(&buffer, min_length, encoding, print_filename, None)?;
+        for enc in &encodings_list {
+            extract_strings(&buffer, min_length, *enc, print_filename, None)?;
+        }
     } else {
         // Read from files
         for filename in files {
             let mut file = File::open(&filename)?;
             let mut buffer = Vec::new();
             file.read_to_end(&mut buffer)?;
-            extract_strings(&buffer, min_length, encoding, print_filename, Some(&filename))?;
+            for enc in &encodings_list {
+                extract_strings(&buffer, min_length, *enc, print_filename, Some(&filename))?;
+            }
         }
     }
     
