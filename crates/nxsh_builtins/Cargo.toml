@@ -140,6 +140,8 @@ which = "4.4"
 sysinfo = { version = "0.29", features = ["multithread"], optional = true }
 crossterm = { version = "0.27", features = ["event-stream"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+# already present optional unic-langid below; only add num-format
+num-format = "0.4"
 trust-dns-resolver = { version = "0.23", features = ["tokio-runtime"], optional = true }
 filetime = "0.2"  # Pure Rust file timestamp manipulation
 # ratatui = "0.24"  # REMOVED: TUI dependency eliminated for CUI-only implementation

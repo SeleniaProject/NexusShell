@@ -15,3 +15,4 @@ pub mod update_system { /* stub */ }
 pub mod sed_utils;
 pub mod process_utils; 
 pub mod resource_monitor;
+pub mod locale_format;

@@ -276,7 +276,10 @@
 
 ## 10. 国際化 / ローカライズ
  - [ ] `.po`/`.mo` 生成パイプライン (gettext 互換) 実装
-- [ ] `unic-langid` による数値/日付/サイズローカライズ出力 ユニットテスト追加
+ - [x] `unic-langid` による数値/日付/サイズローカライズ出力 ユニットテスト追加 ← 実装
+   - `nxsh_builtins::common::locale_format` を追加（数値/小数/日付/サイズのローカライズ整形）。
+   - 依存追加: `num-format`（軽量桁区切り）。`unic-langid` は既存 optional を利用。
+   - テスト: `crates/nxsh_builtins/tests/locale_format_tests.rs` を追加。
 - [ ] コマンド別多言語エイリアス マッピングテーブル設計 (例: 日本語/中国語/ロシア語)
 
 ## 11. 性能 / ベンチマーク
