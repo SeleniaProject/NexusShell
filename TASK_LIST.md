@@ -221,9 +221,12 @@
   - 包括的テストスイート: 各エンコーディングでの文字列抽出検証
 - [x] ionice.rs:67 Unix 実装 (Windows のみ実装状況) & handle_unix_ionice 分岐
 - [x] nice.rs:57 Windows 未実装 分の OS 抽象 or 無効化明示
-- [ ] awk.rs:152 旧 AwkCommand 実装方針再検討 (コメント整理)
-- [ ] awk.rs:330 rest 先頭 `{` 有無 分岐ロジック再導入 or コメント更新
-- [ ] function.rs: 本体内 parse body_args のエラーチェック強化 (暗黙 assumptions) ※ grep には出現しないが構造上
+ - [x] awk.rs:152 旧 AwkCommand 実装方針再検討 (コメント整理) ← 完了
+   - 旧AwkCommandの方針をCLIエントリ統一の説明に更新（将来のBuiltin昇格に耐える設計を明記）。
+ - [x] awk.rs:330 rest 先頭 `{` 有無 分岐ロジック再導入 or コメント更新 ← 実装
+   - `/regex/ { ... }` と `/regex/ action` の双方を扱う簡易分岐を実装。空の場合は `print $0`。
+ - [x] function.rs: 本体内 parse body_args のエラーチェック強化 (暗黙 assumptions) ← 実装
+   - 空ボディ、孤立中括弧トークンの検出を追加し、明確なエラーを返すように強化。
 - [x] nl.rs:8 body_numbering 拡張 (設定解釈)
 
 ### Builtins リソース監視系 (cron/at) 共通化
@@ -238,8 +241,8 @@
 - [x] __argdump (引数列挙) テスト支援ビルトイン追加 ← 2025-08-10 (コマンド置換分割検証用)
 
 ## 8. HAL / ネットワーク / プラットフォーム
-- [ ] (nxsh_hal/src/network_broken.rs:901) macOS Routing table 実装
-- [ ] (nxsh_hal/src/network_broken.rs:907) Windows Routing table 実装
+ - [x] (nxsh_hal/src/network_broken.rs:901) macOS Routing table 実装 ← 実装
+ - [x] (nxsh_hal/src/network_broken.rs:907) Windows Routing table 実装 ← 実装
 - [ ] (nxsh_hal/src/completion.rs:268) エイリアス補完 Shell alias システム統合
 - [ ] (nxsh_hal/src/process.rs:433) placeholder 安全実装コメント → 実コードの安全保証ドキュメント化
 

@@ -858,38 +858,26 @@ impl NetworkManager {
 
         let mut routes = Vec::new();
 
-        for line in route_data.lines().skip(1) { // Skip header
+        // /proc/net/route columns:
+        // Iface Destination Gateway Flags RefCnt Use Metric Mask MTU Window IRTT
+        for line in route_data.lines().skip(1) {
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 11 {
-                let interface = parts[0].to_string();
-                
-                // Parse destination (in hex, little-endian)
-                if let Ok(dest_hex) = u32::from_str_radix(parts[1], 16) {
-                    let _dest = Ipv4Addr::from(dest_hex.swap_bytes());
-                    
-                    // Parse gateway (in hex, little-endian)
-                    if let Ok(gw_hex) = u32::from_str_radix(parts[2], 16) {
-                        let _gateway = if gw_hex == 0 {
-                            None
-                        } else {
-                            Some(IpAddr::V4(Ipv4Addr::from(gw_hex.swap_bytes())))
-                        };
+            if parts.len() < 11 { continue; }
 
-                        // Parse netmask (in hex, little-endian)
-                        if let Ok(mask_hex) = u32::from_str_radix(parts[7], 16) {
-                            let _netmask = Ipv4Addr::from(mask_hex.swap_bytes());
+            let interface = parts[0].to_string();
+            let dest = match u32::from_str_radix(parts[1], 16) { Ok(v) => Ipv4Addr::from(u32::from_le(v)), Err(_) => continue };
+            let gate_hex = match u32::from_str_radix(parts[2], 16) { Ok(v) => v, Err(_) => continue };
+            let gateway = Ipv4Addr::from(u32::from_le(gate_hex));
+            let mask = match u32::from_str_radix(parts[7], 16) { Ok(v) => Ipv4Addr::from(u32::from_le(v)), Err(_) => Ipv4Addr::UNSPECIFIED };
+            let metric: u32 = parts[6].parse().unwrap_or(0);
 
-                            routes.push(RouteEntry {
-                                destination: std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
-                                netmask: std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
-                                gateway: std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 1)), // Default gateway
-                                interface,
-                                metric: 0,
-                            });
-                        }
-                    }
-                }
-            }
+            routes.push(RouteEntry {
+                destination: IpAddr::V4(dest),
+                netmask: IpAddr::V4(mask),
+                gateway: IpAddr::V4(gateway),
+                interface,
+                metric,
+            });
         }
 
         Ok(routes)
@@ -897,14 +885,126 @@ impl NetworkManager {
 
     #[cfg(target_os = "macos")]
     fn routing_table_macos(&self) -> HalResult<Vec<RouteEntry>> {
-        // Implementation would use route command or sysctl
-        Err(HalError::unsupported("Routing table not yet implemented on macOS"))
+        use std::process::Command;
+        use std::net::Ipv4Addr;
+
+        // Prefer netstat -rn -f inet for IPv4 routing table
+        let output = Command::new("netstat")
+            .args(["-rn", "-f", "inet"])
+            .output()
+            .map_err(|e| HalError::io_error("netstat", Some("netstat -rn -f inet"), e))?;
+
+        if !output.status.success() {
+            return Err(HalError::command_failed("netstat", output.status.code().unwrap_or(-1)));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut routes: Vec<RouteEntry> = Vec::new();
+        let mut in_ipv4_section = false;
+
+        for line in stdout.lines() {
+            let line = line.trim();
+            if line.is_empty() { continue; }
+            if line.starts_with("Internet:") { in_ipv4_section = true; continue; }
+            if line.starts_with("Internet6:") { in_ipv4_section = false; continue; }
+            if !in_ipv4_section { continue; }
+            if line.starts_with("Destination") { continue; } // header
+
+            // Expected columns: Destination Gateway Flags Refs Use Netif Expire
+            let cols: Vec<&str> = line.split_whitespace().collect();
+            if cols.len() < 7 { continue; }
+            let dest_str = cols[0];
+            let gw_str = cols[1];
+            // Netif is usually the penultimate column; guard for variants
+            let netif = if cols.len() >= 6 { cols[cols.len().saturating_sub(2)] } else { cols[0] };
+
+            // Destination handling
+            let (dest_ip, mask_ip) = if dest_str == "default" {
+                (Ipv4Addr::new(0,0,0,0), Ipv4Addr::new(0,0,0,0))
+            } else if let Some((ip, prefix)) = dest_str.split_once('/') {
+                // CIDR form x.x.x.x/nn or a.b.c/nn
+                let ip_addr: Ipv4Addr = ip.parse().unwrap_or(Ipv4Addr::UNSPECIFIED);
+                let p: u8 = prefix.parse().unwrap_or(0);
+                let mask = prefix_to_mask_v4(p);
+                (ip_addr, mask)
+            } else {
+                // Host route, set mask /32
+                let ip_addr: Ipv4Addr = dest_str.parse().unwrap_or(Ipv4Addr::UNSPECIFIED);
+                (ip_addr, Ipv4Addr::new(255,255,255,255))
+            };
+
+            // Gateway
+            let gateway_ip: Ipv4Addr = if gw_str == "link#" || gw_str.starts_with("link#") || gw_str == "-" {
+                Ipv4Addr::UNSPECIFIED
+            } else {
+                gw_str.parse().unwrap_or(Ipv4Addr::UNSPECIFIED)
+            };
+
+            routes.push(RouteEntry {
+                destination: IpAddr::V4(dest_ip),
+                netmask: IpAddr::V4(mask_ip),
+                gateway: IpAddr::V4(gateway_ip),
+                interface: netif.to_string(),
+                metric: 0,
+            });
+        }
+
+        Ok(routes)
     }
 
     #[cfg(windows)]
     fn routing_table_windows(&self) -> HalResult<Vec<RouteEntry>> {
-        // Implementation would use GetIpForwardTable
-        Err(HalError::unsupported("Routing table not yet implemented on Windows"))
+        use std::process::Command;
+        use std::net::Ipv4Addr;
+        // Use `route print -4` and parse the IPv4 Route Table
+        let output = Command::new("route")
+            .args(["print", "-4"])
+            .output()
+            .map_err(|e| HalError::io_error("route", Some("route print -4"), e))?;
+
+        if !output.status.success() {
+            return Err(HalError::command_failed("route", output.status.code().unwrap_or(-1)));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut routes: Vec<RouteEntry> = Vec::new();
+        let mut in_table = false;
+
+        for line in stdout.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() { continue; }
+            if trimmed.starts_with("IPv4 Route Table") { in_table = true; continue; }
+            if !in_table { continue; }
+
+            // Skip header lines until we find the column headers
+            if trimmed.starts_with("Network Destination") { continue; }
+            // Table ends when a blank line or new section starts
+            if trimmed.starts_with("IPv6 Route Table") { break; }
+
+            // Expected columns: Network Destination  Netmask  Gateway  Interface  Metric
+            let cols: Vec<&str> = trimmed.split_whitespace().collect();
+            if cols.len() < 5 { continue; }
+            let dest = cols[0];
+            let mask = cols[1];
+            let gw = cols[2];
+            let interface = cols[3];
+            let metric: u32 = cols.get(4).and_then(|m| m.parse().ok()).unwrap_or(0);
+
+            // Only consider IPv4
+            let dest_ip: Ipv4Addr = match dest.parse::<Ipv4Addr>() { Ok(v) => v, Err(_) => continue };
+            let mask_ip: Ipv4Addr = match mask.parse::<Ipv4Addr>() { Ok(v) => v, Err(_) => continue };
+            let gw_ip: Ipv4Addr = gw.parse::<Ipv4Addr>().unwrap_or(Ipv4Addr::UNSPECIFIED);
+
+            routes.push(RouteEntry {
+                destination: IpAddr::V4(dest_ip),
+                netmask: IpAddr::V4(mask_ip),
+                gateway: IpAddr::V4(gw_ip),
+                interface: interface.to_string(),
+                metric,
+            });
+        }
+
+        Ok(routes)
     }
 
     /// Get default gateway on Unix systems
@@ -980,6 +1080,7 @@ impl NetworkManager {
     #[cfg(windows)]
     fn get_default_gateway_windows(&self) -> HalResult<IpAddr> {
         use std::process::Command;
+        use std::net::Ipv4Addr;
         
         // Method 1: Use PowerShell to get default gateway
         if let Ok(output) = Command::new("powershell")
@@ -1017,6 +1118,24 @@ impl NetworkManager {
             }
         }
         
+        // Method 3: Parse `ipconfig` default gateway as a last resort (localized output tolerant)
+        if let Ok(output) = Command::new("ipconfig").output() {
+            if output.status.success() {
+                let out = String::from_utf8_lossy(&output.stdout);
+                for line in out.lines() {
+                    // Match forms like: Default Gateway . . . . . . . . . : 192.168.1.1
+                    if line.to_lowercase().contains("default gateway") {
+                        if let Some(idx) = line.rfind(':') {
+                            let cand = line[idx+1..].trim();
+                            if let Ok(ip) = cand.parse::<Ipv4Addr>() {
+                                return Ok(IpAddr::V4(ip));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         Err(HalError::network_error("get_default_gateway", None, None, "Could not determine default gateway"))
     }
 

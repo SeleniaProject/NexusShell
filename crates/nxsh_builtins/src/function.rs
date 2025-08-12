@@ -35,6 +35,19 @@ pub fn function_cli(args: &[String]) -> Result<(), ShellError> {
     }
     
     let body_args = &args[brace_pos + 1..close_brace_pos];
+    // Basic sanity checks on body_args: disallow stray braces and ensure non-empty commands
+    if body_args.is_empty() {
+        return Err(ShellError::new(
+            ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+            "function: empty body is not allowed",
+        ));
+    }
+    if body_args.iter().any(|s| s == "{" || s == "}") {
+        return Err(ShellError::new(
+            ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+            "function: body contains unmatched brace tokens",
+        ));
+    }
     
     create_function(function_name, body_args)
 }

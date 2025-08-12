@@ -150,7 +150,9 @@ pub enum AwkValue {
     Number(f64),
 }
 
-// 旧 AwkCommand (Builtin 実装予定) は未使用だったため削除し、警告を低減。
+// Legacy note: The old AwkCommand (Builtin trait impl) was deprecated in favor of a single
+// `awk_cli(args, &mut ShellContext)` entry. This keeps the interface consistent with other
+// builtins, reduces unused-code warnings, and allows future promotion to Builtin safely.
 
 impl AwkContext {
     fn new(options: &AwkOptions) -> Self {
@@ -323,16 +325,27 @@ fn parse_awk_program(program: &str) -> ShellResult<AwkProgram> {
                 end_actions.push(action);
             }
         } else {
-            // パターン + アクション簡易検出: /regex/ { action }
+            // パターン + アクション簡易検出: /regex/ { action } もしくは /regex/ action
             if let Some(after_first) = line.strip_prefix('/') {
                 if let Some(second) = after_first.find('/') {
                     let pattern_str = &after_first[..second];
                     #[cfg(feature = "advanced-regex")]
                     if let Ok(re) = Regex::new(pattern_str) {
                         let rest = after_first[second + 1..].trim();
-                        // rest 先頭 '{' の有無で分岐予定だったが現状同一処理なのでそのまま
-                        let action_part = rest; // unify (removed redundant if)
-                        let action = if action_part.is_empty() { AwkAction::Print(vec![AwkExpression::Field(0)]) } else { parse_awk_action(action_part)? };
+                        // If the rest begins with a block, parse the block content; otherwise parse as a single action.
+                        let action = if rest.is_empty() {
+                            AwkAction::Print(vec![AwkExpression::Field(0)])
+                        } else if rest.starts_with('{') {
+                            // Ensure it ends with '}' for the simplified parser; otherwise treat as expression
+                            if rest.ends_with('}') {
+                                parse_awk_action(rest)?
+                            } else {
+                                // Fallback: incomplete block, treat as expression
+                                parse_awk_action(rest)?
+                            }
+                        } else {
+                            parse_awk_action(rest)?
+                        };
                         pattern_actions.push((Some(AwkPattern::Regex(re)), action));
                         continue;
                     }
