@@ -265,7 +265,11 @@
    - 署名鍵は環境/ファイルから初期化（`NXSH_UPDATE_KEYS_JSON`/`NXSH_OFFICIAL_PUBKEY` 等）。指紋は SHA-256 で算出。
    - TUF 相当メタデータ簡易検証を追加（`tuf_role=targets`、`tuf_expires` RFC3339 未失効）。
    - 依存: `ed25519-dalek`（feature `crypto-ed25519` で使用）、`pem`、`hex` を追加。全テスト緑。
-- [ ] 公開鍵 (official/community) 埋め込み後のキー管理プロセス設計
+ - [x] 公開鍵 (official/community) 埋め込み後のキー管理プロセス設計 ← 実装
+   - `updater.rs` に検証鍵のロード/ローテ機構を追加:
+     - ファイル: `~/.nxsh/keys/update_keys.json` または `NXSH_UPDATE_KEYS_PATH`
+     - 環境: `NXSH_UPDATE_KEYS_JSON`（name→key map）、`NXSH_OFFICIAL_PUBKEY`/`NXSH_COMMUNITY_PUBKEY`
+     - ローテ: `NXSH_UPDATE_ROTATE=1` と `NXSH_UPDATE_KEYS_JSON_NEW` で原子的置換＋バックアップ
 - [ ] CVE SLA 48h 対応ワークフロー自動テンプレート (issue → hotfix branch)
 
 ## 10. 国際化 / ローカライズ

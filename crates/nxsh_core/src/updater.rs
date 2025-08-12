@@ -333,6 +333,12 @@ impl UpdateSystem {
         if let Err(e) = system.initialize_verification_keys_from_env() {
             debug!(error = %e, "Failed to initialize verification keys from env/files");
         }
+        if let Err(e) = system.load_verification_keys_from_files_if_present() {
+            debug!(error = %e, "Failed to load verification keys from files");
+        }
+        if let Err(e) = system.rotate_update_keys_if_requested() {
+            debug!(error = %e, "Failed to rotate update keys");
+        }
         Ok(system)
     }
 
@@ -842,6 +848,72 @@ impl UpdateSystem {
             info!(old_channel = ?old_channel, new_channel = ?self.config.channel, "Update channel changed");
         }
         
+        Ok(())
+    }
+
+    /// Load verification keys from a JSON file if present.
+    /// Path resolution: NXSH_UPDATE_KEYS_PATH or ~/.nxsh/keys/update_keys.json
+    fn load_verification_keys_from_files_if_present(&self) -> Result<()> {
+        let path = if let Ok(p) = std::env::var("NXSH_UPDATE_KEYS_PATH") {
+            std::path::PathBuf::from(p)
+        } else {
+            if let Some(mut home) = dirs::home_dir() {
+                home.push(".nxsh");
+                home.push("keys");
+                home.push("update_keys.json");
+                home
+            } else {
+                return Ok(());
+            }
+        };
+        if !path.exists() { return Ok(()); }
+        let contents = std::fs::read_to_string(&path)
+            .with_context(|| format!("Failed to read {:?}", path))?;
+        let map: HashMap<String, String> = serde_json::from_str(&contents)
+            .with_context(|| format!("Invalid JSON in {:?}", path))?;
+        let mut keys = self.verification_keys.write().unwrap();
+        for (name, material) in map {
+            let fp = compute_key_fingerprint(&material)?;
+            keys.public_keys.insert(name.clone(), material.clone());
+            keys.fingerprint_to_name.insert(fp.clone(), name.clone());
+            if !keys.trusted_authorities.contains(&name) { keys.trusted_authorities.push(name); }
+        }
+        Ok(())
+    }
+
+    /// Rotate update keys file when requested via environment
+    /// Controls: NXSH_UPDATE_ROTATE=1 and NXSH_UPDATE_KEYS_JSON_NEW with JSON map
+    fn rotate_update_keys_if_requested(&self) -> Result<()> {
+        let rotate = std::env::var("NXSH_UPDATE_ROTATE").ok().map(|v| v=="1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+        if !rotate { return Ok(()); }
+        let new_json = match std::env::var("NXSH_UPDATE_KEYS_JSON_NEW") {
+            Ok(v) if !v.trim().is_empty() => v,
+            _ => return Ok(()),
+        };
+        let path = if let Ok(p) = std::env::var("NXSH_UPDATE_KEYS_PATH") {
+            std::path::PathBuf::from(p)
+        } else {
+            if let Some(mut home) = dirs::home_dir() {
+                home.push(".nxsh");
+                home.push("keys");
+                let _ = std::fs::create_dir_all(&home);
+                home.push("update_keys.json");
+                home
+            } else { return Ok(()); }
+        };
+        // Backup with epoch suffix
+        if path.exists() {
+            if let Ok(dur) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+                let bak = path.with_extension(format!("json.bak.{}", dur.as_secs()));
+                let _ = std::fs::copy(&path, &bak);
+            }
+        }
+        // Write atomically via temp
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, new_json.as_bytes())
+            .with_context(|| format!("Failed to write temp file for {:?}", path))?;
+        std::fs::rename(&tmp, &path)
+            .with_context(|| format!("Failed to replace {:?}", path))?;
         Ok(())
     }
 } 
