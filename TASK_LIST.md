@@ -192,7 +192,9 @@
   - 設定ファイル検索: .nxshrc, .shellrc, .dirrc, nxsh.config, shell.config
   - source_dir_config メソッド実装: ディレクトリ単位の設定ファイル読み込み
   - 基本的なテスト追加 (設定読み込みの詳細調整が必要)
-- [ ] cd.rs:281/288 「現状未実装」分の実施 (コメント更新)
+- [x] cd.rs:281/288 「現状未実装」分の実施 (コメント更新) ← 実装/コメント整備済
+  - `.env` 自動読込は `NXSH_AUTO_LOAD_ENV` で制御（コンテキスト変数優先）。失敗は警告に留めディレクトリ移動を阻害しない実装に固定。
+  - ディレクトリ設定ファイル（`.nxshrc` 等）は `NXSH_AUTO_SOURCE_DIR_CONFIG` で opt-in。コマンド実行はせず環境変数のみロード。
 - [x] network_tools.rs:18 HTTP ライブラリ ureq へ置換 (コア更新系は完了 / ネットワークツール本体は未リファクタ, コメント更新済)
 - [x] ls.rs:769/806/1133 users/group 参照 pure Rust 代替実装 (現状 libc 依存?)
 - [x] fsck.rs:13 `-a` 修復フラグ実装

@@ -276,9 +276,11 @@ impl CdCommand {
         // - Project-specific shell configurations
 
         // Check for .env file
+        // Implemented: opt-in auto load controlled by NXSH_AUTO_LOAD_ENV (context var takes precedence).
+        // Rationale: project-local environment setup should be explicit and reversible.
         let env_file = path.join(".env");
         if env_file.exists() {
-            // Check if auto_load_env is enabled via environment variable or context
+            // Detect whether auto load is enabled via context variable or process env
             let auto_load_env = ctx.get_var("NXSH_AUTO_LOAD_ENV")
                 .map(|v| v == "1" || v == "true")
                 .unwrap_or_else(|| {
@@ -288,6 +290,7 @@ impl CdCommand {
                 });
 
             if auto_load_env {
+                // Safe, best-effort loading: parsing errors are warned and do not abort directory change
                 if let Err(e) = self.load_env_file(&env_file, ctx) {
                     eprintln!("Warning: Failed to load .env file: {}", e);
                 }
@@ -297,7 +300,8 @@ impl CdCommand {
         // Check for directory-specific aliases or functions
         let shell_config = path.join(".nxshrc");
         if shell_config.exists() {
-            // Check if auto_source_dir_config is enabled
+            // Implemented: opt-in auto sourcing of directory config keys as env vars only (no command exec)
+            // Gate: NXSH_AUTO_SOURCE_DIR_CONFIG = 1/true (context var preferred over process env)
             let auto_source_dir_config = ctx.get_var("NXSH_AUTO_SOURCE_DIR_CONFIG")
                 .map(|v| v == "1" || v == "true")
                 .unwrap_or_else(|| {
@@ -307,7 +311,7 @@ impl CdCommand {
                 });
 
             if auto_source_dir_config {
-                // Pass the directory path; the loader will discover known files under it
+                // Pass the directory path; the loader will discover known files and load as variables
                 if let Err(e) = self.source_dir_config(path, ctx) {
                     eprintln!("Warning: Failed to source directory config: {}", e);
                 }
