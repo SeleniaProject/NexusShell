@@ -251,7 +251,8 @@
    - ダブル wait/kill 回避、排他制御範囲、エラー方針をコメントで明文化。
 
 ## 9. セキュリティ / アップデート / 署名
-- [ ] Capabilities Manifest (`cap.toml`) 必須化検証 (CI ルール)
+ - [x] Capabilities Manifest (`cap.toml`) 必須化検証 (CI ルール) ← 実装
+   - `nxsh_plugin::manager::validate_plugin_metadata` で `NXSH_CAP_MANIFEST_REQUIRED=1` 有効時に `metadata.capabilities` 未指定をエラーに。
 - [ ] Ed25519 + TUF メタデータ: プラグイン鍵ローテーション手順自動化
 - [ ] ヒストリ暗号化 (Argon2id + AES-GCM) 実装検証テスト (復号/改ざん検出試験)
 - [ ] アップデータ: 差分パッチ署名検証 (updater.rs 実装と SPEC 整合)

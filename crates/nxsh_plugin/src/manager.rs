@@ -230,6 +230,14 @@ impl PluginManager {
             return Err(anyhow::anyhow!("Plugin name cannot be empty"));
         }
 
+        // Enforce capabilities manifest policy: capabilities must be present when required
+        // Environment toggle NXSH_CAP_MANIFEST_REQUIRED=1 enforces mandatory capabilities declaration.
+        if std::env::var("NXSH_CAP_MANIFEST_REQUIRED").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false) {
+            if metadata.capabilities.is_empty() {
+                return Err(anyhow::anyhow!("Capabilities manifest is required but missing (metadata.capabilities)"));
+            }
+        }
+
         // Validate dependencies
         for (dep_name, version_req) in &metadata.dependencies {
             VersionReq::parse(version_req)
