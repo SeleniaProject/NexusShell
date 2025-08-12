@@ -1,0 +1,19 @@
+name: Test Count Report
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  count_tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run test counter
+        run: python3 scripts/count_tests.py > test_count.json
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-count
+          path: test_count.json
+
+

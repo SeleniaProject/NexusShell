@@ -321,6 +321,7 @@
 
 ## 12. テスト / QA
 - [ ] 単体テスト件数 SPEC 記載値 (1500+ / 2000+) と現状差分調査
+  - [x] 自動集計スクリプト追加（`scripts/count_tests.py`）とレポート用ワークフロー（`test_count.yml`）
 - [ ] 統合テスト: POSIX PCTS / BATS / Pester 実行パイプライン整備
 - [ ] Fuzzing `cargo-fuzz` 48h ラン → 成果物 (coverage, crashes) レポート化
 - [ ] プロパティテスト `proptest` AST round-trip 充足率計測

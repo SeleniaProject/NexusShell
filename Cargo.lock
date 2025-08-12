@@ -3036,6 +3036,7 @@ dependencies = [
  "logos",
  "pest",
  "pest_derive",
+ "proptest",
 ]
 
 [[package]]

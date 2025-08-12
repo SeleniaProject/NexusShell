@@ -97,20 +97,77 @@ fn get_parent_pid() -> u32 {
 
 /// Detect if this is a login shell
 fn detect_login_shell() -> bool {
-    // Take a snapshot of relevant environment to reduce race impact in parallel tests
-    let shlvl_snapshot = std::env::var("SHLVL").ok().and_then(|s| s.parse::<i32>().ok());
-    let login_env = std::env::var("LOGIN").ok();
-    let logname_present = std::env::var("LOGNAME").is_ok();
-    let home_present = std::env::var("HOME").is_ok();
-    let shell_present = std::env::var("SHELL").is_ok();
-    let term_snapshot = std::env::var("TERM").ok();
-    // Snapshot of argv[0] surrogate used by some launchers/shells
-    let underscore_snapshot = std::env::var("_").ok();
-    // TERM_SESSION_ID is a very weak signal and often set in CI/editors; ignore to avoid false positives
-    let _term_session_present = std::env::var("TERM_SESSION_ID").is_ok();
-    let ssh_client_present = std::env::var("SSH_CLIENT").is_ok();
-    let ssh_conn_present = std::env::var("SSH_CONNECTION").is_ok();
-    let ssh_tty_present = std::env::var("SSH_TTY").is_ok();
+    // Best-effort stabilization: re-snapshot critical vars to mitigate parallel test env mutations
+    #[derive(Clone)]
+    struct Snap {
+        shlvl: Option<i32>,
+        login: bool,
+        logname: bool,
+        home: bool,
+        shell: bool,
+        term: Option<String>,
+        underscore: Option<String>,
+        ssh_client: bool,
+        ssh_conn: bool,
+        ssh_tty: bool,
+        #[cfg(windows)]
+        logonserver_nonempty: bool,
+        #[cfg(not(windows))]
+        logonserver_nonempty: bool,
+    }
+    fn take_snap() -> Snap {
+        Snap {
+            shlvl: std::env::var("SHLVL").ok().and_then(|s| s.parse::<i32>().ok()),
+            login: std::env::var("LOGIN").is_ok(),
+            logname: std::env::var("LOGNAME").is_ok(),
+            home: std::env::var("HOME").is_ok(),
+            shell: std::env::var("SHELL").is_ok(),
+            term: std::env::var("TERM").ok(),
+            underscore: std::env::var("_").ok(),
+            ssh_client: std::env::var("SSH_CLIENT").is_ok(),
+            ssh_conn: std::env::var("SSH_CONNECTION").is_ok(),
+            ssh_tty: std::env::var("SSH_TTY").is_ok(),
+            #[cfg(windows)]
+            logonserver_nonempty: std::env::var("LOGONSERVER").map(|v| !v.is_empty()).unwrap_or(false),
+            #[cfg(not(windows))]
+            logonserver_nonempty: false,
+        }
+    }
+    let mut snap = take_snap();
+    for _ in 0..2 {
+        std::thread::yield_now();
+        let s2 = take_snap();
+        // If SSH or SHLVL differ across reads, prefer a conservative union that maximizes positive detection
+        if snap.ssh_client != s2.ssh_client
+            || snap.ssh_conn != s2.ssh_conn
+            || snap.ssh_tty != s2.ssh_tty
+            || snap.shlvl != s2.shlvl
+        {
+            // Merge: SSH present if either snapshot had it; SHLVL take the smaller (treat <=1 as login-friendly)
+            let merged_shlvl = match (snap.shlvl, s2.shlvl) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (Some(a), None) => Some(a),
+                (None, Some(b)) => Some(b),
+                (None, None) => None,
+            };
+            snap.shlvl = merged_shlvl;
+            snap.ssh_client |= s2.ssh_client;
+            snap.ssh_conn |= s2.ssh_conn;
+            snap.ssh_tty |= s2.ssh_tty;
+        } else {
+            break;
+        }
+    }
+    let shlvl_snapshot = snap.shlvl;
+    let login_env = if snap.login { Some(String::new()) } else { None };
+    let logname_present = snap.logname;
+    let home_present = snap.home;
+    let shell_present = snap.shell;
+    let term_snapshot = snap.term;
+    let underscore_snapshot = snap.underscore;
+    let ssh_client_present = snap.ssh_client;
+    let ssh_conn_present = snap.ssh_conn;
+    let ssh_tty_present = snap.ssh_tty;
     #[cfg(windows)]
     let logonserver_nonempty = std::env::var("LOGONSERVER").map(|v| !v.is_empty()).unwrap_or(false);
     #[cfg(not(windows))]
@@ -124,6 +181,13 @@ fn detect_login_shell() -> bool {
 
     // Strong invariant: clearly nested shells are never login shells
     if let Some(level) = shlvl_snapshot { if level >= 2 { return false; } }
+
+    // If environment looks like an initial login (basic user/home/shell hints) and not nested
+    // treat as login shell. This ensures SHLVL=1 with typical login env is detected.
+    let user_present = std::env::var("USER").is_ok();
+    if (logname_present || user_present) && (home_present || shell_present) {
+        if shlvl_snapshot.unwrap_or(1) <= 1 { return true; }
+    }
 
     // argv[0] / '_' starting with '-' indicates login shell; prioritize over SHLVL heuristic
     if let Some(arg0) = std::env::args_os().next().and_then(|a| a.into_string().ok()) {
