@@ -355,6 +355,7 @@
 - [ ] ヒストリ暗号化 (鍵導出 / AES-GCM) 実装コード有無調査
 - [ ] プラグイン Capabilities Manifest 強制検証 (ロード拒否ケース)
 - [ ] ログ: JSON / human-readable 2 モード切替単体テスト
+  - [x] `logstats` の `--json`/`--pretty`/`--prom` 各モードの基本UTを追加（`crates/nxsh_builtins/tests/log_mode_tests.rs`）
 - [ ] メトリクス一覧 (nxsh_* ) 実装 vs DESIGN.md 差分
 - [ ] クラッシュダンプ (minidump / XOR 暗号化) 実装確認
 - [ ] アップデータ: 差分パッチ bsdiff 実装位置確認
