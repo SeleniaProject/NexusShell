@@ -324,7 +324,8 @@
 - [ ] 統合テスト: POSIX PCTS / BATS / Pester 実行パイプライン整備
 - [ ] Fuzzing `cargo-fuzz` 48h ラン → 成果物 (coverage, crashes) レポート化
 - [ ] プロパティテスト `proptest` AST round-trip 充足率計測
-- [ ] カバレッジ 95% 維持: grcov / tarpaulin 共通化
+- [x] カバレッジ 95% 維持: grcov / tarpaulin 共通化
+  - CI: `.github/workflows/coverage.yml` で tarpaulin を実行し、Cobertura 解析で 95% 未満を失敗扱い
 - [ ] QA_PREVIEW_CHECKLIST の全項目 自動化可否仕分け
 
 ## 13. 将来ロードマップ (SPEC §12) — 着手前調査タスク
@@ -341,6 +342,7 @@
 - [ ] UI: enhanced_ui_tests.rs:13 test_placeholder → 実質的テストへ昇格
 - [ ] Parser: 条件付き構築での body placeholder 二重格納 回避
 - [ ] network_tools.rs: HTTP クライアント選定 (ureq vs reqwest vs hyper) 比較ドキュメント
+  - [x] 比較ドキュメント追加: `docs/NETWORK_CLIENT_COMPARISON.md`
 - [ ] crash_handler.rs: 取得すべき統計情報一覧仕様化
 - [ ] users/group 参照 pure Rust 代替の候補比較 (shadow / etc parsing / sysinfo)
 - [ ] scheduler NICE 値/priority を cross-platform 収束 (Win Job Object, Unix setpriority)

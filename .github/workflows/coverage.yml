@@ -1,3 +1,39 @@
+name: Coverage Gate
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  tarpaulin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+      - name: Run coverage (tarpaulin)
+        run: |
+          cargo tarpaulin --out Xml --workspace --timeout 120 --engine llvm --exclude-files target/* || true
+      - name: Check coverage threshold (>=95%)
+        run: |
+          python3 - << 'PY'
+          import xml.etree.ElementTree as ET
+          tree = ET.parse('cobertura.xml')
+          root = tree.getroot()
+          lines_valid = int(root.attrib.get('lines-valid','0'))
+          lines_covered = int(root.attrib.get('lines-covered','0'))
+          pct = (lines_covered/lines_valid*100) if lines_valid else 0
+          print(f"Coverage: {pct:.2f}% ({lines_covered}/{lines_valid})")
+          exit(0 if pct >= 95.0 else 1)
+          PY
+
 name: Coverage
 
 on:
