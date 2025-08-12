@@ -11,6 +11,7 @@ pub mod startup_profiler; // Startup measurement utilities
 pub mod status_line; // Status line metrics (CPU/MEM/Net/Battery)
 pub mod enhanced_ui;
 pub mod line_editor;
+pub mod history_crypto; // History encryption (Argon2id + AES-GCM)
 pub mod prompt;
 pub mod ui_ux; // Advanced UI/UX system
 

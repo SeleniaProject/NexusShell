@@ -21,6 +21,7 @@ use std::{
     path::{Path, PathBuf},
     fs,
 };
+use crate::history_crypto;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc as StdArc, Mutex as StdMutex};
 use nxsh_parser::Parser;
@@ -154,7 +155,21 @@ impl NexusLineEditor {
     /// Save history to file
     pub fn save_history(&mut self) -> Result<()> {
         if let Some(ref path) = self.history_file {
-            let _ = self.editor.save_history(path);
+            let tmp_path = format!("{}.tmp", path);
+            let _ = self.editor.save_history(&tmp_path);
+            let data = fs::read(&tmp_path).unwrap_or_default();
+            if std::env::var("NXSH_HISTORY_ENCRYPT").ok().as_deref() == Some("1") {
+                let pass = std::env::var("NXSH_HISTORY_PASSPHRASE").unwrap_or_default();
+                if pass.is_empty() {
+                    let _ = fs::rename(&tmp_path, path);
+                    return Ok(());
+                }
+                let enc = history_crypto::encrypt_history(&pass, &data)?;
+                fs::write(path, &enc).with_context(|| "Failed to write encrypted history")?;
+                let _ = fs::remove_file(&tmp_path);
+            } else {
+                let _ = fs::rename(&tmp_path, path);
+            }
         }
         Ok(())
     }
@@ -162,8 +177,23 @@ impl NexusLineEditor {
     /// Load history from file
     pub fn load_history(&mut self) -> Result<()> {
         if let Some(ref path) = self.history_file {
-            if Path::new(path).exists() {
-                let _ = self.editor.load_history(path);
+            let p = Path::new(path);
+            if p.exists() {
+                let data = fs::read(p).with_context(|| "Failed to read history file")?;
+                if history_crypto::is_encrypted_history(&data) {
+                    let pass = std::env::var("NXSH_HISTORY_PASSPHRASE").unwrap_or_default();
+                    if pass.is_empty() {
+                        return Ok(());
+                    }
+                    let plain = history_crypto::decrypt_history(&pass, &data)?;
+                    if let Ok(text) = String::from_utf8(plain) {
+                        for line in text.lines() {
+                            let _ = self.editor.add_history_entry(line);
+                        }
+                    }
+                } else {
+                    let _ = self.editor.load_history(p);
+                }
             }
         }
         Ok(())

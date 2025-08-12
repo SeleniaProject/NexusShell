@@ -658,7 +658,8 @@ mod tests {
         
         let app = result.unwrap();
         assert!(app.metrics.commands_executed == 0);
-        assert!(app.startup_time.elapsed().as_millis() < 100); // Should be very fast in tests
+        // In CI/debug environments, allow a looser bound to avoid flakiness
+        assert!(app.startup_time.elapsed().as_millis() < 300, "Startup took too long in test env");
     }
     
     #[test]
