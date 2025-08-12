@@ -246,7 +246,9 @@
  - [x] (nxsh_hal/src/completion.rs:268) エイリアス補完 Shell alias システム統合 ← 実装
    - HAL補完で `NXSH_ALIAS_*` 環境変数および `NXSH_ALIAS_FILE`（name=value 行）からエイリアス候補を生成。
    - スコアリング/最大件数制御に連携、UI/コアと独立しても機能。
-- [ ] (nxsh_hal/src/process.rs:433) placeholder 安全実装コメント → 実コードの安全保証ドキュメント化
+ - [x] (nxsh_hal/src/process.rs:433) placeholder 安全実装コメント → 実コードの安全保証ドキュメント化 ← 実装
+   - `ProcessManager::spawn` の返却ハンドルポリシーを詳細化: 所有ハンドルは内部保持、外部には監視専用ハンドルを返却（child=None）。
+   - ダブル wait/kill 回避、排他制御範囲、エラー方針をコメントで明文化。
 
 ## 9. セキュリティ / アップデート / 署名
 - [ ] Capabilities Manifest (`cap.toml`) 必須化検証 (CI ルール)

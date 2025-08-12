@@ -430,14 +430,27 @@ impl ProcessManager {
         self.stats.processes_created += 1;
 
         // Return a reference to the stored handle by creating a new handle reference
-        // This is safer than using unsafe operations or placeholder processes
+        // SAFETY INVARIANTS (documented guarantee):
+        // 1) The authoritative, mutable handle that owns the OS child handle remains
+        //    inside `self.processes`. External callers never receive that owner directly.
+        // 2) We create and return a "monitor-only" handle via `new_from_existing` which
+        //    contains a cloned `ProcessInfo` and has `child=None`. This prevents external
+        //    code from performing unsafe lifecycle operations (kill/wait) on the same
+        //    underlying OS process descriptor, eliminating double-wait/double-kill risks.
+        // 3) All mutating operations on the real child (kill, wait, cleanup) are funneled
+        //    through `ProcessManager` APIs (`kill_process`, `wait_for_process`,
+        //    `cleanup_finished`), which serialize access via the internal mutex.
+        // 4) The map lock is released before returning; the returned monitor-only handle
+        //    does not hold any mutex or pointer into the map, avoiding lifetime hazards.
+        // 5) The monitor-only handle still exposes `kill()`/`wait()`, but they return
+        //    errors because `child=None`. This is intentional to uphold (1)–(3).
         let processes = self.processes.lock()
             .map_err(|_| HalError::resource_error("Process map lock poisoned"))?;
         let handle = processes.get(&pid)
             .ok_or_else(|| HalError::process_error("get_process", None, "Process handle disappeared"))?;
         
         // Create a new handle with the same PID and info, but without child process access
-        // This prevents resource conflicts while maintaining process identification
+        // to prevent resource conflicts while maintaining process identification.
         let new_handle = ProcessHandle::new_from_existing(handle.pid, handle.info.clone())?;
         Ok(new_handle)
     }
