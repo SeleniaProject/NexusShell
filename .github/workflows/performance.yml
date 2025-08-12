@@ -44,6 +44,22 @@ jobs:
       - name: Run completion latency benchmarks (<1ms asserts)
         run: cargo bench -p nxsh_hal --bench hal_performance -- --quiet || (echo 'Bench failed' && exit 1)
 
+  jit_speedup_gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Install Criterion (no install needed)
+        run: echo "Using cargo bench with criterion"
+      - name: Run jit_vs_interp bench
+        run: cargo bench -p nxsh_core --bench jit_vs_interp -- --measurement-time 5 --warm-up-time 2 || true
+      - name: Check JIT speedup (>=2x)
+        run: python3 scripts/check_jit_speedup.py --required-speedup 2.0
+
   size_gate:
     runs-on: ubuntu-latest
     steps:
