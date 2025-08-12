@@ -124,7 +124,10 @@ rand = { version = "0.8", default-features = false, features = ["std", "std_rng"
 base16ct = { version = "0.2", default-features = false, features = ["std"] }
 base64 = { version = "0.21", default-features = false, features = ["std"] }
 ureq = { version = "2.9", default-features = false, optional = true }
+# Make ed25519 available for updater signature verification
 ed25519-dalek = { version = "2", default-features = false, features = ["alloc", "pkcs8"], optional = true }
+hex = { version = "0.4", default-features = false, features = ["std"] }
+pem = { version = "3", default-features = false }
 
 # Optional heavy crates for advanced capabilities
 regex = { version = "1", default-features = false, features = ["std"], optional = true }

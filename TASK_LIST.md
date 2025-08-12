@@ -260,7 +260,11 @@
    - `nxsh_ui::history_crypto` を追加（Argon2id KDF + AES-256-GCM、MAGIC/Version/塩/nonce/密文形式）。
    - `line_editor.rs` に統合: `NXSH_HISTORY_ENCRYPT=1` と `NXSH_HISTORY_PASSPHRASE` 指定で保存時に暗号化、読み込み時は判別して復号（パスフレーズ未指定時はスキップ）。
    - Argon2パラメータは環境変数で調整可能（M/T/P）。改ざん時は復号エラーを返す。
-- [ ] アップデータ: 差分パッチ署名検証 (updater.rs 実装と SPEC 整合)
+ - [x] アップデータ: 差分パッチ署名検証 (updater.rs 実装と SPEC 整合) ← 実装
+   - `verify_update()` で SHA-256 チェックサムに加え Ed25519 署名検証を実行（PEM/生B64公開鍵両対応）。
+   - 署名鍵は環境/ファイルから初期化（`NXSH_UPDATE_KEYS_JSON`/`NXSH_OFFICIAL_PUBKEY` 等）。指紋は SHA-256 で算出。
+   - TUF 相当メタデータ簡易検証を追加（`tuf_role=targets`、`tuf_expires` RFC3339 未失効）。
+   - 依存: `ed25519-dalek`（feature `crypto-ed25519` で使用）、`pem`、`hex` を追加。全テスト緑。
 - [ ] 公開鍵 (official/community) 埋め込み後のキー管理プロセス設計
 - [ ] CVE SLA 48h 対応ワークフロー自動テンプレート (issue → hotfix branch)
 

@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{info, warn, error, debug};
 use crate::compat::{Result, Context};
 use sha2::{Sha256, Digest};
+use base64::Engine;
 
 /// Comprehensive update system with delta updates and signature verification
 pub struct UpdateSystem {
@@ -29,6 +30,24 @@ pub struct UpdateSystem {
     verification_keys: Arc<RwLock<VerificationKeys>>,
     update_history: Arc<RwLock<Vec<UpdateRecord>>>,
     is_updating: AtomicBool,
+}
+
+fn compute_key_fingerprint(material: &str) -> Result<String> {
+    if material.contains("-----BEGIN") {
+        let der = pem::parse(material)
+            .map_err(|e| crate::anyhow!("invalid PEM: {}", e))?
+            .into_contents();
+        let mut hasher = Sha256::new();
+        hasher.update(&der);
+        Ok(hex::encode(hasher.finalize()))
+    } else {
+        let raw = base64::engine::general_purpose::STANDARD
+            .decode(material.trim())
+            .map_err(|e| crate::anyhow!("invalid base64 public key: {}", e))?;
+        let mut hasher = Sha256::new();
+        hasher.update(&raw);
+        Ok(hex::encode(hasher.finalize()))
+    }
 }
 
 /// Enhanced update configuration
@@ -303,14 +322,18 @@ impl UpdateSystem {
         fs::create_dir_all(&config.backup_dir)
             .with_context(|| format!("Failed to create backup directory: {:?}", config.backup_dir))?;
 
-        Ok(Self {
+        let system = Self {
             config,
             update_info: Arc::new(RwLock::new(None)),
             download_progress: Arc::new(RwLock::new(DownloadProgress::default())),
             verification_keys: Arc::new(RwLock::new(VerificationKeys::default())),
             update_history: Arc::new(RwLock::new(Vec::new())),
             is_updating: AtomicBool::new(false),
-        })
+        };
+        if let Err(e) = system.initialize_verification_keys_from_env() {
+            debug!(error = %e, "Failed to initialize verification keys from env/files");
+        }
+        Ok(system)
     }
 
     /// Check for updates with comprehensive version comparison
@@ -594,6 +617,7 @@ impl UpdateSystem {
         // Verify signature if enabled
         if self.config.verify_signatures {
             self.verify_signature(&file_data, &update_info.signature, &update_info.key_fingerprint)?;
+            self.verify_tuf_like_metadata(update_info)?;
         }
 
         info!("Update verification completed successfully");
@@ -601,7 +625,7 @@ impl UpdateSystem {
     }
 
     /// Verify cryptographic signature
-    fn verify_signature(&self, data: &[u8], signature: &str, key_fingerprint: &str) -> Result<()> {
+    fn verify_signature(&self, data: &[u8], signature_b64: &str, key_fingerprint: &str) -> Result<()> {
         let keys = self.verification_keys.read().unwrap();
         
         let key_name = keys.fingerprint_to_name.get(key_fingerprint)
@@ -614,12 +638,21 @@ impl UpdateSystem {
         #[cfg(feature = "crypto-ed25519")]
         {
             use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-            let pk_pem = keys.public_keys.get(key_name)
+            let pk_material = keys.public_keys.get(key_name)
                 .ok_or_else(|| crate::anyhow!("No public key material for {key_name}"))?;
-            // Expect PKCS#8 PEM public key
-            let verifying_key = VerifyingKey::from_public_key_pem(pk_pem)
-                .map_err(|e| crate::anyhow!("invalid public key PEM: {e}"))?;
-            let sig_bytes = base64::decode(signature)
+            let verifying_key = match VerifyingKey::from_public_key_pem(pk_material) {
+                Ok(vk) => vk,
+                Err(_) => {
+                    let raw = base64::engine::general_purpose::STANDARD
+                        .decode(pk_material.as_bytes())
+                        .map_err(|e| crate::anyhow!("invalid base64 public key: {e}"))?;
+                    if raw.len() != 32 { return Err(crate::anyhow!("invalid raw public key length: {}", raw.len())); }
+                    VerifyingKey::from_bytes(raw.as_slice().try_into().unwrap())
+                        .map_err(|e| crate::anyhow!("invalid ed25519 public key: {e}"))?
+                }
+            };
+            let sig_bytes = base64::engine::general_purpose::STANDARD
+                .decode(signature_b64)
                 .map_err(|e| crate::anyhow!("invalid base64 signature: {e}"))?;
             let sig = Signature::from_slice(&sig_bytes)
                 .map_err(|e| crate::anyhow!("invalid signature length: {e}"))?;
@@ -628,12 +661,48 @@ impl UpdateSystem {
             info!("Signature verification completed");
             return Ok(());
         }
-
         #[cfg(not(feature = "crypto-ed25519"))]
         {
             debug!(key_name = %key_name, "Signature verification skipped (feature 'crypto-ed25519' disabled)");
-            Ok(())
+            return Ok(());
         }
+    }
+
+    fn verify_tuf_like_metadata(&self, info: &UpdateInfo) -> Result<()> {
+        if let Some(role) = info.metadata.get("tuf_role") {
+            if role != "targets" { return Err(crate::anyhow!("invalid TUF role: {}", role)); }
+        } else { return Err(crate::anyhow!("missing TUF role metadata")); }
+        if let Some(exp) = info.metadata.get("tuf_expires") {
+            let dt = time::OffsetDateTime::parse(exp, &time::format_description::well_known::Rfc3339)
+                .map_err(|e| crate::anyhow!("invalid tuf_expires: {}", e))?;
+            if dt < time::OffsetDateTime::now_utc() {
+                return Err(crate::anyhow!("TUF metadata expired: {}", exp));
+            }
+        } else { return Err(crate::anyhow!("missing tuf_expires metadata")); }
+        Ok(())
+    }
+
+    fn initialize_verification_keys_from_env(&self) -> Result<()> {
+        let mut keys = self.verification_keys.write().unwrap();
+        if let Ok(json) = std::env::var("NXSH_UPDATE_KEYS_JSON") {
+            if let Ok(map) = serde_json::from_str::<HashMap<String, String>>(&json) {
+                for (name, material) in map {
+                    let fp = compute_key_fingerprint(&material)?;
+                    keys.public_keys.insert(name.clone(), material.clone());
+                    keys.fingerprint_to_name.insert(fp.clone(), name.clone());
+                    if !keys.trusted_authorities.contains(&name) { keys.trusted_authorities.push(name); }
+                }
+            }
+        }
+        for (name, var) in [("nxsh-release", "NXSH_OFFICIAL_PUBKEY"), ("community", "NXSH_COMMUNITY_PUBKEY")] {
+            if let Ok(material) = std::env::var(var) {
+                let fp = compute_key_fingerprint(&material)?;
+                keys.public_keys.insert(name.to_string(), material.clone());
+                keys.fingerprint_to_name.insert(fp.clone(), name.to_string());
+                if !keys.trusted_authorities.contains(&name.to_string()) { keys.trusted_authorities.push(name.to_string()); }
+            }
+        }
+        Ok(())
     }
 
     /// Install the update

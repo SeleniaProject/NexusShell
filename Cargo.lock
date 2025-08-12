@@ -2965,6 +2965,7 @@ dependencies = [
  "env_logger",
  "fancy-regex 0.13.0",
  "futures",
+ "hex",
  "hostname",
  "is-terminal",
  "libc",
@@ -2972,6 +2973,7 @@ dependencies = [
  "num_cpus",
  "nxsh_hal",
  "nxsh_parser",
+ "pem",
  "proptest",
  "rand 0.8.5",
  "rayon",
@@ -3258,6 +3260,15 @@ name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+
+[[package]]
+name = "pem"
+version = "3.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38af38e8470ac9dee3ce1bae1af9c1671fffc44ddfd8bd1d0a3445bf349a8ef3"
+dependencies = [
+ "base64 0.22.1",
+]
 
 [[package]]
 name = "percent-encoding"
