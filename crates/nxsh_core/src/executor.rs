@@ -1323,6 +1323,7 @@ impl Executor {
                 for statement in statements {
                     if context.is_timed_out() { return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: "nxsh: execution timed out".to_string(), execution_time: 0, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() }); }
                     result = self.execute_ast_direct(statement, context)?;
+                    if context.is_timed_out() { return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: "nxsh: execution timed out".to_string(), execution_time: 0, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() }); }
                     if result.exit_code != 0 && !context.continue_on_error() { break; }
                 }
                 result
@@ -1949,12 +1950,20 @@ impl Executor {
         }
         if context.is_timed_out() { return Ok(ExecutionResult::failure(124).with_error(b"nxsh: execution timed out".to_vec())); }
         if let Some(builtin) = self.builtins.get(&cmd_name) {
-            return builtin.execute(context, &cmd_args);
+            let r = builtin.execute(context, &cmd_args);
+            if context.is_timed_out() {
+                return Ok(ExecutionResult::failure(124).with_error(b"nxsh: execution timed out".to_vec()));
+            }
+            return r;
         }
 
         // Execute as external command
         if context.is_timed_out() { return Ok(ExecutionResult::failure(124).with_error(b"nxsh: execution timed out".to_vec())); }
-        self.execute_external_process(&cmd_name, &cmd_args, context)
+        let r = self.execute_external_process(&cmd_name, &cmd_args, context);
+        if context.is_timed_out() {
+            return Ok(ExecutionResult::failure(124).with_error(b"nxsh: execution timed out".to_vec()));
+        }
+        r
     }
 
     /// Execute a user-defined shell function stored in `ShellContext.functions`

@@ -7,7 +7,7 @@ use crate::compat::Result;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, BinaryHeap, VecDeque},
-    sync::{Arc, atomic::{AtomicU64, AtomicBool, Ordering}},
+    sync::{Arc, Mutex, atomic::{AtomicU64, AtomicBool, Ordering}},
     time::{Duration, SystemTime, Instant},
     cmp::{Ordering as CmpOrdering, Reverse},
 };
@@ -35,6 +35,8 @@ pub struct SchedulerConfig {
     pub default_timeout_secs: u64,
     /// 優先度キューの有効化
     pub enable_priority_queue: bool,
+    /// ワーカースレッド数 (0 なら自動検出)
+    pub num_workers: usize,
 }
 
 /// 高度なジョブスケジューラー
@@ -48,6 +50,16 @@ pub struct AdvancedJobScheduler {
     shutdown_signal: Arc<AtomicBool>,
     job_counter: AtomicU64,
     scheduler_handle: Option<JoinHandle<()>>,
+    /// Work-stealing workers (local deques)
+    workers: Vec<Worker>,
+    /// Round-robin assignment fallback counter
+    rr_counter: AtomicU64,
+}
+
+/// Worker that owns a local task deque for work-stealing
+struct Worker {
+    id: usize,
+    queue: Arc<Mutex<VecDeque<QueuedJob>>>,
 }
 
 /// スケジュールされたジョブ
@@ -83,6 +95,8 @@ pub struct ScheduledJob {
     pub enabled: bool,
     /// メタデータ
     pub metadata: HashMap<String, String>,
+    /// NICE 値 (-20..=19, 小さいほど高優先度)
+    pub nice: i8,
 }
 
 /// ジョブスケジュール設定
@@ -256,6 +270,7 @@ impl Default for SchedulerConfig {
             default_retry_interval_secs: 60,
             default_timeout_secs: 3600, // 1時間
             enable_priority_queue: true,
+            num_workers: 0,
         }
     }
 }
@@ -286,7 +301,19 @@ impl AdvancedJobScheduler {
     /// 新しいスケジューラーを作成
     pub fn new(config: SchedulerConfig) -> Self {
         let semaphore = Arc::new(Semaphore::new(config.max_concurrent_jobs));
-        
+        // Detect worker count
+        let mut worker_count = config.num_workers;
+        if worker_count == 0 {
+            worker_count = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+            if let Ok(v) = std::env::var("NXSH_SCHED_WORKERS") {
+                if let Ok(parsed) = v.parse::<usize>() { if parsed > 0 { worker_count = parsed; } }
+            }
+        }
+        let mut workers: Vec<Worker> = Vec::with_capacity(worker_count);
+        for i in 0..worker_count {
+            workers.push(Worker { id: i, queue: Arc::new(Mutex::new(VecDeque::new())) });
+        }
+
         Self {
             config,
             jobs: Arc::new(AsyncRwLock::new(HashMap::new())),
@@ -297,6 +324,8 @@ impl AdvancedJobScheduler {
             shutdown_signal: Arc::new(AtomicBool::new(false)),
             job_counter: AtomicU64::new(0),
             scheduler_handle: None,
+            workers,
+            rr_counter: AtomicU64::new(0),
         }
     }
     
@@ -309,7 +338,8 @@ impl AdvancedJobScheduler {
         let semaphore = Arc::clone(&self.semaphore);
         let shutdown_signal = Arc::clone(&self.shutdown_signal);
         let config = self.config.clone();
-        
+        let worker_shared = self.workers.iter().map(|w| (w.id, Arc::clone(&w.queue))).collect::<Vec<_>>();
+
         let handle = tokio::spawn(async move {
             let mut interval = interval(Duration::from_secs(config.check_interval_secs));
             
@@ -325,6 +355,7 @@ impl AdvancedJobScheduler {
                     &job_history,
                     &semaphore,
                     &config,
+                    &worker_shared,
                 ).await {
                     error!(error = %e, "Error processing scheduled jobs");
                 }
@@ -333,6 +364,65 @@ impl AdvancedJobScheduler {
             info!("Advanced job scheduler stopped");
         });
         
+        // Spawn worker loops for work-stealing execution
+        for (wid, wqueue) in self.workers.iter().map(|w| (w.id, Arc::clone(&w.queue))) {
+            let jobs = Arc::clone(&self.jobs);
+            let running_jobs = Arc::clone(&self.running_jobs);
+            let job_history = Arc::clone(&self.job_history);
+            let queue_global = Arc::clone(&self.queue);
+            let semaphore = Arc::clone(&self.semaphore);
+            let config = self.config.clone();
+            let shutdown = Arc::clone(&self.shutdown_signal);
+            // Other queues for stealing
+            let others = self.workers.iter().filter(|w| w.id != wid).map(|w| Arc::clone(&w.queue)).collect::<Vec<_>>();
+            tokio::spawn(async move {
+                loop {
+                    if shutdown.load(Ordering::Relaxed) { break; }
+                    // Try from own queue
+                    let mut maybe_job = None;
+                    if let Ok(mut q) = wqueue.lock() { maybe_job = q.pop_back(); }
+                    // Try stealing
+                    if maybe_job.is_none() {
+                        for q in &others {
+                            if let Ok(mut o) = q.lock() { if let Some(j) = o.pop_front() { maybe_job = Some(j); break; } }
+                        }
+                    }
+                    if let Some(queued_job) = maybe_job {
+                        let permit = semaphore.clone().try_acquire_owned();
+                        if let Ok(permit) = permit {
+                            let job_id_for_spawn = queued_job.job_id.clone();
+                            let scheduled_time = queued_job.scheduled_time;
+                            let attempt = queued_job.attempt;
+                            let jobs_clone = Arc::clone(&jobs);
+                            let running_jobs_clone = Arc::clone(&running_jobs);
+                            let job_history_clone = Arc::clone(&job_history);
+                            let queue_clone = Arc::clone(&queue_global);
+                            let config_clone = config.clone();
+                            let handle = tokio::spawn(async move {
+                                let _permit = permit;
+                                Self::execute_job(
+                                    &job_id_for_spawn,
+                                    scheduled_time,
+                                    attempt,
+                                    &jobs_clone,
+                                    &running_jobs_clone,
+                                    &job_history_clone,
+                                    &queue_clone,
+                                    &config_clone,
+                                ).await
+                            });
+                            let running_job = RunningJob { job_id: queued_job.job_id.clone(), started_at: Instant::now(), handle, pid: None };
+                            running_jobs.write().await.insert(queued_job.job_id.clone(), running_job);
+                            continue;
+                        } else {
+                            if let Ok(mut q) = wqueue.lock() { q.push_back(queued_job); }
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            });
+        }
+
         self.scheduler_handle = Some(handle);
         Ok(())
     }
@@ -353,11 +443,14 @@ impl AdvancedJobScheduler {
     }
     
     /// ジョブをスケジュール
-    pub async fn schedule_job(&self, job: ScheduledJob) -> Result<String> {
+    pub async fn schedule_job(&self, mut job: ScheduledJob) -> Result<String> {
         let job_id = job.id.clone();
         
         // 次回実行時刻を計算
         let next_run = self.calculate_next_run(&job.schedule).await?;
+        // Normalize nice range
+        if job.nice < -20 { job.nice = -20; }
+        if job.nice > 19 { job.nice = 19; }
         
         // キューに追加
         {
@@ -408,6 +501,7 @@ impl AdvancedJobScheduler {
             created_at: SystemTime::now(),
             enabled: true,
             metadata: HashMap::new(),
+            nice: 0,
         };
         
         self.schedule_job(job).await
@@ -442,6 +536,7 @@ impl AdvancedJobScheduler {
             created_at: SystemTime::now(),
             enabled: true,
             metadata: HashMap::new(),
+            nice: 0,
         };
         
         self.schedule_job(job).await
@@ -546,6 +641,7 @@ impl AdvancedJobScheduler {
         job_history: &Arc<AsyncRwLock<VecDeque<JobHistoryEntry>>>,
         semaphore: &Arc<Semaphore>,
         config: &SchedulerConfig,
+        workers: &Vec<(usize, Arc<Mutex<VecDeque<QueuedJob>>>)>,
     ) -> Result<()> {
         let now = SystemTime::now();
         let mut jobs_to_execute = Vec::new();
@@ -564,50 +660,36 @@ impl AdvancedJobScheduler {
             }
         }
         
-        // ジョブを実行
-        for queued_job in jobs_to_execute {
-            let permit = semaphore.clone().try_acquire_owned();
-            
-            if let Ok(permit) = permit {
-                let jobs_clone = Arc::clone(jobs);
-                let running_jobs_clone = Arc::clone(running_jobs);
-                let job_history_clone = Arc::clone(job_history);
-                let queue_clone = Arc::clone(queue);
-                let config_clone = config.clone();
-                
-                let job_id = queued_job.job_id.clone();
-                let job_id_for_spawn = job_id.clone();
-                let scheduled_time = queued_job.scheduled_time;
-                let attempt = queued_job.attempt;
-                
-                let handle = tokio::spawn(async move {
-                    let _permit = permit; // permitを保持
-                    Self::execute_job(
-                        &job_id_for_spawn,
-                        scheduled_time,
-                        attempt,
-                        &jobs_clone,
-                        &running_jobs_clone,
-                        &job_history_clone,
-                        &queue_clone,
-                        &config_clone,
-                    ).await
-                });
-                
-                // 実行中ジョブに追加
-                let running_job = RunningJob {
-                    job_id: job_id.clone(),
-                    started_at: Instant::now(),
-                    handle,
-                    pid: None,
-                };
-                
-                running_jobs.write().await.insert(job_id, running_job);
-            } else {
-                // セマフォが満杯の場合、キューに戻す
-                queue.write().await.push(Reverse(queued_job));
-                break;
+        // Dispatch jobs to workers (local deque). Defer global queue writes to avoid awaits in this scope.
+        let mut fallback_jobs: Vec<QueuedJob> = Vec::new();
+        for qj in jobs_to_execute {
+            // Select worker with shortest queue length
+            let (mut best_idx, mut best_len) = (0usize, usize::MAX);
+            for (idx, wq) in workers.iter() {
+                if let Ok(guard) = wq.lock() {
+                    let len = guard.len();
+                    if len < best_len { best_len = len; best_idx = *idx; }
+                }
             }
+            if let Some((_, wq)) = workers.iter().find(|(i, _)| *i == best_idx) {
+                if let Ok(mut guard) = wq.lock() {
+                    // Higher priority earlier in deque
+                    let pos = guard.iter().position(|existing| existing.priority < qj.priority);
+                    match pos {
+                        Some(p) => guard.insert(p, qj.clone()),
+                        None => guard.push_back(qj.clone()),
+                    }
+                } else {
+                    // Fallback to global queue (defer)
+                    fallback_jobs.push(qj);
+                }
+            } else {
+                fallback_jobs.push(qj);
+            }
+        }
+        if !fallback_jobs.is_empty() {
+            let mut q = queue.write().await;
+            for j in fallback_jobs { q.push(Reverse(j)); }
         }
         
         Ok(())

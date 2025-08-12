@@ -148,7 +148,10 @@
     - [x] (nxsh_core/src/executor.rs:1347) 実行時間計測 実装済 (total_time 集計 / last_result.execution_time 設定済確認) ← 2025-08-10
 - [x] (nxsh_core/src/crash_handler.rs:384-388) history_entries / active_jobs / loaded_aliases / last_command 取得統合
 - [x] (nxsh_core/src/updater.rs:335) HTTP クライアント + 更新サーバ通信 実装（feature `updates` 追加、`ureq` によるチェック/ダウンロード、進捗更新、SHA-256 検証、Ed25519 検証は feature `crypto-ed25519` 時に有効）
-- [ ] (DESIGN.md §3.6) CPU バランス scheduling: work-stealing + NICE 値調整 実装予定 → 実装
+- [x] (DESIGN.md §3.6) CPU バランス scheduling: work-stealing + NICE 値調整 実装予定 → 実装 ← 完了
+  - `nxsh_core::advanced_scheduler` にローカルデックを持つワーカー群を導入し、グローバル優先度キューから期日到来ジョブを取り出して最短デックへディスパッチ。ワーカー間でのwork-stealing対応。
+  - `SchedulerConfig.num_workers` と `NXSH_SCHED_WORKERS` でワーカー数を制御。`ScheduledJob.nice` 追加（-20..19範囲で正規化）。
+  - 競合を避けるため、awaitを跨ぐMutexGuard保持を回避。ビルド/全テスト緑。
 - [x] Advanced scheduler: 実行予定時刻 (advanced_scheduler.rs line 150 周辺) フィールド利用拡張
 
 ## 6. Parser / AST / MIR
