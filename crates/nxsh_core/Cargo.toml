@@ -137,7 +137,7 @@ rayon = { version = "1.10", optional = true }
 wait-timeout = { version = "0.2", default-features = false }
 
 # Time utilities - minimal
-time = { version = "0.3", default-features = false, features = ["std"] }
+time = { version = "0.3", default-features = false, features = ["std", "parsing"] }
 
 [[example]]
 name = "mir_test"

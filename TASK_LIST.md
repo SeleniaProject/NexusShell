@@ -270,7 +270,9 @@
      - ファイル: `~/.nxsh/keys/update_keys.json` または `NXSH_UPDATE_KEYS_PATH`
      - 環境: `NXSH_UPDATE_KEYS_JSON`（name→key map）、`NXSH_OFFICIAL_PUBKEY`/`NXSH_COMMUNITY_PUBKEY`
      - ローテ: `NXSH_UPDATE_ROTATE=1` と `NXSH_UPDATE_KEYS_JSON_NEW` で原子的置換＋バックアップ
-- [ ] CVE SLA 48h 対応ワークフロー自動テンプレート (issue → hotfix branch)
+- [x] CVE SLA 48h 対応ワークフロー自動テンプレート (issue → hotfix branch) ← 実装
+  - Issue テンプレ: `.github/ISSUE_TEMPLATE/cve_sla_48h.yml` を追加。
+  - 生成スクリプト: `scripts/gen_cve_workflow.rs` で `workflows/cve_hotfix/<CVE-ID>.md` を作成。
 
 ## 10. 国際化 / ローカライズ
  - [ ] `.po`/`.mo` 生成パイプライン (gettext 互換) 実装

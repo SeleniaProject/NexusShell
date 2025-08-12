@@ -99,8 +99,6 @@ fn get_parent_pid() -> u32 {
 fn detect_login_shell() -> bool {
     // Take a snapshot of relevant environment to reduce race impact in parallel tests
     let shlvl_snapshot = std::env::var("SHLVL").ok().and_then(|s| s.parse::<i32>().ok());
-    // Strong invariant: clearly nested shells are never login shells
-    if let Some(level) = shlvl_snapshot { if level >= 2 { return false; } }
     let login_env = std::env::var("LOGIN").ok();
     let logname_present = std::env::var("LOGNAME").is_ok();
     let home_present = std::env::var("HOME").is_ok();
@@ -118,15 +116,14 @@ fn detect_login_shell() -> bool {
     #[cfg(not(windows))]
     let logonserver_nonempty = false;
 
-    // Explicit LOGIN env implies login shell only when not clearly nested
-    if login_env.is_some() && shlvl_snapshot.unwrap_or(1) <= 1 {
-        return true;
-    }
+    // Explicit LOGIN env implies login shell (override SHLVL)
+    if login_env.is_some() { return true; }
 
-    // SSH session implies login shell only when not clearly nested
-    if (ssh_client_present || ssh_conn_present || ssh_tty_present) && shlvl_snapshot.unwrap_or(1) <= 1 {
-        return true;
-    }
+    // SSH session implies login shell (override SHLVL)
+    if ssh_client_present || ssh_conn_present || ssh_tty_present { return true; }
+
+    // Strong invariant: clearly nested shells are never login shells
+    if let Some(level) = shlvl_snapshot { if level >= 2 { return false; } }
 
     // argv[0] / '_' starting with '-' indicates login shell; prioritize over SHLVL heuristic
     if let Some(arg0) = std::env::args_os().next().and_then(|a| a.into_string().ok()) {
@@ -541,100 +538,8 @@ impl ShellContext {
 
     /// Detect if this is a login shell
     pub fn detect_login_shell() -> bool {
-        // Take a snapshot of relevant environment to reduce race impact in parallel tests
-        let shlvl_snapshot = std::env::var("SHLVL").ok().and_then(|s| s.parse::<i32>().ok());
-        let login_env = std::env::var("LOGIN").ok();
-        let logname_present = std::env::var("LOGNAME").is_ok();
-        let home_present = std::env::var("HOME").is_ok();
-        let shell_present = std::env::var("SHELL").is_ok();
-        let term_snapshot = std::env::var("TERM").ok();
-    // Snapshot of argv[0] surrogate used by some launchers/shells
-    let underscore_snapshot = std::env::var("_").ok();
-    // TERM_SESSION_ID is a very weak signal and often set in CI/editors; ignore to avoid false positives
-    let _term_session_present = std::env::var("TERM_SESSION_ID").is_ok();
-        let ssh_client_present = std::env::var("SSH_CLIENT").is_ok();
-        let ssh_conn_present = std::env::var("SSH_CONNECTION").is_ok();
-        let ssh_tty_present = std::env::var("SSH_TTY").is_ok();
-        #[cfg(windows)]
-        let logonserver_nonempty = std::env::var("LOGONSERVER").map(|v| !v.is_empty()).unwrap_or(false);
-        #[cfg(not(windows))]
-        let logonserver_nonempty = false;
-
-        // Method 1: SHLVL-based detection (highest priority)
-        if let Some(level) = shlvl_snapshot {
-            if level >= 2 {
-                return false; // nested shell detected
-            }
-        }
-
-        // Method 2/3: argv[0] / _ prefix '-' indicates login shell (only when SHLVL <= 1 or unknown)
-        if let Some(arg0) = std::env::args_os().next().and_then(|a| a.into_string().ok()) {
-            if arg0.starts_with('-') && shlvl_snapshot.unwrap_or(1) <= 1 {
-                return true;
-            }
-        }
-        if let Some(underscore) = &underscore_snapshot {
-            // Accept only when '_' looks like argv[0] (no path separators) and starts with '-'
-            let looks_like_argv0 = !underscore.contains('/') && !underscore.contains('\\');
-            if looks_like_argv0 && underscore.starts_with('-') && shlvl_snapshot.unwrap_or(1) <= 1 {
-                return true;
-            }
-        }
-
-        // Method 4: Explicit LOGIN env
-        if login_env.is_some() {
-            return true;
-        }
-
-        // Method 5: Unix parent/session checks
-        #[cfg(unix)]
-        {
-            let ppid = get_parent_pid();
-            if ppid == 1 || ppid == 0 {
-                return true;
-            }
-            if let Ok(comm_path) = std::fs::read_to_string(format!("/proc/{}/comm", ppid)) {
-                let parent_name = comm_path.trim();
-                if matches!(parent_name, "systemd" | "init" | "login" | "gdm" | "sddm" | "lightdm" | "lxdm") {
-                    return true;
-                }
-            }
-        }
-
-        // Method 6: Windows-specific heuristic (guarded)
-        #[cfg(windows)]
-        {
-            // Only allow Windows heuristic if not nested (already checked) and we have some login-ish env
-            let has_basic_env = home_present || shell_present || logname_present;
-            if logonserver_nonempty && has_basic_env {
-                // Prefer treating as login shell only when SHLVL <= 1 or unknown
-                if shlvl_snapshot.unwrap_or(1) <= 1 {
-                    return true;
-                }
-            }
-        }
-
-        // Method 7: Full login environment (secondary)
-        if logname_present && home_present && shell_present {
-            return shlvl_snapshot.unwrap_or(1) <= 1;
-        }
-
-        // Method 8: Terminal hints (tertiary)
-        if let Some(term) = term_snapshot {
-            if term.contains("login") {
-                // Only treat as login shell if not nested; default to true when SHLVL is unknown
-                return shlvl_snapshot.map(|l| l <= 1).unwrap_or(true);
-            }
-        }
-
-        // Method 9: SSH remote sessions
-        if (ssh_client_present || ssh_conn_present || ssh_tty_present) && shlvl_snapshot.unwrap_or(1) <= 1 {
-            // SSH sessions are generally started as login shells; prefer positive detection
-            return true;
-        }
-
-        // Default: not a login shell
-        false
+        // Delegate to the module-level implementation to keep behavior consistent with tests
+        detect_login_shell()
     }
 
     /// Store a closure

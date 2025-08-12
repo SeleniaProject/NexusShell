@@ -1,0 +1,32 @@
+name: CVE SLA 48h Hotfix
+description: Track 48h SLA hotfix workflow for a disclosed CVE
+title: "CVE: <CVE-ID> - <short summary>"
+labels: [security, hotfix]
+body:
+  - type: input
+    id: cve_id
+    attributes:
+      label: CVE-ID
+      placeholder: CVE-YYYY-NNNNN
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact / Affected versions
+      description: Describe components, CVSS, vectors, affected versions
+    validations:
+      required: true
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 48h Workflow Checklist
+      options:
+        - label: Create hotfix branch `hotfix/<CVE-ID>`
+        - label: Reproduction (PoC) prepared
+        - label: Patch implemented and tested
+        - label: CI green (tests/size/perf)
+        - label: Advisory / release notes drafted
+        - label: Release tagged and artifacts published
+        - label: Postmortem and long-term actions recorded
+
