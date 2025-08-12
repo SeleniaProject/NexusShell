@@ -126,19 +126,7 @@ fn detect_login_shell() -> bool {
         return true;
     }
 
-    // SHLVL-based early exit for clearly nested shells
-    if let Some(level) = shlvl_snapshot {
-        if level >= 2 {
-            return false; // nested shell detected
-        }
-    }
-
-    // If environment looks like an initial login (LOGNAME/HOME/SHELL present) and not nested, assume login shell
-    if shlvl_snapshot.unwrap_or(1) <= 1 && logname_present && home_present && shell_present {
-        return true;
-    }
-
-    // argv[0] / '_' starting with '-' indicates login shell, but only when not nested (SHLVL <= 1)
+    // argv[0] / '_' starting with '-' indicates login shell; prioritize over SHLVL heuristic
     if let Some(arg0) = std::env::args_os().next().and_then(|a| a.into_string().ok()) {
         if arg0.starts_with('-') && shlvl_snapshot.unwrap_or(1) <= 1 {
             return true;
@@ -150,6 +138,14 @@ fn detect_login_shell() -> bool {
             return true;
         }
     }
+
+    // SHLVL-based early exit for clearly nested shells (apply after argv[0] check)
+    if let Some(level) = shlvl_snapshot { if level >= 2 { return false; } }
+
+    // If environment looks like an initial login (LOGNAME/HOME/SHELL present) and not nested, assume login shell
+    if shlvl_snapshot.unwrap_or(1) <= 1 && logname_present && home_present && shell_present { return true; }
+
+    // argv[0] checks handled above
 
     // Method 5: Unix parent/session checks
     #[cfg(unix)]

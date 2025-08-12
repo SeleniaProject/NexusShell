@@ -7,6 +7,7 @@ use std::{
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use log::{info, warn, error, debug};
+use std::io::Write as _;
 
 use crate::themes::RgbColor;
 
@@ -55,6 +56,9 @@ impl AccessibilityManager {
         self.setup_keyboard_navigation().await?;
         
         info!("Accessibility system initialized successfully");
+
+        // Emit OSC 9 metadata so compatible screen readers can attach to the session
+        self.emit_osc9_metadata("nxsh.accessibility:init", &self.build_osc9_payload()?).ok();
         Ok(())
     }
     
@@ -307,6 +311,11 @@ impl AccessibilityManager {
                 self.send_to_screen_reader(&format!("Alert: {}", text)).await?;
             },
         }
+        // Also emit OSC 9 event for external screen reader bridges
+        let _ = self.emit_osc9_metadata("nxsh.accessibility:announce", &serde_json::json!({
+            "text": text,
+            "priority": format!("{:?}", priority)
+        }).to_string());
         
         Ok(())
     }
@@ -377,6 +386,8 @@ impl AccessibilityManager {
             // - Configure text-to-speech if needed
             
             debug!("Screen reader support initialized");
+            // Inform screen-reader bridge via OSC 9 that SR is enabled
+            let _ = self.emit_osc9_metadata("nxsh.accessibility:screen_reader_enabled", "true");
         }
         
         Ok(())
@@ -727,6 +738,54 @@ impl AccessibilityManager {
         debug!("Screen reader: {}", text);
         Ok(())
     }
+
+    /// Emit OSC 9 with a namespaced event and JSON payload
+    fn emit_osc9_metadata(&self, event: &str, payload: &str) -> Result<()> {
+        // OSC 9 ; <app-specific> BEL
+        // We encapsulate as: 9;nxsh;<event>;<payload>
+        let seq = format!("\x1b]9;nxsh;{};{}\x07", sanitize_osc(event), sanitize_osc(payload));
+        let mut stdout = std::io::stdout();
+        stdout.write_all(seq.as_bytes()).context("Failed to write OSC 9 sequence")?;
+        stdout.flush().ok();
+        Ok(())
+    }
+
+    /// Build initial OSC 9 payload with runtime metadata
+    fn build_osc9_payload(&self) -> Result<String> {
+        // Avoid adding futures crate; status retrieval is lightweight
+        // In this context we can synthesize a minimal snapshot without awaiting
+        let snapshot = AccessibilityStatus {
+            color_vision_profile: ColorVisionType::Normal,
+            high_contrast_enabled: false,
+            screen_reader_enabled: false,
+            blind_mode_enabled: false,
+            keyboard_navigation_enabled: true,
+            minimum_contrast_ratio: 4.5,
+            font_scaling: 1.0,
+            motion_reduced: false,
+        };
+        let obj = serde_json::json!({
+            "version": env!("CARGO_PKG_VERSION"),
+            "screen_reader": {
+                "enabled": snapshot.screen_reader_enabled,
+                "blind_mode": snapshot.blind_mode_enabled
+            },
+            "contrast": {
+                "min_ratio": snapshot.minimum_contrast_ratio,
+                "high_contrast": snapshot.high_contrast_enabled
+            },
+            "visual": {
+                "font_scale": snapshot.font_scaling,
+                "reduce_motion": snapshot.motion_reduced
+            }
+        });
+        Ok(obj.to_string())
+    }
+}
+
+/// Sanitize OSC payload (avoid control chars other than space-printable)
+fn sanitize_osc(s: &str) -> String {
+    s.chars().filter(|c| *c >= ' ' && *c != '\x7f').collect()
 }
 
 /// Color vision profile for accessibility

@@ -179,6 +179,25 @@ impl NexusCompleter {
         
         Ok(completions)
     }
+
+    /// Produce rustyline-compatible completion pairs and start position.
+    /// Keeps internal candidate types encapsulated.
+    pub fn complete_for_rustyline_sync(&self, line: &str, pos: usize) -> (usize, Vec<Pair>) {
+        let mut start_pos = pos;
+        let mut pairs: Vec<Pair> = Vec::new();
+        if let Ok(candidates) = self.get_completion_candidates(line, pos) {
+            let ctx = self.analyze_completion_context(line, pos);
+            start_pos = line.len().saturating_sub(ctx.word.len());
+            pairs = candidates
+                .into_iter()
+                .map(|c| Pair {
+                    display: c.display.unwrap_or_else(|| c.text.clone()),
+                    replacement: c.replacement,
+                })
+                .collect();
+        }
+        (start_pos, pairs)
+    }
     
     /// Setup shell completion
     pub fn setup_shell_completion(&mut self, context: &ShellContext) {
@@ -365,7 +384,7 @@ impl NexusCompleter {
     }
 
     /// Get completion candidates for the given context
-    fn get_completion_candidates(&self, line: &str, pos: usize) -> Result<Vec<CompletionCandidate>> {
+    pub fn get_completion_candidates(&self, line: &str, pos: usize) -> Result<Vec<CompletionCandidate>> {
         let mut candidates = Vec::new();
         let context = self.analyze_completion_context(line, pos);
 
@@ -402,7 +421,7 @@ impl NexusCompleter {
     }
 
     /// Analyze the context around the cursor position
-    fn analyze_completion_context(&self, line: &str, pos: usize) -> CompletionContext {
+    pub fn analyze_completion_context(&self, line: &str, pos: usize) -> CompletionContext {
         let before_cursor = &line[..pos];
         let after_cursor = &line[pos..];
 

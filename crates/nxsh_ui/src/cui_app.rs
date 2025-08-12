@@ -274,11 +274,12 @@ impl CUIApp {
         ));
         eprintln!("DEBUG: Executor created successfully");
         
-        // Initialize line editor with CUI-optimized settings
-        let line_editor = Arc::new(Mutex::new(
-            NexusLineEditor::new()
-                .context("Failed to initialize line editor")?
-        ));
+        // Initialize line editor with CUI-optimized settings and wire shared completer
+        let line_editor_engine = NexusCompleter::new().context("Failed to initialize completer")?;
+        let shared_engine = Arc::new(StdMutex::new(line_editor_engine));
+        let mut tmp_line_editor = NexusLineEditor::new().context("Failed to initialize line editor")?;
+        tmp_line_editor.set_shared_completer(shared_engine.clone());
+        let line_editor = Arc::new(Mutex::new(tmp_line_editor));
         
         // Initialize completer
         let completer = Arc::new(Mutex::new(

@@ -9,16 +9,25 @@ use rustyline::{
     config::Config,
     error::ReadlineError,
     Editor,
+    Helper as RLHelperTrait,
+    completion::{Completer as RLCompleter, Pair},
+    highlight::Highlighter,
+    hint::Hinter,
+    validate::Validator,
+    history::DefaultHistory,
+    Context as RustylineContext,
 };
 use std::{
     path::{Path, PathBuf},
     fs,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc as StdArc, Mutex as StdMutex};
+use nxsh_parser::Parser;
 
 /// Simple CUI line editor with standard readline functionality
 pub struct NexusLineEditor {
-    editor: Editor<(), rustyline::history::DefaultHistory>,
+    editor: Editor<RustyHelper, DefaultHistory>,
     history_file: Option<String>,
     config: LineEditorConfig,
 }
@@ -36,7 +45,9 @@ impl NexusLineEditor {
             .max_history_size(10000)?  // Full history capacity
             .build();
 
-        let mut editor = Editor::with_config(config)?;
+        let mut editor: Editor<RustyHelper, DefaultHistory> = Editor::with_config(config)?;
+        // Attach helper with a default standalone completer (no shared state yet)
+        editor.set_helper(Some(RustyHelper::new_standalone()));
         
         // COMPLETE history file loading as specified
         let history_file = Some(Self::get_history_file_path()?.to_string_lossy().to_string());
@@ -60,7 +71,8 @@ impl NexusLineEditor {
             .completion_type(rustyline::CompletionType::List)
             .build();
 
-        let editor = Editor::with_config(config)?;
+        let mut editor: Editor<RustyHelper, DefaultHistory> = Editor::with_config(config)?;
+        editor.set_helper(Some(RustyHelper::new_standalone()));
         // Note: set_max_history_size might not be available in this version
         
         Ok(Self {
@@ -68,6 +80,13 @@ impl NexusLineEditor {
             history_file: None,
             config: LineEditorConfig::default(),
         })
+    }
+
+    /// Wire shared `NexusCompleter` into rustyline helper so that Tab completion works inside readline.
+    pub fn set_shared_completer(&mut self, shared: StdArc<StdMutex<crate::completion::NexusCompleter>>) {
+        if let Some(helper) = self.editor.helper_mut() {
+            helper.set_shared_completer(shared);
+        }
     }
     
     /// Create line editor with custom history file
@@ -185,6 +204,90 @@ impl NexusLineEditor {
 impl Default for NexusLineEditor {
     fn default() -> Self {
         Self::new().unwrap()
+    }
+}
+
+/// Compute a simple structural hint for incomplete command lines.
+fn compute_structural_hint(line: &str) -> Option<String> {
+    // Balance parentheses and quotes. If unbalanced, suggest closing.
+    let mut paren = 0i32;
+    let mut brace = 0i32;
+    let mut bracket = 0i32;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut prev = '\0';
+    for ch in line.chars() {
+        match ch {
+            '\'' if !in_double && prev != '\\' => in_single = !in_single,
+            '"' if !in_single && prev != '\\' => in_double = !in_double,
+            '(' if !in_single && !in_double => paren += 1,
+            ')' if !in_single && !in_double => paren -= 1,
+            '{' if !in_single && !in_double => brace += 1,
+            '}' if !in_single && !in_double => brace -= 1,
+            '[' if !in_single && !in_double => bracket += 1,
+            ']' if !in_single && !in_double => bracket -= 1,
+            _ => {}
+        }
+        prev = ch;
+    }
+    if in_single { return Some("'".to_string()); }
+    if in_double { return Some("\"".to_string()); }
+    if paren > 0 { return Some(")".to_string()); }
+    if brace > 0 { return Some("}".to_string()); }
+    if bracket > 0 { return Some("]".to_string()); }
+    // Common reserved words that likely expect further input
+    let trimmed = line.trim_end();
+    let lower = trimmed.to_ascii_lowercase();
+    if ["if", "then", "else", "elif", "do", "case"].iter().any(|k| lower.ends_with(k)) {
+        return Some(" ".to_string());
+    }
+    None
+}
+
+/// Rustyline helper that adapts our `NexusCompleter` to rustyline's sync completer API.
+pub struct RustyHelper {
+    shared: Option<StdArc<StdMutex<crate::completion::NexusCompleter>>>,
+}
+
+impl RustyHelper {
+    fn new_standalone() -> Self { Self { shared: None } }
+    fn set_shared_completer(&mut self, shared: StdArc<StdMutex<crate::completion::NexusCompleter>>) {
+        self.shared = Some(shared);
+    }
+}
+
+impl RLHelperTrait for RustyHelper {}
+
+impl Highlighter for RustyHelper {}
+
+impl Hinter for RustyHelper {
+    type Hint = String;
+
+    fn hint(&self, line: &str, _pos: usize, _ctx: &RustylineContext<'_>) -> Option<Self::Hint> {
+        // Prefer parser-based quick validation if a shared completer exists (has parser dependency)
+        if let Some(shared) = &self.shared {
+            if let Ok(_engine) = shared.lock() {
+                // Reserved for future: use parser for contextual hints
+            }
+        }
+        // Fallback: structural heuristics for common incomplete constructs
+        compute_structural_hint(line)
+    }
+}
+
+impl Validator for RustyHelper {}
+
+impl RLCompleter for RustyHelper {
+    type Candidate = Pair;
+
+    fn complete(&self, line: &str, pos: usize, _ctx: &RustylineContext<'_>) -> rustyline::Result<(usize, Vec<Pair>)> {
+        if let Some(shared) = &self.shared {
+            if let Ok(engine) = shared.lock() {
+                let (start_pos, pairs) = engine.complete_for_rustyline_sync(line, pos);
+                return Ok((start_pos, pairs));
+            }
+        }
+        Ok((pos, Vec::new()))
     }
 }
 

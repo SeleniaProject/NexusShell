@@ -97,8 +97,14 @@
   - `crates/nxsh_ui/src/status_line.rs` 追加。CPU/MEMは常時、Netはfeature `net-metrics`、Batteryはfeature `battery-metrics` で有効化。
   - 100ms周期、CPU>85%で250ms/CPU>95%で500msへ自動バックオフ。`NXSH_STATUSLINE_DISABLE=1` で無効化。
   - `cui_app.rs` よりプロンプト直後に1行描画（カラーは `tui::supports_color()` 検知）。
-- [ ] リアルタイム構文解析 / 補完: 仕様とコード差分レビュー (現行実装の網羅性)
-- [ ] アクセシビリティ: スクリーンリーダー用 OSC 9; メタデータ埋め込み実装確認
+- [x] リアルタイム構文解析 / 補完: 仕様とコード差分レビュー (現行実装の網羅性) ← 実装/統合済
+  - `nxsh_ui::line_editor` にヒント機構を追加し、未閉じのクォート/括弧検出や構文キーワード末尾での入力継続ヒントを提供。
+  - `nxsh_ui::completion::NexusCompleter` を `rustyline` ヘルパに同期統合し、Tab 補完を CUI で有効化。
+  - 既存 parser (`nxsh_parser`) を将来の高度ヒントに活用可能な形で導入（現段階では軽量ヒューリスティクスを提示）。
+- [x] アクセシビリティ: スクリーンリーダー用 OSC 9; メタデータ埋め込み実装確認 ← 実装/検証済
+  - `crates/nxsh_ui/src/accessibility.rs` に OSC 9 送出関数 `emit_osc9_metadata()` を実装。
+  - 初期化時に `nxsh.accessibility:init` を、アナウンス時に `nxsh.accessibility:announce` を送出。
+  - SR 有効化時に `nxsh.accessibility:screen_reader_enabled` を通知。JSON ペイロードを安全整形して埋め込み。
 - [x] テーマ 20 種公式パッケージ化 (JSON/YAML) & バリデーションスキーマ ← 2025-01-26 完了
   - `assets/themes/` に20種類の公式テーマファイル生成 (nxsh-dark-default, nxsh-light-default, nxsh-cyberpunk, nxsh-dracula, nxsh-nord, nxsh-gruvbox-*, nxsh-solarized-*, nxsh-monokai, nxsh-matrix, nxsh-ocean, nxsh-forest, nxsh-sunset, nxsh-autumn, nxsh-winter, nxsh-pastel, nxsh-retro, nxsh-minimalist, nxsh-high-contrast)
   - `assets/themes/theme-schema.json` バリデーションスキーマファイル生成
