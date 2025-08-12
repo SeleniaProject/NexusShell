@@ -324,6 +324,7 @@
 - [ ] 統合テスト: POSIX PCTS / BATS / Pester 実行パイプライン整備
 - [ ] Fuzzing `cargo-fuzz` 48h ラン → 成果物 (coverage, crashes) レポート化
 - [ ] プロパティテスト `proptest` AST round-trip 充足率計測
+  - [x] 基本的なASTラウンドトリップ性のプロパティテストを追加（`nxsh_parser/tests/property_roundtrip.rs`）
 - [x] カバレッジ 95% 維持: grcov / tarpaulin 共通化
   - CI: `.github/workflows/coverage.yml` で tarpaulin を実行し、Cobertura 解析で 95% 未満を失敗扱い
 - [ ] QA_PREVIEW_CHECKLIST の全項目 自動化可否仕分け
