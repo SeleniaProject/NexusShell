@@ -47,18 +47,18 @@ fn diff_streams<R1: BufRead, R2: BufRead>(mut r1: R1, mut r2: R2) -> Result<()> 
         match (eof1, eof2) {
             (false, false) => {
                 if l1 != l2 {
-                    println!("< {}", l1);
-                    println!("> {}", l2);
+                    println!("< {l1}");
+                    println!("> {l2}");
                 }
                 l1.clear();
                 l2.clear();
             }
             (false, true) => {
-                println!("< {}", l1);
+                println!("< {l1}");
                 l1.clear();
             }
             (true, false) => {
-                println!("> {}", l2);
+                println!("> {l2}");
                 l2.clear();
             }
             _ => {}

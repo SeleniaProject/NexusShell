@@ -10,6 +10,7 @@ use std::process::ExitStatus;
 use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
+use std::sync::LazyLock;
 
 /// Job identifier type
 pub type JobId = u32;
@@ -372,6 +373,22 @@ pub struct JobManager {
     monitor_handle: Option<thread::JoinHandle<()>>,
 }
 
+// ---------------------------------------------------------------------------
+// Global JobManager (singleton) for builtins needing job control access
+// ---------------------------------------------------------------------------
+static GLOBAL_JOB_MANAGER: LazyLock<Mutex<JobManager>> = LazyLock::new(|| Mutex::new(JobManager::new()));
+
+/// Execute a closure with mutable access to the global JobManager.
+/// Keep critical section short to avoid blocking other builtin operations.
+pub fn with_global_job_manager<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut JobManager) -> R
+{
+    let mut guard = GLOBAL_JOB_MANAGER.lock().expect("GLOBAL_JOB_MANAGER poisoned");
+    f(&mut guard)
+}
+
+
 impl fmt::Debug for JobManager {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("JobManager")
@@ -710,7 +727,15 @@ impl JobManager {
 
     /// Spawn a background job
     pub fn spawn_background_job(&mut self, command: String, args: Vec<String>) -> ShellResult<JobId> {
-        let job_id = self.create_job(format!("{} {}", command, args.join(" ")))?;
+        // Reuse a temporary buffer to avoid intermediate allocations from format!/join in hot path
+        let mut cmd_buf = String::with_capacity(command.len() + 1 + args.iter().map(|a| a.len()+1).sum::<usize>());
+    cmd_buf.push_str(&command);
+        if !args.is_empty() { cmd_buf.push(' '); }
+        for (i, a) in args.iter().enumerate() {
+            cmd_buf.push_str(a);
+            if i + 1 != args.len() { cmd_buf.push(' '); }
+        }
+        let job_id = self.create_job(cmd_buf)?;
         
         // Spawn the process
         #[cfg(unix)]
@@ -748,18 +773,56 @@ impl JobManager {
         #[cfg(windows)]
         {
             use std::process::{Command, Stdio};
+            use std::io::ErrorKind as IoErrorKind;
             
-            let mut cmd = Command::new(&command);
-            cmd.args(&args)
+            // First attempt direct spawn (works for real executables)
+            let mut direct = Command::new(&command);
+            direct.args(&args)
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
-            
-            let child = cmd.spawn()
-                .map_err(|e| ShellError::new(
-                    ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                    format!("Failed to spawn background process: {}", e)
-                ))?;
+
+            let child = match direct.spawn() {
+                Ok(c) => c,
+                Err(e) => {
+                    if e.kind() == IoErrorKind::NotFound {
+                        // Fallback for common shell builtins not available as executables
+                        let lower = command.to_ascii_lowercase();
+                        if lower == "echo" {
+                            let mut fb = Command::new("cmd.exe");
+                            let mut full = String::from("echo");
+                            for a in &args { full.push(' '); full.push_str(a); }
+                            fb.args(["/C", &full])
+                                .stdin(Stdio::null())
+                                .stdout(Stdio::null())
+                                .stderr(Stdio::null());
+                            fb.spawn().map_err(|e2| ShellError::new(
+                                ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
+                                format!("Failed to spawn background process (fallback echo): {}", e2)
+                            ))?
+                        } else if lower == "sleep" {
+                            let seconds = args.get(0).and_then(|s| s.parse::<u64>().ok()).unwrap_or(1);
+                            let mut fb = Command::new("powershell.exe");
+                            fb.args(["-NoProfile", "-Command", &format!("Start-Sleep -Seconds {}", seconds)])
+                                .stdin(Stdio::null())
+                                .stdout(Stdio::null())
+                                .stderr(Stdio::null());
+                            fb.spawn().map_err(|e2| ShellError::new(
+                                ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
+                                format!("Failed to spawn background process (fallback sleep): {}", e2)
+                            ))?
+                        } else {
+                            return Err(ShellError::new(
+                                ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
+                                format!("Failed to spawn background process: program not found")));
+                        }
+                    } else {
+                        return Err(ShellError::new(
+                            ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
+                            format!("Failed to spawn background process: {}", e)));
+                    }
+                }
+            };
             
             let pid = child.id();
             let pgid = pid; // Windows doesn't have process groups like Unix

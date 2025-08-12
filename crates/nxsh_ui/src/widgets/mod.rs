@@ -1,3 +1,3 @@
-//! Custom ratatui widgets for NexusShell UI. 
+//! Custom widgets for NexusShell CUI.
 
-pub mod toast; 
+// Removed TUI widgets - not needed for CUI mode 

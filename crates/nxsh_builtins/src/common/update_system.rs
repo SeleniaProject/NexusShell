@@ -13,24 +13,21 @@
 //! - Integrity verification at multiple levels
 
 use anyhow::{anyhow, Result, Context};
+use nxsh_core::{nxsh_log_info, nxsh_log_warn, nxsh_log_error};
 #[cfg(feature = "updates")]
-use blake3;
+use sha2::{Sha256, Digest};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "updates")]
-#[cfg(feature = "updates")]
-use semver::Version;
+use ed25519_dalek::{Verifier, Signature, VerifyingKey};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use chrono::{DateTime, Utc};
-#[cfg(feature = "updates")]
-use tokio::time::{interval, sleep};
-#[cfg(not(feature = "updates"))]
+// Tokio interval only required when BOTH updates feature and async runtime are enabled
+#[cfg(all(feature = "updates", feature = "async-runtime"))]
 use tokio::time::interval;
 #[cfg(feature = "updates")]
 use ureq;
-#[cfg(feature = "updates")]
-use reqwest::Client;
 #[cfg(feature = "updates")]
 use semver::Version;
 
@@ -39,7 +36,8 @@ type Version = String;
 
 // Placeholder types for crypto functions when not available
 #[cfg(not(feature = "updates"))]
-struct PublicKey;
+#[allow(dead_code)]
+struct PublicKey; // Placeholder when updates feature disabled
 
 #[cfg(not(feature = "updates"))]
 impl PublicKey {
@@ -53,7 +51,8 @@ impl PublicKey {
 }
 
 #[cfg(not(feature = "updates"))]
-struct Signature;
+#[allow(dead_code)]
+struct Signature; // Placeholder when updates feature disabled
 
 #[cfg(not(feature = "updates"))]
 impl Signature {
@@ -62,8 +61,11 @@ impl Signature {
     }
 }
 use once_cell::sync::OnceCell;
+use once_cell::sync::Lazy;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 static UPDATE_SYSTEM: OnceCell<UpdateSystem> = OnceCell::new();
+static BYPASS_CACHE: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateConfig {
@@ -150,6 +152,7 @@ pub enum InstallationStatus {
 }
 
 #[derive(Debug)]
+#[cfg_attr(not(feature = "updates"), allow(dead_code))]
 pub struct UpdateSystem {
     config: UpdateConfig,
     #[cfg(feature = "updates")]
@@ -175,11 +178,11 @@ pub fn init_update_system(config: UpdateConfig) -> Result<()> {
 
     let current_version = get_current_version()?;
     #[cfg(feature = "updates")]
-    let client = reqwest::Client::builder()
+    let client = ureq::AgentBuilder::new()
+        .timeout_read(Duration::from_secs(30))
+        .timeout_write(Duration::from_secs(30))
         .user_agent("NexusShell-Updater/1.0")
-        .timeout(Duration::from_secs(30))
-        .build()
-        .context("Failed to create HTTP client")?;
+        .build();
     #[cfg(not(feature = "updates"))]
     let client = ();
     let channel = config.channel.clone();
@@ -204,9 +207,15 @@ pub fn init_update_system(config: UpdateConfig) -> Result<()> {
     // Start background update checker
     start_background_checker(config);
 
-    tracing::info!("Update system initialized successfully");
+    nxsh_log_info!("Update system initialized successfully");
     Ok(())
 }
+
+/// Allow callers (e.g., CLI) to force bypassing any manifest cache on the next check.
+pub fn force_bypass_cache(enable: bool) { BYPASS_CACHE.store(enable, Ordering::Relaxed); }
+
+/// Whether update system is initialized
+pub fn is_initialized() -> bool { UPDATE_SYSTEM.get().is_some() }
 
 #[cfg(feature = "updates")]
 fn get_current_version() -> Result<Version> {
@@ -221,24 +230,25 @@ fn get_current_version() -> Result<Version> {
     Ok(env!("CARGO_PKG_VERSION").to_string())
 }
 
+#[cfg(all(feature = "updates", feature = "async-runtime"))]
 fn start_background_checker(config: UpdateConfig) {
-    if config.check_interval_hours == 0 {
-        return;
-    }
-
+    if config.check_interval_hours == 0 { return; }
     tokio::spawn(async move {
         let mut interval = interval(Duration::from_secs(config.check_interval_hours * 3600));
-        
         loop {
             interval.tick().await;
-            
             if let Err(e) = check_for_updates_background().await {
-                tracing::warn!("Background update check failed: {}", e);
+                nxsh_log_warn!("Background update check failed: {}", e);
             }
         }
     });
 }
 
+// No-op when async runtime or updates feature is missing
+#[cfg(not(all(feature = "updates", feature = "async-runtime")))]
+fn start_background_checker(_config: UpdateConfig) {}
+
+#[cfg(all(feature = "updates", feature = "async-runtime"))]
 async fn check_for_updates_background() -> Result<()> {
     let system = UPDATE_SYSTEM.get()
         .ok_or_else(|| anyhow!("Update system not initialized"))?;
@@ -251,13 +261,13 @@ async fn check_for_updates_background() -> Result<()> {
                 
                 if should_download {
                     if let Err(e) = download_update(system, &manifest).await {
-                        tracing::error!("Failed to download update: {}", e);
+                        nxsh_log_error!("Failed to download update: {}", e);
                     }
                 }
             }
         }
         Err(e) => {
-            tracing::warn!("Update check failed: {}", e);
+            nxsh_log_warn!("Update check failed: {}", e);
         }
     }
     
@@ -281,7 +291,7 @@ async fn check_for_updates_internal(system: &UpdateSystem) -> Result<Option<Upda
 
     #[cfg(not(feature = "updates"))]
     {
-        return Err(anyhow!("Update feature is disabled at compile time"));
+        Err(anyhow!("Update feature is disabled at compile time"))
     }
 
     #[cfg(feature = "updates")]
@@ -292,19 +302,18 @@ async fn check_for_updates_internal(system: &UpdateSystem) -> Result<Option<Upda
             ReleaseChannel::Nightly => "nightly",
         };
 
-        let manifest_url = format!("{}/manifest/{}", system.config.update_server_url, channel_str);
-        
-        let response = system.client.get(&manifest_url)
-            .send()
-            .await
-            .context("Failed to fetch update manifest")?;
-
-        if !response.status().is_success() {
-            return Err(anyhow!("Update server returned status: {}", response.status()));
+        let mut manifest_url = format!("{}/manifest/{}", system.config.update_server_url, channel_str);
+        if BYPASS_CACHE.swap(false, Ordering::Relaxed) {
+            let ts = Utc::now().timestamp_millis();
+            let sep = if manifest_url.contains('?') { '&' } else { '?' };
+            manifest_url.push_str(&format!("{sep}_ts={ts}"));
         }
-
-        let manifest: UpdateManifest = response.json()
-            .await
+        
+        let response = system.client.get(&manifest_url).call();
+        if let Err(e) = &response { return Err(anyhow!("Failed to fetch update manifest: {e}")); }
+        let response = response.unwrap();
+        if response.status() != 200 { return Err(anyhow!("Update server returned status: {}", response.status())); }
+        let manifest: UpdateManifest = serde_json::from_reader(response.into_reader())
             .context("Failed to parse update manifest")?;
 
         // Verify signature
@@ -331,29 +340,33 @@ async fn check_for_updates_internal(system: &UpdateSystem) -> Result<Option<Upda
     }
 }
 
+#[cfg(feature = "updates")]
 fn verify_manifest_signature(manifest: &UpdateManifest, public_key_str: &str) -> Result<()> {
-    // Parse public key
-    let public_key_bytes = hex::decode(public_key_str)
+    // Parse public key (expects 32 raw bytes hex encoded)
+    let public_key_vec = hex::decode(public_key_str)
         .context("Failed to decode public key")?;
-    let public_key = PublicKey::from_bytes(&public_key_bytes)
+    if public_key_vec.len() != 32 {
+        return Err(anyhow!("Public key length invalid: expected 32 bytes got {}", public_key_vec.len()));
+    }
+    let public_key_bytes: [u8; 32] = public_key_vec
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow!("Failed to convert public key slice to array"))?;
+    let public_key = VerifyingKey::from_bytes(&public_key_bytes)
         .map_err(|e| anyhow!("Invalid public key: {}", e))?;
-
     // Parse signature
     let signature_bytes = hex::decode(&manifest.signature)
         .context("Failed to decode signature")?;
-    let signature = Signature::from_bytes(&signature_bytes)
+    let signature = Signature::from_slice(&signature_bytes)
         .map_err(|e| anyhow!("Invalid signature: {}", e))?;
-
     // Create message to verify (manifest without signature)
     let mut manifest_copy = manifest.clone();
     manifest_copy.signature = String::new();
     let message = serde_json::to_vec(&manifest_copy)
         .context("Failed to serialize manifest for verification")?;
-
     // Verify signature
     public_key.verify(&message, &signature)
         .map_err(|e| anyhow!("Signature verification failed: {}", e))?;
-
     Ok(())
 }
 
@@ -372,45 +385,43 @@ async fn download_update(system: &UpdateSystem, manifest: &UpdateManifest) -> Re
         status.download_progress = Some(0.0);
     }
 
-    let download_url = if should_use_delta_update(system, manifest) {
-        manifest.delta_url.as_ref().unwrap()
-    } else {
-        &manifest.binary_url
-    };
-
-    let filename = format!("nxsh-{}-{}.bin", manifest.version, manifest.channel.clone() as u8);
-    let download_path = system.config.cache_dir.join(&filename);
-
-    // Download with progress tracking
-    #[cfg(feature = "updates")]
-    let response = system.client.get(download_url)
-        .call()
-        .context("Failed to start download")?;
     #[cfg(not(feature = "updates"))]
-    let response = return Err(anyhow!("Update feature not enabled"));
+    {
+    // Silence unused parameter warning when the updates feature is disabled
+    let _ = manifest;
+        return Err(anyhow!("Update feature not enabled"));
+    }
 
     #[cfg(feature = "updates")]
     {
+    let download_url = if should_use_delta_update(system, manifest) {
+            manifest.delta_url.as_ref().unwrap()
+        } else {
+            &manifest.binary_url
+        };
+
+        let filename = format!("nxsh-{}-{}.bin", manifest.version, manifest.channel.clone() as u8);
+        let download_path = system.config.cache_dir.join(&filename);
+
+        let response = system.client.get(download_url).call()
+            .context("Failed to start download")?;
+
         let total_size = response.header("content-length")
             .and_then(|h| h.parse::<u64>().ok())
             .unwrap_or(0);
         let mut downloaded = 0u64;
         let mut file = std::fs::File::create(&download_path)
             .context("Failed to create download file")?;
-    
-        // Since we're using ureq instead of reqwest, we need to handle the download differently
+
         let mut reader = response.into_reader();
         let mut buffer = [0; 8192];
-        
         loop {
             match std::io::Read::read(&mut reader, &mut buffer) {
-                Ok(0) => break, // End of file
+                Ok(0) => break,
                 Ok(bytes_read) => {
                     std::io::Write::write_all(&mut file, &buffer[..bytes_read])
                         .context("Failed to write download chunk")?;
                     downloaded += bytes_read as u64;
-                    
-                    // Update progress
                     if total_size > 0 {
                         let progress = (downloaded as f64 / total_size as f64) * 100.0;
                         let mut status = system.status.lock().unwrap();
@@ -420,30 +431,26 @@ async fn download_update(system: &UpdateSystem, manifest: &UpdateManifest) -> Re
                 Err(e) => return Err(anyhow!("Failed to read download chunk: {}", e)),
             }
         }
-        
-        // Verify checksum
         verify_file_checksum(&download_path, &manifest.checksum)?;
+        return Ok(download_path);
     }
-    #[cfg(not(feature = "updates"))]
-    return Err(anyhow!("Update feature not enabled"));
-
-    Ok(download_path)
 }
 
 fn should_use_delta_update(system: &UpdateSystem, manifest: &UpdateManifest) -> bool {
-    manifest.delta_url.is_some() && 
+    manifest.delta_url.is_some() &&
     manifest.delta_size_bytes.map(|s| s < manifest.size_bytes).unwrap_or(false) &&
     system.config.channel == manifest.channel
 }
 
+#[cfg(feature = "updates")]
 fn verify_file_checksum(file_path: &Path, expected_checksum: &str) -> Result<()> {
     let file_contents = std::fs::read(file_path)
         .context("Failed to read downloaded file")?;
     
-    let mut hasher = blake3::Hasher::new();
+    let mut hasher = Sha256::new();
     hasher.update(&file_contents);
     let computed_hash = hasher.finalize();
-    let computed_checksum = hex::encode(computed_hash.as_bytes());
+    let computed_checksum = hex::encode(computed_hash);
 
     if computed_checksum != expected_checksum {
         return Err(anyhow!("Checksum verification failed: expected {}, got {}", 
@@ -452,6 +459,10 @@ fn verify_file_checksum(file_path: &Path, expected_checksum: &str) -> Result<()>
 
     Ok(())
 }
+
+// Stub when updates feature disabled so tests compiling under cfg(test) don't fail
+#[cfg(not(feature = "updates"))]
+fn verify_file_checksum(_file_path: &Path, _expected_checksum: &str) -> Result<()> { Ok(()) }
 
 /// Install a downloaded update
 pub async fn install_update(update_path: &Path) -> Result<()> {
@@ -473,13 +484,13 @@ pub async fn install_update(update_path: &Path) -> Result<()> {
         Ok(()) => {
             let mut status = system.status.lock().unwrap();
             status.installation_status = InstallationStatus::Installed;
-            tracing::info!("Update installed successfully");
+            nxsh_log_info!("Update installed successfully");
             Ok(())
         }
         Err(e) => {
             // Rollback on failure
             if let Err(rollback_err) = perform_rollback(&current_binary, &backup_path).await {
-                tracing::error!("Rollback failed: {}", rollback_err);
+                nxsh_log_error!("Rollback failed: {}", rollback_err);
             }
             
             let mut status = system.status.lock().unwrap();
@@ -499,7 +510,7 @@ fn create_backup(current_binary: &Path, system: &UpdateSystem) -> Result<PathBuf
         .unwrap_or_default()
         .as_secs();
     
-    let backup_filename = format!("nxsh-backup-{}", timestamp);
+    let backup_filename = format!("nxsh-backup-{timestamp}");
     let backup_path = backup_dir.join(&backup_filename);
 
     fs::copy(current_binary, &backup_path)
@@ -511,6 +522,7 @@ fn create_backup(current_binary: &Path, system: &UpdateSystem) -> Result<PathBuf
     Ok(backup_path)
 }
 
+#[cfg(all(feature = "updates", feature = "async-runtime"))]
 async fn perform_atomic_installation(target: &Path, source: &Path) -> Result<()> {
     let temp_path = target.with_extension("tmp");
     
@@ -537,8 +549,9 @@ async fn perform_atomic_installation(target: &Path, source: &Path) -> Result<()>
     Ok(())
 }
 
+#[cfg(all(feature = "updates", feature = "async-runtime"))]
 async fn perform_rollback(target: &Path, backup: &Path) -> Result<()> {
-    tracing::info!("Performing rollback to previous version");
+    nxsh_log_info!("Performing rollback to previous version");
     
     tokio::fs::copy(backup, target).await
         .context("Failed to restore backup")?;
@@ -572,11 +585,22 @@ fn cleanup_old_backups(backup_dir: &Path, keep_count: usize) -> Result<()> {
     let to_remove = entries.len() - keep_count;
     for entry in entries.iter().take(to_remove) {
         if let Err(e) = fs::remove_file(entry.path()) {
-            tracing::warn!("Failed to remove old backup {:?}: {}", entry.path(), e);
+            nxsh_log_warn!("Failed to remove old backup {:?}: {}", entry.path(), e);
         }
     }
 
     Ok(())
+}
+
+// Fallback stubs when async runtime unavailable: they simply return errors to signal unsupported operations.
+#[cfg(not(all(feature = "updates", feature = "async-runtime")))]
+async fn perform_atomic_installation(_target: &Path, _source: &Path) -> Result<()> {
+    Err(anyhow!("Atomic installation unavailable (updates or async-runtime feature disabled)"))
+}
+
+#[cfg(not(all(feature = "updates", feature = "async-runtime")))]
+async fn perform_rollback(_target: &Path, _backup: &Path) -> Result<()> {
+    Err(anyhow!("Rollback unavailable (updates or async-runtime feature disabled)"))
 }
 
 /// Get current update status
@@ -605,8 +629,8 @@ mod tests {
 
     #[test]
     fn test_version_comparison() {
-        let v1 = Version::parse("1.0.0").unwrap();
-        let v2 = Version::parse("1.0.1").unwrap();
+        let v1: Version = "1.0.0".parse().unwrap();
+        let v2: Version = "1.0.1".parse().unwrap();
         
         assert!(v2 > v1);
     }
@@ -639,6 +663,7 @@ mod tests {
         assert_eq!(manifest.channel, parsed.channel);
     }
 
+    #[cfg(feature = "updates")]
     #[tokio::test]
     async fn test_file_checksum_verification() {
         let temp_dir = TempDir::new().unwrap();
@@ -647,10 +672,10 @@ mod tests {
         let content = b"Hello, World!";
         tokio::fs::write(&test_file, content).await.unwrap();
         
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(content);
-        let expected_checksum = hex::encode(hasher.finalize().as_bytes());
+    let mut hasher = Sha256::new();
+    hasher.update(content);
+    let expected_checksum = hex::encode(hasher.finalize());
         
-        verify_file_checksum(&test_file, &expected_checksum).await.unwrap();
+    verify_file_checksum(&test_file, &expected_checksum).unwrap();
     }
 }

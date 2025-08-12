@@ -8,6 +8,8 @@ edition = "2021"
 anyhow = "1"
 num_cpus = "1.16"
 chrono = { version = "0.4", features = ["serde"] }
+regex = "1.10"
+serde = { version = "1.0", features = ["derive"] }
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.27", default-features = false, features = ["fs", "process", "signal", "sched", "mount", "mman", "resource", "user"] }
@@ -22,3 +24,8 @@ windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_System_
 
 [dev-dependencies]
 tempfile = "3.8" 
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "hal_performance"
+harness = false

@@ -1,4 +1,4 @@
-//! `hdparm` builtin  Esimple disk performance benchmarking.
+//! `hdparm` builtin – simple disk performance benchmarking.
 //!
 //! Currently implemented options (subset):
 //!   -t   : Buffered (sequential) read timing
@@ -12,6 +12,7 @@
 //! On unsupported platforms the command prints a graceful message.
 
 use anyhow::{anyhow, Result};
+#[cfg(unix)] use std::{fs::File, io::{Read, Seek, SeekFrom}, path::Path, time::Instant};
 
 pub async fn hdparm_cli(args: &[String]) -> Result<()> {
     if args.is_empty() {
@@ -37,26 +38,19 @@ pub async fn hdparm_cli(args: &[String]) -> Result<()> {
     }
 
     #[cfg(not(unix))]
-    {
-        println!("hdparm: benchmarking not supported on this platform");
-        return Ok(());
+    { let _ = &dev; println!("hdparm: benchmarking not supported on this platform"); return Ok(()); }
+    #[cfg(unix)] {
+        if test_cached { cached_test(&dev)?; }
+        if test_buffered { buffered_test(&dev)?; }
+        Ok(())
     }
-
-    #[cfg(unix)]
-    {
-        if test_cached {
-            cached_test(&dev)?;
-        }
-        if test_buffered {
-            buffered_test(&dev)?;
-        }
-    }
-
-    Ok(())
 }
 
 #[cfg(unix)]
 fn cached_test(dev: &str) -> Result<()> {
+    use std::fs::File;
+    use std::io::{Read, Seek, SeekFrom};
+    use std::path::Path;
     let mut file = File::open(Path::new(dev))?;
     // Read a small amount twice; second read should be cached.
     const SIZE: usize = 4 * 1024 * 1024; // 4 MiB
@@ -78,6 +72,9 @@ fn cached_test(dev: &str) -> Result<()> {
 
 #[cfg(unix)]
 fn buffered_test(dev: &str) -> Result<()> {
+    use std::fs::File;
+    use std::io::{Read, Seek, SeekFrom};
+    use std::path::Path;
     let mut file = File::open(Path::new(dev))?;
     const TOTAL: usize = 128 * 1024 * 1024; // 128 MiB to sample
     const CHUNK: usize = 4 * 1024 * 1024; // 4 MiB buffer

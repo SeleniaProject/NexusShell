@@ -3,7 +3,7 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     fs::{File, Metadata},
-    io::{Read, Write, BufReader, BufWriter, Seek, SeekFrom},
+    io::{Read, Write, BufReader, BufWriter, Seek, SeekFrom, Cursor},
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -15,9 +15,8 @@ use tokio::{
 };
 use serde::{Deserialize, Serialize};
 use flate2::{read::GzDecoder, write::GzEncoder, Compression as GzCompression};
-use bzip2::{read::BzDecoder, write::BzEncoder, Compression as BzCompression};
-use xz2::{read::XzDecoder, write::XzEncoder};
-use zstd::{stream::{Decoder as ZstdDecoder, Encoder as ZstdEncoder}};
+use bzip2_rs::DecoderReader as BzDecoder;
+use ruzstd::streaming_decoder::StreamingDecoder as ZstdDecoder;
 use zip::{ZipArchive, ZipWriter, write::FileOptions as ZipFileOptions, CompressionMethod};
 use tar::{Archive as TarArchive, Builder as TarBuilder, Header as TarHeader};
 use sevenz_rust::{SevenZReader, SevenZWriter, Password};
@@ -86,7 +85,7 @@ impl CompressionManager {
     pub async fn bzip2(&self, ctx: &NxshContext, args: &[String]) -> NxshResult<()> {
         let options = self.parse_bzip2_args(args)?;
         
-        info!("Starting bzip2 compression");
+        info!("Starting bzip2 (decompression-only build; compression will error)");
         
         let operation_id = self.start_operation("bzip2", &options.input_files).await;
         
@@ -162,7 +161,7 @@ impl CompressionManager {
     pub async fn zstd(&self, ctx: &NxshContext, args: &[String]) -> NxshResult<()> {
         let options = self.parse_zstd_args(args)?;
         
-        info!("Starting zstd compression with level {}", options.compression_level);
+        info!("Starting zstd (decompression-only build; compression will error) with level {}", options.compression_level);
         
         let operation_id = self.start_operation("zstd", &options.input_files).await;
         
@@ -373,19 +372,17 @@ impl CompressionManager {
                 encoder.finish().context("Failed to finish gzip compression")?;
             },
             CompressionFormat::Bzip2 => {
-                let mut encoder = BzEncoder::new(writer, BzCompression::new(level));
-                std::io::copy(&mut reader, &mut encoder).context("Failed to compress with bzip2")?;
-                encoder.finish().context("Failed to finish bzip2 compression")?;
+                // Decode-only in pure-Rust build
+                return Err(anyhow::anyhow!("bzip2 compression not supported (decode-only). Use gzip or xz for compression, or an external bzip2 binary."));
             },
             CompressionFormat::Xz => {
-                let mut encoder = XzEncoder::new(writer, level);
-                std::io::copy(&mut reader, &mut encoder).context("Failed to compress with xz")?;
-                encoder.finish().context("Failed to finish xz compression")?;
+                // lzma_rs provides function-based API
+                lzma_rs::xz_compress(&mut reader, &mut writer).context("Failed to compress with xz")?;
+                writer.flush().ok();
             },
             CompressionFormat::Zstd => {
-                let mut encoder = ZstdEncoder::new(writer, level as i32).context("Failed to create zstd encoder")?;
-                std::io::copy(&mut reader, &mut encoder).context("Failed to compress with zstd")?;
-                encoder.finish().context("Failed to finish zstd compression")?;
+                // Decode-only in pure-Rust build
+                return Err(anyhow::anyhow!("zstd compression not supported (decode-only). Use gzip or xz for compression, or an external zstd binary."));
             },
         }
         
@@ -428,19 +425,14 @@ impl CompressionManager {
                     encoder.finish()?;
                 },
                 CompressionFormat::Bzip2 => {
-                    let mut encoder = BzEncoder::new(&mut output_data, BzCompression::new(options.compression_level));
-                    encoder.write_all(&input_data)?;
-                    encoder.finish()?;
+                    return Err(anyhow::anyhow!("bzip2 compression not supported (decode-only). Use gzip or xz for compression, or an external bzip2 binary."));
                 },
                 CompressionFormat::Xz => {
-                    let mut encoder = XzEncoder::new(&mut output_data, options.compression_level);
-                    encoder.write_all(&input_data)?;
-                    encoder.finish()?;
+                    let mut input_cursor = Cursor::new(&input_data);
+                    lzma_rs::xz_compress(&mut input_cursor, &mut output_data).context("Failed to compress with xz")?;
                 },
                 CompressionFormat::Zstd => {
-                    let mut encoder = ZstdEncoder::new(&mut output_data, options.compression_level as i32)?;
-                    encoder.write_all(&input_data)?;
-                    encoder.finish()?;
+                    return Err(anyhow::anyhow!("zstd compression not supported (decode-only). Use gzip or xz for compression, or an external zstd binary."));
                 },
             }
             
@@ -533,8 +525,8 @@ impl CompressionManager {
                     decoder.read_to_end(&mut output_data)?;
                 },
                 CompressionFormat::Xz => {
-                    let mut decoder = XzDecoder::new(&input_data[..]);
-                    decoder.read_to_end(&mut output_data)?;
+                    let mut cursor = Cursor::new(&input_data);
+                    lzma_rs::xz_decompress(&mut cursor, &mut output_data).context("Failed to decompress xz")?;
                 },
                 CompressionFormat::Zstd => {
                     let mut decoder = ZstdDecoder::new(&input_data[..])?;
@@ -686,24 +678,30 @@ impl CompressionManager {
         let archive_path = PathBuf::from(&options.archive_name);
         let archive_file = File::create(&archive_path).context("Failed to create tar archive")?;
         
-        let mut tar_builder = if options.compression.is_some() {
-            match options.compression.as_ref().unwrap() {
+        // For XZ we must stage into a temp tar, then compress via lzma_rs
+        let mut tar_builder_opt;
+        let use_temp_for_xz = matches!(options.compression, Some(CompressionFormat::Xz));
+        let mut temp_path_opt: Option<PathBuf> = None;
+        let mut tar_builder = if let Some(ref fmt) = options.compression {
+            match fmt {
                 CompressionFormat::Gzip => {
                     let encoder = GzEncoder::new(archive_file, GzCompression::default());
                     TarBuilder::new(encoder)
-                },
+                }
                 CompressionFormat::Bzip2 => {
-                    let encoder = BzEncoder::new(archive_file, BzCompression::default());
-                    TarBuilder::new(encoder)
-                },
+                    return Err(anyhow::anyhow!("bzip2 tar compression not supported (decode-only). Use gzip or xz."));
+                }
                 CompressionFormat::Xz => {
-                    let encoder = XzEncoder::new(archive_file, 6);
-                    TarBuilder::new(encoder)
-                },
+                    use tempfile::NamedTempFile;
+                    let temp = NamedTempFile::new().context("Failed to create temp tar for xz")?;
+                    let temp_path = temp.into_temp_path().keep().context("Failed to persist temp file")?;
+                    temp_path_opt = Some(PathBuf::from(&temp_path));
+                    let temp_file = File::options().write(true).truncate(true).open(&temp_path_opt.as_ref().unwrap())?;
+                    TarBuilder::new(BufWriter::new(temp_file))
+                }
                 CompressionFormat::Zstd => {
-                    let encoder = ZstdEncoder::new(archive_file, 3).context("Failed to create zstd encoder")?;
-                    TarBuilder::new(encoder)
-                },
+                    return Err(anyhow::anyhow!("zstd tar compression not supported (decode-only). Use gzip or xz."));
+                }
             }
         } else {
             TarBuilder::new(archive_file)
@@ -728,38 +726,51 @@ impl CompressionManager {
         
         tar_builder.finish().context("Failed to finish tar archive")?;
         
+        // If XZ, compress temp tar into final archive
+        if use_temp_for_xz {
+            let temp_path = temp_path_opt.expect("temp path must exist for xz");
+            let input_file = File::open(&temp_path).context("Failed to open temp tar for xz compression")?;
+            let mut reader = BufReader::new(input_file);
+            let mut writer = BufWriter::new(File::create(&archive_path)?);
+            lzma_rs::xz_compress(&mut reader, &mut writer).context("Failed to xz-compress tar")?;
+            writer.flush().ok();
+            let _ = std::fs::remove_file(&temp_path);
+        }
+        
         if options.verbose {
             println!("Created tar archive: {}", archive_path.display());
         }
         
         Ok(())
     }
-    
+
     async fn extract_tar_archive(&self, options: &TarOptions) -> Result<()> {
         let archive_file = File::open(&options.archive_name).context("Failed to open tar archive")?;
         
         let mut tar_archive = if options.compression.is_some() {
-            match options.compression.as_ref().unwrap() {
-                CompressionFormat::Gzip => {
-                    let decoder = GzDecoder::new(archive_file);
-                    TarArchive::new(decoder)
-                },
-                CompressionFormat::Bzip2 => {
-                    let decoder = BzDecoder::new(archive_file);
-                    TarArchive::new(decoder)
-                },
-                CompressionFormat::Xz => {
-                    let decoder = XzDecoder::new(archive_file);
-                    TarArchive::new(decoder)
-                },
-                CompressionFormat::Zstd => {
-                    let decoder = ZstdDecoder::new(archive_file).context("Failed to create zstd decoder")?;
-                    TarArchive::new(decoder)
-                },
-            }
-        } else {
-            TarArchive::new(archive_file)
-        };
+             match options.compression.as_ref().unwrap() {
+                 CompressionFormat::Gzip => {
+                     let decoder = GzDecoder::new(archive_file);
+                     TarArchive::new(decoder)
+                 },
+                 CompressionFormat::Bzip2 => {
+                     let decoder = BzDecoder::new(archive_file);
+                     TarArchive::new(decoder)
+                 },
+                 CompressionFormat::Xz => {
+                    let mut decompressed = Vec::new();
+                    let mut r = BufReader::new(archive_file);
+                    lzma_rs::xz_decompress(&mut r, &mut decompressed).context("Failed to decompress xz tar")?;
+                    TarArchive::new(Cursor::new(decompressed))
+                 },
+                 CompressionFormat::Zstd => {
+                     let decoder = ZstdDecoder::new(archive_file).context("Failed to create zstd decoder")?;
+                     TarArchive::new(decoder)
+                 },
+             }
+         } else {
+             TarArchive::new(archive_file)
+         };
         
         let output_dir = options.output_dir.as_ref()
             .map(PathBuf::from)
@@ -773,32 +784,34 @@ impl CompressionManager {
         
         Ok(())
     }
-    
+
     async fn list_tar_archive(&self, options: &TarOptions) -> Result<()> {
         let archive_file = File::open(&options.archive_name).context("Failed to open tar archive")?;
         
         let mut tar_archive = if options.compression.is_some() {
-            match options.compression.as_ref().unwrap() {
-                CompressionFormat::Gzip => {
-                    let decoder = GzDecoder::new(archive_file);
-                    TarArchive::new(decoder)
-                },
-                CompressionFormat::Bzip2 => {
-                    let decoder = BzDecoder::new(archive_file);
-                    TarArchive::new(decoder)
-                },
-                CompressionFormat::Xz => {
-                    let decoder = XzDecoder::new(archive_file);
-                    TarArchive::new(decoder)
-                },
-                CompressionFormat::Zstd => {
-                    let decoder = ZstdDecoder::new(archive_file).context("Failed to create zstd decoder")?;
-                    TarArchive::new(decoder)
-                },
-            }
-        } else {
-            TarArchive::new(archive_file)
-        };
+             match options.compression.as_ref().unwrap() {
+                 CompressionFormat::Gzip => {
+                     let decoder = GzDecoder::new(archive_file);
+                     TarArchive::new(decoder)
+                 },
+                 CompressionFormat::Bzip2 => {
+                     let decoder = BzDecoder::new(archive_file);
+                     TarArchive::new(decoder)
+                 },
+                 CompressionFormat::Xz => {
+                    let mut decompressed = Vec::new();
+                    let mut r = BufReader::new(archive_file);
+                    lzma_rs::xz_decompress(&mut r, &mut decompressed).context("Failed to decompress xz tar")?;
+                    TarArchive::new(Cursor::new(decompressed))
+                 },
+                 CompressionFormat::Zstd => {
+                     let decoder = ZstdDecoder::new(archive_file).context("Failed to create zstd decoder")?;
+                     TarArchive::new(decoder)
+                 },
+             }
+         } else {
+             TarArchive::new(archive_file)
+         };
         
         for entry in tar_archive.entries().context("Failed to read tar entries")? {
             let entry = entry.context("Failed to read tar entry")?;
@@ -1492,4 +1505,4 @@ mod tests {
         assert_ne!(discriminant(&gzip), discriminant(&bzip2));
         assert_ne!(discriminant(&xz), discriminant(&zstd));
     }
-} 
+}

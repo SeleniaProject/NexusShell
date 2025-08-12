@@ -11,11 +11,11 @@
 
 use anyhow::Result;
 
-pub async fn hwclock_cli(args: &[String]) -> Result<()> {
+pub async fn hwclock_cli(_args: &[String]) -> Result<()> {
     #[cfg(not(unix))]
     {
         println!("hwclock: unsupported on this platform");
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(unix)]
@@ -23,7 +23,7 @@ pub async fn hwclock_cli(args: &[String]) -> Result<()> {
         if which::which("hwclock").is_err() {
             return Err(anyhow!("hwclock: external 'hwclock' not found"));
         }
-        let status = Command::new("hwclock").args(args).status()?;
+    let status = Command::new("hwclock").args(_args).status()?;
         if !status.success() {
             return Err(anyhow!("hwclock: exited with status {}", status));
         }

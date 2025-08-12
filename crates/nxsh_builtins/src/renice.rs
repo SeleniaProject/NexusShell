@@ -35,12 +35,12 @@ pub fn renice_cli(args: &[String]) -> Result<()> {
 
     #[cfg(windows)]
     {
-        return Err(anyhow!("renice: not supported on Windows yet"));
+        Err(anyhow!("renice: not supported on Windows yet"))
     }
 
     #[cfg(unix)]
     {
-        for pid_str in &args[pid_start..] {
+    for pid_str in &args[pid_start..] {
             let pid: i32 = pid_str.parse().map_err(|e: ParseIntError| anyhow!("renice: invalid PID '{pid_str}': {e}"))?;
             let res = unsafe { setpriority(PRIO_PROCESS as libc::__priority_which_t, pid as libc::id_t, adjust as c_int) };
             if res == -1 {

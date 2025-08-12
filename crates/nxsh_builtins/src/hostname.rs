@@ -7,6 +7,7 @@
 //! Setting hostname requires CAP_SYS_ADMIN and will fail without privilege.
 
 use anyhow::{anyhow, Result};
+#[cfg(feature = "system-info")]
 use sysinfo::{System, SystemExt};
 
 #[cfg(unix)]
@@ -27,14 +28,19 @@ pub fn hostname_cli(args: &[String]) -> Result<()> {
 }
 
 fn print_hostname(short: bool) -> Result<()> {
-    let mut sys = System::new();
-    sys.refresh_system();
-    let host = sys.host_name().unwrap_or_else(|| "Unknown".to_string());
+    #[cfg(feature = "system-info")]
+    let host = {
+        let mut sys = System::new();
+        sys.refresh_system();
+        sys.host_name().unwrap_or_else(|| "Unknown".to_string())
+    };
+    #[cfg(not(feature = "system-info"))]
+    let host = hostname::get().map(|h| h.to_string_lossy().to_string()).unwrap_or_else(|_| "unknown".to_string());
     if short {
         let short_name = host.split('.').next().unwrap_or(&host);
-        println!("{}", short_name);
+        println!("{short_name}");
     } else {
-        println!("{}", host);
+        println!("{host}");
     }
     Ok(())
 }

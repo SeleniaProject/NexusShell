@@ -1,0 +1,40 @@
+{
+  "name": "nxsh-ocean",
+  "version": "1.0.0",
+  "author": "NexusShell Team",
+  "description": "Deep blue oceanic theme",
+  "colors": {
+    "primary": "#1e90ff",
+    "secondary": "#4682b4",
+    "accent": "#40e0d0",
+    "background": "#001122",
+    "foreground": "#f0f8ff",
+    "error": "#dc143c",
+    "warning": "#ffa500",
+    "success": "#32cd32",
+    "info": "#1e90ff",
+    "muted": "#4682b4",
+    "highlight": "#40e0d0",
+    "border": "#2f4f4f"
+  },
+  "styles": {
+    "prompt": {
+      "foreground": "Blue",
+      "bold": true
+    },
+    "command": {
+      "foreground": "White"
+    },
+    "error": {
+      "foreground": "Red",
+      "bold": true
+    },
+    "warning": {
+      "foreground": "Yellow"
+    },
+    "success": {
+      "foreground": "Green",
+      "bold": true
+    }
+  }
+}

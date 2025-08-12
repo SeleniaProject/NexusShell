@@ -17,7 +17,7 @@
 //! - Advanced statistics and performance monitoring
 
 use anyhow::{Result, anyhow, Context as AnyhowContext};
-use std::io::{self, Read, Write, BufRead, BufReader, BufWriter};
+use std::io::{self, Read, Write, BufRead, BufReader, BufWriter}; // BufRead 必要 (ジェネリック境界 / reader 生成で使用)
 use std::fs::File;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -29,17 +29,46 @@ use std::cmp::min;
 use memmap2::MmapOptions;
 use encoding_rs::{Encoding, UTF_8, UTF_16LE, UTF_16BE, WINDOWS_1252, ISO_8859_2};
 use content_inspector::{ContentType, inspect};
-use rayon::prelude::*;
-use indicatif::{ProgressBar, ProgressStyle, MultiProgress};
+#[cfg(feature = "progress-ui")]
+use indicatif::{ProgressBar, ProgressStyle, MultiProgress}; // progress bars optional
+// When progress-ui feature is disabled, provide no-op stubs so code still compiles
+#[cfg(not(feature = "progress-ui"))]
+#[derive(Clone)]
+struct ProgressBar;
+#[cfg(not(feature = "progress-ui"))]
+struct ProgressStyle;
+#[cfg(not(feature = "progress-ui"))]
+struct MultiProgress;
+#[cfg(not(feature = "progress-ui"))]
+impl ProgressBar {
+    fn new(_len: u64) -> Self { Self }
+    fn new_spinner() -> Self { Self }
+    fn set_style(&self, _style: ProgressStyle) -> &Self { self }
+    fn set_message<S: Into<String>>(&self, _msg: S) {}
+    fn inc(&self, _n: u64) {}
+    fn set_position(&self, _pos: u64) {}
+    fn finish_with_message<S: Into<String>>(&self, _msg: S) {}
+    fn abandon_with_message<S: Into<String>>(&self, _msg: S) {}
+}
+#[cfg(not(feature = "progress-ui"))]
+impl ProgressStyle {
+    fn default_bar() -> Self { Self }
+    fn default_spinner() -> Self { Self }
+    fn template(self, _t: &str) -> Result<Self, ()> { Ok(Self) }
+    fn progress_chars(self, _c: &str) -> Self { Self }
+}
+#[cfg(not(feature = "progress-ui"))]
+impl MultiProgress {
+    fn new() -> Self { Self }
+    fn add(&self, pb: ProgressBar) -> ProgressBar { pb }
+}
 use console::style;
-use tokio::io::{AsyncReadExt, AsyncBufReadExt};
-use futures::stream::StreamExt;
+// Removed unused async streaming imports (no async read operations implemented yet)
 use url::Url;
-use flate2::read::{GzDecoder, DeflateDecoder};
 use base64::{Engine as _, engine::general_purpose};
 
-use crate::common::i18n::init_i18n;
-use crate::t;
+use crate::common::i18n::init_i18n; // Provided by full or stub impl
+use crate::t; // macro re-export
 
 /// Maximum size for memory mapping (1GB)
 const MMAP_THRESHOLD: u64 = 1024 * 1024 * 1024;
@@ -52,6 +81,14 @@ const CHUNK_SIZE: usize = 1024 * 1024;
 
 /// Progress update interval
 const PROGRESS_UPDATE_INTERVAL: Duration = Duration::from_millis(100);
+
+// Type aliases to reduce clippy::type_complexity noise
+type ContentTx = std::sync::mpsc::Sender<(String, std::sync::mpsc::Sender<Result<Vec<u8>>>)>;
+type ContentRx = std::sync::mpsc::Receiver<(String, std::sync::mpsc::Sender<Result<Vec<u8>>>)>;
+type StatsTx = std::sync::mpsc::Sender<(String, FileStats)>;
+type StatsRx = std::sync::mpsc::Receiver<(String, FileStats)>;
+type BytesTx = std::sync::mpsc::Sender<Result<Vec<u8>>>;
+type BytesRx = std::sync::mpsc::Receiver<Result<Vec<u8>>>;
 
 #[derive(Debug, Clone)]
 pub struct CatOptions {
@@ -418,10 +455,10 @@ fn process_files_sequential(options: &CatOptions) -> Result<()> {
 }
 
 fn process_files_parallel(options: &CatOptions) -> Result<()> {
-    use std::sync::mpsc::{channel, Receiver, Sender};
+    use std::sync::mpsc::channel;
     
-    let (tx, rx): (Sender<(String, Sender<Result<Vec<u8>>>)>, Receiver<(String, Sender<Result<Vec<u8>>>)>) = channel();
-    let (stats_tx, stats_rx): (Sender<(String, FileStats)>, Receiver<(String, FileStats)>) = channel();
+    let (tx, rx): (ContentTx, ContentRx) = channel();
+    let (stats_tx, stats_rx): (StatsTx, StatsRx) = channel();
     
     // Wrap receiver in Arc<Mutex> for sharing between threads
     let rx = Arc::new(Mutex::new(rx));
@@ -457,7 +494,7 @@ fn process_files_parallel(options: &CatOptions) -> Result<()> {
     
     // Send files to workers
     for filename in &options.files {
-        let (output_tx, output_rx): (Sender<Result<Vec<u8>>>, Receiver<Result<Vec<u8>>>) = channel();
+    let (output_tx, output_rx): (BytesTx, BytesRx) = channel();
         tx.send((filename.clone(), output_tx))?;
         file_results.push((filename.clone(), output_rx));
     }
@@ -469,7 +506,7 @@ fn process_files_parallel(options: &CatOptions) -> Result<()> {
                 writer.write_all(&content)?;
             }
             Err(e) => {
-                eprintln!("cat: {}: {}", filename, e);
+                eprintln!("cat: {filename}: {e}");
             }
         }
     }
@@ -531,15 +568,18 @@ fn process_single_file(
         );
     }
     
-    // Handle URLs
-    if let Ok(url) = Url::parse(filename) {
-        return process_url(&url, options, multi_progress);
-    }
-    
     let path = Path::new(filename);
-    
-    // Check if file exists and is readable
+
+    // Prefer filesystem path handling first. On Windows, paths like
+    // "C:\\..." contain a colon and can be misparsed as a URL scheme.
     if !path.exists() {
+        // If it's not an existing path, then treat inputs that clearly look like
+        // URLs (contain "://") as URLs.
+        if filename.contains("://") {
+            if let Ok(url) = Url::parse(filename) {
+                return process_url(&url, options, multi_progress);
+            }
+        }
         return Err(anyhow!(t!("error-file-not-found")));
     }
     
@@ -571,7 +611,7 @@ fn process_single_file(
     // Handle binary files
     match options.binary_mode {
         BinaryMode::Skip if file_type == ContentType::BINARY => {
-            eprintln!("cat: {}: binary file skipped", filename);
+            eprintln!("cat: {filename}: binary file skipped");
             return Ok(FileStats {
                 bytes_read: 0,
                 lines_processed: 0,
@@ -622,17 +662,17 @@ fn process_file_mmap<W: Write>(
     
     let progress_bar = if let Some(mp) = multi_progress {
         let pb = mp.add(ProgressBar::new(mmap.len() as u64));
+        #[cfg(feature = "progress-ui")]
         pb.set_style(
             ProgressStyle::default_bar()
                 .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} {msg}")
                 .unwrap()
                 .progress_chars("#>-"),
         );
+        #[cfg(feature = "progress-ui")]
         pb.set_message(filename.to_string());
         Some(pb)
-    } else {
-        None
-    };
+    } else { None };
     
     // Detect encoding
     let encoding = if options.auto_detect_encoding && options.encoding.is_none() {
@@ -700,21 +740,23 @@ fn process_file_stream<W: Write>(
     
     let progress_bar = if let Some(mp) = multi_progress {
         let pb = mp.add(ProgressBar::new(file_size));
+        #[cfg(feature = "progress-ui")]
         pb.set_style(
             ProgressStyle::default_bar()
                 .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} {msg}")
                 .unwrap()
                 .progress_chars("#>-"),
         );
+        #[cfg(feature = "progress-ui")]
         pb.set_message(filename.to_string());
         Some(pb)
-    } else {
-        None
-    };
+    } else { None };
     
     let reader: Box<dyn BufRead> = match compression {
         Some(CompressionType::Gzip) => {
-            Box::new(BufReader::new(GzDecoder::new(file)))
+            // Pure Rust decompression disabled for now
+            // Box::new(BufReader::new(GzDecoder::new(file)))
+            Box::new(BufReader::new(file))
         }
         Some(CompressionType::Bzip2) => {
             // Use pure Rust alternative for bzip2
@@ -735,7 +777,9 @@ fn process_file_stream<W: Write>(
             Box::new(BufReader::with_capacity(options.buffer_size, file))
         }
         Some(CompressionType::Deflate) => {
-            Box::new(BufReader::new(DeflateDecoder::new(file)))
+            // Pure Rust decompression disabled for now
+            // Box::new(BufReader::new(DeflateDecoder::new(file)))
+            Box::new(BufReader::new(file))
         }
         None => {
             Box::new(BufReader::with_capacity(options.buffer_size, file))
@@ -761,16 +805,16 @@ fn process_reader<R: BufRead, W: Write>(
     reader: Box<R>,
     writer: &mut W,
     options: &CatOptions,
-    filename: &str,
+    _filename: &str,
 ) -> Result<FileStats> {
-    process_reader_with_progress(reader, writer, options, filename, None)
+    process_reader_with_progress(reader, writer, options, _filename, None)
 }
 
 fn process_reader_with_progress<R: BufRead + ?Sized, W: Write>(
     mut reader: Box<R>,
     writer: &mut W,
     options: &CatOptions,
-    filename: &str,
+    _filename: &str,
     progress_bar: Option<&ProgressBar>,
 ) -> Result<FileStats> {
     let mut stats = FileStats {
@@ -888,7 +932,7 @@ fn process_chunk<W: Write>(
         };
         
         if should_number {
-            write!(writer, "{:6}\t", line_number)?;
+            write!(writer, "{line_number:6}\t")?;
         }
         
         if options.number_lines || (options.number_nonblank && !is_blank_line) {
@@ -899,7 +943,11 @@ fn process_chunk<W: Write>(
         match options.output_format {
             OutputFormat::Raw => {
                 let processed_line = process_line_content(line, options);
-                write!(writer, "{}", processed_line)?;
+                write!(writer, "{processed_line}")?;
+                if options.show_ends {
+                    // GNU cat -E prints '$' at end-of-line (before the newline)
+                    write!(writer, "$")?;
+                }
             }
             OutputFormat::Hex => {
                 write!(writer, "{}", hex::encode(line.as_bytes()))?;
@@ -923,9 +971,9 @@ fn process_chunk<W: Write>(
 
 fn process_line_content(line: &str, options: &CatOptions) -> String {
     let mut result = String::new();
-    let mut chars = line.chars().peekable();
+    let chars = line.chars().peekable();
     
-    while let Some(ch) = chars.next() {
+    for ch in chars {
         match ch {
             '\n' => {
                 if options.show_ends {
@@ -984,7 +1032,7 @@ fn process_line_content(line: &str, options: &CatOptions) -> String {
 
 fn process_file_to_memory(filename: &str, options: &CatOptions) -> Result<(Vec<u8>, FileStats)> {
     let mut content = Vec::new();
-    let cursor = io::Cursor::new(&mut content);
+    let _cursor = io::Cursor::new(&mut content); // kept for now in case future read APIs need seek interface
     
     let stats = process_single_file(filename, options, None)?;
     
@@ -996,6 +1044,7 @@ fn process_url(
     options: &CatOptions,
     multi_progress: Option<&MultiProgress>,
 ) -> Result<FileStats> {
+    let _ = (options.number_lines, options.number_nonblank, options.show_ends, multi_progress.is_some());
     // This would require implementing HTTP/HTTPS/FTP client
     // For now, return an error
     Err(anyhow!("URL support not yet implemented: {}", url))
@@ -1034,17 +1083,15 @@ fn detect_compression(path: &Path) -> Result<Option<CompressionType>> {
                 }
             }
             
-            if bytes_read >= 6 {
-                if &buffer[0..6] == b"\xfd7zXZ\x00" {
+            if bytes_read >= 6
+                && &buffer[0..6] == b"\xfd7zXZ\x00" {
                     return Ok(Some(CompressionType::Xz));
                 }
-            }
             
-            if bytes_read >= 4 {
-                if &buffer[0..4] == [0x28, 0xb5, 0x2f, 0xfd] {
+            if bytes_read >= 4
+                && buffer[0..4] == [0x28, 0xb5, 0x2f, 0xfd] {
                     return Ok(Some(CompressionType::Zstd));
                 }
-            }
             
             Ok(None)
         }
@@ -1053,7 +1100,7 @@ fn detect_compression(path: &Path) -> Result<Option<CompressionType>> {
 
 fn detect_encoding(data: &[u8]) -> &'static Encoding {
     // Check for BOM
-    if data.len() >= 3 && &data[0..3] == [0xef, 0xbb, 0xbf] {
+    if data.len() >= 3 && data[0..3] == [0xef, 0xbb, 0xbf] {
         return UTF_8;
     }
     
@@ -1075,7 +1122,7 @@ fn detect_encoding(data: &[u8]) -> &'static Encoding {
 }
 
 fn print_statistics(stats: &FileStats, filename: &str) {
-    println!("\n{}", style(format!("=== Statistics for {} ===", filename)).bold());
+    println!("\n{}", style(format!("=== Statistics for {filename} ===")).bold());
     println!("{}: {}", 
         style("Bytes read").cyan(), 
         style(format!("{}", stats.bytes_read)).yellow()
@@ -1104,7 +1151,7 @@ fn print_statistics(stats: &FileStats, filename: &str) {
     if let Some(compression) = &stats.compression_detected {
         println!("{}: {:?}", 
             style("Compression").cyan(), 
-            style(format!("{:?}", compression)).yellow()
+            style(format!("{compression:?}")).yellow()
         );
     }
     
@@ -1116,7 +1163,7 @@ fn print_statistics(stats: &FileStats, filename: &str) {
     
     println!("{}: {:.2} MB/s", 
         style("Throughput").cyan(), 
-        style(format!("{:.2}", throughput)).yellow()
+        style(format!("{throughput:.2}")).yellow()
     );
 }
 

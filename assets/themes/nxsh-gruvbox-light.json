@@ -1,0 +1,40 @@
+{
+  "name": "nxsh-gruvbox-light",
+  "version": "1.0.0",
+  "author": "NexusShell Team",
+  "description": "Warm and cozy light theme inspired by Gruvbox",
+  "colors": {
+    "primary": "#076678",
+    "secondary": "#7c6f64",
+    "accent": "#af3a03",
+    "background": "#f9f5d7",
+    "foreground": "#3c3836",
+    "error": "#cc241d",
+    "warning": "#b57614",
+    "success": "#79740e",
+    "info": "#076678",
+    "muted": "#7c6f64",
+    "highlight": "#8f3f71",
+    "border": "#ebdbb2"
+  },
+  "styles": {
+    "prompt": {
+      "foreground": "Blue",
+      "bold": true
+    },
+    "command": {
+      "foreground": "White"
+    },
+    "error": {
+      "foreground": "Red",
+      "bold": true
+    },
+    "warning": {
+      "foreground": "Yellow"
+    },
+    "success": {
+      "foreground": "Green",
+      "bold": true
+    }
+  }
+}

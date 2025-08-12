@@ -81,8 +81,8 @@ pub fn lsof_cli(args: &[String]) -> Result<()> {
     let open_files = get_open_files(&parsed_args)?;
     
     // Print header
-    println!("{:<15} {:>5} {:<8} {:<4} {:<8} {:<8} {:<8} {:<8} {}",
-        "COMMAND", "PID", "USER", "FD", "TYPE", "DEVICE", "SIZE", "NODE", "NAME");
+    println!("{:<15} {:>5} {:<8} {:<4} {:<8} {:<8} {:<8} {:<8} NAME",
+        "COMMAND", "PID", "USER", "FD", "TYPE", "DEVICE", "SIZE", "NODE");
     
     // Print results
     for file in open_files {
@@ -115,10 +115,7 @@ fn get_network_connections(_args: &LsofArgs) -> Result<Vec<OpenFile>> {
     // This would normally parse /proc/net/tcp, /proc/net/udp on Linux
     // or use netstat/ss output
     
-    let mut connections = Vec::new();
-    
-    // Example entry
-    connections.push(OpenFile {
+    let connections = vec![OpenFile {
         process_name: "sshd".to_string(),
         pid: 1234,
         user: "root".to_string(),
@@ -128,7 +125,7 @@ fn get_network_connections(_args: &LsofArgs) -> Result<Vec<OpenFile>> {
         size: None,
         node: "TCP".to_string(),
         name: "*:22 (LISTEN)".to_string(),
-    });
+    }];
     
     Ok(connections)
 }
@@ -137,10 +134,7 @@ fn get_file_descriptors(_args: &LsofArgs) -> Result<Vec<OpenFile>> {
     // Simplified file descriptor listing
     // This would normally read from /proc/*/fd/* on Linux
     
-    let mut files = Vec::new();
-    
-    // Example entries
-    files.push(OpenFile {
+    let files = vec![OpenFile {
         process_name: "bash".to_string(),
         pid: 5678,
         user: "user".to_string(),
@@ -150,9 +144,8 @@ fn get_file_descriptors(_args: &LsofArgs) -> Result<Vec<OpenFile>> {
         size: None,
         node: "4".to_string(),
         name: "/dev/pts/1".to_string(),
-    });
-    
-    files.push(OpenFile {
+    },
+    OpenFile {
         process_name: "vim".to_string(),
         pid: 9012,
         user: "user".to_string(),
@@ -162,7 +155,7 @@ fn get_file_descriptors(_args: &LsofArgs) -> Result<Vec<OpenFile>> {
         size: Some(1024),
         node: "123456".to_string(),
         name: "/home/user/file.txt".to_string(),
-    });
+    }];
     
     Ok(files)
 }
@@ -172,7 +165,7 @@ fn get_process_open_files(pid: u32) -> Result<Vec<OpenFile>> {
     use std::fs;
     
     let fd_dir = format!("/proc/{}/fd", pid);
-    let mut files = Vec::new();
+    let files = Vec::new();
     
     if let Ok(entries) = fs::read_dir(&fd_dir) {
         for entry in entries {

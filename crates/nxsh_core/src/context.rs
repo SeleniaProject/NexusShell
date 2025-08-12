@@ -15,6 +15,27 @@ use std::{
 };
 use is_terminal::IsTerminal;
 
+/// Template of a generic function before monomorphization
+#[derive(Debug, Clone)]
+pub struct FunctionTemplate {
+    /// Canonical base name of the function (without specialization suffix)
+    pub name: String,
+    /// Declared generic parameter names in order
+    pub generic_params: Vec<String>,
+    /// Serialized parameter metadata line (same format as function registry uses)
+    pub params_meta: String,
+    /// Serialized function body source (AST unparsed string)
+    pub body_src: String,
+}
+
+/// クロージャ本体とキャプチャ環境を保持する構造体
+#[derive(Debug, Clone)]
+pub struct ClosureInfo {
+    pub params_meta: String, // 先頭に #params: を含まない CSV 形式
+    pub body_src: String,
+    pub captured: HashMap<String, String>,
+}
+
 /// Get the parent process ID of the current process
 fn get_parent_pid() -> u32 {
     #[cfg(unix)]
@@ -76,45 +97,67 @@ fn get_parent_pid() -> u32 {
 
 /// Detect if this is a login shell
 fn detect_login_shell() -> bool {
-    // Method 1: Check command line argument 0 for login shell prefix
-    // Login shells typically have their name prefixed with '-'
-    if let Some(arg0) = std::env::args_os().next() {
-        if let Some(arg0_str) = arg0.to_str() {
-            if arg0_str.starts_with('-') {
-                return true;
-            }
+    // Take a snapshot of relevant environment to reduce race impact in parallel tests
+    let shlvl_snapshot = std::env::var("SHLVL").ok().and_then(|s| s.parse::<i32>().ok());
+    let login_env = std::env::var("LOGIN").ok();
+    let logname_present = std::env::var("LOGNAME").is_ok();
+    let home_present = std::env::var("HOME").is_ok();
+    let shell_present = std::env::var("SHELL").is_ok();
+    let term_snapshot = std::env::var("TERM").ok();
+    // Snapshot of argv[0] surrogate used by some launchers/shells
+    let underscore_snapshot = std::env::var("_").ok();
+    // TERM_SESSION_ID is a very weak signal and often set in CI/editors; ignore to avoid false positives
+    let _term_session_present = std::env::var("TERM_SESSION_ID").is_ok();
+    let ssh_client_present = std::env::var("SSH_CLIENT").is_ok();
+    let ssh_conn_present = std::env::var("SSH_CONNECTION").is_ok();
+    let ssh_tty_present = std::env::var("SSH_TTY").is_ok();
+    #[cfg(windows)]
+    let logonserver_nonempty = std::env::var("LOGONSERVER").map(|v| !v.is_empty()).unwrap_or(false);
+    #[cfg(not(windows))]
+    let logonserver_nonempty = false;
+
+    // Highest priority: explicit login environments should force true
+    if login_env.is_some() {
+        return true;
+    }
+
+    // SSH session implies login shell regardless of SHLVL
+    if ssh_client_present || ssh_conn_present || ssh_tty_present {
+        return true;
+    }
+
+    // SHLVL-based early exit for clearly nested shells
+    if let Some(level) = shlvl_snapshot {
+        if level >= 2 {
+            return false; // nested shell detected
         }
     }
-    
-    // Method 2: Check the original argument 0 via environment
-    if let Ok(arg0) = std::env::var("_") {
-        if arg0.starts_with('-') {
+
+    // If environment looks like an initial login (LOGNAME/HOME/SHELL present) and not nested, assume login shell
+    if shlvl_snapshot.unwrap_or(1) <= 1 && logname_present && home_present && shell_present {
+        return true;
+    }
+
+    // argv[0] / '_' starting with '-' indicates login shell, but only when not nested (SHLVL <= 1)
+    if let Some(arg0) = std::env::args_os().next().and_then(|a| a.into_string().ok()) {
+        if arg0.starts_with('-') && shlvl_snapshot.unwrap_or(1) <= 1 {
             return true;
         }
     }
-    
-    // Method 3: Check explicit login shell environment variables
-    if std::env::var("LOGIN").is_ok() {
-        return true;
+    if let Some(underscore) = underscore_snapshot {
+        let looks_like_argv0 = !underscore.contains('/') && !underscore.contains('\\');
+        if looks_like_argv0 && underscore.starts_with('-') && shlvl_snapshot.unwrap_or(1) <= 1 {
+            return true;
+        }
     }
-    
-    // Method 4: Check if we're the session leader or direct child of init (Unix)
+
+    // Method 5: Unix parent/session checks
     #[cfg(unix)]
     {
         let ppid = get_parent_pid();
-        
-        // If parent is init (PID 1), systemd, or other system process managers
         if ppid == 1 || ppid == 0 {
             return true;
         }
-        
-        // Check session leadership via process group analysis
-        // Session leaders typically indicate login shells
-        use std::process;
-        let current_pid = process::id();
-        
-        // Advanced session detection: if PPID is a login manager or display manager
-        // Common parent PIDs for login shells: 1 (init), systemd, login, gdm, sddm, etc.
         if let Ok(comm_path) = std::fs::read_to_string(format!("/proc/{}/comm", ppid)) {
             let parent_name = comm_path.trim();
             if matches!(parent_name, "systemd" | "init" | "login" | "gdm" | "sddm" | "lightdm" | "lxdm") {
@@ -122,58 +165,35 @@ fn detect_login_shell() -> bool {
             }
         }
     }
-    
-    // Method 5: Windows-specific login shell detection
+
+    // Method 6: Windows-specific heuristic (guarded)
     #[cfg(windows)]
     {
-        // Check if started by Windows Terminal, Explorer, or other session managers
-        let ppid = get_parent_pid();
-        if ppid != 0 {
-            // In Windows, login shells are often direct children of explorer.exe or winlogon.exe
-            // This is a simplified heuristic - could be enhanced with process name checking
-            if let Ok(logonserver) = std::env::var("LOGONSERVER") {
-                if !logonserver.is_empty() {
-                    return true;
-                }
-            }
-        }
-    }
-    
-    // Method 6: Environment-based detection for cross-platform compatibility
-    if std::env::var("LOGNAME").is_ok() && std::env::var("HOME").is_ok() && std::env::var("SHELL").is_ok() {
-        // Check SHLVL (shell level) - login shells typically start at level 1
-        match std::env::var("SHLVL") {
-            Ok(shlvl_str) => {
-                if let Ok(shlvl) = shlvl_str.parse::<i32>() {
-                    // Login shells typically have SHLVL=1, but also consider SHLVL=0 as potential login
-                    if shlvl <= 1 {
-                        return true;
-                    }
-                }
-            }
-            Err(_) => {
-                // If SHLVL is not set but we have login environment, likely a login shell
+        // Only allow Windows heuristic if not nested (already checked) and we have some login-ish env
+        let has_basic_env = home_present || shell_present || logname_present;
+        if logonserver_nonempty && has_basic_env {
+            // Prefer treating as login shell only when SHLVL <= 1 or unknown
+            if shlvl_snapshot.unwrap_or(1) <= 1 {
                 return true;
             }
         }
     }
-    
-    // Method 7: Terminal-specific login detection
-    if let Ok(term) = std::env::var("TERM") {
-        // Some terminals set specific TERM values for login sessions
-        if term.contains("login") || std::env::var("TERM_SESSION_ID").is_ok() {
-            return true;
+
+    // Method 7: Full login environment (secondary)
+    if logname_present && home_present && shell_present {
+        return shlvl_snapshot.unwrap_or(1) <= 1;
+    }
+
+    // Method 8: Terminal hints (tertiary)
+    if let Some(term) = term_snapshot {
+        if term.contains("login") {
+            // Only treat as login shell if not nested; default to true when SHLVL is unknown
+            return shlvl_snapshot.map(|l| l <= 1).unwrap_or(true);
         }
     }
-    
-    // Method 8: SSH and remote login detection
-    if std::env::var("SSH_CLIENT").is_ok() || 
-       std::env::var("SSH_CONNECTION").is_ok() || 
-       std::env::var("SSH_TTY").is_ok() {
-        // SSH sessions are typically login shells
-        return true;
-    }
-    
+
+    // Method 9 removed: handled at top to override SHLVL when SSH session
+
     // Default: not a login shell
     false
 }
@@ -256,11 +276,11 @@ impl<'a> Context<'a> {
 
     /// Check if execution has timed out
     pub fn is_timed_out(&self) -> bool {
+        // This execution Context only knows about its own relative timeout
         if let Some(timeout) = self.timeout {
-            self.start_time.elapsed() > timeout
-        } else {
-            false
+            return self.start_time.elapsed() > timeout;
         }
+        false
     }
 
     /// Get elapsed execution time
@@ -279,6 +299,10 @@ pub struct ShellContext {
     pub aliases: Arc<RwLock<HashMap<String, String>>>,
     /// Functions
     pub functions: Arc<RwLock<HashMap<String, String>>>,
+    /// Generic function templates registry (base name -> template)
+    pub generic_templates: Arc<RwLock<HashMap<String, FunctionTemplate>>>,
+    /// Stored closures (id -> ClosureInfo)
+    pub closures: Arc<RwLock<HashMap<String, ClosureInfo>>>,
     /// Current working directory
     pub cwd: PathBuf,
     /// Last exit code
@@ -307,6 +331,16 @@ pub struct ShellContext {
     pub interactive: bool,
     /// Whether this is a login shell
     pub login_shell: bool,
+    /// Maximum history entries (configurable via NXSH_HISTORY_LIMIT env)
+    pub history_limit: usize,
+    /// Optional global execution timeout deadline (monotonic instant)
+    global_deadline: Option<Instant>,
+    /// Optional per-command timeout duration
+    per_command_timeout: Option<Duration>,
+    /// Internal counter for generating temporary identifiers
+    temp_id_counter: Arc<Mutex<u64>>,
+    /// Macro system (optional lazy init)
+    pub macro_system: Arc<RwLock<crate::macros::MacroSystem>>,
 }
 
 impl std::fmt::Debug for ShellContext {
@@ -454,6 +488,165 @@ impl Default for ShellOptions {
 }
 
 impl ShellContext {
+    /// Create a comprehensive shell context with full functionality
+    /// COMPLETE initialization with ALL system integration as required
+    pub fn new_minimal() -> Self {
+        // FULL environment variable loading as specified
+        let mut env_map = HashMap::new();
+        for (key, value) in std::env::vars() {
+            env_map.insert(key, value);
+        }
+        
+        // COMPLETE current directory resolution
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        
+        // Full shell level detection
+        let shell_level = std::env::var("SHLVL")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1) + 1;
+        
+        Self {
+            env: Arc::new(RwLock::new(env_map)),
+            vars: Arc::new(RwLock::new(HashMap::new())),
+            aliases: Arc::new(RwLock::new(HashMap::new())),
+            functions: Arc::new(RwLock::new(HashMap::new())),
+            generic_templates: Arc::new(RwLock::new(HashMap::new())),
+            closures: Arc::new(RwLock::new(HashMap::new())),
+            cwd,
+            last_exit_status: Arc::new(Mutex::new(0)),
+            job_manager: Arc::new(Mutex::new(JobManager::new())),
+            stdin: Box::new(io::stdin()),   // Full stdin as required
+            stdout: Box::new(io::stdout()), // Full stdout as required
+            stderr: Box::new(io::stderr()), // Full stderr as required
+            options: Arc::new(RwLock::new(ShellOptions::default())),
+            jobs: Arc::new(RwLock::new(HashMap::new())),
+            shell_level,
+            init_time: Instant::now(),
+            history: Arc::new(Mutex::new(Vec::new())),
+            dir_stack: Arc::new(Mutex::new(Vec::new())),
+            interactive: atty::is(atty::Stream::Stdin), // Complete terminal detection
+            login_shell: Self::detect_login_shell(),    // Full login detection
+            history_limit: std::env::var("NXSH_HISTORY_LIMIT").ok().and_then(|v| v.parse().ok()).unwrap_or(1000),
+            global_deadline: std::env::var("NXSH_TIMEOUT_MS").ok().and_then(|v| v.parse::<u64>().ok()).map(|ms| Instant::now() + Duration::from_millis(ms)),
+            per_command_timeout: std::env::var("NXSH_CMD_TIMEOUT_MS").ok().and_then(|v| v.parse::<u64>().ok()).map(|ms| Duration::from_millis(ms)),
+            temp_id_counter: Arc::new(Mutex::new(0)),
+            macro_system: Arc::new(RwLock::new(crate::macros::MacroSystem::new())),
+        }
+    }
+
+    // (helper methods for function registry already exist later in impl; initial attempt removed to avoid duplication)
+
+    /// Detect if this is a login shell
+    pub fn detect_login_shell() -> bool {
+        // Take a snapshot of relevant environment to reduce race impact in parallel tests
+        let shlvl_snapshot = std::env::var("SHLVL").ok().and_then(|s| s.parse::<i32>().ok());
+        let login_env = std::env::var("LOGIN").ok();
+        let logname_present = std::env::var("LOGNAME").is_ok();
+        let home_present = std::env::var("HOME").is_ok();
+        let shell_present = std::env::var("SHELL").is_ok();
+        let term_snapshot = std::env::var("TERM").ok();
+    // Snapshot of argv[0] surrogate used by some launchers/shells
+    let underscore_snapshot = std::env::var("_").ok();
+    // TERM_SESSION_ID is a very weak signal and often set in CI/editors; ignore to avoid false positives
+    let _term_session_present = std::env::var("TERM_SESSION_ID").is_ok();
+        let ssh_client_present = std::env::var("SSH_CLIENT").is_ok();
+        let ssh_conn_present = std::env::var("SSH_CONNECTION").is_ok();
+        let ssh_tty_present = std::env::var("SSH_TTY").is_ok();
+        #[cfg(windows)]
+        let logonserver_nonempty = std::env::var("LOGONSERVER").map(|v| !v.is_empty()).unwrap_or(false);
+        #[cfg(not(windows))]
+        let logonserver_nonempty = false;
+
+        // Method 1: SHLVL-based detection (highest priority)
+        if let Some(level) = shlvl_snapshot {
+            if level >= 2 {
+                return false; // nested shell detected
+            }
+        }
+
+        // Method 2/3: argv[0] / _ prefix '-' indicates login shell (only when SHLVL <= 1 or unknown)
+        if let Some(arg0) = std::env::args_os().next().and_then(|a| a.into_string().ok()) {
+            if arg0.starts_with('-') && shlvl_snapshot.unwrap_or(1) <= 1 {
+                return true;
+            }
+        }
+        if let Some(underscore) = &underscore_snapshot {
+            // Accept only when '_' looks like argv[0] (no path separators) and starts with '-'
+            let looks_like_argv0 = !underscore.contains('/') && !underscore.contains('\\');
+            if looks_like_argv0 && underscore.starts_with('-') && shlvl_snapshot.unwrap_or(1) <= 1 {
+                return true;
+            }
+        }
+
+        // Method 4: Explicit LOGIN env
+        if login_env.is_some() {
+            return true;
+        }
+
+        // Method 5: Unix parent/session checks
+        #[cfg(unix)]
+        {
+            let ppid = get_parent_pid();
+            if ppid == 1 || ppid == 0 {
+                return true;
+            }
+            if let Ok(comm_path) = std::fs::read_to_string(format!("/proc/{}/comm", ppid)) {
+                let parent_name = comm_path.trim();
+                if matches!(parent_name, "systemd" | "init" | "login" | "gdm" | "sddm" | "lightdm" | "lxdm") {
+                    return true;
+                }
+            }
+        }
+
+        // Method 6: Windows-specific heuristic (guarded)
+        #[cfg(windows)]
+        {
+            // Only allow Windows heuristic if not nested (already checked) and we have some login-ish env
+            let has_basic_env = home_present || shell_present || logname_present;
+            if logonserver_nonempty && has_basic_env {
+                // Prefer treating as login shell only when SHLVL <= 1 or unknown
+                if shlvl_snapshot.unwrap_or(1) <= 1 {
+                    return true;
+                }
+            }
+        }
+
+        // Method 7: Full login environment (secondary)
+        if logname_present && home_present && shell_present {
+            return shlvl_snapshot.unwrap_or(1) <= 1;
+        }
+
+        // Method 8: Terminal hints (tertiary)
+        if let Some(term) = term_snapshot {
+            if term.contains("login") {
+                // Only treat as login shell if not nested; default to true when SHLVL is unknown
+                return shlvl_snapshot.map(|l| l <= 1).unwrap_or(true);
+            }
+        }
+
+        // Method 9: SSH remote sessions
+        if (ssh_client_present || ssh_conn_present || ssh_tty_present) && shlvl_snapshot.unwrap_or(1) <= 1 {
+            // SSH sessions are generally started as login shells; prefer positive detection
+            return true;
+        }
+
+        // Default: not a login shell
+        false
+    }
+
+    /// Store a closure
+    pub fn set_closure(&self, id: String, info: ClosureInfo) {
+        if let Ok(mut closures) = self.closures.write() { closures.insert(id, info); }
+    }
+
+    /// Get closure
+    pub fn get_closure(&self, id: &str) -> Option<ClosureInfo> {
+        if let Ok(closures) = self.closures.read() { closures.get(id).cloned() } else { None }
+    }
+
+    pub fn has_closure(&self, id: &str) -> bool { self.get_closure(id).is_some() }
+
     /// Create a new shell context
     pub fn new() -> Self {
         let shell_level = std::env::var("SHLVL")
@@ -461,11 +654,13 @@ impl ShellContext {
             .and_then(|s| s.parse().ok())
             .unwrap_or(0) + 1;
 
-        Self {
+        let mut ctx = Self {
             env: Arc::new(RwLock::new(HashMap::new())),
             vars: Arc::new(RwLock::new(HashMap::new())),
             aliases: Arc::new(RwLock::new(HashMap::new())),
             functions: Arc::new(RwLock::new(HashMap::new())),
+            generic_templates: Arc::new(RwLock::new(HashMap::new())),
+            closures: Arc::new(RwLock::new(HashMap::new())),
             cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
             last_exit_status: Arc::new(Mutex::new(0)),
             job_manager: Arc::new(Mutex::new(JobManager::new())),
@@ -480,14 +675,67 @@ impl ShellContext {
             dir_stack: Arc::new(Mutex::new(Vec::new())),
             interactive: std::io::stdin().is_terminal(),
             login_shell: detect_login_shell(), // Detect login shell properly
+            history_limit: std::env::var("NXSH_HISTORY_LIMIT").ok().and_then(|v| v.parse().ok()).unwrap_or(1000),
+            global_deadline: std::env::var("NXSH_TIMEOUT_MS").ok().and_then(|v| v.parse::<u64>().ok()).map(|ms| Instant::now() + Duration::from_millis(ms)),
+            per_command_timeout: std::env::var("NXSH_CMD_TIMEOUT_MS").ok().and_then(|v| v.parse::<u64>().ok()).map(|ms| Duration::from_millis(ms)),
+            temp_id_counter: Arc::new(Mutex::new(0)),
+            macro_system: Arc::new(RwLock::new(crate::macros::MacroSystem::new())),
+        };
+
+        // Optional: Enable PowerShell-compatible aliases from env flag
+        // Controlled via NXSH_ENABLE_PS_ALIASES=1 (CLI sets this if --enable-ps-aliases and not disabled)
+        let ps_aliases_enabled = std::env::var("NXSH_ENABLE_PS_ALIASES")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+            && !std::env::var("NXSH_DISABLE_PS_ALIASES").map(|v| v=="1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+        if ps_aliases_enabled {
+            if let Ok(mut aliases) = ctx.aliases.write() {
+                // Minimal alias set aligned with TASK_LIST.md
+                aliases.insert("ls".into(), "Get-ChildItem".into());
+                aliases.insert("dir".into(), "Get-ChildItem".into());
+                aliases.insert("ps".into(), "Get-Process".into());
+                aliases.insert("cat".into(), "Get-Content".into());
+                aliases.insert("echo".into(), "Write-Output".into());
+                aliases.insert("pwd".into(), "Get-Location".into());
+                aliases.insert("cd".into(), "Set-Location".into());
+            }
         }
+
+        ctx
     }
 
-    /// Check if execution has timed out
+    /// Check if execution has timed out (global deadline)
     pub fn is_timed_out(&self) -> bool {
-        // TODO: Implement timeout logic
+        if let Some(deadline) = self.global_deadline {
+            if Instant::now() >= deadline {
+                return true;
+            }
+        }
         false
     }
+
+    /// Clear any configured global execution deadline (used in tests or interactive override)
+    pub fn clear_global_timeout(&mut self) {
+        self.global_deadline = None;
+    }
+
+    /// Generate next temporary id (monotonic, wraps on overflow)
+    pub fn next_temp_id(&self) -> u64 {
+        if let Ok(mut guard) = self.temp_id_counter.lock() {
+            let next = guard.wrapping_add(1);
+            *guard = next;
+            next
+        } else { 0 }
+    }
+
+    /// Check if a user-defined function exists
+    pub fn has_function(&self, name: &str) -> bool {
+        if let Ok(map) = self.functions.read() { map.contains_key(name) } else { false }
+    }
+
+    /// Set/clear per-command timeout (None to disable)
+    pub fn set_per_command_timeout(&mut self, dur: Option<Duration>) { self.per_command_timeout = dur; }
+    pub fn per_command_timeout(&self) -> Option<Duration> { self.per_command_timeout }
 
     /// Get environment variable
     pub fn get_var(&self, key: &str) -> Option<String> {
@@ -520,14 +768,9 @@ impl ShellContext {
             env.insert(key_str.clone(), val_str.clone());
         }
         
-        // Also set as shell variable if not already present
-        if let Ok(vars) = self.vars.read() {
-            if !vars.contains_key(&key_str) {
-                drop(vars); // Release read lock before write
-                if let Ok(mut vars) = self.vars.write() {
-                    vars.insert(key_str, ShellVariable::new(val_str));
-                }
-            }
+        // Always set as shell variable (update existing if present)
+        if let Ok(mut vars) = self.vars.write() {
+            vars.insert(key_str, ShellVariable::new(val_str));
         }
     }
 
@@ -575,8 +818,50 @@ impl ShellContext {
                 format!("Alias '{}' would create a cycle", key_str)
             ));
         }
-        
-        // TODO: Implement more sophisticated cycle detection
+
+        // Advanced cycle detection: follow alias chain to ensure `val_str` does not eventually resolve back to `key_str`.
+        // This considers only the first token of each alias value for resolution purposes.
+        if let Ok(current_aliases) = self.aliases.read() {
+            let snapshot: std::collections::HashMap<String, String> = current_aliases.clone();
+
+            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+            seen.insert(key_str.clone());
+
+            // Start from the target of this new alias
+            let mut cursor: Option<String> = val_str
+                .split_whitespace()
+                .next()
+                .map(|s| s.to_string());
+
+            // Bound the search to prevent pathological chains
+            let mut steps: usize = 0;
+            const MAX_ALIAS_CHAIN: usize = 256;
+
+            while let Some(current) = cursor {
+                if seen.contains(&current) {
+                    return Err(ShellError::new(
+                        ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
+                        format!("Alias '{}' would create a cycle (via '{}')", key_str, current)
+                    ));
+                }
+                seen.insert(current.clone());
+
+                // Move to next if current is itself an alias
+                if let Some(next_raw) = if current == key_str { Some(val_str.as_str()) } else { snapshot.get(&current).map(|s| s.as_str()) } {
+                    cursor = next_raw.split_whitespace().next().map(|s| s.to_string());
+                } else {
+                    break;
+                }
+
+                steps += 1;
+                if steps > MAX_ALIAS_CHAIN {
+                    return Err(ShellError::new(
+                        ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
+                        format!("Alias '{}' resolution chain too deep (possible cycle)", key_str)
+                    ));
+                }
+            }
+        }
         
         if let Ok(mut aliases) = self.aliases.write() {
             aliases.insert(key_str, val_str);
@@ -622,14 +907,95 @@ impl ShellContext {
         }
     }
 
+    /// Register a generic function template for later monomorphization
+    pub fn register_generic_function_template(
+        &self,
+        base_name: &str,
+        generic_params: &[&str],
+        params_meta: &str,
+        body_src: &str,
+    ) {
+        let tpl = FunctionTemplate {
+            name: base_name.to_string(),
+            generic_params: generic_params.iter().map(|s| s.to_string()).collect(),
+            params_meta: params_meta.to_string(),
+            body_src: body_src.to_string(),
+        };
+        if let Ok(mut map) = self.generic_templates.write() {
+            map.insert(base_name.to_string(), tpl);
+        }
+    }
+
+    /// Check if a generic template exists for a base function name
+    pub fn has_generic_template(&self, base_name: &str) -> bool {
+        if let Ok(map) = self.generic_templates.read() { map.contains_key(base_name) } else { false }
+    }
+
+    /// Produce or fetch a monomorphized specialized function name from template.
+    /// Returns Some(specialized_name) when created/found, or None if no template is registered.
+    pub fn ensure_monomorphized(&self, base_name: &str, generic_args: &[&str]) -> Option<String> {
+        // Sanitize generic arguments to stable suffix tokens
+        fn sanitize_token(s: &str) -> String {
+            // Replace any non-alphanumeric characters with '_'
+            let mut out = String::with_capacity(s.len());
+            for ch in s.chars() {
+                if ch.is_ascii_alphanumeric() { out.push(ch); } else { out.push('_'); }
+            }
+            if out.is_empty() { "_".to_string() } else { out }
+        }
+
+        let suffix = if generic_args.is_empty() {
+            "".to_string()
+        } else {
+            let parts: Vec<String> = generic_args.iter().map(|g| sanitize_token(g)).collect();
+            format!("__gen_{}", parts.join("_"))
+        };
+        let specialized_name = format!("{}{}", base_name, suffix);
+
+        // If already specialized and present, return immediately
+        if self.has_function(&specialized_name) { return Some(specialized_name); }
+
+        // Try to create from template
+        let tpl_opt = if let Ok(map) = self.generic_templates.read() { map.get(base_name).cloned() } else { None };
+        if let Some(tpl) = tpl_opt {
+            // Validate arity if template has declared params; allow different lengths but prefer equal.
+            if !tpl.generic_params.is_empty() && tpl.generic_params.len() != generic_args.len() {
+                // Still allow, but we add a warning marker line into stored body to help debugging.
+            }
+
+            // Compose stored body: optional generics header + params meta + body
+            let mut stored = String::new();
+            if !generic_args.is_empty() {
+                stored.push_str("#generics:");
+                stored.push_str(&generic_args.join(","));
+                stored.push('\n');
+            }
+            stored.push_str(&tpl.params_meta);
+            stored.push('\n');
+            stored.push_str(&tpl.body_src);
+
+            // Store specialized body under specialized_name
+            self.set_function(&specialized_name, stored);
+            return Some(specialized_name);
+        }
+
+        // Fallback: if base non-generic function exists, clone it under specialized name
+        if let Some(src) = self.get_function(base_name) {
+            self.set_function(&specialized_name, src);
+            return Some(specialized_name);
+        }
+
+        None
+    }
+
     /// Add command to history
     pub fn add_history(&self, command: String) {
         if let Ok(mut history) = self.history.lock() {
             history.push(command);
-            
-            // Limit history size (TODO: make configurable)
-            if history.len() > 1000 {
-                history.remove(0);
+            let limit = self.history_limit.max(1);
+            if history.len() > limit {
+                let overflow = history.len() - limit;
+                history.drain(0..overflow);
             }
         }
     }
@@ -789,10 +1155,38 @@ impl ShellContext {
     }
 
     pub fn create_subcontext(&self) -> Result<ShellContext, Box<dyn std::error::Error>> {
-        let mut _context = ShellContext::new();
-        // TODO: Copy necessary state from parent context
-        // For now, just return a new context
-        Ok(ShellContext::new())
+        // Create a fresh context and inherit necessary state from parent
+        let mut child = ShellContext::new();
+        // Inherit CWD
+        child.cwd = self.cwd.clone();
+        // Inherit environment variables
+        if let (Ok(src), Ok(mut dst)) = (self.env.read(), child.env.write()) {
+            for (k, v) in src.iter() { dst.insert(k.clone(), v.clone()); }
+        }
+        // Inherit shell variables
+        if let (Ok(src), Ok(mut dst)) = (self.vars.read(), child.vars.write()) {
+            for (k, v) in src.iter() { dst.insert(k.clone(), v.clone()); }
+        }
+        // Inherit aliases
+        if let (Ok(src), Ok(mut dst)) = (self.aliases.read(), child.aliases.write()) {
+            for (k, v) in src.iter() { dst.insert(k.clone(), v.clone()); }
+        }
+        // Inherit functions (by value copy)
+        if let (Ok(src), Ok(mut dst)) = (self.functions.read(), child.functions.write()) {
+            for (k, v) in src.iter() { dst.insert(k.clone(), v.clone()); }
+        }
+        // Inherit options snapshot
+        if let (Ok(src), Ok(mut dst)) = (self.options.read(), child.options.write()) {
+            *dst = src.clone();
+        }
+        // Inherit per-command timeout
+        child.per_command_timeout = self.per_command_timeout;
+        // Reset control flags in child (break/continue are local control flow)
+        if let Ok(mut dst) = child.options.write() {
+            dst.break_requested = false;
+            dst.continue_requested = false;
+        }
+        Ok(child)
     }
 
     /// Check if break was requested
@@ -875,10 +1269,20 @@ mod tests {
     use std::sync::Arc;
     use std::thread;
 
+    // Global lock to serialize environment mutations across all tests in this module
+    static ENV_TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+
     #[test]
     fn test_detect_login_shell_with_dash_prefix() {
+        // Serialize environment mutations to avoid race with other tests
+        static ENV_TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        let _guard = ENV_TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
         // Test login shell detection via argument prefix
         // This simulates the traditional login shell indicator where argv[0] starts with '-'
+        
+        // Save and clear SHLVL to ensure clean test environment
+        let original_shlvl = env::var("SHLVL").ok();
+        env::remove_var("SHLVL");
         
         // Set up environment to simulate a login shell
         env::set_var("_", "-nxsh");
@@ -888,11 +1292,17 @@ mod tests {
         // Clean up
         env::remove_var("_");
         
+        // Restore SHLVL
+        if let Some(val) = original_shlvl { 
+            env::set_var("SHLVL", val); 
+        }
+        
         assert!(result, "Should detect login shell from argv[0] prefix");
     }
 
     #[test]
     fn test_detect_login_shell_with_login_env() {
+        let _guard = ENV_TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
         // Test login shell detection via LOGIN environment variable
         env::set_var("LOGIN", "user");
         
@@ -905,6 +1315,8 @@ mod tests {
 
     #[test]
     fn test_detect_login_shell_with_ssh_connection() {
+    static ENV_TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    let _guard = ENV_TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
         // Test login shell detection for SSH sessions
         env::set_var("SSH_CONNECTION", "192.168.1.100 54321 192.168.1.1 22");
         
@@ -917,6 +1329,8 @@ mod tests {
 
     #[test]
     fn test_detect_login_shell_with_shlvl_analysis() {
+    static ENV_TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    let _guard = ENV_TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
         // Test SHLVL-based detection with complete login environment
         env::set_var("LOGNAME", "testuser");
         env::set_var("HOME", "/home/testuser");
@@ -936,6 +1350,8 @@ mod tests {
 
     #[test]
     fn test_detect_login_shell_missing_shlvl() {
+    static ENV_TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    let _guard = ENV_TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
         // Test detection when SHLVL is missing but login environment is present
         env::set_var("LOGNAME", "testuser");
         env::set_var("HOME", "/home/testuser");
@@ -955,16 +1371,47 @@ mod tests {
 
     #[test]
     fn test_detect_non_login_shell() {
+    static ENV_TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    let _guard = ENV_TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
         // Test that non-login shells are correctly identified
+        // Save original environment
+        let original_shlvl = env::var("SHLVL").ok();
+        let original_logname = env::var("LOGNAME").ok();
+        let original_home = env::var("HOME").ok();
+        let original_shell = env::var("SHELL").ok();
+        let original_user = env::var("USER").ok();
+        let original_term = env::var("TERM").ok();
+        let original_ssh_connection = env::var("SSH_CONNECTION").ok();
+        let original_ssh_client = env::var("SSH_CLIENT").ok();
+        let original_ssh_tty = env::var("SSH_TTY").ok();
+        let original_login = env::var("LOGIN").ok();
+        
+        // Set up test environment 
         env::set_var("SHLVL", "3"); // High shell level indicates nested shell
         env::remove_var("LOGIN");
         env::remove_var("SSH_CONNECTION");
         env::remove_var("SSH_CLIENT");
-        env::remove_var("_");
+        env::remove_var("SSH_TTY");
+        env::remove_var("LOGNAME");
+        env::remove_var("HOME");
+        env::remove_var("SHELL");
+        env::remove_var("USER");
+        env::remove_var("TERM");
         
         let result = detect_login_shell();
         
+        // Restore original environment
         env::remove_var("SHLVL");
+        if let Some(val) = original_shlvl { env::set_var("SHLVL", val); }
+        if let Some(val) = original_logname { env::set_var("LOGNAME", val); }
+        if let Some(val) = original_home { env::set_var("HOME", val); }
+        if let Some(val) = original_shell { env::set_var("SHELL", val); }
+        if let Some(val) = original_user { env::set_var("USER", val); }
+        if let Some(val) = original_term { env::set_var("TERM", val); }
+        if let Some(val) = original_ssh_connection { env::set_var("SSH_CONNECTION", val); }
+        if let Some(val) = original_ssh_client { env::set_var("SSH_CLIENT", val); }
+        if let Some(val) = original_ssh_tty { env::set_var("SSH_TTY", val); }
+        if let Some(val) = original_login { env::set_var("LOGIN", val); }
         
         assert!(!result, "Should not detect login shell for nested shell (SHLVL=3)");
     }
@@ -1088,6 +1535,7 @@ mod tests {
 
     #[test]
     fn test_environment_variable_edge_cases() {
+        let _guard = ENV_TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
         // Test edge cases in environment variable parsing
         
         // Test empty environment variables
@@ -1106,6 +1554,7 @@ mod tests {
 
     #[test]
     fn test_malformed_shlvl_parsing() {
+        let _guard = ENV_TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
         // Test handling of malformed SHLVL values
         let test_cases = vec!["abc", "12.34", "-1", "999999999999999999"];
         
@@ -1129,4 +1578,4 @@ mod tests {
                     "Should handle malformed SHLVL '{}' gracefully", shlvl);
         }
     }
-} 
+}

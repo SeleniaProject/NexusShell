@@ -6,8 +6,23 @@
 use anyhow::Result;
 use walkdir::WalkDir;
 use std::path::Path;
+#[cfg(feature = "async-runtime")]
 use tokio::task;
 
+#[cfg(not(feature = "async-runtime"))]
+pub fn du_cli(args: &[String]) -> Result<()> {
+    let mut human = false;
+    let mut path = ".".to_string();
+    for arg in args {
+        if arg == "-h" { human = true; continue; }
+        path = arg.clone();
+    }
+    let size = calc_size(Path::new(&path).to_path_buf())?;
+    if human { println!("{}", bytesize::ByteSize::b(size).to_string_as(true)); } else { println!("{size}"); }
+    Ok(())
+}
+
+#[cfg(feature = "async-runtime")]
 pub async fn du_cli(args: &[String]) -> Result<()> {
     let mut human = false;
     let mut path = ".".to_string();
@@ -20,7 +35,7 @@ pub async fn du_cli(args: &[String]) -> Result<()> {
     if human {
         println!("{}", bytesize::ByteSize::b(size).to_string_as(true));
     } else {
-        println!("{}", size);
+        println!("{size}");
     }
     Ok(())
 }
@@ -41,6 +56,7 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
     use std::io::Write;
+    #[cfg(feature = "async-runtime")]
     #[tokio::test]
     async fn du_basic() {
         let d = tempdir().unwrap();
@@ -48,5 +64,14 @@ mod tests {
         let mut file = std::fs::File::create(&f).unwrap();
         writeln!(file, "hello").unwrap();
         du_cli(&[d.path().to_string_lossy().into()]).await.unwrap();
+    }
+    #[cfg(not(feature = "async-runtime"))]
+    #[test]
+    fn du_basic_sync() {
+        let d = tempdir().unwrap();
+        let f = d.path().join("a.txt");
+        let mut file = std::fs::File::create(&f).unwrap();
+        writeln!(file, "hello").unwrap();
+        du_cli(&[d.path().to_string_lossy().into()]).unwrap();
     }
 } 

@@ -15,8 +15,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
 };
 use serde::{Deserialize, Serialize};
-// TODO: Replace with ureq
-// use reqwest::{Client, ClientBuilder, Method, header::HeaderMap};
+// NOTE: reqwest 削除方針により HTTP クライアントは後続リファクタで ureq へ移行予定 → 2025-08-10: updates 系は ureq 化完了。ここは未使用部のため削減対象 (将来: feature net-http)。
 use log::{info, warn, error, debug};
 
 use crate::common::i18n::tr;
@@ -368,16 +367,20 @@ impl NetworkToolsManager {
         
         info!("Downloading {} to {}", options.url, options.output_file.as_deref().unwrap_or("stdout"));
         
+        #[cfg(feature = "net-http")]
         let response = self.http_client.get(&options.url)
-            .send()
-            .await
-            .context("Failed to send HTTP request")?;
-        
-        if !response.status().is_success() {
-            return Err(anyhow::anyhow!("HTTP error: {}", response.status()).into());
+            .call()
+            .map_err(|e| anyhow::anyhow!("Failed to send HTTP request: {e}"))?;
+        #[cfg(not(feature = "net-http"))]
+        {
+            return Err(anyhow::anyhow!("HTTP disabled (build without 'net-http' feature)").into());
         }
         
-        let total_size = response.content_length();
+        #[cfg(feature = "net-http")]
+        if response.status() != 200 { return Err(anyhow::anyhow!("HTTP error: {}", response.status()).into()); }
+        
+        #[cfg(feature = "net-http")]
+        let total_size = response.header("content-length").and_then(|h| h.as_str().parse::<u64>().ok());
         let mut downloaded = 0u64;
         let start_time = Instant::now();
         
@@ -385,7 +388,9 @@ impl NetworkToolsManager {
             println!("Length: {} bytes", size);
         }
         
-        let mut stream = response.bytes_stream();
+        #[cfg(feature = "net-http")]
+        let mut reader = response.into_reader();
+        #[cfg(feature = "net-http")]
         let mut output: Box<dyn tokio::io::AsyncWrite + Unpin> = if let Some(ref output_file) = options.output_file {
             Box::new(tokio::fs::File::create(output_file).await
                 .with_context(|| format!("Failed to create output file: {}", output_file))?)
@@ -393,23 +398,21 @@ impl NetworkToolsManager {
             Box::new(tokio::io::stdout())
         };
         
-        use futures_util::StreamExt;
-        
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.context("Failed to read response chunk")?;
-            output.write_all(&chunk).await.context("Failed to write chunk")?;
-            
-            downloaded += chunk.len() as u64;
-            
-            if options.show_progress && total_size.is_some() {
-                let progress = (downloaded as f64 / total_size.unwrap() as f64) * 100.0;
-                let elapsed = start_time.elapsed().as_secs_f64();
-                let speed = downloaded as f64 / elapsed;
-                
-                eprint!("\r{:.1}% [{:>10}] {:.1}KB/s", 
-                       progress, 
-                       self.format_bytes(downloaded), 
-                       speed / 1024.0);
+        #[cfg(feature = "net-http")]
+        {
+            use std::io::Read;
+            let mut buf = [0u8; 8192];
+            loop {
+                let n = reader.read(&mut buf).context("Failed to read response chunk")?;
+                if n == 0 { break; }
+                output.write_all(&buf[..n]).await.context("Failed to write chunk")?;
+                downloaded += n as u64;
+                if options.show_progress && total_size.is_some() {
+                    let progress = (downloaded as f64 / total_size.unwrap() as f64) * 100.0;
+                    let elapsed = start_time.elapsed().as_secs_f64();
+                    let speed = downloaded as f64 / elapsed;
+                    eprint!("\r{:.1}% [{:>10}] {:.1}KB/s", progress, self.format_bytes(downloaded), speed / 1024.0);
+                }
             }
         }
         

@@ -36,7 +36,7 @@ impl TimeManager {
     pub fn unix_timestamp(&self) -> HalResult<u64> {
         let std_time = StdSystemTime::now();
         let duration = std_time.duration_since(UNIX_EPOCH)
-            .map_err(|e| HalError::invalid(&format!("System time error: {}", e)))?;
+            .map_err(|e| HalError::invalid(&format!("System time error: {e}")))?;
         Ok(duration.as_secs())
     }
 
@@ -47,7 +47,7 @@ impl TimeManager {
 
     pub fn parse_time(&self, time_str: &str, format: &str) -> HalResult<SystemTime> {
         let datetime = DateTime::parse_from_str(time_str, format)
-            .map_err(|e| HalError::invalid(&format!("Time parse error: {}", e)))?;
+            .map_err(|e| HalError::invalid(&format!("Time parse error: {e}")))?;
         Ok(SystemTime::from_std(datetime.into()))
     }
 
@@ -60,7 +60,7 @@ impl TimeManager {
         let now = self.now()?;
         if deadline > now {
             let duration = deadline.duration_since(&now)
-                .map_err(|e| HalError::invalid(&format!("Invalid duration: {}", e)))?;
+                .map_err(|e| HalError::invalid(&format!("Invalid duration: {e}")))?;
             thread::sleep(duration);
         }
         Ok(())
@@ -69,7 +69,7 @@ impl TimeManager {
     pub fn elapsed_since(&self, start: &SystemTime) -> HalResult<Duration> {
         let now = self.now()?;
         now.duration_since(start)
-            .map_err(|e| HalError::invalid(&format!("Time calculation error: {}", e)))
+            .map_err(|e| HalError::invalid(&format!("Time calculation error: {e}")))
     }
 
     pub fn add_duration(&self, time: &SystemTime, duration: Duration) -> HalResult<SystemTime> {
@@ -235,16 +235,16 @@ impl TimeManager {
 
         let mut parts = Vec::new();
         if hours > 0 {
-            parts.push(format!("{}h", hours));
+            parts.push(format!("{hours}h"));
         }
         if minutes > 0 {
-            parts.push(format!("{}m", minutes));
+            parts.push(format!("{minutes}m"));
         }
         if seconds > 0 {
-            parts.push(format!("{}s", seconds));
+            parts.push(format!("{seconds}s"));
         }
         if nanoseconds > 0 {
-            parts.push(format!("{}ns", nanoseconds));
+            parts.push(format!("{nanoseconds}ns"));
         }
 
         Ok(parts.join(" "))
@@ -263,7 +263,7 @@ impl TimeManager {
     pub fn get_monotonic_time(&self) -> HalResult<Duration> {
         // Use Instant for monotonic time
         static START_TIME: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
-        let start = START_TIME.get_or_init(|| Instant::now());
+        let start = START_TIME.get_or_init(Instant::now);
         Ok(start.elapsed())
     }
 
@@ -400,7 +400,13 @@ impl TimeManager {
 
 impl Default for TimeManager {
     fn default() -> Self {
-        Self::new().unwrap()
+        Self::new().unwrap_or_else(|_| {
+            // Create a minimal working TimeManager if initialization fails
+            TimeManager {
+                platform: Platform::current(),
+                capabilities: Capabilities::current(),
+            }
+        })
     }
 }
 
@@ -448,6 +454,12 @@ impl SystemTime {
 #[derive(Debug)]
 pub struct HighPrecisionTimer {
     start: Instant,
+}
+
+impl Default for HighPrecisionTimer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl HighPrecisionTimer {

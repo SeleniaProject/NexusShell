@@ -63,7 +63,11 @@ impl<T> ShellResultExt<T> for ShellResult<T> {
     }
     
     fn map_error_kind(self, kind: ErrorKind) -> ShellResult<T> {
-        self.map_err(|e| ShellError::new(kind, e.message).with_contexts(e.context))
+        self.map_err(|e| {
+            // e.context is Box<HashMap<..>> now; move out by deref
+            let ctx = *e.context; // move HashMap
+            ShellError::new(kind, e.message).with_contexts(ctx)
+        })
     }
     
     fn with_suggestion(self, suggestion: impl Into<String>) -> ShellResult<T> {

@@ -12,6 +12,7 @@
 //! Uses `sysinfo` crate and std::env::consts for some info.
 
 use anyhow::{anyhow, Result};
+#[cfg(feature = "system-info")]
 use sysinfo::{System, SystemExt};
 
 pub fn uname_cli(args: &[String]) -> Result<()> {
@@ -21,13 +22,24 @@ pub fn uname_cli(args: &[String]) -> Result<()> {
         args.to_vec()
     };
 
-    let mut sys = System::new();
-    sys.refresh_system();
-
-    let kernel_name = sys.name().unwrap_or_else(|| "Unknown".to_string());
-    let kernel_release = sys.kernel_version().unwrap_or_else(|| "Unknown".to_string());
-    let kernel_version = sys.os_version().unwrap_or_else(|| "Unknown".to_string());
-    let hostname = sys.host_name().unwrap_or_else(|| "Unknown".to_string());
+    #[cfg(feature = "system-info")]
+    let (kernel_name, kernel_release, kernel_version, hostname) = {
+        let mut sys = System::new();
+        sys.refresh_system();
+        (
+            sys.name().unwrap_or_else(|| "Unknown".to_string()),
+            sys.kernel_version().unwrap_or_else(|| "Unknown".to_string()),
+            sys.os_version().unwrap_or_else(|| "Unknown".to_string()),
+            sys.host_name().unwrap_or_else(|| "Unknown".to_string()),
+        )
+    };
+    #[cfg(not(feature = "system-info"))]
+    let (kernel_name, kernel_release, kernel_version, hostname) = (
+        std::env::consts::OS.to_string(),
+        "0.0".to_string(),
+        "unknown".to_string(),
+        hostname::get().map(|h| h.to_string_lossy().to_string()).unwrap_or_else(|_| "unknown".to_string()),
+    );
     let machine = std::env::consts::ARCH;
 
     let mut outputs = Vec::new();

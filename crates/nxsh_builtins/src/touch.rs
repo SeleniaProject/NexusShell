@@ -17,6 +17,7 @@
 use anyhow::{Result, anyhow};
 use std::fs::{self, File};
 #[cfg(unix)]
+#[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, Duration};
@@ -80,7 +81,7 @@ pub fn touch_cli(args: &[String]) -> Result<()> {
         let path = PathBuf::from(file);
         
         if let Err(e) = update_file_timestamps(&path, &touch_time, &options) {
-            eprintln!("touch: {}", e);
+            eprintln!("touch: {e}");
             // Continue with other files
         }
     }
@@ -247,12 +248,12 @@ fn parse_timestamp(timestamp: &str) -> Result<SystemTime> {
     // Format: [[CC]YY]MMDDhhmm[.ss]
     let len = timestamp.len();
     
-    if len < 8 || len > 15 {
+    if !(8..=15).contains(&len) {
         return Err(anyhow!("touch: invalid date format '{}'", timestamp));
     }
     
     let mut chars: Vec<char> = timestamp.chars().collect();
-    let pos = 0;
+    let _pos = 0; // placeholder for future offset handling
     
     // Parse seconds if present (after the dot)
     let seconds = if let Some(dot_pos) = timestamp.find('.') {
@@ -302,10 +303,10 @@ fn parse_timestamp(timestamp: &str) -> Result<SystemTime> {
     };
     
     // Validate ranges
-    if month < 1 || month > 12 {
+    if !(1..=12).contains(&month) {
         return Err(anyhow!("touch: invalid month '{}'", month));
     }
-    if day < 1 || day > 31 {
+    if !(1..=31).contains(&day) {
         return Err(anyhow!("touch: invalid day '{}'", day));
     }
     if hour > 23 {
@@ -491,11 +492,11 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::{TempDir, NamedTempFile};
-    use std::fs::File;
-    use std::io::Write;
-    use std::thread;
-    use std::time::Duration;
+    
+    
+    
+    
+    use std::time::UNIX_EPOCH;
     
     #[test]
     fn test_parse_args() {

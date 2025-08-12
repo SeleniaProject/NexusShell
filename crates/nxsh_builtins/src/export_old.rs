@@ -54,19 +54,7 @@ impl Builtin for ExportCommand {
         "Export environment variables. Use 'export --help' for detailed usage information."
     }
 
-    fn execute(&self, ctx: &mut nxsh_core::context::ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
-        // Convert to the old Context format for backward compatibility
-        // TODO: Refactor to use ShellContext directly
-        use nxsh_core::stream::{Stream, StreamType};
-        
-        let mut context = Context::new(
-            args.to_vec(),
-            ctx,
-            Stream::new(StreamType::Byte),
-            Stream::new(StreamType::Text),
-            Stream::new(StreamType::Byte),
-        )?;
-        
+    // The legacy Context shim has been removed; implementation below uses ShellContext directly.
     fn execute(&self, ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
         let mut print_all = false;
         let mut assignments = Vec::new();

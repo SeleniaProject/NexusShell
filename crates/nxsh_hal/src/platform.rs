@@ -6,6 +6,7 @@
 
 use std::sync::Once;
 use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
 
 use crate::error::HalResult;
 
@@ -51,10 +52,12 @@ pub struct DiskInfo {
 #[derive(Debug, Clone)]
 pub struct NetworkInterface {
     pub name: String,
-    pub ip_addresses: Vec<std::net::IpAddr>,
+    pub ip_addresses: Vec<String>,
     pub mac_address: Option<String>,
     pub is_up: bool,
     pub is_loopback: bool,
+    pub mtu: Option<u32>,
+    pub statistics: Option<NetworkStatistics>,
 }
 
 /// Supported platforms
@@ -144,7 +147,7 @@ impl Platform {
                     CAPABILITIES = Some(Capabilities::detect());
                 });
                 
-                CURRENT_PLATFORM.as_ref().map(|p| p.clone()).unwrap_or_else(|| {
+                CURRENT_PLATFORM.clone().unwrap_or_else(|| {
                     // This should never happen after init(), but provide a fallback
                     Platform::Linux // Use a concrete variant as fallback
                 })
@@ -311,9 +314,32 @@ impl Platform {
         Vec::new()
     }
 
-    /// Get network interfaces
+    /// Get network interfaces with MAC addresses and statistics
     pub fn get_network_interfaces(&self) -> Vec<NetworkInterface> {
-        Vec::new()
+        let mut interfaces = Vec::new();
+        
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(adapters) = self.get_windows_network_adapters() {
+                interfaces.extend(adapters);
+            }
+        }
+        
+        #[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]
+        {
+            if let Ok(adapters) = self.get_unix_network_interfaces() {
+                interfaces.extend(adapters);
+            }
+        }
+        
+        // Fallback: try to get basic interface info
+        if interfaces.is_empty() {
+            if let Ok(basic_interfaces) = self.get_basic_network_interfaces() {
+                interfaces.extend(basic_interfaces);
+            }
+        }
+        
+        interfaces
     }
 
     /// Check if the current user is root
@@ -727,6 +753,234 @@ fn detect_filesystem_features(platform: &Platform) -> Vec<String> {
     }
     
     features
+}
+
+impl Platform {
+    /// Get network interfaces on Windows
+    #[cfg(target_os = "windows")]
+    fn get_windows_network_adapters(&self) -> Result<Vec<NetworkInterface>, Box<dyn std::error::Error>> {
+        use std::process::Command;
+        
+        let output = Command::new("netsh")
+            .args(["interface", "show", "interface"])
+            .output()?;
+            
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        let mut interfaces = Vec::new();
+        
+        for line in output_str.lines().skip(3) { // Skip header lines
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 4 {
+                let name = parts[3..].join(" ");
+                let is_up = parts[0] == "Enabled";
+                
+                let interface = NetworkInterface {
+                    name,
+                    is_up,
+                    is_loopback: false, // Will be determined later
+                    ip_addresses: Vec::new(),
+                    mac_address: self.get_windows_mac_address(&parts[3..].join(" ")).ok(),
+                    mtu: None,
+                    statistics: None,
+                };
+                
+                interfaces.push(interface);
+            }
+        }
+        
+        Ok(interfaces)
+    }
+    
+    /// Get MAC address on Windows
+    #[cfg(target_os = "windows")]
+    fn get_windows_mac_address(&self, interface_name: &str) -> Result<String, Box<dyn std::error::Error>> {
+        use std::process::Command;
+        
+        let output = Command::new("getmac")
+            .args(["/fo", "csv", "/nh"])
+            .output()?;
+            
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        for line in output_str.lines() {
+            if line.contains(interface_name) {
+                let parts: Vec<&str> = line.split(',').collect();
+                if !parts.is_empty() {
+                    return Ok(parts[0].trim_matches('"').to_string());
+                }
+            }
+        }
+        
+        Err("MAC address not found".into())
+    }
+    
+    /// Get network interfaces on Unix systems
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]
+    fn get_unix_network_interfaces(&self) -> Result<Vec<NetworkInterface>, Box<dyn std::error::Error>> {
+        use std::process::Command;
+        
+        let output = Command::new("ip")
+            .args(&["link", "show"])
+            .output()
+            .or_else(|_| Command::new("ifconfig").arg("-a").output())?;
+            
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        let mut interfaces = Vec::new();
+        
+        // Parse ip link output
+        for line in output_str.lines() {
+            if line.starts_with(char::is_numeric) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let name = parts[1].trim_end_matches(':').to_string();
+                    let is_up = line.contains("UP");
+                    let is_loopback = line.contains("LOOPBACK");
+                    
+                    let mac_address = self.extract_mac_from_line(&line);
+                    let mtu = self.extract_mtu_from_line(&line);
+                    
+                    let interface = NetworkInterface {
+                        name,
+                        is_up,
+                        is_loopback,
+                        ip_addresses: Vec::new(), // Would need separate call to get IPs
+                        mac_address,
+                        mtu,
+                        statistics: None, // Would need /proc/net/dev parsing on Linux
+                    };
+                    
+                    interfaces.push(interface);
+                }
+            }
+        }
+        
+        Ok(interfaces)
+    }
+    
+    /// Extract MAC address from interface line
+    fn extract_mac_from_line(&self, line: &str) -> Option<String> {
+        // Look for MAC address pattern (XX:XX:XX:XX:XX:XX)
+        let mac_regex = regex::Regex::new(r"([0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2})").ok()?;
+        
+        if let Some(captures) = mac_regex.captures(line) {
+            return Some(captures[1].to_string());
+        }
+        
+        None
+    }
+    
+    /// Extract MTU from interface line
+    fn extract_mtu_from_line(&self, line: &str) -> Option<u32> {
+        if let Some(mtu_start) = line.find("mtu ") {
+            let mtu_part = &line[mtu_start + 4..];
+            if let Some(space_pos) = mtu_part.find(' ') {
+                if let Ok(mtu) = mtu_part[..space_pos].parse::<u32>() {
+                    return Some(mtu);
+                }
+            }
+        }
+        
+        None
+    }
+    
+    /// Get basic network interfaces using platform-independent methods
+    fn get_basic_network_interfaces(&self) -> Result<Vec<NetworkInterface>, Box<dyn std::error::Error>> {
+        let mut interfaces = Vec::new();
+        
+        // Try to get interface names from /sys/class/net (Linux)
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(entries) = std::fs::read_dir("/sys/class/net") {
+                for entry in entries.flatten() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        let is_up = self.is_interface_up_linux(name);
+                        let is_loopback = name == "lo";
+                        
+                        let interface = NetworkInterface {
+                            name: name.to_string(),
+                            is_up,
+                            is_loopback,
+                            ip_addresses: Vec::new(),
+                            mac_address: self.get_linux_mac_address(name).ok(),
+                            mtu: self.get_linux_mtu(name).ok(),
+                            statistics: self.get_linux_interface_stats(name).ok(),
+                        };
+                        
+                        interfaces.push(interface);
+                    }
+                }
+            }
+        }
+        
+        // Fallback: create a minimal loopback interface
+        if interfaces.is_empty() {
+            interfaces.push(NetworkInterface {
+                name: "lo".to_string(),
+                is_up: true,
+                is_loopback: true,
+                ip_addresses: vec!["127.0.0.1".to_string()],
+                mac_address: None,
+                mtu: Some(65536),
+                statistics: None,
+            });
+        }
+        
+        Ok(interfaces)
+    }
+    
+    /// Check if interface is up on Linux
+    #[cfg(target_os = "linux")]
+    fn is_interface_up_linux(&self, interface: &str) -> bool {
+        std::fs::read_to_string(format!("/sys/class/net/{}/operstate", interface))
+            .map(|state| state.trim() == "up")
+            .unwrap_or(false)
+    }
+    
+    /// Get MAC address on Linux
+    #[cfg(target_os = "linux")]
+    fn get_linux_mac_address(&self, interface: &str) -> Result<String, Box<dyn std::error::Error>> {
+        let mac = std::fs::read_to_string(format!("/sys/class/net/{}/address", interface))?;
+        Ok(mac.trim().to_string())
+    }
+    
+    /// Get MTU on Linux
+    #[cfg(target_os = "linux")]
+    fn get_linux_mtu(&self, interface: &str) -> Result<u32, Box<dyn std::error::Error>> {
+        let mtu_str = std::fs::read_to_string(format!("/sys/class/net/{}/mtu", interface))?;
+        Ok(mtu_str.trim().parse()?)
+    }
+    
+    /// Get interface statistics on Linux
+    #[cfg(target_os = "linux")]
+    fn get_linux_interface_stats(&self, interface: &str) -> Result<NetworkStatistics, Box<dyn std::error::Error>> {
+        let stats_dir = format!("/sys/class/net/{}/statistics", interface);
+        
+        let rx_bytes = std::fs::read_to_string(format!("{}/rx_bytes", stats_dir))?.trim().parse()?;
+        let tx_bytes = std::fs::read_to_string(format!("{}/tx_bytes", stats_dir))?.trim().parse()?;
+        let rx_packets = std::fs::read_to_string(format!("{}/rx_packets", stats_dir))?.trim().parse()?;
+        let tx_packets = std::fs::read_to_string(format!("{}/tx_packets", stats_dir))?.trim().parse()?;
+        let rx_errors = std::fs::read_to_string(format!("{}/rx_errors", stats_dir))?.trim().parse()?;
+        let tx_errors = std::fs::read_to_string(format!("{}/tx_errors", stats_dir))?.trim().parse()?;
+        
+        Ok(NetworkStatistics {
+            rx_bytes,
+            tx_bytes,
+            rx_packets,
+            tx_packets,
+            rx_errors,
+            tx_errors,
+        })
+    }
+}
+
+/// Network interface statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkStatistics {
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+    pub rx_packets: u64,
+    pub tx_packets: u64,
+    pub rx_errors: u64,
+    pub tx_errors: u64,
 }
 
 /// Initialize platform detection and capabilities

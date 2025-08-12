@@ -230,13 +230,13 @@ fn tail_file(
     path: &str,
     options: &TailOptions,
     show_header: bool,
-    total_files: usize,
+    _total_files: usize,
 ) -> Result<()> {
     if show_header {
         if path == "-" {
             println!("==> standard input <==");
         } else {
-            println!("==> {} <==", path);
+            println!("==> {path} <==");
         }
     }
 
@@ -253,7 +253,7 @@ fn tail_lines(path: &str, options: &TailOptions) -> Result<()> {
         tail_lines_reader(Box::new(BufReader::new(io::stdin())), options)?;
     } else {
         let file = File::open(Path::new(path))
-            .with_context(|| format!("tail: cannot open '{}' for reading", path))?;
+            .with_context(|| format!("tail: cannot open '{path}' for reading"))?;
         tail_lines_reader(Box::new(BufReader::new(file)), options)?;
     }
     Ok(())
@@ -312,14 +312,9 @@ fn tail_lines_reader<R: BufRead>(mut reader: Box<R>, options: &TailOptions) -> R
     let stdout = io::stdout();
     let mut handle = stdout.lock();
     
-    if options.zero_terminated {
-        for line_bytes in buffer {
-            handle.write_all(&line_bytes)?;
-        }
-    } else {
-        for line_bytes in buffer {
-            handle.write_all(&line_bytes)?;
-        }
+    // 両分岐で同一処理だったため統一
+    for line_bytes in buffer {
+        handle.write_all(&line_bytes)?;
     }
     
     handle.flush()?;
@@ -331,15 +326,11 @@ fn tail_bytes(path: &str, options: &TailOptions) -> Result<()> {
         tail_bytes_reader(Box::new(io::stdin()), options)?;
     } else {
         let mut file = File::open(Path::new(path))
-            .with_context(|| format!("tail: cannot open '{}' for reading", path))?;
+            .with_context(|| format!("tail: cannot open '{path}' for reading"))?;
         
         // For files, we can seek to the end and read backwards
         let file_size = file.metadata()?.len();
-        let start_pos = if file_size <= options.count as u64 {
-            0
-        } else {
-            file_size - options.count as u64
-        };
+        let start_pos = file_size.saturating_sub(options.count as u64);
         
         file.seek(SeekFrom::Start(start_pos))?;
         tail_bytes_reader(Box::new(file), options)?;
@@ -393,7 +384,7 @@ fn tail_follow_multiple(
             if !options.retry {
                 return Err(e);
             }
-            eprintln!("tail: {}: {}", file, e);
+            eprintln!("tail: {file}: {e}");
         }
     }
 
@@ -424,7 +415,7 @@ fn follow_files(
 
         let mut any_changes = false;
 
-        for (i, state) in file_states.iter_mut().enumerate() {
+    for (_i, state) in file_states.iter_mut().enumerate() {
             match follow_single_file(state, options, show_headers && files.len() > 1) {
                 Ok(changed) => {
                     if changed {
@@ -534,10 +525,10 @@ fn follow_single_file(
     Ok(false)
 }
 
-fn get_inode(metadata: &std::fs::Metadata) -> Option<u64> {
+fn get_inode(_metadata: &std::fs::Metadata) -> Option<u64> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::MetadataExt;
+        #[cfg(unix)] use std::os::unix::fs::MetadataExt;
         Some(metadata.ino())
     }
     #[cfg(not(unix))]
@@ -546,10 +537,10 @@ fn get_inode(metadata: &std::fs::Metadata) -> Option<u64> {
     }
 }
 
-fn get_device(metadata: &std::fs::Metadata) -> Option<u64> {
+fn get_device(_metadata: &std::fs::Metadata) -> Option<u64> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::MetadataExt;
+        #[cfg(unix)] use std::os::unix::fs::MetadataExt;
         Some(metadata.dev())
     }
     #[cfg(not(unix))]
@@ -558,7 +549,7 @@ fn get_device(metadata: &std::fs::Metadata) -> Option<u64> {
     }
 }
 
-fn is_process_alive(pid: u32) -> bool {
+fn is_process_alive(_pid: u32) -> bool {
     #[cfg(unix)]
     {
         use std::process::Command;
@@ -616,7 +607,7 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
+    
     use tempfile::NamedTempFile;
     use std::io::Write as IoWrite;
 
@@ -685,7 +676,7 @@ mod tests {
         
         assert_eq!(options.count, 20);
         assert_eq!(options.mode, CountMode::Lines);
-        assert_eq!(options.follow, true);
+        assert!(options.follow);
         assert_eq!(files, vec!["file.txt"]);
     }
 
@@ -703,7 +694,7 @@ mod tests {
         
         assert_eq!(options.count, 10);
         assert_eq!(options.mode, CountMode::Bytes);
-        assert_eq!(options.follow, true);
+        assert!(options.follow);
         assert_eq!(files, vec!["file.txt"]);
     }
 
@@ -717,3 +708,4 @@ mod tests {
         assert_eq!(files, vec!["file.txt"]);
     }
 } 
+

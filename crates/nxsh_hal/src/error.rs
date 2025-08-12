@@ -99,8 +99,8 @@ impl fmt::Display for HalError {
             HalError::Platform(err) => write!(f, "Platform error on {} in {}: {}", err.platform, err.operation, err.message),
             HalError::Security(err) => write!(f, "Security error in {}: {} (required: {})", err.operation, err.message, err.required_permission),
             HalError::Resource(err) => write!(f, "Resource error for {}: {}", err.resource_type, err.message),
-            HalError::Invalid(msg) => write!(f, "Invalid operation: {}", msg),
-            HalError::Unsupported(msg) => write!(f, "Unsupported operation: {}", msg),
+            HalError::Invalid(msg) => write!(f, "Invalid operation: {msg}"),
+            HalError::Unsupported(msg) => write!(f, "Unsupported operation: {msg}"),
         }
     }
 }
@@ -120,7 +120,7 @@ impl From<io::Error> for HalError {
 
 impl From<std::ffi::NulError> for HalError {
     fn from(err: std::ffi::NulError) -> Self {
-        HalError::Invalid(format!("Invalid null byte in string: {}", err))
+        HalError::Invalid(format!("Invalid null byte in string: {err}"))
     }
 }
 
@@ -172,8 +172,7 @@ impl HalError {
 
     pub fn network_error(operation: &str, host: Option<&str>, port: Option<u16>, message: &str) -> Self {
         HalError::Invalid(format!(
-            "Network error in {}: {} (host: {:?}, port: {:?})",
-            operation, message, host, port
+            "Network error in {operation}: {message} (host: {host:?}, port: {port:?})"
         ))
     }
 

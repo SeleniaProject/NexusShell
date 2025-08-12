@@ -226,28 +226,28 @@ impl Stream {
     /// Create a byte stream from raw data
     pub fn from_bytes(data: Vec<u8>) -> Self {
         let mut stream = Self::new(StreamType::Byte);
-        stream.write(StreamData::Bytes(data)).unwrap();
+        let _ = stream.write(StreamData::Bytes(data)); // Ignore errors in constructor helpers
         stream
     }
 
     /// Create a text stream from string
     pub fn from_string(text: String) -> Self {
         let mut stream = Self::new(StreamType::Text);
-        stream.write(StreamData::Text(text)).unwrap();
+        let _ = stream.write(StreamData::Text(text)); // Ignore errors in constructor helpers
         stream
     }
 
     /// Create a JSON stream from serde_json::Value
     pub fn from_json(value: serde_json::Value) -> Self {
         let mut stream = Self::new(StreamType::Json);
-        stream.write(StreamData::Json(value)).unwrap();
+        let _ = stream.write(StreamData::Json(value)); // Ignore errors in constructor helpers
         stream
     }
 
     /// Create an object stream
     pub fn from_object(type_name: String, data: Vec<u8>) -> Self {
         let mut stream = Self::new(StreamType::Object(type_name.clone()));
-        stream.write(StreamData::Object { type_name, data }).unwrap();
+        let _ = stream.write(StreamData::Object { type_name, data }); // Ignore errors in constructor helpers
         stream
     }
 
@@ -299,14 +299,16 @@ impl Stream {
 
     /// Check if the stream has more data
     pub fn has_more(&self) -> bool {
-        let buffer = self.data.lock().unwrap();
-        let pos = self.position.lock().unwrap();
-        *pos < buffer.len()
+        if let (Ok(buffer), Ok(pos)) = (self.data.lock(), self.position.lock()) {
+            *pos < buffer.len()
+        } else {
+            false // Assume no more data if locks are poisoned
+        }
     }
 
     /// Get stream length
     pub fn len(&self) -> usize {
-        self.data.lock().unwrap().len()
+        self.data.lock().map(|buffer| buffer.len()).unwrap_or(0)
     }
 
     /// Check if stream is empty
@@ -324,7 +326,7 @@ impl Stream {
 
     /// Check if stream is closed
     pub fn is_closed(&self) -> bool {
-        *self.closed.lock().unwrap()
+        self.closed.lock().map(|closed| *closed).unwrap_or(true) // Assume closed if lock is poisoned
     }
 
     /// Convert stream to bytes (for traditional pipe compatibility)

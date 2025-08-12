@@ -9,8 +9,6 @@ use chrono::{DateTime, Local};
 // Platform-specific imports
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, FileTypeExt};
-#[cfg(unix)]
-use uzers::{get_user_by_uid, get_group_by_gid};
 
 #[cfg(windows)]
 use whoami;
@@ -20,7 +18,7 @@ use nxsh_core::{Context, ExecutionResult, ShellError};
 pub struct StatBuiltin;
 
 impl StatBuiltin {
-    pub fn execute(&self, ctx: &mut Context, args: Vec<String>) -> Result<ExecutionResult, ShellError> {
+    pub fn execute(&self, _ctx: &mut Context, args: Vec<String>) -> Result<ExecutionResult, ShellError> {
         match stat_cli(&args) {
             Ok(()) => Ok(ExecutionResult::success(0)),
             Err(e) => Ok(ExecutionResult::success(1).with_error(e.to_string().into_bytes())),
@@ -29,6 +27,7 @@ impl StatBuiltin {
 }
 
 #[derive(Debug, Clone)]
+#[derive(Default)]
 struct StatOptions {
     dereference: bool,
     file_system: bool,
@@ -38,18 +37,6 @@ struct StatOptions {
     files: Vec<String>,
 }
 
-impl Default for StatOptions {
-    fn default() -> Self {
-        Self {
-            dereference: false,
-            file_system: false,
-            terse: false,
-            format: None,
-            printf_format: None,
-            files: Vec::new(),
-        }
-    }
-}
 
 #[derive(Debug)]
 struct FileInfo {
@@ -210,10 +197,15 @@ fn display_default_format(info: &FileInfo) -> Result<()> {
         println!("Device: {:<15} Inode: {:<10} Links: {}",
             format!("{}h/{}d", format!("{:x}", meta.dev()), meta.dev()),
             meta.ino(), meta.nlink());
-        println!("Access: ({:04o}/{})  Uid: ({:5}/{})   Gid: ({:5}/{})",
-            meta.mode() & 0o7777, format_permissions(meta.mode()),
-            meta.uid(), get_username(meta.uid()),
-            meta.gid(), get_groupname(meta.gid()));
+        println!(
+            "Access: ({:04o}/{})  Uid: ({:5}/{})   Gid: ({:5}/{})",
+            meta.mode() & 0o7777,
+            format_permissions(meta.mode()),
+            meta.uid(),
+            get_username(meta.uid()),
+            meta.gid(),
+            get_groupname(meta.gid())
+        );
     }
     #[cfg(windows)]
     {
@@ -264,21 +256,14 @@ fn display_terse_format(info: &FileInfo) -> Result<()> {
         let modified = meta.modified().unwrap_or(UNIX_EPOCH);
         let accessed = meta.accessed().unwrap_or(UNIX_EPOCH);
         
-        println!("{} {} {} {} {} {} {} {} {} {} {} {} {} {}",
+        println!("{} {} 100644 0 0 0 0 1 {} {} {} {} 4096 {}",
             path,
-            meta.len(),
-            "100644", // Default mode
-            "0", // uid
-            "0", // gid
-            "0", // device
-            "0", // inode
-            "1", // nlink
+            meta.len(), // nlink
             accessed.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
             modified.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
             modified.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
-            created.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
-            "4096", // blksize
-            (meta.len() + 4095) / 4096 // blocks
+            created.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(), // blksize
+            meta.len().div_ceil(4096) // blocks
         );
     }
     
@@ -375,12 +360,56 @@ fn format_permissions(_mode: u32) -> String {
     }
 }
 
+/// Resolve a user name for a given UID without libc bindings.
+/// Preference order: /etc/passwd → getent → id → numeric UID
 fn get_username(_uid: u32) -> String {
     #[cfg(unix)]
     {
-        get_user_by_uid(_uid)
-            .map(|u| u.name().to_string_lossy().to_string())
-            .unwrap_or_else(|| _uid.to_string())
+        // Try /etc/passwd
+        if let Ok(file) = std::fs::File::open("/etc/passwd") {
+            use std::io::{BufRead, BufReader};
+            let reader = BufReader::new(file);
+            for line in reader.lines().flatten() {
+                let parts: Vec<&str> = line.split(':').collect();
+                if parts.len() >= 3 {
+                    if let Ok(uid) = parts[2].parse::<u32>() {
+                        if uid == _uid {
+                            return parts[0].to_string();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Try getent (supports NSS/LDAP)
+        if let Ok(output) = std::process::Command::new("getent")
+            .args(["passwd", &_uid.to_string()])
+            .output()
+        {
+            if output.status.success() {
+                let s = String::from_utf8_lossy(&output.stdout);
+                let parts: Vec<&str> = s.trim().split(':').collect();
+                if !parts.is_empty() {
+                    return parts[0].to_string();
+                }
+            }
+        }
+
+        // Try id -nu
+        if let Ok(output) = std::process::Command::new("id")
+            .args(["-nu", &_uid.to_string()])
+            .output()
+        {
+            if output.status.success() {
+                let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !name.is_empty() && name != _uid.to_string() {
+                    return name;
+                }
+            }
+        }
+
+        // Fallback to numeric
+        _uid.to_string()
     }
     #[cfg(windows)]
     {
@@ -388,12 +417,56 @@ fn get_username(_uid: u32) -> String {
     }
 }
 
+/// Resolve a group name for a given GID without libc bindings.
+/// Preference order: /etc/group → getent → id → numeric GID
 fn get_groupname(_gid: u32) -> String {
     #[cfg(unix)]
     {
-        get_group_by_gid(_gid)
-            .map(|g| g.name().to_string_lossy().to_string())
-            .unwrap_or_else(|| _gid.to_string())
+        // Try /etc/group
+        if let Ok(file) = std::fs::File::open("/etc/group") {
+            use std::io::{BufRead, BufReader};
+            let reader = BufReader::new(file);
+            for line in reader.lines().flatten() {
+                let parts: Vec<&str> = line.split(':').collect();
+                if parts.len() >= 3 {
+                    if let Ok(gid) = parts[2].parse::<u32>() {
+                        if gid == _gid {
+                            return parts[0].to_string();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Try getent
+        if let Ok(output) = std::process::Command::new("getent")
+            .args(["group", &_gid.to_string()])
+            .output()
+        {
+            if output.status.success() {
+                let s = String::from_utf8_lossy(&output.stdout);
+                let parts: Vec<&str> = s.trim().split(':').collect();
+                if !parts.is_empty() {
+                    return parts[0].to_string();
+                }
+            }
+        }
+
+        // Try id -ng
+        if let Ok(output) = std::process::Command::new("id")
+            .args(["-ng", &_gid.to_string()])
+            .output()
+        {
+            if output.status.success() {
+                let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !name.is_empty() && name != _gid.to_string() {
+                    return name;
+                }
+            }
+        }
+
+        // Fallback to numeric
+        _gid.to_string()
     }
     #[cfg(windows)]
     {

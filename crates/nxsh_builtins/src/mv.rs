@@ -19,7 +19,8 @@
 
 use anyhow::{Result, anyhow, Context};
 use std::fs::{self};
-use std::io::{self, Write, BufRead};
+use std::io::{self, Write};
+#[cfg(unix)]
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
@@ -364,7 +365,7 @@ fn find_numbered_backup_name(dest: &Path, suffix: &str) -> Result<PathBuf> {
     
     let mut number = 1;
     loop {
-        let backup_name = format!("{}.{}{}", filename, number, suffix);
+        let backup_name = format!("{filename}.{number}{suffix}");
         let backup_path = parent.join(backup_name);
         
         if !backup_path.exists() {
@@ -383,15 +384,13 @@ fn has_numbered_backups(dest: &Path, suffix: &str) -> Result<bool> {
     let filename = dest.file_name().unwrap().to_string_lossy();
     
     if let Ok(entries) = fs::read_dir(parent) {
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let entry_name = entry.file_name().to_string_lossy().into_owned();
-                if entry_name.starts_with(&format!("{}.", filename)) && 
-                   entry_name.ends_with(suffix) {
-                    let middle = &entry_name[filename.len() + 1..entry_name.len() - suffix.len()];
-                    if middle.parse::<u32>().is_ok() {
-                        return Ok(true);
-                    }
+        for entry in entries.flatten() {
+            let entry_name = entry.file_name().to_string_lossy().into_owned();
+            if entry_name.starts_with(&format!("{filename}.")) &&
+               entry_name.ends_with(suffix) {
+                let middle = &entry_name[filename.len() + 1..entry_name.len() - suffix.len()];
+                if middle.parse::<u32>().is_ok() {
+                    return Ok(true);
                 }
             }
         }
@@ -403,8 +402,8 @@ fn has_numbered_backups(dest: &Path, suffix: &str) -> Result<bool> {
 fn move_file(source: &Path, dest: &Path, options: &MvOptions) -> Result<()> {
     // Try atomic rename first
     match fs::rename(source, dest) {
-        Ok(()) => return Ok(()),
-        Err(e) => {
+        Ok(()) => Ok(()),
+    Err(_e) => {
             // Check if this is a cross-filesystem move
             #[cfg(unix)]
             if e.raw_os_error() == Some(libc::EXDEV) {
@@ -415,7 +414,7 @@ fn move_file(source: &Path, dest: &Path, options: &MvOptions) -> Result<()> {
             #[cfg(windows)]
             {
                 // On Windows, try copy + remove for cross-device moves
-                return move_cross_filesystem(source, dest, options);
+                move_cross_filesystem(source, dest, options)
             }
             
             #[cfg(not(any(unix, windows)))]
@@ -469,7 +468,7 @@ fn generate_temp_dest_path(dest: &Path) -> Result<PathBuf> {
     // Create a unique temporary filename
     let mut counter = 0;
     loop {
-        let temp_name = format!(".nxsh_mv_temp_{}_{}", filename, counter);
+        let temp_name = format!(".nxsh_mv_temp_{filename}_{counter}");
         let temp_path = parent.join(temp_name);
         
         if !temp_path.exists() {
@@ -656,7 +655,7 @@ fn preserve_metadata_for_mv(src: &Path, dst: &Path) -> Result<()> {
     // Preserve permissions on Unix systems
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
+        #[cfg(unix)] use std::os::unix::fs::PermissionsExt;
         let permissions = metadata.permissions();
         let mode = permissions.mode();
         
@@ -669,7 +668,7 @@ fn preserve_metadata_for_mv(src: &Path, dst: &Path) -> Result<()> {
 }
 
 /// Set file access and modification times for mv command
-fn set_file_times_for_mv(path: &Path, accessed: SystemTime, modified: SystemTime) -> Result<()> {
+fn set_file_times_for_mv(path: &Path, _accessed: SystemTime, _modified: SystemTime) -> Result<()> {
     #[cfg(unix)]
     {
         use std::ffi::CString;
@@ -790,9 +789,9 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
-    use std::fs::File;
-    use std::io::Write;
+    
+    
+    
     
     #[test]
     fn test_parse_args() {
@@ -822,3 +821,4 @@ mod tests {
         assert_eq!(options.sources, vec!["file1", "file2"]);
     }
 } 
+

@@ -130,6 +130,17 @@ async fn handle_check(force: bool, verbose: bool) -> Result<()> {
     if verbose {
         println!("🔍 Checking for NexusShell updates...");
     }
+    // Force flag: bypass manifest cache in update system
+    if force {
+        #[cfg(feature = "updates")]
+        {
+            use crate::common::update_system::{force_bypass_cache, is_initialized};
+            if is_initialized() {
+                force_bypass_cache(true);
+            }
+        }
+        if verbose { println!("(forcing remote manifest fetch)"); }
+    }
 
     match check_for_updates().await? {
         Some(manifest) => {
@@ -204,7 +215,7 @@ async fn handle_install(force: bool, backup: bool) -> Result<()> {
         }
     }
 
-    println!("🔧 Installing update...");
+    println!("🔧 Installing update... (backup:{} )", if backup { "enabled" } else { "disabled" });
 
     // Find the latest downloaded update
     // In a real implementation, this would check the cache directory
@@ -238,7 +249,7 @@ async fn handle_config(
             println!("  📍 Current Version: {}", status.current_version);
             
             if let Some(latest) = status.latest_version {
-                println!("  📦 Latest Version: {}", latest);
+                println!("  📦 Latest Version: {latest}");
                 println!("  🔄 Update Available: {}", if status.update_available { "Yes" } else { "No" });
             }
             
@@ -262,7 +273,7 @@ async fn handle_config(
         };
 
         set_update_channel(new_channel)?;
-        println!("✁EUpdate channel set to: {}", channel_str);
+        println!("✁EUpdate channel set to: {channel_str}");
         config_updated = true;
     }
 
@@ -293,17 +304,17 @@ async fn handle_status(verbose: bool, json: bool) -> Result<()> {
             println!("  📺 Channel: {:?}", status.channel);
             
             if let Some(latest) = &status.latest_version {
-                println!("  📦 Latest Version: {}", latest);
+                println!("  📦 Latest Version: {latest}");
                 println!("  🔄 Update Available: {}", if status.update_available { "Yes" } else { "No" });
             }
             
             match &status.installation_status {
                 crate::common::update_system::InstallationStatus::None => {},
-                status => println!("  🔧 Status: {:?}", status),
+                status => println!("  🔧 Status: {status:?}"),
             }
             
             if let Some(progress) = status.download_progress {
-                println!("  📥 Download Progress: {:.1}%", progress);
+                println!("  📥 Download Progress: {progress:.1}%");
             }
             
             if let Some(last_check) = status.last_check {
@@ -318,12 +329,10 @@ async fn handle_status(verbose: bool, json: bool) -> Result<()> {
                 println!("  🔄 Rollback capability: Available");
             }
         }
+    } else if json {
+        println!("{{\"error\": \"Update system not initialized\"}}");
     } else {
-        if json {
-            println!("{{\"error\": \"Update system not initialized\"}}");
-        } else {
-            println!("❁EUpdate system not initialized. Run 'update init' first.");
-        }
+        println!("❁EUpdate system not initialized. Run 'update init' first.");
     }
 
     Ok(())
@@ -332,7 +341,7 @@ async fn handle_status(verbose: bool, json: bool) -> Result<()> {
 async fn handle_rollback(version: Option<String>, force: bool) -> Result<()> {
     if !force {
         let target = version.as_deref().unwrap_or("previous version");
-        print!("Rollback to {}? This will restart NexusShell. [y/N]: ", target);
+        print!("Rollback to {target}? This will restart NexusShell. [y/N]: ");
         
         let mut input = String::new();
         std::io::stdin().read_line(&mut input)?;
@@ -353,7 +362,7 @@ async fn handle_rollback(version: Option<String>, force: bool) -> Result<()> {
 }
 
 async fn handle_init(
-    config_path: Option<String>,
+    _config_path: Option<String>,
     server_url: Option<String>,
     public_key: Option<String>
 ) -> Result<()> {
@@ -383,19 +392,19 @@ mod tests {
 
     #[test]
     fn test_parse_update_command() {
-        let args = UpdateArgs::parse_from(&["update", "check", "--force"]);
+        let args = UpdateArgs::parse_from(["update", "check", "--force"]);
         match args.action {
             UpdateAction::Check { force, .. } => assert!(force),
             other => {
-                eprintln!("Expected Check action, got {:?}", other);
-                assert!(false, "Expected Check action");
+                eprintln!("Expected Check action, got {other:?}");
+                unreachable!("Expected Check action");
             }
         }
     }
 
     #[test]
     fn test_parse_config_command() {
-        let args = UpdateArgs::parse_from(&[
+        let args = UpdateArgs::parse_from([
             "update", "config", 
             "--channel", "beta",
             "--auto", "true"
@@ -407,8 +416,8 @@ mod tests {
                 assert_eq!(auto, Some(true));
             }
             other => {
-                eprintln!("Expected Config action, got {:?}", other);
-                assert!(false, "Expected Config action");
+                eprintln!("Expected Config action, got {other:?}");
+                unreachable!("Expected Config action");
             }
         }
     }

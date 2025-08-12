@@ -13,7 +13,7 @@
 
 use anyhow::{anyhow, Result};
 use std::fs::File;
-use std::io::{self, Read, BufRead, Write};
+use std::io::{self, Read, Write};
 use std::path::Path;
 
 bitflags::bitflags! {
@@ -109,7 +109,7 @@ fn print_counts(counts: (usize, usize, usize, usize), label: &str, mode: Mode, s
     if mode.contains(Mode::WORDS) { write!(out, "{:>8}", counts.1)?; }
     if mode.contains(Mode::BYTES) { write!(out, "{:>8}", counts.2)?; }
     if mode.contains(Mode::CHARS) { write!(out, "{:>8}", counts.3)?; }
-    if show_label { writeln!(out, " {}", label)?; } else { writeln!(out)?; }
+    if show_label { writeln!(out, " {label}")?; } else { writeln!(out)?; }
     Ok(())
 }
 

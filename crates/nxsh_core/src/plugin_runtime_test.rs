@@ -15,7 +15,7 @@ use tokio::time::sleep;
 // we'll create a simplified test that demonstrates the concepts
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> crate::compat::Result<()> {
     // Initialize logging
     env_logger::init();
     
@@ -41,13 +41,13 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn test_resource_management_concepts() -> anyhow::Result<()> {
+async fn test_resource_management_concepts() -> crate::compat::Result<()> {
     println!("\n📊 Testing Resource Management Concepts...");
     
     use std::sync::{Arc, Mutex};
     use uuid::Uuid;
     use sysinfo::System;
-    
+
     // Simulate resource tracking
     #[derive(Debug, Clone)]
     struct Resource {
@@ -78,7 +78,7 @@ async fn test_resource_management_concepts() -> anyhow::Result<()> {
                 memory_usage,
                 created_at: std::time::SystemTime::now(),
             };
-            
+
             let mut resources = self.resources.lock().unwrap();
             resources.entry(plugin_id.to_string()).or_insert_with(Vec::new).push(resource.clone());
             
@@ -147,7 +147,7 @@ async fn test_resource_management_concepts() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn test_dynamic_loading_concepts() -> anyhow::Result<()> {
+async fn test_dynamic_loading_concepts() -> crate::compat::Result<()> {
     println!("\n🔄 Testing Dynamic Loading Concepts...");
     
     use sha2::{Sha256, Digest};
@@ -174,7 +174,7 @@ async fn test_dynamic_loading_concepts() -> anyhow::Result<()> {
             }
         }
         
-        fn discover_plugin(&mut self, path: &std::path::Path) -> anyhow::Result<()> {
+    fn discover_plugin(&mut self, path: &std::path::Path) -> crate::compat::Result<()> {
             let content = std::fs::read(path)?;
             let hash = format!("{:x}", Sha256::digest(&content));
             
@@ -240,7 +240,7 @@ async fn test_dynamic_loading_concepts() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn test_performance_monitoring_concepts() -> anyhow::Result<()> {
+async fn test_performance_monitoring_concepts() -> crate::compat::Result<()> {
     println!("\n📈 Testing Performance Monitoring Concepts...");
     
     use std::time::Instant;
@@ -356,7 +356,7 @@ async fn test_performance_monitoring_concepts() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn test_memory_management_concepts() -> anyhow::Result<()> {
+async fn test_memory_management_concepts() -> crate::compat::Result<()> {
     println!("\n🧠 Testing Memory Management Concepts...");
     
     use std::sync::{Arc, Mutex};
@@ -377,12 +377,12 @@ async fn test_memory_management_concepts() -> anyhow::Result<()> {
             }
         }
         
-        fn allocate(&self, size: u64) -> anyhow::Result<()> {
+    fn allocate(&self, size: u64) -> crate::compat::Result<()> {
             let mut allocated = self.allocated.lock().unwrap();
             let new_total = *allocated + size;
             
             if new_total > self.limit {
-                return Err(anyhow::anyhow!("Memory limit exceeded"));
+                return Err(crate::anyhow!("Memory limit exceeded"));
             }
             
             *allocated = new_total;
@@ -468,7 +468,7 @@ async fn test_memory_management_concepts() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn test_hot_reload_concepts() -> anyhow::Result<()> {
+async fn test_hot_reload_concepts() -> crate::compat::Result<()> {
     println!("\n🔥 Testing Hot Reload Concepts...");
     
     use std::sync::{Arc, Mutex};

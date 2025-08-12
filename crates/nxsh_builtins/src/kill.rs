@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError, ErrorKind};
 use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
+use crate::common::process_utils::execute_kill_target;
 
 fn runtime_error(message: &str) -> ShellError {
     ShellError::new(
@@ -58,8 +59,8 @@ impl Builtin for KillBuiltin {
         "Send signals to processes identified by PID"
     }
 
-    fn execute(&self, ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
-        let options = parse_kill_args(&args)?;
+    fn execute(&self, _ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
+        let options = parse_kill_args(args)?;
         
         if options.list_signals {
             list_signals();
@@ -71,7 +72,40 @@ impl Builtin for KillBuiltin {
         }
 
         for target in &options.targets {
-            kill_target(target, options.signal, &options)?;
+            match target {
+                KillTarget::Pid(pid) => execute_kill_target(*pid, options.signal)?,
+                KillTarget::ProcessGroup(pgrp) => execute_kill_target(*pgrp, options.signal)?,
+                KillTarget::JobId(job_id) => {
+                    // Resolve job id via core JobManager and send signal to its process group
+                    use nxsh_core::job::{with_global_job_manager, JobSignal};
+                    let sig = JobSignal::from_signal_number(options.signal)
+                        .unwrap_or(JobSignal::Terminate);
+                    let res = with_global_job_manager(|mgr| {
+                        // Try to fetch job to provide better error if missing
+                        match mgr.get_job(*job_id) {
+                            Ok(Some(job)) => {
+                                // prefer group-based signal
+                                let _ = mgr.send_signal_to_process_group(job.pgid, sig.clone());
+                                Ok(())
+                            }
+                            Ok(None) => Err(ShellError::command_not_found(&format!("Job {} not found", job_id))),
+                            Err(e) => Err(e),
+                        }
+                    });
+                    if let Err(e) = res { return Err(e); }
+                }
+                KillTarget::ProcessName(name) => {
+                    let pids = find_processes_by_name(name)?;
+                    if pids.is_empty() {
+                        return Err(ShellError::command_not_found(&format!("No processes found matching '{name}'")));
+                    }
+                    for pid in pids { execute_kill_target(pid, options.signal)?; }
+                }
+                KillTarget::All => {
+                    // Send to all; on Unix -1, here we iterate best-effort: treat u32::MAX sentinel
+                    execute_kill_target(u32::MAX, options.signal)?;
+                }
+            }
         }
 
         Ok(ExecutionResult::success(0))
@@ -148,11 +182,11 @@ fn parse_kill_args(args: &[String]) -> ShellResult<KillOptions> {
                 if i + 1 < args.len() {
                     if let Ok(sig_num) = args[i + 1].parse::<i32>() {
                         if let Some(name) = get_signal_name(sig_num) {
-                            println!("{}", name);
+                            println!("{name}");
                             return Ok(options);
                         }
                     } else if let Some(&sig_num) = signal_map.get(&args[i + 1].to_uppercase()) {
-                        println!("{}", sig_num);
+                        println!("{sig_num}");
                         return Ok(options);
                     }
                 }
@@ -211,48 +245,37 @@ fn parse_kill_args(args: &[String]) -> ShellResult<KillOptions> {
 }
 
 fn parse_signal(signal_str: &str, signal_map: &HashMap<String, i32>) -> ShellResult<(i32, String)> {
-    // Try parsing as number first
+    // 数値として解析
     if let Ok(sig_num) = signal_str.parse::<i32>() {
-        let sig_name = get_signal_name(sig_num)
-            .unwrap_or_else(|| format!("{}", sig_num));
+        let sig_name = get_signal_name(sig_num).unwrap_or_else(|| sig_num.to_string());
         return Ok((sig_num, sig_name));
     }
-    
-    // Try parsing as signal name
+    // シグナル名 (SIG 前置きを strip_prefix)
     let signal_upper = signal_str.to_uppercase();
-    let signal_name = if signal_upper.starts_with("SIG") {
-        &signal_upper[3..]
-    } else {
-        &signal_upper
-    };
-    
+    let signal_name = signal_upper.strip_prefix("SIG").unwrap_or(&signal_upper);
     if let Some(&sig_num) = signal_map.get(signal_name) {
         Ok((sig_num, signal_name.to_string()))
     } else {
-        Err(ShellError::command_not_found(&format!("Unknown signal: {}", signal_str)))
+        Err(ShellError::command_not_found(&format!("Unknown signal: {signal_str}")))
     }
 }
 
 fn parse_kill_target(target_str: &str) -> ShellResult<KillTarget> {
     if target_str == "-1" {
-        Ok(KillTarget::All)
-    } else if target_str.starts_with('%') {
-        // Job ID
-        let job_id = target_str[1..].parse::<u32>()
-            .map_err(|_| ShellError::command_not_found("Invalid job ID"))?;
-        Ok(KillTarget::JobId(job_id))
-    } else if target_str.starts_with('-') {
-        // Process group
-        let pgrp = target_str[1..].parse::<u32>()
-            .map_err(|_| ShellError::command_not_found("Invalid process group ID"))?;
-        Ok(KillTarget::ProcessGroup(pgrp))
-    } else if let Ok(pid) = target_str.parse::<u32>() {
-        // Process ID
-        Ok(KillTarget::Pid(pid))
-    } else {
-        // Process name
-        Ok(KillTarget::ProcessName(target_str.to_string()))
+        return Ok(KillTarget::All);
     }
+    if let Some(rest) = target_str.strip_prefix('%') {
+        let job_id = rest.parse::<u32>().map_err(|_| ShellError::command_not_found("Invalid job ID"))?;
+        return Ok(KillTarget::JobId(job_id));
+    }
+    if let Some(rest) = target_str.strip_prefix('-') {
+        let pgrp = rest.parse::<u32>().map_err(|_| ShellError::command_not_found("Invalid process group ID"))?;
+        return Ok(KillTarget::ProcessGroup(pgrp));
+    }
+    if let Ok(pid) = target_str.parse::<u32>() {
+        return Ok(KillTarget::Pid(pid));
+    }
+    Ok(KillTarget::ProcessName(target_str.to_string()))
 }
 
 fn kill_target(target: &KillTarget, signal: i32, options: &KillOptions) -> ShellResult<()> {
@@ -263,14 +286,14 @@ fn kill_target(target: &KillTarget, signal: i32, options: &KillOptions) -> Shell
         KillTarget::ProcessGroup(pgrp) => {
             send_signal_to_process_group(*pgrp, signal)?;
         }
-        KillTarget::JobId(job_id) => {
+    KillTarget::JobId(_job_id) => {
             // Would need to look up job in job table
             return Err(ShellError::command_not_found("Job control not yet implemented"));
         }
         KillTarget::ProcessName(name) => {
             let pids = find_processes_by_name(name)?;
             if pids.is_empty() {
-                return Err(ShellError::command_not_found(&format!("No processes found matching '{}'", name)));
+                return Err(ShellError::command_not_found(&format!("No processes found matching '{name}'")));
             }
             for pid in pids {
                 send_signal_to_pid(pid, signal)?;
@@ -287,13 +310,11 @@ fn kill_target(target: &KillTarget, signal: i32, options: &KillOptions) -> Shell
         if signal == 15 { // SIGTERM
             std::thread::sleep(std::time::Duration::from_secs(timeout));
             // Send SIGKILL if process still exists
-            match target {
-                KillTarget::Pid(pid) => {
-                    if process_exists(*pid)? {
-                        send_signal_to_pid(*pid, 9)?; // SIGKILL
-                    }
+            // Only implement timeout escalation for single PIDs for now
+            if let KillTarget::Pid(pid) = target {
+                if process_exists(*pid)? {
+                    send_signal_to_pid(*pid, 9)?; // SIGKILL
                 }
-                _ => {} // Only implement timeout for single PIDs for now
             }
         }
     }
@@ -301,13 +322,13 @@ fn kill_target(target: &KillTarget, signal: i32, options: &KillOptions) -> Shell
     Ok(())
 }
 
-fn send_signal_to_pid(pid: u32, signal: i32) -> ShellResult<()> {
+fn send_signal_to_pid(pid: u32, _signal: i32) -> ShellResult<()> {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         
         let result = unsafe {
-            libc::kill(pid as libc::pid_t, signal)
+            libc::kill(pid as libc::pid_t, _signal)
         };
         
         if result == -1 {
@@ -329,13 +350,13 @@ fn send_signal_to_pid(pid: u32, signal: i32) -> ShellResult<()> {
         
         // On Windows, use taskkill command
         let output = Command::new("taskkill")
-            .args(&["/PID", &pid.to_string(), "/F"])
+            .args(["/PID", &pid.to_string(), "/F"])
             .output()
-            .map_err(|e| ShellError::file_not_found(&format!("Failed to kill process: {}", e)))?;
+            .map_err(|e| ShellError::file_not_found(&format!("Failed to kill process: {e}")))?;
         
         if !output.status.success() {
             let error_msg = String::from_utf8_lossy(&output.stderr);
-            Err(ShellError::command_not_found(&format!("Failed to kill process: {}", error_msg)))
+            Err(ShellError::command_not_found(&format!("Failed to kill process: {error_msg}")))
         } else {
             Ok(())
         }
@@ -347,11 +368,11 @@ fn send_signal_to_pid(pid: u32, signal: i32) -> ShellResult<()> {
     }
 }
 
-fn send_signal_to_process_group(pgrp: u32, signal: i32) -> ShellResult<()> {
+fn send_signal_to_process_group(_pgrp: u32, _signal: i32) -> ShellResult<()> {
     #[cfg(unix)]
     {
         let result = unsafe {
-            libc::kill(-(pgrp as libc::pid_t), signal)
+            libc::kill(-(_pgrp as libc::pid_t), _signal)
         };
         
         if result == -1 {
@@ -407,9 +428,9 @@ fn find_processes_by_name(name: &str) -> ShellResult<Vec<u32>> {
         use std::process::Command;
         
         let output = Command::new("tasklist")
-            .args(&["/FO", "CSV", "/NH"])
+            .args(["/FO", "CSV", "/NH"])
             .output()
-            .map_err(|e| ShellError::file_not_found(&format!("Failed to list processes: {}", e)))?;
+            .map_err(|e| ShellError::file_not_found(&format!("Failed to list processes: {e}")))?;
         
         let output_str = String::from_utf8_lossy(&output.stdout);
         for line in output_str.lines() {
@@ -444,9 +465,9 @@ fn process_exists(pid: u32) -> ShellResult<bool> {
         use std::process::Command;
         
         let output = Command::new("tasklist")
-            .args(&["/FI", &format!("PID eq {}", pid), "/FO", "CSV"])
+            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV"])
             .output()
-            .map_err(|e| ShellError::file_not_found(&format!("Failed to check process: {}", e)))?;
+            .map_err(|e| ShellError::file_not_found(&format!("Failed to check process: {e}")))?;
         
         let output_str = String::from_utf8_lossy(&output.stdout);
         Ok(output_str.lines().count() > 1) // Header + process line if exists
@@ -573,7 +594,7 @@ fn list_signals() {
     ];
     
     for (num, name, desc) in &signals {
-        println!("{:2}) SIG{:<8} {}", num, name, desc);
+        println!("{num:2}) SIG{name:<8} {desc}");
     }
 }
 
@@ -588,8 +609,26 @@ fn list_signals_table() {
     for chunk in signal_list.chunks(4) {
         let mut line = String::new();
         for (name, num) in chunk {
-            line.push_str(&format!("{:2}) {:>8} ", num, name));
+            line.push_str(&format!("{num:2}) {name:>8} "));
         }
-        println!("{}", line);
+        println!("{line}");
     }
-} 
+}
+
+/// CLI wrapper function for kill command
+pub fn kill_cli(args: &[String]) -> anyhow::Result<()> {
+    let options = parse_kill_args(args)?;
+    let pid = match &options.targets[0] {
+        KillTarget::Pid(p) => *p,
+        KillTarget::ProcessGroup(p) => *p,
+        KillTarget::JobId(p) => *p,
+        _ => return Err(anyhow::anyhow!("Unsupported kill target")),
+    };
+    let result = execute_kill_target(pid, options.signal);
+    match result {
+        Ok(_) => Ok(()),
+        Err(e) => Err(anyhow::anyhow!("kill command failed: {}", e)),
+    }
+}
+
+

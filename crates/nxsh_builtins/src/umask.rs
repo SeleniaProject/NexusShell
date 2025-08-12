@@ -6,16 +6,16 @@
 //!
 //! On Unix uses `libc::umask`. On Windows prints unsupported message.
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 
 #[cfg(unix)]
 use nix::sys::stat::{umask, Mode};
 
-pub fn umask_cli(args: &[String]) -> Result<()> {
+pub fn umask_cli(_args: &[String]) -> Result<()> {
     #[cfg(windows)]
     {
         println!("umask: not supported on Windows");
-        return Ok(());
+        Ok(())
     }
     #[cfg(unix)]
     {

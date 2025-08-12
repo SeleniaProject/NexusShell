@@ -256,8 +256,9 @@ impl WatchManager {
         // Setup signal handlers
         let running = Arc::clone(&self.running);
         tokio::spawn(async move {
-            tokio::signal::ctrl_c().await.unwrap();
-            running.store(false, Ordering::Relaxed);
+            if tokio::signal::ctrl_c().await.is_ok() {
+                running.store(false, Ordering::Relaxed);
+            }
         });
 
         // Start command execution loop
@@ -541,7 +542,7 @@ impl WatchManager {
         // Separator
         execute!(stdout(), 
             SetForegroundColor(self.config.theme.border_color),
-            Print("─".repeat(self.terminal_size.0 as usize)),
+            Print("-".repeat(self.terminal_size.0 as usize)),
             ResetColor,
             MoveToNextLine(1)
         )?;
@@ -588,7 +589,7 @@ impl WatchManager {
             execute!(stdout(), 
                 MoveTo(left_width as u16, (row + 3) as u16),
                 SetForegroundColor(self.config.theme.border_color),
-                Print("━E),
+                Print("|"),
                 ResetColor
             )?;
             
@@ -720,8 +721,8 @@ impl WatchManager {
         )?;
         
         for execution in recent {
-            let status = if execution.exit_code == Some(0) { "✁E } else { "✁E };
-            let changes = if execution.changes_detected { "◁E } else { "◁E };
+            let status = if execution.exit_code == Some(0) { "OK" } else { "ERR" };
+            let changes = if execution.changes_detected { "CHG" } else { "---" };
             
             execute!(stdout(), Print(format!("{} {} {} [{}ms] {}\n",
                 status,
@@ -1054,7 +1055,7 @@ fn print_watch_help(i18n: &I18n) {
     println!("    r, R                    Force refresh");
     println!("    d, D                    Toggle differences");
     println!("    s, S                    Toggle statistics");
-    println!("    ↁEↁE                    Scroll up/down");
+    println!("    Up/Down Arrow           Scroll up/down");
     println!("    Page Up/Down            Scroll page up/down");
     println!("    Home                    Go to top");
     println!("    Ctrl+C                  Quit");

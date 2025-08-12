@@ -96,7 +96,7 @@ impl Builtin for FreeBuiltin {
         "Display information about system memory usage"
     }
 
-    fn execute(&self, ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
+    fn execute(&self, _ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
         let options = parse_free_args(args)?;
         
         if options.continuous {
@@ -239,9 +239,9 @@ fn parse_free_args(args: &[String]) -> ShellResult<FreeOptions> {
             }
             "--help" => return Err(ShellError::command_not_found("Help requested")),
             _ if arg.starts_with("-") => {
-                return Err(ShellError::command_not_found(&format!("Unknown option: {}", arg)));
+                return Err(ShellError::command_not_found(&format!("Unknown option: {arg}")));
             }
-            _ => return Err(ShellError::command_not_found(&format!("Unknown argument: {}", arg))),
+            _ => return Err(ShellError::command_not_found(&format!("Unknown argument: {arg}"))),
         }
         i += 1;
     }
@@ -598,7 +598,7 @@ fn format_human_readable(bytes: u64, si_units: bool) -> String {
     }
     
     if unit_index == 0 {
-        format!("{}B", bytes)
+        format!("{bytes}B")
     } else if size >= 10.0 {
         format!("{:.0}{}", size, units[unit_index])
     } else {

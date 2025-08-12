@@ -7,10 +7,13 @@ use nxsh_core::{Builtin, ExecutionResult, executor::{ExecutionStrategy, Executio
 use nxsh_core::context::ShellContext;
 use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
 use nxsh_hal::{ProcessInfo, ProcessManager};
-use std::io::BufRead;
+// use std::io::BufRead; // Removed unused BufRead import
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+// Helper error construction functions (used throughout argument parsing and processing)
 fn runtime_error(message: &str) -> ShellError {
+    // Construct a runtime ShellError with CommandNotFound kind placeholder.
+    // If more specific kinds become available, adjust accordingly.
     ShellError::new(
         ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound),
         message.to_string(),
@@ -18,6 +21,7 @@ fn runtime_error(message: &str) -> ShellError {
 }
 
 fn io_error(message: &str) -> ShellError {
+    // Construct an IO ShellError specialized for file read errors.
     ShellError::new(
         ErrorKind::IoError(IoErrorKind::FileReadError),
         message.to_string(),
@@ -90,7 +94,7 @@ impl Builtin for PsBuiltin {
         "Process status command. Use 'ps --help' for detailed usage information."
     }
 
-    fn execute(&self, ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
+    fn execute(&self, _ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
         let options = parse_ps_args(args)?;
         let processes = collect_processes(&options)?;
         display_processes(&processes, &options)?;
@@ -182,7 +186,8 @@ fn parse_ps_args(args: &[String]) -> ShellResult<PsOptions> {
             "-H" | "--forest" => options.tree_format = true,
             "--no-headers" => options.no_headers = true,
             "-w" | "--wide" => options.wide_output = true,
-            "-e" | "--environment" => options.show_environment = true,
+            // '--environment' はロングオプションのみ使用。短縮 '-e' は上で all_processes 扱い。
+            "--environment" => options.show_environment = true,
             "-u" | "--user" => {
                 i += 1;
                 if i >= args.len() {
@@ -241,11 +246,11 @@ fn parse_ps_args(args: &[String]) -> ShellResult<PsOptions> {
                         'm' => options.show_threads = true,
                         'H' => options.tree_format = true,
                         'w' => options.wide_output = true,
-                        _ => return Err(runtime_error(&format!("Unknown option: -{}", ch))),
+                        _ => return Err(runtime_error(&format!("Unknown option: -{ch}"))),
                     }
                 }
             }
-            _ => return Err(runtime_error(&format!("Unknown argument: {}", arg))),
+            _ => return Err(runtime_error(&format!("Unknown argument: {arg}"))),
         }
         i += 1;
     }
@@ -282,7 +287,7 @@ fn collect_processes(options: &PsOptions) -> ShellResult<Vec<ProcessEntry>> {
         // Use HAL for other platforms
         let process_manager = ProcessManager::new()?;
         let system_processes = process_manager.get_system_processes()
-            .map_err(|e| runtime_error(&format!("Failed to get processes: {}", e)))?;
+            .map_err(|e| runtime_error(&format!("Failed to get processes: {e}")))?;
         
         for proc_info in system_processes {
             let process = convert_hal_process(proc_info);
@@ -543,7 +548,7 @@ fn sort_processes(processes: &mut [ProcessEntry], sort_spec: &str) -> ShellResul
         "time" => processes.sort_by_key(|p| p.cpu_time),
         "comm" => processes.sort_by(|a, b| a.command.cmp(&b.command)),
         "user" => processes.sort_by(|a, b| a.user.cmp(&b.user)),
-        _ => return Err(runtime_error(&format!("Unknown sort field: {}", field))),
+        _ => return Err(runtime_error(&format!("Unknown sort field: {field}"))),
     }
     
     if reverse {
@@ -590,7 +595,7 @@ fn display_processes(processes: &[ProcessEntry], options: &PsOptions) -> ShellRe
     Ok(())
 }
 
-fn print_headers(fields: &[&str], options: &PsOptions) {
+fn print_headers(fields: &[&str], _options: &PsOptions) {
     let mut header_parts = Vec::new();
     
     for field in fields {
@@ -620,7 +625,7 @@ fn print_headers(fields: &[&str], options: &PsOptions) {
                 field
             },
         };
-        header_parts.push(format!("{:>8}", header));
+        header_parts.push(format!("{header:>8}"));
     }
     
     println!("{}", header_parts.join(" "));
@@ -688,7 +693,7 @@ fn print_process_line(process: &ProcessEntry, fields: &[&str], options: &PsOptio
     // Show environment if requested
     if options.show_environment && !process.environment.is_empty() {
         for (key, value) in &process.environment {
-            println!("    {}={}", key, value);
+            println!("    {key}={value}");
         }
     }
     
@@ -704,7 +709,7 @@ fn print_process_tree(processes: &[ProcessEntry], fields: &[&str], options: &PsO
         if process.ppid == 0 || !processes.iter().any(|p| p.pid == process.ppid) {
             roots.push(process);
         } else {
-            children.entry(process.ppid).or_insert_with(Vec::new).push(process);
+            children.entry(process.ppid).or_default().push(process);
         }
     }
     
@@ -725,7 +730,7 @@ fn print_process_tree_recursive(
 ) -> ShellResult<()> {
     // Print current process with indentation
     let indent = "  ".repeat(depth);
-    print!("{}", indent);
+    print!("{indent}");
     print_process_line(process, fields, options)?;
     
     // Print children
@@ -753,9 +758,9 @@ fn format_time(duration: Duration) -> String {
     let seconds = total_seconds % 60;
     
     if hours > 0 {
-        format!("{}:{:02}:{:02}", hours, minutes, seconds)
+        format!("{hours}:{minutes:02}:{seconds:02}")
     } else {
-        format!("{}:{:02}", minutes, seconds)
+        format!("{minutes}:{seconds:02}")
     }
 }
 
@@ -763,7 +768,7 @@ fn format_duration(duration: Duration) -> String {
     let total_seconds = duration.as_secs();
     let minutes = total_seconds / 60;
     let seconds = total_seconds % 60;
-    format!("{}:{:02}", minutes, seconds)
+    format!("{minutes}:{seconds:02}")
 }
 
 fn format_date(time: SystemTime) -> String {

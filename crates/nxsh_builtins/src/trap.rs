@@ -17,7 +17,7 @@ use nxsh_core::context::ShellContext;
 
 static HANDLERS: Lazy<Mutex<HashMap<i32, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
-pub fn trap_cli(args: &[String], ctx: &mut ShellContext) -> Result<()> {
+pub fn trap_cli(args: &[String], _ctx: &mut ShellContext) -> Result<()> {
     if args.is_empty() {
         return Err(anyhow!("trap: missing arguments"));
     }
@@ -26,9 +26,10 @@ pub fn trap_cli(args: &[String], ctx: &mut ShellContext) -> Result<()> {
         return Ok(());
     }
     if args[0] == "-p" {
-        let h = HANDLERS.lock().unwrap();
+        let h = HANDLERS.lock()
+            .map_err(|e| anyhow::anyhow!("Failed to acquire trap handlers lock: {}", e))?;
         for (sig, cmd) in h.iter() {
-            println!("trap -- '{}' {}", cmd, sig);
+            println!("trap -- '{cmd}' {sig}");
         }
         return Ok(());
     }
@@ -77,12 +78,13 @@ fn list_signals() {
 }
 
 fn set_handler(sig: i32, cmd: String) -> Result<()> {
-    let mut h = HANDLERS.lock().unwrap();
+    let mut h = HANDLERS.lock()
+        .map_err(|e| anyhow::anyhow!("Failed to acquire trap handlers lock: {}", e))?;
     if !h.contains_key(&sig) {
         // register signal listener thread once per signal
         // For now, just store the signal handler without actual registration
         // as signal-hook iterator is not available
-        println!("Would register signal {} with handler: {}", sig, cmd);
+        println!("Would register signal {sig} with handler: {cmd}");
     }
     h.insert(sig, cmd);
     Ok(())

@@ -5,6 +5,7 @@
 
 use anyhow::{anyhow, Result};
 use regex::Regex;
+#[cfg(feature = "system-info")]
 use sysinfo::{ProcessExt, System, SystemExt};
 
 pub fn pgrep_cli(args: &[String]) -> Result<()> {

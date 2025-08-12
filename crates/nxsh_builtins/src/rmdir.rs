@@ -15,6 +15,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct RmdirOptions {
     pub directories: Vec<String>,
     pub ignore_fail_on_non_empty: bool,
@@ -22,16 +23,6 @@ pub struct RmdirOptions {
     pub verbose: bool,
 }
 
-impl Default for RmdirOptions {
-    fn default() -> Self {
-        Self {
-            directories: Vec::new(),
-            ignore_fail_on_non_empty: false,
-            parents: false,
-            verbose: false,
-        }
-    }
-}
 
 pub fn rmdir_cli(args: &[String]) -> Result<()> {
     let options = parse_rmdir_args(args)?;
@@ -47,7 +38,7 @@ pub fn rmdir_cli(args: &[String]) -> Result<()> {
         
         if let Err(e) = remove_directory(&path, &options) {
             if !options.ignore_fail_on_non_empty || !is_non_empty_error(&e) {
-                eprintln!("rmdir: {}", e);
+                eprintln!("rmdir: {e}");
                 exit_code = 1;
             }
         }

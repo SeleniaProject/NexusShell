@@ -1,9 +1,16 @@
-use nxsh_builtins::alias;
-use nxsh_core::context::ShellContext;
+use nxsh_builtins::alias::AliasCommand;
+use nxsh_core::{Builtin, context::ShellContext};
 
 #[test]
 fn alias_cycle_detection() {
-    let ctx = ShellContext::new();
-    alias(&["foo=bar".into()], &ctx).unwrap();
-    alias(&["bar=foo".into()], &ctx).unwrap_err();
+    let mut ctx = ShellContext::new();
+    let alias_cmd = AliasCommand;
+    
+    // First alias should succeed
+    let result1 = alias_cmd.execute(&mut ctx, &["foo=bar".into()]);
+    assert!(result1.is_ok());
+    
+    // Second alias that creates a cycle should fail
+    let result2 = alias_cmd.execute(&mut ctx, &["bar=foo".into()]);
+    assert!(result2.is_err());
 } 

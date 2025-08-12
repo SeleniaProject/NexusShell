@@ -1,0 +1,39 @@
+name: Command Status & BusyBox Size Gate
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  command-status:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate command status
+        run: |
+          rustc --edition 2021 scripts/gen_command_status.rs -o gen_cmd_status
+          ./gen_cmd_status || true
+          if [ -f COMMAND_STATUS.diff.md ]; then
+            echo 'Command status diff detected:'
+            cat COMMAND_STATUS.diff.md
+            exit 4
+          fi
+  busybox-size:
+    runs-on: ubuntu-latest
+    env:
+      NXSH_SIZE_MAX: 1500000
+      NXSH_DISABLE_UPX: 1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build busybox-min
+        run: cargo build -p nxsh_cli --no-default-features --features busybox-min --profile release-small
+      - name: Report size
+        run: |
+          RAW=$(stat -c%s target/release-small/nxsh 2>/dev/null || stat -c%s target/release-small/nxsh.exe 2>/dev/null || echo 0)
+          echo "BusyBox raw size: $RAW bytes"
+          if [ "$RAW" -gt "$NXSH_SIZE_MAX" ]; then
+            echo "Size exceeds threshold (${NXSH_SIZE_MAX})"; exit 2; fi

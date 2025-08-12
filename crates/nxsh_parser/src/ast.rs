@@ -57,6 +57,7 @@ pub enum RedirectionType {
 
 /// Main AST node type with zero-copy string references
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub enum AstNode<'src> {
     // Program structure
     Program(Vec<AstNode<'src>>),
@@ -116,14 +117,35 @@ pub enum AstNode<'src> {
         body: Box<AstNode<'src>>,
     },
     
-    // Modern control structures
+    // Modern control structures with enhanced pattern matching
     Match {
         expr: Box<AstNode<'src>>,
         arms: Vec<MatchArm<'src>>,
+        is_exhaustive: bool,
     },
+    MatchExpression {
+        expr: Box<AstNode<'src>>,
+        arms: Vec<MatchArm<'src>>,
+        default_arm: Option<Box<AstNode<'src>>>,
+    },
+    
+    // Destructuring assignment
+    DestructureAssignment {
+        pattern: Pattern<'src>,
+        value: Box<AstNode<'src>>,
+        is_local: bool,
+    },
+    
+    // Pattern-based variable binding
+    LetBinding {
+        pattern: Pattern<'src>,
+        value: Box<AstNode<'src>>,
+        is_mutable: bool,
+    },
+    
     Try {
         body: Box<AstNode<'src>>,
-        catch_clause: Option<CatchClause<'src>>,
+        catch_clauses: Vec<CatchClause<'src>>,
         finally_clause: Option<Box<AstNode<'src>>>,
     },
     
@@ -133,16 +155,37 @@ pub enum AstNode<'src> {
         params: Vec<Parameter<'src>>,
         body: Box<AstNode<'src>>,
         is_async: bool,
+    generics: Vec<&'src str>,
     },
     FunctionDeclaration {
         name: &'src str,
         params: Vec<Parameter<'src>>,
         body: Box<AstNode<'src>>,
         is_async: bool,
+    generics: Vec<&'src str>,
     },
     FunctionCall {
         name: Box<AstNode<'src>>,
         args: Vec<AstNode<'src>>,
+        is_async: bool,
+    generics: Vec<&'src str>,
+    },
+    /// Macro declaration (compile-time like expansion)
+    MacroDeclaration {
+        name: &'src str,
+        params: Vec<&'src str>,
+        body: Box<AstNode<'src>>, // Typically a StatementList / BraceGroup
+    },
+    /// Macro invocation node
+    MacroInvocation {
+        name: &'src str,
+        args: Vec<AstNode<'src>>,
+    },
+    // Anonymous closure (lambda)
+    Closure {
+        params: Vec<Parameter<'src>>,
+        body: Box<AstNode<'src>>,
+        captures: Vec<&'src str>,
         is_async: bool,
     },
     
@@ -300,6 +343,7 @@ pub enum AstNode<'src> {
     Comment(&'src str),
     
     // Special nodes
+    #[default]
     Empty,
     Error {
         message: String,
@@ -357,14 +401,30 @@ pub enum RedirectionTarget<'src> {
 impl<'src> AsRef<Path> for RedirectionTarget<'src> {
     fn as_ref(&self) -> &Path {
         match self {
-            RedirectionTarget::File(_node) => {
-                // For simplicity, assume the node contains a path string
-                // In a real implementation, this would need proper evaluation
-                Path::new("/tmp/placeholder")
+            RedirectionTarget::File(node) => {
+                // Extract file path from the AST node
+                match **node {
+                    AstNode::Word(path) => Path::new(path),
+                    AstNode::StringLiteral { value: path, .. } => Path::new(path),
+                    AstNode::Variable(_var) => {
+                        // For variables, we need runtime evaluation
+                        // Use a more descriptive temporary path
+                        Path::new("/tmp/nexus_redirect_var")
+                    },
+                    AstNode::CommandSubstitution { .. } => {
+                        // Command substitution results need runtime evaluation
+                        // Use a more descriptive temporary path
+                        Path::new("/tmp/nexus_redirect_cmd")
+                    },
+                    _ => {
+                        // Fallback for other node types - use descriptive path
+                        Path::new("/tmp/nexus_redirect_expr")
+                    }
+                }
             }
-            RedirectionTarget::FileDescriptor(_) => Path::new("/dev/null"),
+            RedirectionTarget::FileDescriptor(_fd) => Path::new("/dev/null"),
             RedirectionTarget::Close => Path::new("/dev/null"),
-            RedirectionTarget::HereDoc { .. } => Path::new("/dev/null"),
+            RedirectionTarget::HereDoc { .. } => Path::new("/tmp/heredoc"),
         }
     }
 }
@@ -567,16 +627,90 @@ pub struct ArrayElement<'src> {
     pub value: AstNode<'src>,
 }
 
-/// Patterns for matching
+/// Advanced patterns for modern pattern matching
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern<'src> {
+    // Basic patterns
     Literal(&'src str),
+    Variable(&'src str),
+    Wildcard,
+    
+    // Glob patterns
     Glob(GlobPattern<'src>),
+    
+    // Range patterns
     Range {
         start: &'src str,
         end: &'src str,
     },
+    
+    // Alternative patterns (or)
     Alternative(Vec<Pattern<'src>>),
+    
+    // Rust-like patterns
+    Tuple(Vec<Pattern<'src>>),
+    Array(Vec<Pattern<'src>>),
+    ArraySlice {
+        before: Vec<Pattern<'src>>,
+        rest: Option<Box<Pattern<'src>>>,
+        after: Vec<Pattern<'src>>,
+    },
+    Object {
+        fields: Vec<ObjectField<'src>>,
+        rest: bool, // .. pattern
+    },
+    
+    // Type-based patterns
+    Type {
+        type_name: &'src str,
+        inner: Option<Box<Pattern<'src>>>,
+    },
+    
+    // Guard patterns
+    Guard {
+        pattern: Box<Pattern<'src>>,
+        condition: Box<AstNode<'src>>,
+    },
+    
+    // Binding patterns
+    Binding {
+        name: &'src str,
+        pattern: Box<Pattern<'src>>,
+    },
+    
+    // Or-patterns (multiple patterns for same arm)
+    Or(Vec<Pattern<'src>>),
+    
+    // Reference patterns
+    Reference(Box<Pattern<'src>>),
+    
+    // Placeholder pattern
+    Placeholder, // _
+}
+
+/// Object field patterns for destructuring
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObjectField<'src> {
+    pub key: &'src str,
+    pub pattern: Option<Pattern<'src>>, // None means field: field shorthand
+    pub default: Option<AstNode<'src>>,
+}
+
+/// Pattern matching context for evaluation
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchContext<'src> {
+    pub bindings: Vec<(&'src str, AstNode<'src>)>,
+    pub matched: bool,
+    pub exhaustive: bool,
+}
+
+/// Pattern matching expression with advanced features
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchExpression<'src> {
+    pub expr: Box<AstNode<'src>>,
+    pub arms: Vec<MatchArm<'src>>,
+    pub is_exhaustive: bool,
+    pub default_arm: Option<Box<AstNode<'src>>>,
 }
 
 /// Glob patterns
@@ -718,6 +852,7 @@ impl<'src> AstNode<'src> {
             AstNode::Match { .. } |
             AstNode::Try { .. } |
             AstNode::FunctionDeclaration { .. } |
+            AstNode::MacroDeclaration { .. } |
             AstNode::VariableAssignment { .. } |
             AstNode::ArrayAssignment { .. } |
             AstNode::Return(_) |
@@ -755,6 +890,8 @@ impl<'src> AstNode<'src> {
             AstNode::NumberLiteral { .. } |
             AstNode::Array(_) |
             AstNode::FunctionCall { .. } |
+            AstNode::Closure { .. } |
+            AstNode::MacroInvocation { .. } |
             AstNode::AwaitExpression(_) |
             AstNode::YieldExpression(_)
         )
@@ -839,14 +976,14 @@ impl BinaryOperator {
 impl fmt::Display for AstNode<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            AstNode::Word(s) => write!(f, "{}", s),
-            AstNode::StringLiteral { value, .. } => write!(f, "\"{}\"", value),
-            AstNode::NumberLiteral { value, .. } => write!(f, "{}", value),
-            AstNode::VariableExpansion { name, .. } => write!(f, "${}", name),
+            AstNode::Word(s) => write!(f, "{s}"),
+            AstNode::StringLiteral { value, .. } => write!(f, "\"{value}\""),
+            AstNode::NumberLiteral { value, .. } => write!(f, "{value}"),
+            AstNode::VariableExpansion { name, .. } => write!(f, "${name}"),
             AstNode::Command { name, args, .. } => {
-                write!(f, "{}", name)?;
+                write!(f, "{name}")?;
                 for arg in args {
-                    write!(f, " {}", arg)?;
+                    write!(f, " {arg}")?;
                 }
                 Ok(())
             }
@@ -855,17 +992,13 @@ impl fmt::Display for AstNode<'_> {
                     if i > 0 {
                         write!(f, " | ")?;
                     }
-                    write!(f, "{}", element)?;
+                    write!(f, "{element}")?;
                 }
                 Ok(())
             }
-            _ => write!(f, "{:?}", self),
+            _ => write!(f, "{self:?}"),
         }
     }
 }
 
-impl Default for AstNode<'_> {
-    fn default() -> Self {
-        AstNode::Empty
-    }
-} 
+ 

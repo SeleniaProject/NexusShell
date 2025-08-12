@@ -43,11 +43,11 @@ pub fn tr_cli(args: &[String]) -> Result<()> {
     }
     // Pad set2 to match set1 length using last char of set2
     if set2.len() < set1.len() {
-        let last = *set2.last().unwrap();
+        let last = *set2.last().unwrap_or(&' '); // Use space as default if set2 is empty
         set2.resize(set1.len(), last);
     }
 
-    let map: HashMap<char, char> = set1.into_iter().zip(set2.into_iter()).collect();
+    let map: HashMap<char, char> = set1.into_iter().zip(set2).collect();
     process_translate(map)?;
     Ok(())
 }
@@ -133,7 +133,7 @@ mod tests {
 
     #[test]
     fn expand_range() {
-        let v = expand_set("a-c").unwrap();
+        let v = expand_set("a-c").expect("Failed to expand character range");
         assert_eq!(v, vec!['a','b','c']);
     }
 } 

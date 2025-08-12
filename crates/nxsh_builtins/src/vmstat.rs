@@ -6,6 +6,7 @@
 //! Future work: support periodic output and additional metrics (io, system, procs).
 
 use anyhow::Result;
+#[cfg(feature = "system-info")]
 use sysinfo::{CpuExt, System, SystemExt};
 
 pub fn vmstat_cli(_args: &[String]) -> Result<()> {

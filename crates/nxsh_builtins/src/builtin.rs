@@ -20,11 +20,11 @@ pub fn builtin_cli(args: &[String]) -> Result<()> {
     match cmd.as_str() {
         "bg" => {
             // bg [JOBID]
-            let id = rest.get(0).and_then(|s| s.parse::<u32>().ok());
-            crate::bg(id)
+            let _id = rest.first().and_then(|s| s.parse::<u32>().ok());
+            crate::bg::bg_cli(&rest)
         }
-        "bind" => crate::bind(&rest),
-        "break" => crate::break_cmd(&rest),
+        "bind" => crate::bind::bind_cli(&rest),
+        "break" => crate::break_builtin::break_cli(&rest),
         _ => Err(anyhow!("builtin: unsupported command '{}'.", cmd)),
     }
 }

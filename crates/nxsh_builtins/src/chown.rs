@@ -31,12 +31,12 @@ pub fn chown_cli(args: &[String]) -> Result<()> {
     let mut split = owner_spec.split(':');
     let uid_str = split.next().unwrap();
     let gid_str = split.next();
-    let uid: u32 = uid_str.parse().map_err(|_| anyhow!("chown: fallback expects numeric UID"))?;
-    let gid: i32 = if let Some(gid_s) = gid_str {
+    let _uid: u32 = uid_str.parse().map_err(|_| anyhow!("chown: fallback expects numeric UID"))?;
+    let _gid: i32 = if let Some(gid_s) = gid_str {
         gid_s.parse().map_err(|_| anyhow!("chown: fallback expects numeric GID"))?
     } else {
         -1
-    } as i32;
+    };
 
     for file in &args[1..] {
         let path = Path::new(file);
@@ -49,7 +49,7 @@ pub fn chown_cli(args: &[String]) -> Result<()> {
         // For now, we'll provide a warning that this operation is not supported
         #[cfg(windows)]
         {
-            eprintln!("chown: ownership change not supported on Windows - operation skipped for '{}'", file);
+            eprintln!("chown: ownership change not supported on Windows - operation skipped for '{file}'");
         }
         
         #[cfg(unix)]

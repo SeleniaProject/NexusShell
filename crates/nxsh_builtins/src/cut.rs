@@ -21,7 +21,7 @@ pub fn cut_cli(args: &[String]) -> Result<()> {
     }
     let mut idx = 0;
     let mut fields_spec = None::<String>;
-    let mut delim = '\t' as u8; // default TAB
+    let mut delim = b'\t'; // default TAB
 
     while idx < args.len() {
         match args[idx].as_str() {
@@ -115,13 +115,13 @@ fn parse_field_list(spec: &str) -> Result<Vec<(usize, usize)>> {
 }
 
 fn unescape(s: &str) -> Result<String> {
-    if s.starts_with('\\') {
-        match &s[1..] {
-            "n" => Ok("\n".to_string()),
-            "t" => Ok("\t".to_string()),
-            "r" => Ok("\r".to_string()),
-            _ => Ok(s[1..].to_string()),
-        }
+    if let Some(rest) = s.strip_prefix('\\') {
+        Ok(match rest {
+            "n" => "\n".to_string(),
+            "t" => "\t".to_string(),
+            "r" => "\r".to_string(),
+            _ => rest.to_string(),
+        })
     } else {
         Ok(s.to_string())
     }

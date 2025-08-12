@@ -53,21 +53,33 @@ struct CopyOptions {
     show_progress: bool,
 }
 
+// In super-min (size focused) build we compile a synchronous version to avoid pulling async runtime.
+#[cfg(feature = "super-min")]
+pub fn cp_cli(args: &[String]) -> Result<()> {
+    cp_impl(args)
+}
+
+// Default (non super-min) build keeps async for potential future async optimizations;
+// we keep the original signature but internally call the same sync implementation to
+// simplify and allow gating out Tokio entirely when async-runtime feature is absent.
+#[cfg(not(feature = "super-min"))]
 pub async fn cp_cli(args: &[String]) -> Result<()> {
+    cp_impl(args)
+}
+
+// Shared implementation (pure synchronous) used by both variants.
+fn cp_impl(args: &[String]) -> Result<()> {
     if args.is_empty() {
         return Err(anyhow!("cp: missing operands"));
     }
 
     let mut options = CopyOptions::default();
-    let mut sources = Vec::new();
-    let mut destination = None;
-    
-    let mut i = 0;
-    while i < args.len() {
-        let arg = &args[i];
-        
+    // First collect all non-flag operands, then validate count and split into sources/destination
+    let mut operands: Vec<String> = Vec::new();
+
+    for arg in args {
         if arg.starts_with('-') && arg.len() > 1 {
-            // Parse flags
+            // Parse short flags possibly combined (e.g., -rpv)
             for ch in arg.chars().skip(1) {
                 match ch {
                     'r' | 'R' => options.recursive = true,
@@ -77,22 +89,22 @@ pub async fn cp_cli(args: &[String]) -> Result<()> {
                 }
             }
         } else {
-            // This is a source or destination
-            if i == args.len() - 1 {
-                // Last argument is destination
-                destination = Some(arg.clone());
-            } else {
-                sources.push(arg.clone());
-            }
+            operands.push(arg.clone());
         }
-        i += 1;
     }
 
-    if sources.is_empty() {
+    if operands.is_empty() {
         return Err(anyhow!("cp: missing file operand"));
     }
+
+    if operands.len() == 1 {
+        return Err(anyhow!("cp: missing destination file operand"));
+    }
+
+    // Split operands into sources and destination
+    let destination = operands.last().cloned().unwrap();
+    let sources = operands[..operands.len() - 1].to_vec();
     
-    let destination = destination.ok_or_else(|| anyhow!("cp: missing destination file operand"))?;
     let dst_path = PathBuf::from(&destination);
 
     // Check if destination should be a directory when copying multiple sources
@@ -432,6 +444,7 @@ fn set_file_times(path: &Path, accessed: SystemTime, modified: SystemTime) -> Re
 
         // Note: Windows timestamp setting is more complex and would require additional Win32 API calls
         // For now, we'll just log that we attempted to preserve timestamps
+        let _ = (&accessed, &modified, &file); // silence unused vars on windows until implemented
         debug!("Timestamp preservation on Windows is limited for: {}", path.display());
     }
 
@@ -445,6 +458,12 @@ mod tests {
     use std::io::Write;
     use std::fs::File;
 
+    // Helper to invoke cp_cli in both async (non super-min) and sync (super-min) modes
+    #[cfg(not(feature = "super-min"))]
+    async fn run(args: &[String]) -> Result<()> { cp_cli(args).await }
+    #[cfg(feature = "super-min")]
+    fn run(args: &[String]) -> Result<()> { cp_cli(args) }
+
     #[tokio::test]
     async fn copy_single_file() {
         let dir = tempdir().unwrap();
@@ -454,7 +473,7 @@ mod tests {
         let mut f = File::create(&src).unwrap();
         writeln!(f, "hello world").unwrap();
         
-        cp_cli(&[src.to_string_lossy().into(), dst.to_string_lossy().into()]).await.unwrap();
+    run(&[src.to_string_lossy().into(), dst.to_string_lossy().into()]).await.unwrap();
         
         assert!(dst.exists());
         let content = fs::read_to_string(&dst).unwrap();
@@ -471,7 +490,7 @@ mod tests {
         writeln!(f, "test content").unwrap();
         
         // Copy with preserve flag
-        cp_cli(&["-p".to_string(), src.to_string_lossy().into(), dst.to_string_lossy().into()]).await.unwrap();
+    run(&["-p".to_string(), src.to_string_lossy().into(), dst.to_string_lossy().into()]).await.unwrap();
         
         assert!(dst.exists());
         let content = fs::read_to_string(&dst).unwrap();
@@ -509,7 +528,7 @@ mod tests {
         writeln!(f2, "content2").unwrap();
         
         // Copy recursively
-        cp_cli(&["-r".to_string(), src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]).await.unwrap();
+    run(&["-r".to_string(), src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]).await.unwrap();
         
         // Verify structure was copied
         assert!(dst_dir.exists());
@@ -534,7 +553,7 @@ mod tests {
         fs::create_dir_all(&src_dir).unwrap();
         
         // Should fail without -r flag
-        let result = cp_cli(&[src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]).await;
+    let result = run(&[src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("-r not specified"));
     }
@@ -555,11 +574,11 @@ mod tests {
         writeln!(f2, "content2").unwrap();
         
         // Copy multiple files to directory
-        cp_cli(&[
+    run(&[
             file1.to_string_lossy().into(),
             file2.to_string_lossy().into(),
             dst_dir.to_string_lossy().into()
-        ]).await.unwrap();
+    ]).await.unwrap();
         
         // Verify both files were copied
         assert!(dst_dir.join("file1.txt").exists());
@@ -578,7 +597,7 @@ mod tests {
         let nonexistent = dir.path().join("nonexistent.txt");
         let dst = dir.path().join("destination.txt");
         
-        let result = cp_cli(&[nonexistent.to_string_lossy().into(), dst.to_string_lossy().into()]).await;
+    let result = run(&[nonexistent.to_string_lossy().into(), dst.to_string_lossy().into()]).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("No such file or directory"));
     }
@@ -594,7 +613,7 @@ mod tests {
         
         // This test mainly ensures the verbose flag is parsed correctly
         // In a real implementation, we'd capture log output to verify verbose messages
-        cp_cli(&["-v".to_string(), src.to_string_lossy().into(), dst.to_string_lossy().into()]).await.unwrap();
+    run(&["-v".to_string(), src.to_string_lossy().into(), dst.to_string_lossy().into()]).await.unwrap();
         
         assert!(dst.exists());
     }
@@ -610,7 +629,7 @@ mod tests {
         writeln!(f, "test content").unwrap();
         
         // Test combined flags -rpv
-        cp_cli(&["-rpv".to_string(), src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]).await.unwrap();
+    run(&["-rpv".to_string(), src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]).await.unwrap();
         
         assert!(dst_dir.exists());
         assert!(dst_dir.join("test.txt").exists());
@@ -628,14 +647,14 @@ mod tests {
         let mut f = File::create(&src).unwrap();
         writeln!(f, "test").unwrap();
         
-        let result = cp_cli(&["-x".to_string(), src.to_string_lossy().into(), dst.to_string_lossy().into()]).await;
+    let result = run(&["-x".to_string(), src.to_string_lossy().into(), dst.to_string_lossy().into()]).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("invalid option"));
     }
 
     #[tokio::test]
     async fn missing_operands_fails() {
-        let result = cp_cli(&[]).await;
+        let result = run(&[]).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("missing operands"));
     }
@@ -647,7 +666,7 @@ mod tests {
         let mut f = File::create(&src).unwrap();
         writeln!(f, "test").unwrap();
         
-        let result = cp_cli(&[src.to_string_lossy().into()]).await;
+    let result = run(&[src.to_string_lossy().into()]).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("missing destination"));
     }
@@ -674,7 +693,7 @@ mod tests {
         let link_in_src = src_dir.join("link.txt");
         std::os::unix::fs::symlink(&target, &link_in_src).unwrap();
         
-        cp_cli(&["-r".to_string(), src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]).await.unwrap();
+    run(&["-r".to_string(), src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]).await.unwrap();
         
         let copied_link = dst_dir.join("source").join("link.txt");
         assert!(copied_link.exists());

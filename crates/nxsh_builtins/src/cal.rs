@@ -19,6 +19,12 @@ pub struct CalendarManager {
     locale: String,
 }
 
+impl Default for CalendarManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CalendarManager {
     pub fn new() -> Self {
         let locale = env::var("LANG")
@@ -70,13 +76,13 @@ impl CalendarManager {
         if args.len() == 1 {
             // Try to parse as year
             if let Ok(year) = args[0].parse::<i32>() {
-                if year >= 1 && year <= 9999 {
+                if (1..=9999).contains(&year) {
                     return Ok((current_month, year));
                 }
             }
             // Try to parse as month
             if let Ok(month) = args[0].parse::<u32>() {
-                if month >= 1 && month <= 12 {
+                if (1..=12).contains(&month) {
                     return Ok((month, current_year));
                 }
             }
@@ -100,17 +106,17 @@ impl CalendarManager {
                 )
             })?;
 
-            if month < 1 || month > 12 {
+            if !(1..=12).contains(&month) {
                 return Err(ShellError::new(
                     ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
-                    format!("Month must be between 1 and 12, got: {}", month),
+                    format!("Month must be between 1 and 12, got: {month}"),
                 ));
             }
 
-            if year < 1 || year > 9999 {
+            if !(1..=9999).contains(&year) {
                 return Err(ShellError::new(
                     ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
-                    format!("Year must be between 1 and 9999, got: {}", year),
+                    format!("Year must be between 1 and 9999, got: {year}"),
                 ));
             }
 
@@ -128,7 +134,7 @@ impl CalendarManager {
 
         // Header with month and year
         let month_name = self.get_month_name(month)?;
-        let header = format!("    {} {}    ", month_name, year);
+        let header = format!("    {month_name} {year}    ");
         output.push_str(&header);
         output.push('\n');
 
@@ -140,7 +146,7 @@ impl CalendarManager {
         let first_day = NaiveDate::from_ymd_opt(year, month, 1)
             .ok_or_else(|| ShellError::new(
                 ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
-                format!("Invalid date: {}/{}", month, year),
+                format!("Invalid date: {month}/{year}"),
             ))?;
 
         // Get number of days in month
@@ -160,12 +166,12 @@ impl CalendarManager {
                 if (week == 0 && weekday < start_pos) || day > days_in_month {
                     week_line.push_str("   ");
                 } else {
-                    week_line.push_str(&format!("{:2} ", day));
+                    week_line.push_str(&format!("{day:2} "));
                     day += 1;
                 }
             }
 
-            output.push_str(&week_line.trim_end());
+            output.push_str(week_line.trim_end());
             output.push('\n');
             week += 1;
         }
@@ -179,12 +185,12 @@ impl CalendarManager {
             "July", "August", "September", "October", "November", "December"
         ];
 
-        if month >= 1 && month <= 12 {
+        if (1..=12).contains(&month) {
             Ok(month_names[month as usize - 1])
         } else {
             Err(ShellError::new(
                 ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
-                format!("Invalid month: {}", month),
+                format!("Invalid month: {month}"),
             ))
         }
     }
@@ -202,7 +208,7 @@ impl CalendarManager {
             }
             _ => Err(ShellError::new(
                 ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
-                format!("Invalid month: {}", month),
+                format!("Invalid month: {month}"),
             )),
         }
     }

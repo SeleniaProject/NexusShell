@@ -1,4 +1,4 @@
-use anyhow::{Result, Context};
+use anyhow::{Result, anyhow};
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -7,9 +7,189 @@ use std::{
 };
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
-use log::{info, warn, error, debug};
+use log::{info, debug};
 
-use crate::{PluginMetadata, PluginError, security::SandboxContext};
+use crate::{PluginMetadata, PluginError};
+
+/// Plugin permissions structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
+pub struct PluginPermissions {
+    /// File system permissions
+    pub filesystem: FilesystemPermissions,
+    /// Network permissions
+    pub network: NetworkPermissions,
+    /// Environment variable permissions
+    pub environment: EnvironmentPermissions,
+    /// System command permissions
+    pub system_commands: SystemCommandPermissions,
+}
+
+/// Filesystem permissions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
+pub struct FilesystemPermissions {
+    /// Allowed read paths
+    pub read_paths: HashSet<String>,
+    /// Allowed write paths
+    pub write_paths: HashSet<String>,
+    /// Whether to allow reading from home directory
+    pub allow_home_read: bool,
+    /// Whether to allow writing to home directory
+    pub allow_home_write: bool,
+}
+
+/// Network permissions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
+pub struct NetworkPermissions {
+    /// Allowed hosts for outbound connections
+    pub allowed_hosts: HashSet<String>,
+    /// Allowed ports for outbound connections
+    pub allowed_ports: HashSet<u16>,
+    /// Whether to allow localhost connections
+    pub allow_localhost: bool,
+    /// Whether to allow any outbound connections
+    pub allow_outbound: bool,
+}
+
+/// Environment variable permissions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
+pub struct EnvironmentPermissions {
+    /// Allowed environment variables to read
+    pub read_vars: HashSet<String>,
+    /// Allowed environment variables to write
+    pub write_vars: HashSet<String>,
+    /// Whether to allow reading all environment variables
+    pub allow_read_all: bool,
+}
+
+/// System command permissions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
+pub struct SystemCommandPermissions {
+    /// Allowed commands
+    pub allowed_commands: HashSet<String>,
+    /// Whether to allow any command execution
+    pub allow_all: bool,
+}
+
+
+
+
+
+
+impl PluginPermissions {
+    /// Create a new permissions structure with default (restrictive) settings
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create restrictive permissions (no access to anything)
+    pub fn restrictive() -> Self {
+        Self::default()
+    }
+
+    /// Create permissive permissions for trusted plugins
+    pub fn permissive() -> Self {
+        let mut read_paths = HashSet::new();
+        read_paths.insert("/tmp".to_string());
+        read_paths.insert("./".to_string());
+
+        let mut allowed_hosts = HashSet::new();
+        allowed_hosts.insert("api.github.com".to_string());
+
+        let mut read_vars = HashSet::new();
+        read_vars.insert("PATH".to_string());
+        read_vars.insert("HOME".to_string());
+
+        Self {
+            filesystem: FilesystemPermissions {
+                read_paths,
+                write_paths: HashSet::new(),
+                allow_home_read: true,
+                allow_home_write: false,
+            },
+            network: NetworkPermissions {
+                allowed_hosts,
+                allowed_ports: HashSet::new(),
+                allow_localhost: true,
+                allow_outbound: false,
+            },
+            environment: EnvironmentPermissions {
+                read_vars,
+                write_vars: HashSet::new(),
+                allow_read_all: false,
+            },
+            system_commands: SystemCommandPermissions {
+                allowed_commands: HashSet::new(),
+                allow_all: false,
+            },
+        }
+    }
+
+    /// Check if filesystem access is allowed
+    pub fn check_filesystem_access(&self, path: &str, write: bool) -> Result<()> {
+        let in_allowed_write = self.filesystem.write_paths.iter().any(|p| path.starts_with(p))
+            || (self.filesystem.allow_home_write && path.starts_with("~"));
+        let in_allowed_read = self.filesystem.read_paths.iter().any(|p| path.starts_with(p))
+            || (self.filesystem.allow_home_read && path.starts_with("~"));
+
+        if write {
+            if in_allowed_write { return Ok(()); }
+            return Err(anyhow!("Write access to '{}' denied", path));
+        }
+        if in_allowed_read { return Ok(()); }
+        Err(anyhow!("Read access to '{}' denied", path))
+    }
+
+    /// Check if network access is allowed
+    pub fn check_network_access(&self, host: &str, port: u16) -> Result<()> {
+        if !self.network.allow_outbound {
+            return Err(anyhow!("Outbound network access denied"));
+        }
+
+        if host == "localhost" || host == "127.0.0.1" {
+            if !self.network.allow_localhost {
+                return Err(anyhow!("Localhost access denied"));
+            }
+        } else if !self.network.allowed_hosts.is_empty()
+            && !self.network.allowed_hosts.contains(host) {
+                return Err(anyhow!("Access to host '{}' denied", host));
+            }
+
+        if !self.network.allowed_ports.is_empty() && !self.network.allowed_ports.contains(&port) {
+            return Err(anyhow!("Access to port {} denied", port));
+        }
+
+        Ok(())
+    }
+
+    /// Check if environment variable access is allowed
+    pub fn check_env_access(&self, var_name: &str, write: bool) -> Result<()> {
+        if write {
+            if self.environment.write_vars.contains(var_name) {
+                Ok(())
+            } else {
+                Err(anyhow!("Write access to environment variable '{}' denied", var_name))
+            }
+        } else if self.environment.allow_read_all || self.environment.read_vars.contains(var_name) {
+            Ok(())
+        } else {
+            Err(anyhow!("Read access to environment variable '{}' denied", var_name))
+        }
+    }
+
+    /// Check if command execution is allowed
+    pub fn check_command_access(&self, command: &str) -> Result<()> {
+        if self.system_commands.allow_all || self.system_commands.allowed_commands.contains(command) {
+                Ok(())
+        } else {
+                Err(anyhow!("Execution of command '{}' denied", command))
+        }
+    }
+}
 
 /// Permission management system for plugins
 pub struct PermissionManager {
@@ -56,7 +236,7 @@ impl PermissionManager {
         metadata: &PluginMetadata,
         requested_capabilities: &[String],
     ) -> Result<ExecutionContext, PluginError> {
-        debug!("Creating execution context for plugin '{}'", plugin_id);
+        debug!("Creating execution context for plugin '{plugin_id}'");
         
         // Get permission policy for plugin
         let policy = self.get_permission_policy(plugin_id, metadata).await?;
@@ -110,13 +290,13 @@ impl PermissionManager {
         plugin_id: &str,
         operation: &PermissionOperation,
     ) -> Result<PermissionResult, PluginError> {
-        debug!("Checking permission for plugin '{}': {:?}", plugin_id, operation);
+        debug!("Checking permission for plugin '{plugin_id}': {operation:?}");
         
         // Get active permissions
         let active_permissions = self.active_permissions.read().await;
         let permission_set = active_permissions.get(plugin_id)
             .ok_or_else(|| PluginError::SecurityError(
-                format!("No active permissions for plugin '{}'", plugin_id)
+                format!("No active permissions for plugin '{plugin_id}'")
             ))?;
         
         // Check if permissions have expired
@@ -150,7 +330,7 @@ impl PermissionManager {
     
     /// Revoke permissions for a plugin
     pub async fn revoke_permissions(&self, plugin_id: &str, reason: String) -> Result<()> {
-        debug!("Revoking permissions for plugin '{}'", plugin_id);
+        debug!("Revoking permissions for plugin '{plugin_id}'");
         
         let mut active = self.active_permissions.write().await;
         if active.remove(plugin_id).is_some() {
@@ -161,7 +341,7 @@ impl PermissionManager {
                 reason,
             ).await;
             
-            info!("Revoked permissions for plugin '{}'", plugin_id);
+            info!("Revoked permissions for plugin '{plugin_id}'");
         }
         
         Ok(())
@@ -186,7 +366,7 @@ impl PermissionManager {
             format!("Updated to policy level: {:?}", policy.trust_level),
         ).await;
         
-        info!("Updated permission policy for plugin '{}'", plugin_id);
+        info!("Updated permission policy for plugin '{plugin_id}'");
         Ok(())
     }
     
@@ -196,7 +376,7 @@ impl PermissionManager {
         plugin_id: &str,
         context: &ExecutionContext,
     ) -> Result<CapabilitySandbox> {
-        debug!("Creating capability sandbox for plugin '{}'", plugin_id);
+        debug!("Creating capability sandbox for plugin '{plugin_id}'");
         
         let sandbox = CapabilitySandbox {
             plugin_id: plugin_id.to_string(),
@@ -208,7 +388,7 @@ impl PermissionManager {
             created_at: SystemTime::now(),
         };
         
-        info!("Created capability sandbox for plugin '{}'", plugin_id);
+        info!("Created capability sandbox for plugin '{plugin_id}'");
         Ok(sandbox)
     }
     
@@ -250,7 +430,7 @@ impl PermissionManager {
         
         let count = expired_plugins.len();
         if count > 0 {
-            info!("Cleaned up {} expired permission sessions", count);
+            info!("Cleaned up {count} expired permission sessions");
         }
         
         Ok(count)
@@ -308,7 +488,7 @@ impl PermissionManager {
             // Check if capability exists
             if !capability_defs.contains_key(capability) {
                 return Err(PluginError::SecurityError(
-                    format!("Unknown capability: {}", capability)
+                    format!("Unknown capability: {capability}")
                 ));
             }
             
@@ -894,6 +1074,7 @@ impl Default for PermissionConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     
     #[tokio::test]
     async fn test_permission_manager_creation() {
@@ -918,6 +1099,7 @@ mod tests {
             categories: vec![],
             dependencies: HashMap::new(),
             capabilities: vec!["file_read".to_string()],
+            exports: vec![],
             min_nexus_version: "0.1.0".to_string(),
             max_nexus_version: None,
         };
@@ -949,6 +1131,7 @@ mod tests {
             categories: vec![],
             dependencies: HashMap::new(),
             capabilities: vec!["file_read".to_string()],
+            exports: vec![],
             min_nexus_version: "0.1.0".to_string(),
             max_nexus_version: None,
         };

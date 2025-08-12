@@ -169,7 +169,7 @@ fn parse_uniq_args(args: &[String]) -> ShellResult<UniqOptions> {
                         'u' => options.unique = true,
                         'i' => options.ignore_case = true,
                         'z' => options.zero_terminated = true,
-                        _ => return Err(runtime_error(&format!("Unknown option: -{}", ch))),
+                        _ => return Err(runtime_error(&format!("Unknown option: -{ch}"))),
                     }
                 }
             }
@@ -196,7 +196,7 @@ fn process_uniq(options: &UniqOptions) -> ShellResult<()> {
     // Open input
     let input: Box<dyn BufRead> = if let Some(ref input_file) = options.input_file {
         let file = File::open(input_file)
-            .map_err(|e| io_error(&format!("Cannot open {}: {}", input_file, e)))?;
+            .map_err(|e| io_error(&format!("Cannot open {input_file}: {e}")))?;
         Box::new(BufReader::new(file))
     } else {
         Box::new(std::io::stdin().lock())
@@ -205,7 +205,7 @@ fn process_uniq(options: &UniqOptions) -> ShellResult<()> {
     // Open output
     let output: Box<dyn Write> = if let Some(ref output_file) = options.output_file {
         let file = File::create(output_file)
-            .map_err(|e| io_error(&format!("Cannot create {}: {}", output_file, e)))?;
+            .map_err(|e| io_error(&format!("Cannot create {output_file}: {e}")))?;
         Box::new(BufWriter::new(file))
     } else {
         Box::new(std::io::stdout())
@@ -325,9 +325,7 @@ fn process_group<W: Write>(
     // Determine if we should output this group
     let should_output = if options.unique {
         is_unique
-    } else if options.repeated {
-        is_duplicate
-    } else if options.all_repeated {
+    } else if options.repeated || options.all_repeated {
         is_duplicate
     } else {
         true // Default: output all groups (but only one line per group)
@@ -342,9 +340,9 @@ fn process_group<W: Write>(
         // Output all lines in the group
         for (i, line) in group_lines.iter().enumerate() {
             if options.count {
-                write!(writer, "{:7} {}", count, line)?;
+                write!(writer, "{count:7} {line}")?;
             } else {
-                write!(writer, "{}", line)?;
+                write!(writer, "{line}")?;
             }
             writer.write_all(&[separator])?;
             
@@ -358,9 +356,9 @@ fn process_group<W: Write>(
         let line = &group_lines[0];
         
         if options.count {
-            write!(writer, "{:7} {}", count, line)?;
+            write!(writer, "{count:7} {line}")?;
         } else {
-            write!(writer, "{}", line)?;
+            write!(writer, "{line}")?;
         }
         writer.write_all(&[separator])?;
         
@@ -371,6 +369,15 @@ fn process_group<W: Write>(
     }
 
     Ok(())
+}
+
+/// CLI wrapper function for uniq command
+pub fn uniq_cli(args: &[String]) -> anyhow::Result<()> {
+    let options = parse_uniq_args(args).unwrap();
+    match process_uniq(&options) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(anyhow::anyhow!("uniq command failed: {}", e)),
+    }
 }
 
 #[cfg(test)]

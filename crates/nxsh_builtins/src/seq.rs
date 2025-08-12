@@ -105,7 +105,7 @@ pub fn seq_cli(args: &[String]) -> Result<()> {
     }
 
     if !output.is_empty() {
-        println!("{}", output);
+        println!("{output}");
     }
 
     Ok(())
@@ -116,22 +116,22 @@ fn format_number(num: f64, format: &str) -> String {
     match format {
         "%g" | "%G" => {
             if num.fract() == 0.0 && num.abs() < 1e15 {
-                format!("{:.0}", num)
+                format!("{num:.0}")
             } else {
-                format!("{}", num)
+                format!("{num}")
             }
         }
-        "%f" => format!("{:.6}", num),
-        "%e" => format!("{:e}", num),
-        "%E" => format!("{:E}", num),
+        "%f" => format!("{num:.6}"),
+        "%e" => format!("{num:e}"),
+        "%E" => format!("{num:E}"),
         _ => {
             // Try to parse custom format like "%.2f"
             if format.starts_with("%.") && format.ends_with('f') {
                 if let Ok(precision) = format[2..format.len()-1].parse::<usize>() {
-                    return format!("{:.1$}", num, precision);
+                    return format!("{num:.precision$}");
                 }
             }
-            format!("{}", num)
+            format!("{num}")
         }
     }
 }

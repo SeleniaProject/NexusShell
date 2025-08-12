@@ -38,7 +38,7 @@ pub fn getopts_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
 
     ctx.set_var(name, opt_char.to_string());
     // option argument if required
-    if optstr.contains(&format!("{}:", opt_char)) {
+    if optstr.contains(&format!("{opt_char}:")) {
         if current.len() > 2 {
             ctx.set_var("OPTARG", current[2..].to_string());
         } else if optind < argv.len() {

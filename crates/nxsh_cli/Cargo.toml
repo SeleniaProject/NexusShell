@@ -7,11 +7,63 @@ edition = "2021"
 name = "nxsh"
 path = "src/main.rs"
 
+[features]
+# Standard shell build: UI + PowerShell aliases + full core + full builtins feature bundle
+default = ["ui", "powershell-aliases", "core-full", "builtins-full", "cli-args", "async-runtime"]
+ui = ["dep:nxsh_ui"]
+powershell-aliases = []
+cli-args = ["dep:clap"]
+async-runtime = ["dep:tokio"]
+
+# Forwarding features into nxsh_core / nxsh_builtins
+core-full = ["nxsh_core/full"]
+core-busybox = ["nxsh_core/busybox_min"]
+builtins-full = ["nxsh_builtins/full"]
+builtins-min-compression = ["nxsh_builtins/minimal-compression"]
+builtins-minimal = ["nxsh_builtins/minimal"]
+builtins-super-min = ["nxsh_builtins/super-min"]
+
+# Plugin system features
+plugin-minimal = ["dep:nxsh_plugin", "nxsh_plugin/minimal"]
+plugin-secure = ["dep:nxsh_plugin", "nxsh_plugin/secure"]
+plugin-dev = ["dep:nxsh_plugin", "nxsh_plugin/dev"]
+
+# BusyBox minimal: no UI, slim core, builtins minimal (no default features)
+# Build example:
+#   cargo build -p nxsh_cli --no-default-features --features busybox-min --profile release-small
+busybox-min = ["powershell-aliases", "core-busybox", "builtins-min-compression", "builtins-super-min", "minimal-logging"]
+
+# BusyBox maximum feature single-binary build (still omits UI for TTY/embedded use, but enables nearly all subsystems)
+# Usage:
+#   cargo build -p nxsh_cli --no-default-features --features busybox-max --profile release-small
+# Includes: full core + full builtins + async runtime + CLI args + logging JSON + metrics + plugins.
+busybox-max = [
+	"powershell-aliases",
+	"core-full",
+	"builtins-full",
+	"cli-args",
+	"async-runtime",
+	"logging-json",
+	"metrics",
+	"plugin-secure"
+]
+
+# Optional advanced observability (kept separate; do not include in busybox-min)
+logging-json = []
+metrics = []
+# Pass-through lightweight logging disable switch
+minimal-logging = ["nxsh_core/minimal-logging", "nxsh_builtins/minimal-logging"]
+logging = ["nxsh_core/logging", "nxsh_builtins/logging"]
+
 [dependencies]
-clap = { version = "4", features = ["derive"] }
-nxsh_core = { path = "../nxsh_core" }
+clap = { version = "4", features = ["derive"], optional = true }
+nxsh_core = { path = "../nxsh_core", default-features = false }
 nxsh_parser = { path = "../nxsh_parser" }
 anyhow = "1"
-nxsh_ui = { path = "../nxsh_ui" }
-tokio = { version = "1", features = ["rt"] }
+nxsh_ui = { path = "../nxsh_ui", optional = true }
+tokio = { version = "1", features = ["rt"], optional = true }
 crossterm = "0.27" 
+lazy_static = "1.4"
+once_cell = "1.19"
+nxsh_builtins = { path = "../nxsh_builtins", default-features = false }
+nxsh_plugin = { path = "../nxsh_plugin", default-features = false, optional = true }

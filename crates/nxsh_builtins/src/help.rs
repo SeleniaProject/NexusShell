@@ -34,7 +34,7 @@ pub struct ExampleHelp {
 }
 
 /// Main help CLI entry point
-pub fn help_cli(ctx: &mut Context, args: &[String]) -> Result<ExecutionResult> {
+pub fn help_cli(_ctx: &mut Context, args: &[String]) -> Result<ExecutionResult> {
     // Initialize the help system with all available commands
     let help_map = initialize_help_map();
     
@@ -49,7 +49,7 @@ pub fn help_cli(ctx: &mut Context, args: &[String]) -> Result<ExecutionResult> {
             if let Some(help) = help_map.get(command) {
                 show_command_help(help);
             } else {
-                eprintln!("help: no help available for '{}'", command);
+                eprintln!("help: no help available for '{command}'");
                 show_available_commands(&help_map);
                 return Ok(ExecutionResult::success(1));
             }
@@ -126,6 +126,23 @@ fn initialize_help_map() -> HashMap<String, CommandHelp> {
         see_also: vec!["find".to_string(), "stat".to_string()],
     });
     
+    // Add help for logstats
+    help_map.insert("logstats".to_string(), CommandHelp {
+        name: "logstats".to_string(),
+        summary: "Display logging statistics and rates".to_string(),
+        description: "Display metrics from the structured logging subsystem. Supports plain text and JSON output, and computes rate metrics using a persisted snapshot.".to_string(),
+        usage: "logstats [--json|--pretty]".to_string(),
+        options: vec![
+            OptionHelp { short: None, long: "--json".to_string(), description: "Output metrics as a compact JSON object".to_string(), value_type: None },
+            OptionHelp { short: None, long: "--pretty".to_string(), description: "Output metrics as pretty-printed JSON".to_string(), value_type: None },
+        ],
+        examples: vec![
+            ExampleHelp { command: "logstats".to_string(), description: "Print metrics as key:value lines".to_string() },
+            ExampleHelp { command: "logstats --json".to_string(), description: "Print metrics as JSON (machine-readable)".to_string() },
+        ],
+        see_also: vec!["update".to_string()],
+    });
+    
     // Add basic help for other common commands
     let common_commands = [
         ("cd", "Change directory"),
@@ -153,6 +170,7 @@ fn initialize_help_map() -> HashMap<String, CommandHelp> {
         ("history", "Command history"),
         ("jobs", "Display active jobs"),
         ("exit", "Exit the shell"),
+        ("logstats", "Display logging statistics and rates"),
     ];
     
     for (cmd, summary) in &common_commands {
@@ -160,7 +178,7 @@ fn initialize_help_map() -> HashMap<String, CommandHelp> {
             name: cmd.to_string(),
             summary: summary.to_string(),
             description: format!("The {} command {}.", cmd, summary.to_lowercase()),
-            usage: format!("{} [OPTION]... [ARG]...", cmd),
+            usage: format!("{cmd} [OPTION]... [ARG]..."),
             options: vec![],
             examples: vec![],
             see_also: vec![],
@@ -220,9 +238,9 @@ fn show_command_help(help: &CommandHelp) {
             };
             
             if let Some(value_type) = &option.value_type {
-                println!("    {}={}", opt_line, value_type);
+                println!("    {opt_line}={value_type}");
             } else {
-                println!("    {}", opt_line);
+                println!("    {opt_line}");
             }
             println!("        {}", option.description);
             println!();
@@ -256,7 +274,7 @@ fn show_available_commands(help_map: &HashMap<String, CommandHelp>) {
     let mut line = String::new();
     for (i, command) in commands.iter().enumerate() {
         if i > 0 && i % 8 == 0 {
-            println!("  {}", line);
+            println!("  {line}");
             line.clear();
         }
         
@@ -267,7 +285,7 @@ fn show_available_commands(help_map: &HashMap<String, CommandHelp>) {
     }
     
     if !line.is_empty() {
-        println!("  {}", line);
+        println!("  {line}");
     }
     
     println!();

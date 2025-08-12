@@ -6,6 +6,18 @@
 use std::fmt;
 use std::path::PathBuf;
 use std::collections::HashMap;
+use std::time::SystemTimeError;
+
+// Additional external error types frequently bubbled up via `?` in subsystems
+use std::fmt::Error as FmtError;
+
+// serde derives appear in multiple modules; we avoid unconditional new deps by only
+// referencing serde_json when the crate already uses it (always true in core modules)
+// so pulling it here does not introduce a new feature edge.
+use serde_json::Error as SerdeJsonError;
+
+// tokio semaphore AcquireError (always available because tokio is an unconditional dependency in core)
+use tokio::sync::AcquireError;
 
 /// Result type for all NexusShell operations
 pub type ShellResult<T> = Result<T, ShellError>;
@@ -15,8 +27,10 @@ pub type ShellResult<T> = Result<T, ShellError>;
 pub struct ShellError {
     pub kind: ErrorKind,
     pub message: String,
-    pub source_location: Option<SourceLocation>,
-    pub context: HashMap<String, String>,
+    // Box the SourceLocation to keep ShellError size small (clippy::result_large_err)
+    pub source_location: Option<Box<SourceLocation>>,
+    // Box the context map (can grow); most errors have few/no entries
+    pub context: Box<HashMap<String, String>>,
     pub inner: Option<Box<ShellError>>,
 }
 
@@ -287,7 +301,7 @@ impl ShellError {
             kind,
             message: message.into(),
             source_location: None,
-            context: HashMap::new(),
+            context: Box::new(HashMap::new()),
             inner: None,
         }
     }
@@ -310,19 +324,19 @@ impl ShellError {
 
     /// Create an error with source location
     pub fn with_location(mut self, location: SourceLocation) -> Self {
-        self.source_location = Some(location);
+    self.source_location = Some(Box::new(location));
         self
     }
 
     /// Add context information to the error
     pub fn with_context(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.context.insert(key.into(), value.into());
+    self.context.insert(key.into(), value.into());
         self
     }
 
     /// Add multiple context entries
     pub fn with_contexts(mut self, contexts: HashMap<String, String>) -> Self {
-        self.context.extend(contexts);
+    self.context.extend(contexts);
         self
     }
 
@@ -451,6 +465,8 @@ impl ShellError {
     }
 }
 
+// (AcquireError mapping moved below with cfg(feature = "async"))
+
 /// Error severity levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ErrorSeverity {
@@ -465,7 +481,7 @@ impl fmt::Display for ShellError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {}", self.kind, self.message)?;
 
-        if let Some(ref location) = self.source_location {
+    if let Some(ref location) = self.source_location {
             if let Some(ref file) = location.file {
                 write!(f, " at {}:{}:{}", file.display(), location.line, location.column)?;
             } else {
@@ -473,10 +489,10 @@ impl fmt::Display for ShellError {
             }
         }
 
-        if !self.context.is_empty() {
+    if !self.context.is_empty() {
             write!(f, " (")?;
             let mut first = true;
-            for (key, value) in &self.context {
+            for (key, value) in self.context.iter() {
                 if !first {
                     write!(f, ", ")?;
                 }
@@ -599,6 +615,87 @@ impl From<nxsh_hal::HalError> for ShellError {
                 ShellError::new(kind, msg)
             }
         }
+    }
+}
+
+// Allow use of `?` with standard address parsing errors in networking code
+impl From<std::net::AddrParseError> for ShellError {
+    fn from(err: std::net::AddrParseError) -> Self {
+        ShellError::new(
+            ErrorKind::NetworkError(NetworkErrorKind::ResolveError),
+            err.to_string(),
+        )
+    }
+}
+
+// Enable `?` on std::fmt formatting fallible operations
+impl From<FmtError> for ShellError {
+    fn from(err: FmtError) -> Self {
+        // Map formatting failures to our existing InvalidFormat variant
+        ShellError::new(
+            ErrorKind::SerializationError(SerializationErrorKind::InvalidFormat),
+            err.to_string(),
+        )
+    }
+}
+
+// Enable `?` on serde_json (parsing / serialization) without manual mapping
+impl From<SerdeJsonError> for ShellError {
+    fn from(err: SerdeJsonError) -> Self {
+        // Heuristic: treat messages suggesting syntax structure issues as InvalidFormat, others as InvalidData
+        let msg = err.to_string();
+        let kind = if msg.contains("expected") || msg.contains("EOF while") || msg.contains("invalid type") {
+            SerializationErrorKind::InvalidFormat
+        } else {
+            SerializationErrorKind::InvalidData
+        };
+        ShellError::new(ErrorKind::SerializationError(kind), msg)
+    }
+}
+
+// SystemTimeError (duration_since) conversions
+impl From<SystemTimeError> for ShellError {
+    fn from(err: SystemTimeError) -> Self {
+        ShellError::new(
+            ErrorKind::SystemError(SystemErrorKind::SystemCallError),
+            err.to_string(),
+        )
+    }
+}
+
+// StripPrefixError (path manipulation)
+impl From<std::path::StripPrefixError> for ShellError {
+    fn from(err: std::path::StripPrefixError) -> Self {
+        // We don't have a dedicated path error kind; map to IoError::InvalidPath to reuse existing taxonomy
+        ShellError::new(
+            ErrorKind::IoError(IoErrorKind::InvalidPath),
+            err.to_string(),
+        )
+    }
+}
+
+// AcquireError (tokio semaphore) – map into ResourceExhausted so `?` works on semaphore.acquire()
+impl From<AcquireError> for ShellError {
+    fn from(err: AcquireError) -> Self {
+        ShellError::new(
+            ErrorKind::RuntimeError(RuntimeErrorKind::ResourceExhausted),
+            err.to_string(),
+        )
+    }
+}
+
+#[cfg(feature = "error-rich")]
+impl From<anyhow::Error> for ShellError {
+    fn from(err: anyhow::Error) -> Self {
+        // Extract the root cause if possible
+        let root_cause = err.root_cause();
+        let kind = if root_cause.downcast_ref::<std::io::Error>().is_some() {
+            ErrorKind::IoError(IoErrorKind::DeviceError)
+        } else {
+            ErrorKind::RuntimeError(RuntimeErrorKind::ConversionError)
+        };
+        
+        ShellError::new(kind, err.to_string())
     }
 }
 

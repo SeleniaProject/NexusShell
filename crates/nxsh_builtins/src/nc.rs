@@ -1,29 +1,53 @@
-//! `nc` builtin  ENetcat utility wrapper.
+//! `nc` (netcat) builtin - Network connection utility.
 //!
-//! Attempts to execute one of the common Netcat variants: `nc`, `netcat`, or
-//! `ncat` (Nmap). All arguments are forwarded verbatim, allowing users to rely
-//! on familiar behaviour (e.g. port listening, relaying, etc.).
+//! Delegates to the system `nc` or `netcat` binary when available to provide
+//! complete networking functionality. When the binary is unavailable, falls
+//! back to a basic internal implementation for simple TCP connections.
 
 use anyhow::{anyhow, Result};
 use std::process::Command;
 use which::which;
 
+/// Entry point for the `nc` builtin.
 pub fn nc_cli(args: &[String]) -> Result<()> {
-    let candidates = if cfg!(windows) {
-        vec!["ncat.exe", "nc.exe", "netcat.exe", "ncat", "nc", "netcat"]
-    } else {
-        vec!["nc", "netcat", "ncat"]
-    };
-
-    for bin in candidates {
-        if let Ok(path) = which(bin) {
+    // Try common netcat binary names
+    let nc_commands = vec!["nc", "netcat", "ncat"];
+    
+    for nc_cmd in nc_commands {
+        if let Ok(path) = which(nc_cmd) {
             let status = Command::new(path)
                 .args(args)
                 .status()
-                .map_err(|e| anyhow!("nc: failed to launch backend {bin}: {e}"))?;
+                .map_err(|e| anyhow!("nc: failed to launch backend: {e}"))?;
             std::process::exit(status.code().unwrap_or(1));
         }
     }
-
-    Err(anyhow!("nc: no compatible netcat variant found in PATH"))
-} 
+    
+    // Basic internal fallback
+    if args.len() < 2 {
+        return Err(anyhow!("nc: usage: nc host port"));
+    }
+    
+    let host = &args[0];
+    let port = args[1].parse::<u16>()
+        .map_err(|_| anyhow!("nc: invalid port: {}", args[1]))?;
+    
+    // Simple TCP connection test
+    use std::net::TcpStream;
+    use std::time::Duration;
+    
+    println!("Connecting to {host} port {port}");
+    
+    let addr = format!("{host}:{port}").parse()
+        .map_err(|e| anyhow!("nc: invalid address {}:{}: {}", host, port, e))?;
+    
+    match TcpStream::connect_timeout(&addr, Duration::from_secs(10)) {
+        Ok(_stream) => {
+            println!("Connection to {host} {port} port [tcp/*] succeeded!");
+            Ok(())
+        }
+        Err(e) => {
+            Err(anyhow!("nc: connect to {} port {}: {}", host, port, e))
+        }
+    }
+}

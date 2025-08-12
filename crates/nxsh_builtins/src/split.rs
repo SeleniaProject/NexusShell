@@ -7,12 +7,14 @@ use anyhow::{anyhow, Result};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
+#[cfg(feature = "async-runtime")]
 use tokio::task;
 
-pub async fn split_cli(args: &[String]) -> Result<()> {
+// Synchronous version used when async-runtime disabled (super-min path)
+#[cfg(not(feature = "async-runtime"))]
+pub fn split_cli(args: &[String]) -> Result<()> {
     if args.is_empty() { return Err(anyhow!("split: missing file operand")); }
     let mut size: u64 = 1_000_000; // 1 MB default
-    let mut file_arg = "";
     let mut prefix = "x".to_string();
     let mut idx = 0;
     if args[0] == "-b" {
@@ -20,7 +22,23 @@ pub async fn split_cli(args: &[String]) -> Result<()> {
         size = parse_size(&args[1])?;
         idx = 2;
     }
-    file_arg = &args[idx];
+    let file_arg = &args[idx];
+    if args.len() > idx + 1 { prefix = args[idx+1].clone(); }
+    split_file(Path::new(file_arg).to_path_buf(), prefix, size)
+}
+
+#[cfg(feature = "async-runtime")]
+pub async fn split_cli(args: &[String]) -> Result<()> {
+    if args.is_empty() { return Err(anyhow!("split: missing file operand")); }
+    let mut size: u64 = 1_000_000; // 1 MB default
+    let mut prefix = "x".to_string();
+    let mut idx = 0;
+    if args[0] == "-b" {
+        if args.len() < 3 { return Err(anyhow!("split: invalid usage")); }
+        size = parse_size(&args[1])?;
+        idx = 2;
+    }
+    let file_arg = &args[idx];
     if args.len() > idx + 1 { prefix = args[idx+1].clone(); }
     let p = Path::new(file_arg).to_path_buf();
     let pref = prefix.clone();
@@ -42,7 +60,7 @@ fn split_file(path: std::path::PathBuf, prefix: String, chunk_size: u64) -> Resu
         let n = infile.read(&mut buf)?;
         if n == 0 { break; }
         let suffix = encode_suffix(part);
-        let out_path = format!("{}{}", prefix, suffix);
+        let out_path = format!("{prefix}{suffix}");
         let mut out = File::create(out_path)?;
         out.write_all(&buf[..n])?;
         part += 1;
@@ -64,5 +82,10 @@ fn encode_suffix(mut n: usize) -> String {
 
 #[cfg(test)]
 mod tests { use super::*; use tempfile::NamedTempFile; use std::io::Write;
-#[tokio::test]
-async fn split_basic(){ let mut f=NamedTempFile::new().unwrap(); f.write_all(&vec![0u8;2000]).unwrap(); split_cli(&[f.path().to_string_lossy().into()]).await.unwrap(); }} 
+    #[cfg(feature = "async-runtime")]
+    #[tokio::test]
+    async fn split_basic(){ let mut f=NamedTempFile::new().unwrap(); f.write_all(&vec![0u8;2000]).unwrap(); split_cli(&[f.path().to_string_lossy().into()]).await.unwrap(); }
+    #[cfg(not(feature = "async-runtime"))]
+    #[test]
+    fn split_basic_sync(){ let mut f=NamedTempFile::new().unwrap(); f.write_all(&vec![0u8;2000]).unwrap(); split_cli(&[f.path().to_string_lossy().into()]).unwrap(); }
+} 

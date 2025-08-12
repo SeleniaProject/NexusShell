@@ -14,6 +14,8 @@ statement = {
     command_statement |
     control_structure |
     function_definition |
+    macro_declaration |
+    macro_invocation |
     variable_assignment |
     alias_definition |
     import_statement
@@ -57,7 +59,10 @@ command = {
 }
 
 simple_command = {
-    command_name ~ argument*
+    command_name ~ call_generic_args? ~ argument*
+}
+call_generic_args = {
+    "<" ~ identifier ~ ("," ~ identifier)* ~ ">"
 }
 
 compound_command = {
@@ -166,12 +171,30 @@ function_definition = {
 }
 
 function_declaration = {
-    "function" ~ identifier ~ "()" ~ compound_command
+    "function" ~ identifier ~ generic_params? ~ "(" ~ parameter_list? ~ ")" ~ compound_command
 }
 
 function_assignment = {
-    identifier ~ "()" ~ compound_command
+    identifier ~ generic_params? ~ "(" ~ parameter_list? ~ ")" ~ compound_command
 }
+
+generic_params = {
+    "<" ~ identifier ~ ("," ~ identifier)* ~ ">"
+}
+
+parameter_list = { identifier ~ ("," ~ identifier)* }
+
+macro_declaration = {
+    "macro" ~ identifier ~ "(" ~ macro_param_list? ~ ")" ~ brace_group
+}
+
+macro_param_list = { identifier ~ ("," ~ identifier)* }
+
+macro_invocation = {
+    identifier ~ "!" ~ "(" ~ macro_argument_list? ~ ")"
+}
+
+macro_argument_list = { word ~ ("," ~ word)* }
 
 // Variable assignments
 variable_assignment = {

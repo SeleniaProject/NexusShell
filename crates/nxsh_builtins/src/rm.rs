@@ -20,6 +20,7 @@ use anyhow::{Result, anyhow, Context};
 use std::fs::{self, Metadata};
 use std::io::{self, Write};
 #[cfg(unix)]
+#[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
@@ -157,7 +158,7 @@ pub fn rm_cli(args: &[String]) -> Result<()> {
         
         if let Err(e) = remove_path(&path, &options, &mut filesystem_devices, &trash_info) {
             if !options.force {
-                eprintln!("rm: {}", e);
+                eprintln!("rm: {e}");
                 // Continue with other files instead of exiting
             }
         }
@@ -492,7 +493,7 @@ fn move_to_trash(path: &Path, trash: &TrashInfo, options: &RmOptions) -> Result<
     
     while trash_path.exists() {
         counter += 1;
-        trash_filename = format!("{}.{}", filename, counter);
+        trash_filename = format!("{filename}.{counter}");
         trash_path = trash.files_dir.join(&trash_filename);
     }
     
@@ -501,7 +502,7 @@ fn move_to_trash(path: &Path, trash: &TrashInfo, options: &RmOptions) -> Result<
         .with_context(|| format!("Failed to move '{}' to trash", path.display()))?;
     
     // Create .trashinfo file
-    let info_filename = format!("{}.trashinfo", trash_filename);
+    let info_filename = format!("{trash_filename}.trashinfo");
     let info_path = trash.info_dir.join(info_filename);
     
     let original_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
@@ -514,7 +515,7 @@ fn move_to_trash(path: &Path, trash: &TrashInfo, options: &RmOptions) -> Result<
     );
     
     fs::write(&info_path, trash_info_content)
-        .with_context(|| format!("Failed to create trash info file"))?;
+        .with_context(|| "Failed to create trash info file".to_string())?;
     
     if options.verbose {
         println!("moved '{}' to trash", path.display());
@@ -571,9 +572,9 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::{TempDir, NamedTempFile};
-    use std::fs::File;
-    use std::io::Write;
+    
+    
+    
     
     #[test]
     fn test_parse_args() {

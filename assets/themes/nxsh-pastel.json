@@ -1,0 +1,40 @@
+{
+  "name": "nxsh-pastel",
+  "version": "1.0.0",
+  "author": "NexusShell Team",
+  "description": "Soft pastel colors for gentle viewing",
+  "colors": {
+    "primary": "#dda0dd",
+    "secondary": "#d8bfd8",
+    "accent": "#ffd1dc",
+    "background": "#f5f5f5",
+    "foreground": "#2f2f2f",
+    "error": "#ff6b6b",
+    "warning": "#ffa500",
+    "success": "#98fb98",
+    "info": "#87ceeb",
+    "muted": "#d8bfd8",
+    "highlight": "#ffd1dc",
+    "border": "#e0e0e0"
+  },
+  "styles": {
+    "prompt": {
+      "foreground": "Blue",
+      "bold": true
+    },
+    "command": {
+      "foreground": "White"
+    },
+    "error": {
+      "foreground": "Red",
+      "bold": true
+    },
+    "warning": {
+      "foreground": "Yellow"
+    },
+    "success": {
+      "foreground": "Green",
+      "bold": true
+    }
+  }
+}

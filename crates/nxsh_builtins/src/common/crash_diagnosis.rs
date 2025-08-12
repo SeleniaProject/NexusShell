@@ -13,21 +13,26 @@
 //! - Historical crash trend analysis
 
 use anyhow::{anyhow, Result, Context};
+use nxsh_core::{nxsh_log_info, nxsh_log_warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::panic::{self, PanicInfo};
+use std::panic::{self, PanicHookInfo};
 use std::sync::{Mutex, Once};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::fs;
 use std::path::PathBuf;
 use chrono::{DateTime, Utc};
+#[cfg(feature = "crypto")]
 use chacha20poly1305::KeyInit;
+#[cfg(feature = "crypto")]
 use chacha20poly1305::aead::Aead;
 use rand::{thread_rng, RngCore};
-use blake3;
+use sha2::{Sha256, Digest};
 
 static CRASH_HANDLER_INIT: Once = Once::new();
 static CRASH_CONFIG: Mutex<Option<CrashDiagnosisConfig>> = Mutex::new(None);
+static CRASH_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrashDiagnosisConfig {
@@ -130,16 +135,16 @@ pub fn init_crash_diagnosis(config: CrashDiagnosisConfig) -> Result<()> {
     CRASH_HANDLER_INIT.call_once(|| {
         panic::set_hook(Box::new(|panic_info| {
             if let Err(e) = handle_crash(panic_info) {
-                eprintln!("Failed to generate crash report: {}", e);
+                eprintln!("Failed to generate crash report: {e}");
             }
         }));
     });
 
-    tracing::info!("Crash diagnosis system initialized successfully");
+    nxsh_log_info!("Crash diagnosis system initialized successfully");
     Ok(())
 }
 
-fn handle_crash(panic_info: &PanicInfo) -> Result<()> {
+fn handle_crash(panic_info: &PanicHookInfo) -> Result<()> {
     let config = {
         let config_guard = CRASH_CONFIG.lock().unwrap();
         config_guard.clone().ok_or_else(|| anyhow!("Crash diagnosis not configured"))?
@@ -157,7 +162,7 @@ fn handle_crash(panic_info: &PanicInfo) -> Result<()> {
     // Auto-report if enabled
     if config.auto_report {
         if let Err(e) = auto_report_crash(&crash_report, &config) {
-            eprintln!("Failed to auto-report crash: {}", e);
+            eprintln!("Failed to auto-report crash: {e}");
         }
     }
     
@@ -165,7 +170,7 @@ fn handle_crash(panic_info: &PanicInfo) -> Result<()> {
     Ok(())
 }
 
-fn generate_crash_report(panic_info: &PanicInfo) -> Result<CrashReport> {
+fn generate_crash_report(panic_info: &PanicHookInfo) -> Result<CrashReport> {
     let crash_id = generate_crash_id();
     let timestamp = Utc::now();
     
@@ -180,7 +185,7 @@ fn generate_crash_report(panic_info: &PanicInfo) -> Result<CrashReport> {
     
     // Capture backtrace
     let backtrace = std::backtrace::Backtrace::capture();
-    let backtrace_str = format!("{}", backtrace);
+    let backtrace_str = format!("{backtrace}");
     
     // Collect system info
     let system_info = collect_system_info()?;
@@ -219,88 +224,119 @@ fn generate_crash_report(panic_info: &PanicInfo) -> Result<CrashReport> {
 }
 
 fn generate_crash_id() -> String {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(&timestamp.to_be_bytes());
-    hasher.update(&std::process::id().to_be_bytes());
-    
-    let hash = hasher.finalize();
-    let hash_bytes = hash.as_bytes();
-    format!("crash_{:x}", u64::from_be_bytes([
-        hash_bytes[0], hash_bytes[1], hash_bytes[2], hash_bytes[3],
-        hash_bytes[4], hash_bytes[5], hash_bytes[6], hash_bytes[7],
-    ]))
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let secs = now.as_secs();
+    let nanos = now.subsec_nanos();
+    let pid = std::process::id();
+    let counter = CRASH_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+
+    // 64ビットのランダムノンスを追加して、同一時刻の競合や並列生成を避ける
+    let mut rand_bytes = [0u8; 8];
+    thread_rng().fill_bytes(&mut rand_bytes);
+
+    let mut hasher = Sha256::new();
+    hasher.update(&secs.to_be_bytes());
+    hasher.update(&nanos.to_be_bytes());
+    hasher.update(&pid.to_be_bytes());
+    hasher.update(&counter.to_be_bytes());
+    hasher.update(&rand_bytes);
+    let digest = hasher.finalize();
+    // 64ビットにトリム
+    let bytes = &digest[..8];
+    format!("crash_{:x}", u64::from_be_bytes(bytes.try_into().unwrap()))
 }
 
 fn collect_system_info() -> Result<SystemInfo> {
-    use sysinfo::{System, SystemExt};
-    
-    let mut sys = System::new();
-    sys.refresh_system();
-    
-    Ok(SystemInfo {
-        os: sys.name().unwrap_or_else(|| "Unknown".to_string()),
-        arch: std::env::consts::ARCH.to_string(),
-        hostname: hostname::get()
-            .map(|h| h.to_string_lossy().to_string())
-            .unwrap_or_else(|_| "unknown".to_string()),
-        uptime: sys.uptime(),
-        load_average: {
-            let load = sys.load_average();
-            Some([load.one, load.five, load.fifteen])
-        },
-    })
+    #[cfg(feature = "system-info")]
+    {
+        use sysinfo::{System, SystemExt};
+        let mut sys = System::new();
+        sys.refresh_system();
+        return Ok(SystemInfo {
+            os: sys.name().unwrap_or_else(|| "Unknown".to_string()),
+            arch: std::env::consts::ARCH.to_string(),
+            hostname: hostname::get()
+                .map(|h| h.to_string_lossy().to_string())
+                .unwrap_or_else(|_| "unknown".to_string()),
+            uptime: sys.uptime(),
+            load_average: {
+                let load = sys.load_average();
+                Some([load.one, load.five, load.fifteen])
+            },
+        });
+    }
+    #[cfg(not(feature = "system-info"))]
+    {
+        return Ok(SystemInfo {
+            os: std::env::consts::OS.to_string(),
+            arch: std::env::consts::ARCH.to_string(),
+            hostname: hostname::get()
+                .map(|h| h.to_string_lossy().to_string())
+                .unwrap_or_else(|_| "unknown".to_string()),
+            uptime: 0,
+            load_average: None,
+        });
+    }
 }
 
 fn collect_process_info() -> Result<ProcessInfo> {
-    use sysinfo::{System, SystemExt, ProcessExt, PidExt};
-    
-    let mut sys = System::new();
-    sys.refresh_processes();
-    
-    let pid = std::process::id();
-    let current_process = sys.process(sysinfo::Pid::from_u32(pid));
-    
-    let (memory_usage, cpu_usage, process_uptime) = if let Some(process) = current_process {
-        (
-            process.memory() * 1024, // Convert to bytes
-            process.cpu_usage() as f64,
-            process.run_time(),
-        )
-    } else {
-        (0, 0.0, 0)
-    };
-    
-    Ok(ProcessInfo {
-        pid,
-        ppid: current_process.and_then(|p| p.parent().map(|pid| pid.as_u32())),
-        command_line: std::env::args().collect(),
-        working_directory: std::env::current_dir()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| "unknown".to_string()),
-        process_uptime,
-        memory_usage,
-        cpu_usage,
-    })
+    #[cfg(feature = "system-info")]
+    {
+        use sysinfo::{System, SystemExt, ProcessExt, PidExt};
+        let mut sys = System::new();
+        sys.refresh_processes();
+        let pid = std::process::id();
+        let current_process = sys.process(sysinfo::Pid::from_u32(pid));
+        let (memory_usage, cpu_usage, process_uptime) = if let Some(process) = current_process {
+            (process.memory() * 1024, process.cpu_usage() as f64, process.run_time())
+        } else { (0, 0.0, 0) };
+        return Ok(ProcessInfo {
+            pid,
+            ppid: current_process.and_then(|p| p.parent().map(|pid| pid.as_u32())),
+            command_line: std::env::args().collect(),
+            working_directory: std::env::current_dir()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| "unknown".to_string()),
+            process_uptime,
+            memory_usage,
+            cpu_usage,
+        });
+    }
+    #[cfg(not(feature = "system-info"))]
+    {
+        let pid = std::process::id();
+        return Ok(ProcessInfo {
+            pid,
+            ppid: None,
+            command_line: std::env::args().collect(),
+            working_directory: std::env::current_dir()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| "unknown".to_string()),
+            process_uptime: 0,
+            memory_usage: 0,
+            cpu_usage: 0.0,
+        });
+    }
 }
 
 fn collect_memory_info() -> Result<MemoryInfo> {
-    use sysinfo::{System, SystemExt};
-    
-    let mut sys = System::new();
-    sys.refresh_memory();
-    
-    Ok(MemoryInfo {
-        total_memory: sys.total_memory() * 1024,
-        available_memory: sys.available_memory() * 1024,
-        used_memory: sys.used_memory() * 1024,
-        swap_total: sys.total_swap() * 1024,
-        swap_used: sys.used_swap() * 1024,
-    })
+    #[cfg(feature = "system-info")]
+    {
+        use sysinfo::{System, SystemExt};
+        let mut sys = System::new();
+        sys.refresh_memory();
+        return Ok(MemoryInfo {
+            total_memory: sys.total_memory() * 1024,
+            available_memory: sys.available_memory() * 1024,
+            used_memory: sys.used_memory() * 1024,
+            swap_total: sys.total_swap() * 1024,
+            swap_used: sys.used_swap() * 1024,
+        });
+    }
+    #[cfg(not(feature = "system-info"))]
+    {
+        return Ok(MemoryInfo { total_memory: 0, available_memory: 0, used_memory: 0, swap_total: 0, swap_used: 0 });
+    }
 }
 
 fn collect_shell_state() -> Result<ShellState> {
@@ -345,26 +381,26 @@ fn save_crash_report(report: &CrashReport, config: &CrashDiagnosisConfig) -> Res
     Ok(())
 }
 
+#[cfg(feature = "crypto")]
 fn encrypt_crash_report(data: &str, config: &CrashDiagnosisConfig) -> Result<Vec<u8>> {
-    let key = config.encryption_key.as_ref()
-        .map(|k| k.as_slice())
-        .unwrap_or_else(|| b"NexusShell_Default_Crash_Key_32B!");
-    
+    let key = config.encryption_key.as_deref()
+        .unwrap_or(b"NexusShell_Default_Crash_Key_32B!");
     let key = chacha20poly1305::Key::from_slice(key);
-    let cipher = chacha20poly1305::ChaCha20Poly1305::new(&key);
-    
+    let cipher = chacha20poly1305::ChaCha20Poly1305::new(key);
     let mut nonce_bytes = [0u8; 12];
     thread_rng().fill_bytes(&mut nonce_bytes);
     let nonce = chacha20poly1305::Nonce::from_slice(&nonce_bytes);
-    
     let ciphertext = cipher.encrypt(nonce, data.as_bytes())
         .map_err(|e| anyhow!("Encryption failed: {}", e))?;
-    
-    // Prepend nonce to ciphertext
     let mut result = nonce_bytes.to_vec();
     result.extend_from_slice(&ciphertext);
-    
     Ok(result)
+}
+
+#[cfg(not(feature = "crypto"))]
+fn encrypt_crash_report(data: &str, _config: &CrashDiagnosisConfig) -> Result<Vec<u8>> {
+    // 暗号化機能無効時: 平文を書き出し (サイズ最小化優先)。
+    Ok(data.as_bytes().to_vec())
 }
 
 fn cleanup_old_crash_dumps(config: &CrashDiagnosisConfig) -> Result<()> {
@@ -393,7 +429,7 @@ fn cleanup_old_crash_dumps(config: &CrashDiagnosisConfig) -> Result<()> {
     let to_remove = entries.len() - config.max_crash_dumps;
     for entry in entries.iter().take(to_remove) {
         if let Err(e) = fs::remove_file(entry.path()) {
-            tracing::warn!("Failed to remove old crash dump {:?}: {}", entry.path(), e);
+            nxsh_log_warn!("Failed to remove old crash dump {:?}: {}", entry.path(), e);
         }
     }
     
@@ -402,9 +438,40 @@ fn cleanup_old_crash_dumps(config: &CrashDiagnosisConfig) -> Result<()> {
 
 fn auto_report_crash(report: &CrashReport, config: &CrashDiagnosisConfig) -> Result<()> {
     if let Some(ref endpoint) = config.report_endpoint {
-        // In a real implementation, this would send the crash report to a server
-        tracing::info!("Auto-reporting crash {} to {}", report.crash_id, endpoint);
-        // TODO: Implement HTTP POST to endpoint
+        nxsh_log_info!("Auto-reporting crash {} to {}", report.crash_id, endpoint);
+        // Prepare JSON body (exclude potentially large binary blobs by default)
+        let body = serde_json::json!({
+            "crash_id": report.crash_id,
+            "timestamp": report.timestamp.to_rfc3339(),
+            "panic_message": report.panic_message,
+            "backtrace": report.backtrace,
+            "system_info": report.system_info,
+            "process_info": report.process_info,
+            "environment": report.environment,
+            "memory_info": report.memory_info,
+        });
+
+        // Send via ureq when available; otherwise, log-only fallback
+        #[cfg(feature = "updates")]
+        {
+            let agent = ureq::AgentBuilder::new()
+                .timeout(std::time::Duration::from_secs(5))
+                .build();
+            let resp = agent
+                .post(endpoint)
+                .set("Content-Type", "application/json")
+                .send_string(&body.to_string());
+            match resp {
+                Ok(r) => {
+                    if r.status() / 100 != 2 {
+                        nxsh_log_warn!("Crash auto-report returned status {}", r.status());
+                    }
+                }
+                Err(e) => {
+                    nxsh_log_warn!("Crash auto-report failed: {}", e);
+                }
+            }
+        }
     }
     Ok(())
 }

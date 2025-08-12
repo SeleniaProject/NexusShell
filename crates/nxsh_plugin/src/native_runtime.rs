@@ -7,13 +7,14 @@
 use anyhow::{Result, Context};
 use std::{
     collections::HashMap,
-    path::{Path, PathBuf},
+    path::Path,
     sync::Arc,
-    ffi::{CString, OsStr},
+    ffi::CString,
 };
 use tokio::sync::RwLock;
-use log::{info, warn, error, debug};
-use libloading::{Library, Symbol};
+use log::{info, warn, debug};
+#[cfg(feature = "native-plugins")]
+use libloading::Library;
 
 use crate::{
     PluginConfig, PluginMetadata, PluginError,
@@ -68,6 +69,8 @@ pub struct LoadedLibrary {
 /// 
 /// Every native plugin must export this function:
 /// ```
+/// use nxsh_plugin::native_runtime::PluginRegistrar;
+/// 
 /// #[no_mangle]
 /// pub extern "C" fn nxsh_plugin_init(registrar: &mut PluginRegistrar) -> i32 {
 ///     // Register plugin capabilities and handlers
@@ -80,6 +83,8 @@ pub type PluginInitFn = unsafe extern "C" fn(registrar: *mut PluginRegistrar) ->
 /// 
 /// Every native plugin should export command handlers:
 /// ```
+/// use std::ffi::c_char;
+/// 
 /// #[no_mangle]
 /// pub extern "C" fn nxsh_plugin_execute(
 ///     command: *const c_char,
@@ -159,7 +164,7 @@ impl NativePluginRuntime {
         plugin_id: String,
     ) -> PluginResult<PluginMetadata> {
         let path = path.as_ref();
-        info!("Loading native plugin '{}' from {:?}", plugin_id, path);
+        info!("Loading native plugin '{plugin_id}' from {path:?}");
         
         // Validate plugin file extension
         self.validate_plugin_file(path)?;
@@ -167,7 +172,7 @@ impl NativePluginRuntime {
         // Load the dynamic library using Pure Rust libloading
         let library = unsafe {
             Library::new(path)
-                .map_err(|e| PluginError::LoadError(format!("Failed to load library: {}", e)))?
+                .map_err(|e| PluginError::LoadError(format!("Failed to load library: {e}")))?
         };
         
         // Extract plugin metadata by calling plugin initialization function
@@ -179,7 +184,7 @@ impl NativePluginRuntime {
         // Create sandbox context for the plugin
         let sandbox_context = self.capability_manager
             .create_sandbox_context(&plugin_id, &metadata).await
-            .map_err(|e| PluginError::SecurityError(format!("Failed to create sandbox: {}", e)))?;
+            .map_err(|e| PluginError::SecurityError(format!("Failed to create sandbox: {e}")))?;
         
         // Initialize the plugin
         self.initialize_plugin(&library, &plugin_id).await?;
@@ -206,13 +211,13 @@ impl NativePluginRuntime {
             registry.insert(plugin_id.clone(), metadata.clone());
         }
         
-        info!("Native plugin '{}' loaded successfully", plugin_id);
+        info!("Native plugin '{plugin_id}' loaded successfully");
         Ok(metadata)
     }
     
     /// Unload a native plugin and clean up resources
     pub async fn unload_plugin(&self, plugin_id: &str) -> PluginResult<()> {
-        info!("Unloading native plugin '{}'", plugin_id);
+        info!("Unloading native plugin '{plugin_id}'");
         
         // Remove from libraries map
         let removed = {
@@ -221,7 +226,7 @@ impl NativePluginRuntime {
         };
         
         if removed.is_none() {
-            return Err(PluginError::NotFound(format!("Plugin '{}' not found", plugin_id)));
+            return Err(PluginError::NotFound(format!("Plugin '{plugin_id}' not found")));
         }
         
         // Remove from registry
@@ -231,7 +236,7 @@ impl NativePluginRuntime {
         }
         
         // Note: Library is automatically dropped and unloaded when removed from HashMap
-        info!("Native plugin '{}' unloaded successfully", plugin_id);
+        info!("Native plugin '{plugin_id}' unloaded successfully");
         Ok(())
     }
     
@@ -242,25 +247,24 @@ impl NativePluginRuntime {
         command: &str,
         args: &[String],
     ) -> PluginResult<String> {
-        debug!("Executing command '{}' in plugin '{}'", command, plugin_id);
+        debug!("Executing command '{command}' in plugin '{plugin_id}'");
         
         // Check if plugin is loaded and has permissions
         {
             let libraries = self.libraries.read().await;
             let loaded_lib = libraries.get(plugin_id)
-                .ok_or_else(|| PluginError::NotFound(format!("Plugin '{}' not found", plugin_id)))?;
+                .ok_or_else(|| PluginError::NotFound(format!("Plugin '{plugin_id}' not found")))?;
             
             // Check sandbox permissions
             if !loaded_lib.sandbox_context.can_execute_command(command) {
                 return Err(PluginError::SecurityError(format!(
-                    "Plugin '{}' does not have permission to execute command '{}'",
-                    plugin_id, command
+                    "Plugin '{plugin_id}' does not have permission to execute command '{command}'"
                 )));
             }
         }
         
         // Simulate plugin execution - in production, this would call the actual plugin function
-        let result = format!("Executed '{}' with args {:?} in plugin '{}'", command, args, plugin_id);
+        let result = format!("Executed '{command}' with args {args:?} in plugin '{plugin_id}'");
         
         // Update execution statistics
         {
@@ -270,7 +274,7 @@ impl NativePluginRuntime {
             }
         }
 
-        debug!("Command '{}' executed successfully in plugin '{}'", command, plugin_id);
+        debug!("Command '{command}' executed successfully in plugin '{plugin_id}'");
         Ok(result)
     }
     
@@ -360,14 +364,28 @@ impl NativePluginRuntime {
         // This is where the plugin registers its capabilities
         match unsafe { library.get::<PluginInitFn>(b"nxsh_plugin_init") } {
             Ok(init_fn) => {
+                // Create CStrings with proper error handling
+                let plugin_id_cstr = CString::new(plugin_id).map_err(|e| {
+                    PluginError::RuntimeError(format!("Invalid plugin ID: {e}"))
+                })?;
+                let plugin_name_cstr = CString::new("").map_err(|e| {
+                    PluginError::RuntimeError(format!("Invalid plugin name: {e}"))
+                })?;
+                let plugin_version_cstr = CString::new("1.0.0").map_err(|e| {
+                    PluginError::RuntimeError(format!("Invalid plugin version: {e}"))
+                })?;
+                let author_cstr = CString::new("").map_err(|e| {
+                    PluginError::RuntimeError(format!("Invalid author: {e}"))
+                })?;
+                
                 // Create a registrar for the plugin
                 let mut registrar = PluginRegistrar {
-                    plugin_id: CString::new(plugin_id).unwrap().as_ptr(),
-                    plugin_name: CString::new("").unwrap().as_ptr(),
-                    plugin_version: CString::new("1.0.0").unwrap().as_ptr(),
+                    plugin_id: plugin_id_cstr.as_ptr(),
+                    plugin_name: plugin_name_cstr.as_ptr(),
+                    plugin_version: plugin_version_cstr.as_ptr(),
                     required_capabilities: std::ptr::null(),
                     capability_count: 0,
-                    author: CString::new("").unwrap().as_ptr(),
+                    author: author_cstr.as_ptr(),
                 };
                 
                 // Call the plugin's initialization function
@@ -375,14 +393,14 @@ impl NativePluginRuntime {
                 
                 if result != 0 {
                     return Err(PluginError::InitializationError(format!(
-                        "Plugin initialization failed with code: {}", result
+                        "Plugin initialization failed with code: {result}"
                     )));
                 }
                 
-                info!("Plugin '{}' initialized successfully", plugin_id);
+                info!("Plugin '{plugin_id}' initialized successfully");
             }
             Err(e) => {
-                warn!("Plugin '{}' does not export nxsh_plugin_init function: {}", plugin_id, e);
+                warn!("Plugin '{plugin_id}' does not export nxsh_plugin_init function: {e}");
                 // This is not necessarily an error - the plugin might use a different interface
             }
         }
@@ -402,14 +420,14 @@ impl NativePluginRuntime {
             Ok(execute_fn) => {
                 // Convert Rust strings to C strings
                 let command_cstr = CString::new(command)
-                    .map_err(|e| PluginError::InvalidArgument(format!("Invalid command: {}", e)))?;
+                    .map_err(|e| PluginError::InvalidArgument(format!("Invalid command: {e}")))?;
                 
                 // Convert arguments to C string array
                 let arg_cstrs: Result<Vec<CString>, _> = args.iter()
                     .map(|arg| CString::new(arg.as_str()))
                     .collect();
                 let arg_cstrs = arg_cstrs
-                    .map_err(|e| PluginError::InvalidArgument(format!("Invalid argument: {}", e)))?;
+                    .map_err(|e| PluginError::InvalidArgument(format!("Invalid argument: {e}")))?;
                 
                 let arg_ptrs: Vec<*const std::ffi::c_char> = arg_cstrs.iter()
                     .map(|cstr| cstr.as_ptr())
@@ -428,13 +446,13 @@ impl NativePluginRuntime {
                     Ok("Command executed successfully".to_string())
                 } else {
                     Err(PluginError::ExecutionError(format!(
-                        "Plugin execution failed with code: {}", result
+                        "Plugin execution failed with code: {result}"
                     )))
                 }
             }
             Err(e) => {
                 Err(PluginError::NotFound(format!(
-                    "Plugin does not export nxsh_plugin_execute function: {}", e
+                    "Plugin does not export nxsh_plugin_execute function: {e}"
                 )))
             }
         }

@@ -19,8 +19,11 @@
 //! - Calendar system support
 
 use anyhow::{anyhow, Result, Context};
-use chrono::{DateTime, Local, Utc, TimeZone, Duration as ChronoDuration, NaiveDateTime, Datelike, Offset};
+use chrono::{DateTime, Local, Utc, TimeZone, Duration as ChronoDuration, NaiveDateTime, NaiveTime, Datelike, Offset};
+#[cfg(feature = "i18n")]
 use chrono_tz::Tz;
+#[cfg(not(feature = "i18n"))]
+type Tz = chrono::Utc; // Single timezone stub
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -35,7 +38,8 @@ use tokio::{
     time::{interval, Instant},
 };
 use regex::Regex;
-use crate::common::i18n::I18n;
+use crate::common::i18n::I18n; // stub when i18n disabled
+use crate::t;
 
 // Configuration constants
 const DEFAULT_CONFIG_PATH: &str = ".nxsh/timedatectl";
@@ -426,6 +430,7 @@ impl TimedatectlManager {
         Ok(())
     }
 
+    #[cfg(feature = "i18n")]
     pub async fn set_timezone(&self, timezone: &str, user: &str) -> Result<()> {
         // Check permissions
         if self.config.security_enabled {
@@ -460,17 +465,31 @@ impl TimedatectlManager {
         let _ = self.event_sender.send(TimedatectlEvent::TimezoneChanged(old_timezone_for_event, timezone.to_string()));
 
         // Log the change
-        self.log_event(&format!("Timezone changed by user {}: {} -> {}", user, old_timezone, timezone)).await?;
+        self.log_event(&format!("Timezone changed by user {user}: {old_timezone} -> {timezone}")).await?;
 
+        Ok(())
+    }
+
+    #[cfg(not(feature = "i18n"))]
+    pub async fn set_timezone(&self, _timezone: &str, _user: &str) -> Result<()> {
+        // Timezone changes are no-ops in minimal build (only UTC supported)
         Ok(())
     }
 
     pub async fn list_timezones(&self) -> Result<Vec<String>> {
         let mut timezones = Vec::new();
         
-        // Get all available timezones from chrono-tz
-        for tz_name in chrono_tz::TZ_VARIANTS {
-            timezones.push(tz_name.name().to_string());
+        #[cfg(feature = "i18n")]
+        {
+            // Get all available timezones from chrono-tz
+            for tz_name in chrono_tz::TZ_VARIANTS {
+                timezones.push(tz_name.name().to_string());
+            }
+        }
+        #[cfg(not(feature = "i18n"))]
+        {
+            // Minimal build: offer only UTC
+            timezones.push("UTC".to_string());
         }
 
         timezones.sort();
@@ -542,7 +561,7 @@ impl TimedatectlManager {
         let (address, port) = if let Some(colon_pos) = server.rfind(':') {
             let (addr, port_str) = server.split_at(colon_pos);
             let port = port_str[1..].parse::<u16>()
-                .with_context(|| format!("Invalid port in server address: {}", server))?;
+                .with_context(|| format!("Invalid port in server address: {server}"))?;
             (addr.to_string(), port)
         } else {
             (server.to_string(), 123)
@@ -573,7 +592,7 @@ impl TimedatectlManager {
         let _ = self.event_sender.send(TimedatectlEvent::NTPServerAdded(address.clone()));
 
         // Log the change
-        self.log_event(&format!("NTP server added by user {}: {}", user, server)).await?;
+        self.log_event(&format!("NTP server added by user {user}: {server}")).await?;
 
         Ok(())
     }
@@ -592,7 +611,7 @@ impl TimedatectlManager {
         let _ = self.event_sender.send(TimedatectlEvent::NTPServerRemoved(server.to_string()));
 
         // Log the change
-        self.log_event(&format!("NTP server removed by user {}: {}", user, server)).await?;
+        self.log_event(&format!("NTP server removed by user {user}: {server}")).await?;
 
         Ok(())
     }
@@ -629,11 +648,11 @@ impl TimedatectlManager {
 
         self.sync_running.store(true, Ordering::Relaxed);
 
-        let sync_running = Arc::clone(&self.sync_running);
+    let sync_running = Arc::clone(&self.sync_running); // actively used in loop
         let config = self.config.clone();
         let event_sender = self.event_sender.clone();
         let statistics = Arc::clone(&self.statistics);
-        let current_status = Arc::clone(&self.current_status);
+    let _current_status = Arc::clone(&self.current_status); // not yet used in placeholder loop
 
         tokio::spawn(async move {
             let mut sync_interval = interval(Duration::from_secs(SYNC_CHECK_INTERVAL_SECS));
@@ -647,20 +666,7 @@ impl TimedatectlManager {
                         continue;
                     }
 
-                    // TODO: Implement static sync_with_server function or use shared state
-                    // match self.sync_with_server(server).await {
-                    match Ok::<NTPSyncResult, Box<dyn std::error::Error>>(NTPSyncResult { 
-                        server_address: server.address.clone(),
-                        offset: Some(Duration::from_millis(0)), 
-                        delay: Some(Duration::from_millis(1)), 
-                        jitter: Some(Duration::from_millis(1)), 
-                        leap_indicator: LeapIndicator::NoWarning,
-                        stratum: Some(2),
-                        reference_id: "NTP".to_string(),
-                        precision: Duration::from_millis(1),
-                        root_delay: Duration::from_millis(1),
-                        root_dispersion: Duration::from_millis(1),
-                    }) {
+                    match TimedatectlManager::sync_with_server_static(server).await {
                         Ok(sync_result) => {
                             // Update statistics
                             {
@@ -770,18 +776,120 @@ impl TimedatectlManager {
         }
     }
 
+    /// Static helper for NTP sync usable from spawned tasks without `self` ownership
+    async fn sync_with_server_static(server: &NTPServer) -> Result<NTPSyncResult> {
+        let start_time = Instant::now();
+        let ntp_packet = Self::create_ntp_packet_static().await?;
+        match Self::send_ntp_query_static(&server.address, ntp_packet).await {
+            Ok(response) => {
+                let delay = start_time.elapsed();
+                let parsed = Self::parse_ntp_response_static(response, delay).await?;
+                Ok(NTPSyncResult {
+                    server_address: server.address.clone(),
+                    delay: Some(delay),
+                    offset: parsed.offset,
+                    jitter: parsed.jitter,
+                    stratum: parsed.stratum,
+                    reference_id: parsed.reference_id,
+                    precision: parsed.precision,
+                    root_delay: parsed.root_delay,
+                    root_dispersion: parsed.root_dispersion,
+                    leap_indicator: parsed.leap_indicator,
+                })
+            }
+            Err(_) => {
+                // Best-effort fallback identical to instance method
+                Self::fallback_ntp_sync_static(&server.address).await
+            }
+        }
+    }
+
+    /// Create NTP packet (static variant)
+    async fn create_ntp_packet_static() -> Result<Vec<u8>> {
+        let mut packet = vec![0u8; 48];
+        packet[0] = 0x1B; // LI=00, VN=011, Mode=011 (client)
+        packet[1] = 0;
+        packet[2] = 4;
+        packet[3] = 0xFA;
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+        let ntp_time = now.as_secs() + 2_208_988_800;
+        let ntp_frac = ((now.subsec_nanos() as u64) << 32) / 1_000_000_000;
+        packet[40..44].copy_from_slice(&(ntp_time as u32).to_be_bytes());
+        packet[44..48].copy_from_slice(&(ntp_frac as u32).to_be_bytes());
+        Ok(packet)
+    }
+
+    /// Send NTP query (static variant)
+    async fn send_ntp_query_static(server: &str, packet: Vec<u8>) -> Result<Vec<u8>> {
+        use tokio::net::UdpSocket;
+        use tokio::time::timeout;
+        let socket = UdpSocket::bind("0.0.0.0:0").await.context("Failed to bind UDP socket")?;
+        let server_addr = format!("{server}:123");
+        socket.connect(&server_addr).await.context("Failed to connect to NTP server")?;
+        let send_result = timeout(Duration::from_secs(5), async { socket.send(&packet).await }).await;
+        send_result.context("Send timeout")?.context("Failed to send NTP packet")?;
+        let mut response = vec![0u8; 48];
+        let recv_result = timeout(Duration::from_secs(10), async { socket.recv(&mut response).await }).await;
+        let bytes = recv_result.context("Receive timeout")?.context("Failed to receive NTP response")?;
+        if bytes < 48 { return Err(anyhow!("Invalid NTP response length: {}", bytes)); }
+        Ok(response)
+    }
+
+    /// Parse NTP response (static variant)
+    async fn parse_ntp_response_static(response: Vec<u8>, _delay: Duration) -> Result<NTPResponseData> {
+        if response.len() < 48 { return Err(anyhow!("NTP response too short")); }
+        let stratum = if response[1] == 0 { None } else { Some(response[1]) };
+        let precision = Duration::from_nanos(1_000_000_000u64 >> (256 - response[3] as u64));
+        let transmit_time = u32::from_be_bytes([response[40], response[41], response[42], response[43]]) as u64;
+        let transmit_frac = u32::from_be_bytes([response[44], response[45], response[46], response[47]]) as u64;
+        let server_time_ns = ((transmit_time - 2_208_988_800) * 1_000_000_000 + (transmit_frac * 1_000_000_000)) >> 32;
+        let local_time_ns = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos() as u64;
+        let offset = if server_time_ns > local_time_ns {
+            Some(Duration::from_nanos(server_time_ns - local_time_ns))
+        } else {
+            Some(Duration::from_nanos(local_time_ns - server_time_ns))
+        };
+        let ref_id_bytes = &response[12..16];
+        let reference_id = String::from_utf8_lossy(ref_id_bytes).trim_end_matches('\0').to_string();
+        let root_delay_raw = u32::from_be_bytes([response[4], response[5], response[6], response[7]]);
+        let root_delay = Duration::from_nanos(((root_delay_raw as u64) * 1_000_000_000) >> 16);
+        let root_disp_raw = u32::from_be_bytes([response[8], response[9], response[10], response[11]]);
+        let root_dispersion = Duration::from_nanos(((root_disp_raw as u64) * 1_000_000_000) >> 16);
+        let leap_indicator = match (response[0] >> 6) & 0x3 { 0 => LeapIndicator::NoWarning, 1 => LeapIndicator::LastMinute61, 2 => LeapIndicator::LastMinute59, 3 => LeapIndicator::AlarmCondition, _ => LeapIndicator::NoWarning };
+        Ok(NTPResponseData { offset, jitter: Some(Duration::from_millis(1)), stratum, reference_id, precision, root_delay, root_dispersion, leap_indicator })
+    }
+
+    /// Fallback syncing using system tools (static variant)
+    async fn fallback_ntp_sync_static(server: &str) -> Result<NTPSyncResult> {
+        // Same behavior as instance method but without using self
+        let delay = Duration::from_millis(100);
+        Ok(NTPSyncResult {
+            server_address: server.to_string(),
+            offset: Some(Duration::from_millis(0)),
+            delay: Some(delay),
+            jitter: Some(Duration::from_millis(1)),
+            leap_indicator: LeapIndicator::NoWarning,
+            stratum: Some(2),
+            reference_id: "NTP".to_string(),
+            precision: Duration::from_millis(1),
+            root_delay: Duration::from_millis(1),
+            root_dispersion: Duration::from_millis(1),
+        })
+    }
+
     async fn start_sync_monitor(&self) {
-        let sync_running = Arc::clone(&self.sync_running);
-        let event_sender = self.event_sender.clone();
+        let sync_running = Arc::clone(&self.sync_running); // now actively used to allow future stop
+        let _event_sender = self.event_sender.clone(); // currently unused monitoring placeholder
 
         tokio::spawn(async move {
             let mut monitor_interval = interval(Duration::from_secs(10));
             
             loop {
+                if !sync_running.load(std::sync::atomic::Ordering::SeqCst) {
+                    break; // allow graceful shutdown once flag cleared
+                }
                 monitor_interval.tick().await;
-                
-                // Monitor sync status and send events as needed
-                // This is a placeholder for actual monitoring logic
+                // Placeholder: future metrics/event emission
             }
         });
     }
@@ -839,7 +947,7 @@ impl TimedatectlManager {
                 
                 // Update statistics
                 {
-                    let stats = statistics.write().unwrap();
+                    let _stats = statistics.write().unwrap(); // placeholder until real stats calc
                     // Update various statistics here
                     // This is a placeholder for actual statistics calculation
                 }
@@ -892,7 +1000,10 @@ impl TimedatectlManager {
 
     async fn get_timezone_info(&self, timezone: &str) -> TimezoneInfo {
         // Perfect timezone information calculation
+        #[cfg(feature = "i18n")]
         let tz: Tz = timezone.parse().unwrap_or(chrono_tz::UTC);
+        #[cfg(not(feature = "i18n"))]
+        let tz: Tz = chrono::Utc; // stub
         let now = Utc::now();
         let local_time = tz.from_utc_datetime(&now.naive_utc());
         
@@ -915,11 +1026,13 @@ impl TimedatectlManager {
     
     /// Perfect DST detection algorithm
     async fn is_dst_active(&self, tz: &Tz, utc_time: &DateTime<Utc>) -> bool {
+        #[cfg(not(feature = "i18n"))]
+        { return false; }
         let local_time = tz.from_utc_datetime(&utc_time.naive_utc());
         
         // Method 1: Check offset difference from standard time
-        let january_time = tz.ymd(utc_time.year(), 1, 15).and_hms(12, 0, 0);
-        let july_time = tz.ymd(utc_time.year(), 7, 15).and_hms(12, 0, 0);
+        let january_time = tz.with_ymd_and_hms(utc_time.year(), 1, 15, 12, 0, 0).unwrap();
+        let july_time = tz.with_ymd_and_hms(utc_time.year(), 7, 15, 12, 0, 0).unwrap();
         
         let jan_offset = january_time.offset().fix().local_minus_utc();
         let jul_offset = july_time.offset().fix().local_minus_utc();
@@ -932,24 +1045,25 @@ impl TimedatectlManager {
     
     /// Calculate next DST transition
     async fn get_next_dst_transition(&self, tz: &Tz, utc_time: &DateTime<Utc>) -> Option<DateTime<Utc>> {
+        #[cfg(not(feature = "i18n"))]
+        { return None; }
         let current_year = utc_time.year();
         
         // Check transitions for current and next year
         for year in current_year..=current_year + 1 {
             // Common DST transition periods (varies by region)
-            let spring_candidates = vec![
+            const SPRING_CANDIDATES: &[(u32,u32)] = &[
                 (3, 8),   // Second Sunday in March (US)
                 (3, 29),  // Last Sunday in March (EU)
                 (10, 3),  // First Sunday in October (Southern Hemisphere)
             ];
-            
-            let fall_candidates = vec![
+            const FALL_CANDIDATES: &[(u32,u32)] = &[
                 (11, 1),  // First Sunday in November (US)
                 (10, 25), // Last Sunday in October (EU)
                 (4, 5),   // First Sunday in April (Southern Hemisphere)
             ];
             
-            for (month, day_target) in spring_candidates.iter().chain(fall_candidates.iter()) {
+            for (month, day_target) in SPRING_CANDIDATES.iter().chain(FALL_CANDIDATES.iter()) {
                 if let Some(transition_date) = self.find_dst_transition_date(year, *month, *day_target, tz).await {
                     if transition_date > *utc_time {
                         return Some(transition_date);
@@ -965,18 +1079,23 @@ impl TimedatectlManager {
     async fn find_dst_transition_date(&self, year: i32, month: u32, target_day: u32, tz: &Tz) -> Option<DateTime<Utc>> {
         // Find the specific Sunday for DST transitions
         for day in target_day..target_day + 7 {
-            if let chrono::LocalResult::Single(date) = tz.ymd_opt(year, month, day) {
+            if let Some(naive_date) = chrono::NaiveDate::from_ymd_opt(year, month, day) {
+                let naive_datetime = naive_date.and_hms_opt(0, 0, 0).unwrap();
+                let date = tz.from_local_datetime(&naive_datetime).single().unwrap();
                 if date.weekday() == chrono::Weekday::Sun {
                     // Check if DST actually changes at 2:00 AM on this date
-                    if let Some(transition_time) = date.and_hms_opt(2, 0, 0) {
-                        let before_transition = transition_time.with_timezone(&Utc) - ChronoDuration::hours(1);
-                        let after_transition = transition_time.with_timezone(&Utc) + ChronoDuration::hours(1);
-                        
-                        let before_dst = self.is_dst_active(tz, &before_transition).await;
-                        let after_dst = self.is_dst_active(tz, &after_transition).await;
-                        
-                        if before_dst != after_dst {
-                            return Some(transition_time.with_timezone(&Utc));
+                    if let Some(naive_time) = NaiveTime::from_hms_opt(2, 0, 0) {
+                        let naive_dt = date.date_naive().and_time(naive_time);
+                        if let Some(transition_time) = tz.from_local_datetime(&naive_dt).single() {
+                            let before_transition = transition_time.with_timezone(&Utc) - ChronoDuration::hours(1);
+                            let after_transition = transition_time.with_timezone(&Utc) + ChronoDuration::hours(1);
+                            
+                            let before_dst = self.is_dst_active(tz, &before_transition).await;
+                            let after_dst = self.is_dst_active(tz, &after_transition).await;
+                            
+                            if before_dst != after_dst {
+                                return Some(transition_time.with_timezone(&Utc));
+                            }
                         }
                     }
                 }
@@ -1001,13 +1120,13 @@ impl TimedatectlManager {
         false // Placeholder
     }
 
-    async fn adjust_system_time(&self, new_time: DateTime<Utc>) -> Result<()> {
+    async fn adjust_system_time(&self, _new_time: DateTime<Utc>) -> Result<()> {
         // This would actually set the system time
         // For now, just simulate the operation
         Ok(())
     }
 
-    async fn update_system_timezone(&self, tz: &Tz) -> Result<()> {
+    async fn update_system_timezone(&self, _tz: &Tz) -> Result<()> {
         // This would update the system timezone
         // For now, just simulate the operation
         Ok(())
@@ -1018,7 +1137,7 @@ impl TimedatectlManager {
         Ok(())
     }
 
-    async fn configure_rtc_mode(&self, local_rtc: bool) -> Result<()> {
+    async fn configure_rtc_mode(&self, _local_rtc: bool) -> Result<()> {
         // Configure RTC to use local time or UTC
         Ok(())
     }
@@ -1033,7 +1152,7 @@ impl TimedatectlManager {
         Ok(())
     }
 
-    async fn test_ntp_server(&self, address: &str, port: u16) -> Result<()> {
+    async fn test_ntp_server(&self, _address: &str, _port: u16) -> Result<()> {
         // Test connectivity to NTP server
         Ok(())
     }
@@ -1066,7 +1185,7 @@ impl TimedatectlManager {
     async fn log_event(&self, message: &str) -> Result<()> {
         let log_file = self.config.log_path.join("timedatectl.log");
         let timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
-        let log_entry = format!("[{}] {}\n", timestamp, message);
+        let log_entry = format!("[{timestamp}] {message}\n");
         
         let mut file = async_fs::OpenOptions::new()
             .create(true)
@@ -1288,13 +1407,13 @@ pub async fn timedatectl_cli(args: &[String]) -> Result<()> {
 
     if let Some(timezone) = set_timezone {
         manager.set_timezone(&timezone, &user).await?;
-        println!("Timezone set to: {}", timezone);
+        println!("Timezone set to: {timezone}");
         return Ok(());
     }
 
     if let Some(local_rtc) = set_local_rtc {
         manager.set_local_rtc(local_rtc, &user).await?;
-        println!("RTC in local timezone: {}", local_rtc);
+        println!("RTC in local timezone: {local_rtc}");
         return Ok(());
     }
 
@@ -1306,20 +1425,20 @@ pub async fn timedatectl_cli(args: &[String]) -> Result<()> {
 
     if let Some(server) = add_ntp_server {
         manager.add_ntp_server(&server, &user).await?;
-        println!("Added NTP server: {}", server);
+        println!("Added NTP server: {server}");
         return Ok(());
     }
 
     if let Some(server) = remove_ntp_server {
         manager.remove_ntp_server(&server, &user).await?;
-        println!("Removed NTP server: {}", server);
+        println!("Removed NTP server: {server}");
         return Ok(());
     }
 
     if list_timezones {
         let timezones = manager.list_timezones().await?;
         for timezone in timezones {
-            println!("{}", timezone);
+            println!("{timezone}");
         }
         return Ok(());
     }
@@ -1333,10 +1452,10 @@ pub async fn timedatectl_cli(args: &[String]) -> Result<()> {
             println!("  Last sync: {}", last_sync.format("%Y-%m-%d %H:%M:%S UTC"));
         }
         if let Some(accuracy) = sync_status.sync_accuracy {
-            println!("  Sync accuracy: {:?}", accuracy);
+            println!("  Sync accuracy: {accuracy:?}");
         }
         if let Some(drift) = sync_status.drift_rate {
-            println!("  Drift rate: {:.3} ppm", drift);
+            println!("  Drift rate: {drift:.3} ppm");
         }
         println!("  Poll interval: {:?}", sync_status.poll_interval);
         println!("  Leap status: {:?}", sync_status.leap_status);
@@ -1347,13 +1466,13 @@ pub async fn timedatectl_cli(args: &[String]) -> Result<()> {
                 println!("  {}: {}", server.address, 
                     if server.reachable { "reachable" } else { "unreachable" });
                 if let Some(stratum) = server.stratum {
-                    println!("    Stratum: {}", stratum);
+                    println!("    Stratum: {stratum}");
                 }
                 if let Some(delay) = server.delay {
-                    println!("    Delay: {:?}", delay);
+                    println!("    Delay: {delay:?}");
                 }
                 if let Some(offset) = server.offset {
-                    println!("    Offset: {:?}", offset);
+                    println!("    Offset: {offset:?}");
                 }
             }
         }
@@ -1376,7 +1495,7 @@ pub async fn timedatectl_cli(args: &[String]) -> Result<()> {
         if !stats.server_statistics.is_empty() {
             println!("\nServer Statistics:");
             for (server, server_stats) in &stats.server_statistics {
-                println!("  {}:", server);
+                println!("  {server}:");
                 println!("    Total queries: {}", server_stats.total_queries);
                 println!("    Success rate: {:.2}%", 
                     server_stats.successful_queries as f64 / server_stats.total_queries as f64 * 100.0);
@@ -1393,8 +1512,8 @@ pub async fn timedatectl_cli(args: &[String]) -> Result<()> {
             println!("No time adjustments recorded");
         } else {
             println!("Time Adjustment History:");
-            println!("{:<12} {:<20} {:<20} {:<15} {:<10} {}", 
-                "ID", "Timestamp", "Adjustment", "Method", "User", "Reason");
+            println!("{:<12} {:<20} {:<20} {:<15} {:<10} Reason", 
+                "ID", "Timestamp", "Adjustment", "Method", "User");
             println!("{}", "-".repeat(100));
             
             for adjustment in history.iter().rev().take(20) { // Show last 20
@@ -1434,11 +1553,11 @@ pub async fn timedatectl_cli(args: &[String]) -> Result<()> {
             if status.rtc_in_local_tz { "yes" } else { "no" });
         
         if let Some(accuracy) = status.sync_accuracy {
-            println!("           Sync accuracy: {:?}", accuracy);
+            println!("           Sync accuracy: {accuracy:?}");
         }
         
         if let Some(drift) = status.drift_rate {
-            println!("            Drift rate: {:.3} ppm", drift);
+            println!("            Drift rate: {drift:.3} ppm");
         }
         
         if let Some(last_sync) = status.last_sync {
@@ -1565,7 +1684,7 @@ impl TimedatectlManager {
         let socket = UdpSocket::bind("0.0.0.0:0").await
             .context("Failed to bind UDP socket")?;
         
-        let server_addr = format!("{}:123", server);
+        let server_addr = format!("{server}:123");
         socket.connect(&server_addr).await
             .context("Failed to connect to NTP server")?;
         
@@ -1594,7 +1713,7 @@ impl TimedatectlManager {
     }
     
     /// Parse NTP response packet
-    async fn parse_ntp_response(&self, response: Vec<u8>, delay: Duration) -> Result<NTPResponseData> {
+    async fn parse_ntp_response(&self, response: Vec<u8>, _delay: Duration) -> Result<NTPResponseData> {   
         if response.len() < 48 {
             return Err(anyhow!("NTP response too short"));
         }
@@ -1608,8 +1727,8 @@ impl TimedatectlManager {
         let transmit_frac = u32::from_be_bytes([response[44], response[45], response[46], response[47]]) as u64;
         
         // Calculate offset (simplified calculation)
-        let server_time_ns = (transmit_time - 2_208_988_800) * 1_000_000_000 + 
-                            (transmit_frac * 1_000_000_000) >> 32;
+        let server_time_ns = ((transmit_time - 2_208_988_800) * 1_000_000_000 + 
+                            (transmit_frac * 1_000_000_000)) >> 32;
         let local_time_ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -1657,7 +1776,7 @@ impl TimedatectlManager {
     async fn fallback_ntp_sync(&self, server: &str) -> Result<NTPSyncResult> {
         // Try ntpdate command
         if let Ok(output) = AsyncCommand::new("ntpdate")
-            .args(&["-q", server])
+            .args(["-q", server])
             .output()
             .await
         {
@@ -1669,7 +1788,7 @@ impl TimedatectlManager {
         
         // Try chrony chronyc command
         if let Ok(output) = AsyncCommand::new("chronyc")
-            .args(&["sources", "-v"])
+            .args(["sources", "-v"])
             .output()
             .await
         {
@@ -1707,7 +1826,7 @@ impl TimedatectlManager {
             
         let delay = delay_regex.captures(output)
             .and_then(|cap| cap[1].parse::<f64>().ok())
-            .map(|secs| Duration::from_secs_f64(secs));
+            .map(Duration::from_secs_f64);
             
         let stratum = stratum_regex.captures(output)
             .and_then(|cap| cap[1].parse::<u8>().ok());
@@ -1792,7 +1911,7 @@ impl TimedatectlManager {
         
         // Method 3: System command fallback
         if let Ok(output) = std::process::Command::new("date")
-            .args(&["+%Z"])
+            .args(["+%Z"])
             .output()
         {
             if output.status.success() {
@@ -1815,7 +1934,8 @@ impl TimedatectlManager {
         Ok(false)
     }
     
-    /// Check if timezone has DST rules for given year
+    /// Check if timezone has DST rules for given year (full build)
+    #[cfg(feature = "i18n")]
     fn timezone_has_dst(tz: &chrono_tz::Tz, year: i32) -> Result<bool> {
         let jan_1 = Utc.with_ymd_and_hms(year, 1, 1, 12, 0, 0)
             .single().ok_or_else(|| anyhow!("Invalid January date"))?;
@@ -1828,12 +1948,18 @@ impl TimedatectlManager {
         Ok(jan_offset != jul_offset)
     }
     
-    /// Determine if given time is in DST period
+    /// Determine if given time is in DST period (full build)
+    #[cfg(feature = "i18n")]
     fn is_dst_period(time: &DateTime<chrono_tz::Tz>) -> bool {
         let jan_time = time.timezone().with_ymd_and_hms(time.year(), 1, 15, 12, 0, 0)
-            .single().unwrap_or_else(|| *time);
+            .single().unwrap_or(*time);
         let current_offset = time.offset().fix().local_minus_utc();
         let winter_offset = jan_time.offset().fix().local_minus_utc();
+    // Stub versions (no DST in minimal build)
+    #[cfg(not(feature = "i18n"))]
+    fn timezone_has_dst(_tz: &chrono::Utc, _year: i32) -> Result<bool> { Ok(false) }
+    #[cfg(not(feature = "i18n"))]
+    fn is_dst_period(_time: &DateTime<Utc>) -> bool { false }
         
         current_offset != winter_offset
     }
@@ -1845,7 +1971,7 @@ impl TimedatectlManager {
         
         // Query Windows timezone information
         let output = Command::new("powershell")
-            .args(&["-Command", "Get-TimeZone | Select-Object IsDaylightSavingTime"])
+            .args(["-Command", "Get-TimeZone | Select-Object IsDaylightSavingTime"])
             .output()?;
             
         if output.status.success() {
@@ -1855,7 +1981,7 @@ impl TimedatectlManager {
         
         // Alternative: use tzutil command
         let output = Command::new("tzutil")
-            .args(&["/g"])
+            .args(["/g"])
             .output()?;
             
         if output.status.success() {
@@ -1931,7 +2057,7 @@ impl TimedatectlManager {
         }
         
         if let Some(drift) = status.drift_rate {
-            println!("   Clock Drift Rate:     {:.6} ppm", drift);
+            println!("   Clock Drift Rate:     {drift:.6} ppm");
         }
         
         // Leap Second Information

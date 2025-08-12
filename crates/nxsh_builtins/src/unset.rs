@@ -17,10 +17,8 @@ pub fn unset_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
             if let Ok(mut env_guard) = ctx.env.write() {
                 env_guard.remove(name);
             }
-        } else {
-            if let Ok(mut aliases_guard) = ctx.aliases.write() {
-                aliases_guard.remove(name);
-            }
+        } else if let Ok(mut aliases_guard) = ctx.aliases.write() {
+            aliases_guard.remove(name);
         }
     }
     Ok(())

@@ -1,0 +1,40 @@
+{
+  "name": "nxsh-forest",
+  "version": "1.0.0",
+  "author": "NexusShell Team",
+  "description": "Nature-inspired green theme",
+  "colors": {
+    "primary": "#228b22",
+    "secondary": "#556b2f",
+    "accent": "#daa520",
+    "background": "#0f1419",
+    "foreground": "#f0f0f0",
+    "error": "#b22222",
+    "warning": "#daa520",
+    "success": "#32cd32",
+    "info": "#228b22",
+    "muted": "#556b2f",
+    "highlight": "#9acd32",
+    "border": "#2f4f4f"
+  },
+  "styles": {
+    "prompt": {
+      "foreground": "Blue",
+      "bold": true
+    },
+    "command": {
+      "foreground": "White"
+    },
+    "error": {
+      "foreground": "Red",
+      "bold": true
+    },
+    "warning": {
+      "foreground": "Yellow"
+    },
+    "success": {
+      "foreground": "Green",
+      "bold": true
+    }
+  }
+}

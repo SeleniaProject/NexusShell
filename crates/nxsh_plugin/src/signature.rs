@@ -2,14 +2,13 @@ use anyhow::{Result, Context};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
 };
 use serde::{Deserialize, Serialize};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};  // Pure Rust Ed25519
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use chrono::{DateTime, Utc};
 use sha2::{Sha256, Digest};
-use log::{info, warn, error, debug};
+use log::{info, warn, debug};
 
 use crate::{PluginMetadata, PluginError};
 
@@ -56,11 +55,11 @@ impl SignatureVerifier {
         metadata: &PluginMetadata,
     ) -> Result<VerificationResult, PluginError> {
         let plugin_path = plugin_path.as_ref();
-        debug!("Verifying plugin signature for: {:?}", plugin_path);
+        debug!("Verifying plugin signature for: {plugin_path:?}");
         
         // Read plugin file
         let plugin_data = tokio::fs::read(plugin_path).await
-            .map_err(|e| PluginError::SecurityError(format!("Failed to read plugin file: {}", e)))?;
+            .map_err(|e| PluginError::SecurityError(format!("Failed to read plugin file: {e}")))?;
         
         // Calculate plugin hash
         let plugin_hash = self.calculate_hash(&plugin_data);
@@ -79,7 +78,7 @@ impl SignatureVerifier {
         }
         
         // Verify TUF signature
-        let signature_valid = self.verify_tuf_signature(&tuf_entry).await?;
+        let signature_valid = self.verify_tuf_signature(tuf_entry).await?;
         if !signature_valid {
             return Ok(VerificationResult::failed(
                 "Invalid TUF signature".to_string()
@@ -101,10 +100,10 @@ impl SignatureVerifier {
         
         // Read and verify plugin signature
         let signature_data = tokio::fs::read(&signature_path).await
-            .map_err(|e| PluginError::SecurityError(format!("Failed to read signature file: {}", e)))?;
+            .map_err(|e| PluginError::SecurityError(format!("Failed to read signature file: {e}")))?;
         
         let plugin_signature: PluginSignature = serde_json::from_slice(&signature_data)
-            .map_err(|e| PluginError::SecurityError(format!("Invalid signature format: {}", e)))?;
+            .map_err(|e| PluginError::SecurityError(format!("Invalid signature format: {e}")))?;
         
         // Verify signature
         let verification_result = self.verify_plugin_signature(&plugin_data, &plugin_signature).await?;
@@ -137,7 +136,7 @@ impl SignatureVerifier {
         key_id: String,
     ) -> Result<PluginSignature> {
         let plugin_path = plugin_path.as_ref();
-        debug!("Signing plugin: {:?}", plugin_path);
+        debug!("Signing plugin: {plugin_path:?}");
         
         // Read plugin data
         let plugin_data = tokio::fs::read(plugin_path).await
@@ -183,7 +182,7 @@ impl SignatureVerifier {
         tokio::fs::write(&signature_path, signature_json).await
             .context("Failed to write signature file")?;
         
-        info!("Plugin signed successfully: {:?}", signature_path);
+        info!("Plugin signed successfully: {signature_path:?}");
         Ok(plugin_signature)
     }
     
@@ -202,7 +201,7 @@ impl SignatureVerifier {
         // Save updated keys
         self.save_trusted_keys().await?;
         
-        info!("Added trusted key: {}", key_id);
+        info!("Added trusted key: {key_id}");
         Ok(())
     }
     
@@ -220,7 +219,7 @@ impl SignatureVerifier {
             // Save updated keys
             self.save_trusted_keys().await?;
             
-            warn!("Revoked trusted key '{}': {}", key_id, reason);
+            warn!("Revoked trusted key '{key_id}': {reason}");
             Ok(())
         } else {
             Err(anyhow::anyhow!("Key '{}' not found", key_id))
@@ -492,10 +491,9 @@ impl Ed25519PrivateKey {
     }
     
     /// Get the corresponding public key
-    pub fn public_key(&self) -> Ed25519PublicKey {
+    pub fn public_key(&self) -> Result<Ed25519PublicKey> {
         let verifying_key = self.signing_key.verifying_key();
         Ed25519PublicKey::from_bytes(verifying_key.as_bytes())
-            .expect("Valid public key from signing key")
     }
 }
 
@@ -624,6 +622,12 @@ pub struct TufMetadata {
     pub signature: Option<TufSignature>,
 }
 
+impl Default for TufMetadata {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TufMetadata {
     pub fn new() -> Self {
         Self {
@@ -637,7 +641,7 @@ impl TufMetadata {
     }
     
     pub fn find_plugin(&self, name: &str, version: &str) -> Option<&TufPluginEntry> {
-        let key = format!("{}-{}", name, version);
+        let key = format!("{name}-{version}");
         self.signed.targets.get(&key)
     }
 }

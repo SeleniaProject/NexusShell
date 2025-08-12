@@ -1,0 +1,13 @@
+﻿{
+    "profile":  "release-small",
+    "variant":  "busybox-min",
+    "path":  "target\\release-small\\nxsh.exe",
+    "size_bytes":  1490944,
+    "size_mib":  1.422,
+    "stripped_size_bytes":  1490944,
+    "gzip_size_bytes":  759990,
+    "upx_size_bytes":  null,
+    "max_allowed_bytes":  1048576,
+    "status":  "fail",
+    "timestamp_utc":  "2025-08-10T15:22:47.1772709Z"
+}

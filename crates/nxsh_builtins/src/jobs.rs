@@ -20,7 +20,7 @@ struct JobRow {
 pub fn fg(id: Option<u32>) -> Result<()> {
     let id = id.unwrap_or(0);
     if let Ok(jobs) = JOB_TABLE.lock() {
-        if let Some(job) = jobs.get(&id) {
+    if let Some(_job) = jobs.get(&id) {
         #[cfg(unix)]
         {
             use nix::sys::signal::{kill, Signal};
@@ -29,9 +29,9 @@ pub fn fg(id: Option<u32>) -> Result<()> {
             // Wait for completion (simplified)
             nix::sys::wait::waitpid(Pid::from_raw(job.pid as i32), None)?;
         }
-        println!("Job {} brought to foreground", id);
+        println!("Job {id} brought to foreground");
         } else {
-            println!("No such job {}", id);
+            println!("No such job {id}");
         }
     } else {
         println!("Failed to access job table");
@@ -42,16 +42,16 @@ pub fn fg(id: Option<u32>) -> Result<()> {
 pub fn bg(id: Option<u32>) -> Result<()> {
     let id = id.unwrap_or(0);
     if let Ok(jobs) = JOB_TABLE.lock() {
-        if let Some(job) = jobs.get(&id) {
+    if let Some(_job) = jobs.get(&id) {
             #[cfg(unix)]
             {
                 use nix::sys::signal::{kill, Signal};
                 use nix::unistd::Pid;
                 kill(Pid::from_raw(job.pid as i32), Signal::SIGCONT)?;
             }
-            println!("Job {} resumed in background", id);
+            println!("Job {id} resumed in background");
         } else {
-            println!("No such job {}", id);
+            println!("No such job {id}");
         }
     } else {
         println!("Failed to access job table");
@@ -70,7 +70,7 @@ pub fn jobs_cli() {
                 cmd: j.description.clone(),
             })
             .collect();
-        println!("{}", Table::new(rows).to_string());
+        println!("{}", Table::new(rows));
     } else {
         println!("Failed to access job table");
     }
@@ -79,7 +79,7 @@ pub fn jobs_cli() {
 pub fn wait_cli(arg: Option<u32>) -> Result<()> {
     let id = arg.unwrap_or(0);
     if let Ok(jobs) = JOB_TABLE.lock() {
-        if let Some(job) = jobs.get(&id) {
+    if let Some(_job) = jobs.get(&id) {
             #[cfg(unix)]
             {
                 use nix::unistd::Pid;
@@ -104,7 +104,7 @@ pub fn disown_cli(all: bool, id: Option<u32>) {
     } else if let Some(i) = id {
         if let Ok(mut jobs) = JOB_TABLE.lock() {
             jobs.remove(&i);
-            println!("Job {} disowned", i);
+            println!("Job {i} disowned");
         }
     }
 } 

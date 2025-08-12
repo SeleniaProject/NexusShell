@@ -8,34 +8,64 @@
 
 use anyhow::Result;
 use std::sync::Arc;
+#[cfg(any(feature = "native-plugins", feature = "async-support"))]
 use tokio::sync::RwLock;
+#[cfg(any(feature = "native-plugins", feature = "async-support"))]
 use once_cell::sync::Lazy;
 
 pub mod json;
 pub mod registrar;
-// pub mod loader;             // Stage 2: WASM plugin loading (commented out temporarily)
-pub mod key;
-// pub mod remote;             // Stage 2: Remote plugin support (commented out temporarily)
-pub mod native_runtime;        // Stage 1: Native Rust plugins
-// pub mod runtime;            // Stage 2: WASI plugins (commented out temporarily)
+#[cfg(feature = "wasi-runtime")]
+pub mod loader;             // Pure Rust WASM plugin loading (restored)
+pub mod keys;
+#[cfg(feature = "remote-plugins")]
+pub mod remote;             // Stage 2: Remote plugin support (restored in Phase 3)
+#[cfg(feature = "native-plugins")]
+pub mod native_runtime;     // Stage 1: Native Rust plugins
+#[cfg(feature = "wasi-runtime")]
+pub mod runtime;            // Pure Rust WASI plugins (restored)
 pub mod manager;
 pub mod security;
-// pub mod component;          // Stage 2: Component model (commented out temporarily)
+#[cfg(feature = "wasi-runtime")]
+pub mod component;          // Pure Rust Component model (restored)
 pub mod signature;
 pub mod permissions;
-// pub mod resource_table;     // Stage 2: WASM resource management (commented out temporarily)
-// pub mod dynamic_loader;     // Temporarily disabled due to syntax issues
-// pub mod enhanced_runtime;   // Temporarily disabled to resolve dependencies
+#[cfg(feature = "wasi-runtime")]
+pub mod resource_table;     // Pure Rust WASM resource management (restored)
+#[cfg(feature = "wasi-runtime")]
+pub mod wasi_advanced;      // Advanced WASM/WASI runtime
+pub mod security_sandbox;   // Security sandbox system
+#[cfg(feature = "plugin-management")]
+pub mod plugin_manager_advanced; // Advanced plugin management
 
+#[cfg(feature = "native-plugins")]
 use crate::native_runtime::NativePluginRuntime;
-use crate::manager::PluginManager;
+#[cfg(feature = "wasi-runtime")]
+use crate::runtime::WasiPluginRuntime;
+#[cfg(feature = "wasi-runtime")]
+use crate::component::ComponentRegistry;
+#[cfg(feature = "wasi-runtime")]
+use crate::resource_table::ResourceTable;
+pub use crate::manager::PluginManager;
+pub use crate::signature::PluginSignature;
 
+// #[cfg(test)]
+// mod tests;  // Disabled legacy tests for now
+
+#[cfg(any(feature = "native-plugins", feature = "async-support"))]
 static PLUGIN_SYSTEM: Lazy<Arc<RwLock<PluginSystem>>> =
     Lazy::new(|| Arc::new(RwLock::new(PluginSystem::new())));
 
-/// Global plugin system state with Native Rust Plugin support
+/// Global plugin system state with Pure Rust Plugin support
 pub struct PluginSystem {
+    #[cfg(feature = "native-plugins")]
     native_runtime: Option<NativePluginRuntime>,
+    #[cfg(feature = "wasi-runtime")]
+    wasi_runtime: Option<WasiPluginRuntime>,
+    #[cfg(feature = "wasi-runtime")]
+    component_registry: Option<ComponentRegistry>,
+    #[cfg(feature = "wasi-runtime")]
+    resource_table: Option<ResourceTable>,
     manager: Option<PluginManager>,
     initialized: bool,
 }
@@ -43,7 +73,14 @@ pub struct PluginSystem {
 impl PluginSystem {
     fn new() -> Self {
         Self {
+            #[cfg(feature = "native-plugins")]
             native_runtime: None,
+            #[cfg(feature = "wasi-runtime")]
+            wasi_runtime: None,
+            #[cfg(feature = "wasi-runtime")]
+            component_registry: None,
+            #[cfg(feature = "wasi-runtime")]
+            resource_table: None,
             manager: None,
             initialized: false,
         }
@@ -55,29 +92,79 @@ impl PluginSystem {
         }
         
         // Initialize native runtime
-        let mut native_runtime = NativePluginRuntime::new()?;
-        native_runtime.initialize().await?;
-        self.native_runtime = Some(native_runtime);
+        #[cfg(feature = "native-plugins")]
+        {
+            let mut native_runtime = NativePluginRuntime::new()?;
+            native_runtime.initialize().await?;
+            self.native_runtime = Some(native_runtime);
+        }
+        
+        // Initialize WASI runtime
+        #[cfg(feature = "wasi-runtime")]
+        {
+            let wasi_runtime = WasiPluginRuntime::new()?;
+            self.wasi_runtime = Some(wasi_runtime);
+            
+            // Initialize component registry
+            let component_registry = ComponentRegistry::new()?;
+            self.component_registry = Some(component_registry);
+            
+            // Initialize resource table
+            let resource_table = ResourceTable::new();
+            self.resource_table = Some(resource_table);
+        }
         
         // Initialize manager
         let manager = PluginManager::new();
         self.manager = Some(manager);
         
         self.initialized = true;
-        log::info!("Native Plugin system initialized successfully");
+        log::info!("Pure Rust Plugin system initialized successfully");
         Ok(())
     }
     
+    #[cfg(feature = "native-plugins")]
     fn native_runtime(&self) -> Option<&NativePluginRuntime> {
         self.native_runtime.as_ref()
+    }
+    
+    #[cfg(feature = "wasi-runtime")]
+    fn wasi_runtime(&self) -> Option<&WasiPluginRuntime> {
+        self.wasi_runtime.as_ref()
+    }
+    
+    #[cfg(feature = "wasi-runtime")]
+    fn component_registry(&self) -> Option<&ComponentRegistry> {
+        self.component_registry.as_ref()
+    }
+    
+    #[cfg(feature = "wasi-runtime")]
+    fn resource_table(&self) -> Option<&ResourceTable> {
+        self.resource_table.as_ref()
     }
     
     fn manager(&self) -> Option<&PluginManager> {
         self.manager.as_ref()
     }
     
+    #[cfg(feature = "native-plugins")]
     fn native_runtime_mut(&mut self) -> Option<&mut NativePluginRuntime> {
         self.native_runtime.as_mut()
+    }
+    
+    #[cfg(feature = "wasi-runtime")]
+    fn wasi_runtime_mut(&mut self) -> Option<&mut WasiPluginRuntime> {
+        self.wasi_runtime.as_mut()
+    }
+    
+    #[cfg(feature = "wasi-runtime")]
+    fn component_registry_mut(&mut self) -> Option<&mut ComponentRegistry> {
+        self.component_registry.as_mut()
+    }
+    
+    #[cfg(feature = "wasi-runtime")]
+    fn resource_table_mut(&mut self) -> Option<&mut ResourceTable> {
+        self.resource_table.as_mut()
     }
     
     fn manager_mut(&mut self) -> Option<&mut PluginManager> {
@@ -85,19 +172,28 @@ impl PluginSystem {
     }
 }
 
-/// Initialize the global plugin system
+/// Initialize the plugin system
+#[cfg(any(feature = "native-plugins", feature = "async-support"))]
 pub async fn initialize() -> Result<()> {
     let system = PLUGIN_SYSTEM.clone();
     let mut system = system.write().await;
     system.initialize_internal().await
 }
 
+#[cfg(not(any(feature = "native-plugins", feature = "async-support")))]
+pub fn initialize() -> Result<()> {
+    log::info!("Plugin system disabled - minimal build");
+    Ok(())
+}
+
 /// Get reference to the global plugin system
+#[cfg(any(feature = "native-plugins", feature = "async-support"))]
 pub async fn get_system() -> Arc<RwLock<PluginSystem>> {
     PLUGIN_SYSTEM.clone()
 }
 
 /// Shutdown the global plugin system
+#[cfg(any(feature = "native-plugins", feature = "async-support"))]
 pub async fn shutdown() -> Result<()> {
     let system = PLUGIN_SYSTEM.clone();
     let mut system = system.write().await;
@@ -115,30 +211,43 @@ pub async fn shutdown() -> Result<()> {
 }
 
 /// Load a plugin from a file path
+#[cfg(any(feature = "native-plugins", feature = "async-support"))]
 pub async fn load_plugin<P: AsRef<std::path::Path>>(path: P) -> Result<String> {
     let system = PLUGIN_SYSTEM.clone();
-    let system = system.read().await;
+    let mut system = system.write().await;
     
-    if let Some(manager) = system.manager() {
+    if let Some(manager) = system.manager_mut() {
         manager.load_plugin(path).await
     } else {
         Err(anyhow::anyhow!("Plugin system not initialized"))
     }
 }
 
+#[cfg(not(any(feature = "native-plugins", feature = "async-support")))]
+pub fn load_plugin<P: AsRef<std::path::Path>>(_path: P) -> Result<String> {
+    Err(anyhow::anyhow!("Plugin system disabled"))
+}
+
 /// Unload a plugin by ID
+#[cfg(any(feature = "native-plugins", feature = "async-support"))]
 pub async fn unload_plugin(plugin_id: &str) -> Result<()> {
     let system = PLUGIN_SYSTEM.clone();
-    let system = system.read().await;
+    let mut system = system.write().await;
     
-    if let Some(manager) = system.manager() {
+    if let Some(manager) = system.manager_mut() {
         manager.unload_plugin(plugin_id).await
     } else {
         Err(anyhow::anyhow!("Plugin system not initialized"))
     }
 }
 
+#[cfg(not(any(feature = "native-plugins", feature = "async-support")))]
+pub fn unload_plugin(_plugin_id: &str) -> Result<()> {
+    Err(anyhow::anyhow!("Plugin system disabled"))
+}
+
 /// List all loaded plugins
+#[cfg(feature = "native-plugins")]
 pub async fn list_plugins() -> Vec<String> {
     let system = PLUGIN_SYSTEM.clone();
     let system = system.read().await;
@@ -150,7 +259,13 @@ pub async fn list_plugins() -> Vec<String> {
     }
 }
 
+#[cfg(not(feature = "native-plugins"))]
+pub fn list_plugins() -> Vec<String> {
+    vec![]
+}
+
 /// Execute a plugin function
+#[cfg(feature = "native-plugins")]
 pub async fn execute_plugin(plugin_id: &str, function: &str, args: &[String]) -> Result<String> {
     let system = PLUGIN_SYSTEM.clone();
     let system = system.read().await;
@@ -161,6 +276,11 @@ pub async fn execute_plugin(plugin_id: &str, function: &str, args: &[String]) ->
     } else {
         Err(anyhow::anyhow!("Plugin system not initialized"))
     }
+}
+
+#[cfg(not(feature = "native-plugins"))]
+pub fn execute_plugin(_plugin_id: &str, _function: &str, _args: &[String]) -> Result<String> {
+    Err(anyhow::anyhow!("Native plugin support disabled"))
 }
 
 // Plugin configuration and metadata types
@@ -228,7 +348,8 @@ pub type PluginResult<T> = std::result::Result<T, PluginError>;
 /// Plugin events
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PluginEvent {
-    Loaded { plugin_id: String, metadata: PluginMetadata },
+    // Box<PluginMetadata> でサイズ削減 (large_enum_variant 対策)
+    Loaded { plugin_id: String, metadata: Box<PluginMetadata> },
     Unloaded { plugin_id: String },
     Executed { plugin_id: String, function: String, duration_ms: u64 },
     Error { plugin_id: String, error: String },
@@ -264,6 +385,12 @@ pub enum PluginError {
     
     #[error("Plugin version error: {0}")]
     VersionError(String),
+    
+    #[error("Plugin runtime error: {0}")]
+    RuntimeError(String),
+    
+    #[error("Plugin WASM runtime error: {0}")]
+    Runtime(String),
     
     #[error("Plugin configuration error: {0}")]
     ConfigError(String),
@@ -302,6 +429,13 @@ pub enum PluginError {
 impl From<anyhow::Error> for PluginError {
     fn from(err: anyhow::Error) -> Self {
         PluginError::ExecutionError(err.to_string())
+    }
+}
+
+#[cfg(feature = "wasi-runtime")]
+impl From<wasmi::Error> for PluginError {
+    fn from(err: wasmi::Error) -> Self {
+        PluginError::Runtime(err.to_string())
     }
 }
 

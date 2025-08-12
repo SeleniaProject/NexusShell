@@ -1,0 +1,40 @@
+{
+  "name": "nxsh-dracula",
+  "version": "1.0.0",
+  "author": "NexusShell Team", 
+  "description": "Dark theme with purple accents inspired by Dracula",
+  "colors": {
+    "primary": "#bd93f9",
+    "secondary": "#6272a4",
+    "accent": "#ffb86c",
+    "background": "#282a36",
+    "foreground": "#f8f8f2",
+    "error": "#ff5555",
+    "warning": "#ffb86c",
+    "success": "#50fa7b",
+    "info": "#8be9fd",
+    "muted": "#6272a4",
+    "highlight": "#ff79c6",
+    "border": "#44475a"
+  },
+  "styles": {
+    "prompt": {
+      "foreground": "Magenta",
+      "bold": true
+    },
+    "command": {
+      "foreground": "White"
+    },
+    "error": {
+      "foreground": "Red",
+      "bold": true
+    },
+    "warning": {
+      "foreground": "Yellow"
+    },
+    "success": {
+      "foreground": "Green",
+      "bold": true
+    }
+  }
+}

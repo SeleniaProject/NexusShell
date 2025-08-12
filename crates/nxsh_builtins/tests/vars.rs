@@ -1,37 +1,31 @@
-use nxsh_builtins::{builtin_let, declare, printf};
+use nxsh_builtins::vars::{let_cli, declare_cli, printf_cli};
 use nxsh_core::context::ShellContext;
 
 #[test]
 fn let_addition() {
     let ctx = ShellContext::new();
-    builtin_let(&["a=1+1".into()], &ctx).unwrap();
+    let_cli(&["a=1+1".into()], &ctx).unwrap();
     assert_eq!(ctx.get_var("a").unwrap(), "2");
 }
 
 #[test]
 fn let_plus_equal() {
     let ctx = ShellContext::new();
-    builtin_let(&["a=1".into()], &ctx).unwrap();
-    builtin_let(&["a += 2".into()], &ctx).unwrap();
+    let_cli(&["a=1".into()], &ctx).unwrap();
+    let_cli(&["a += 2".into()], &ctx).unwrap();
     assert_eq!(ctx.get_var("a").unwrap(), "3");
 }
 
 #[test]
 fn declare_assoc() {
     let ctx = ShellContext::new();
-    declare(&["-A".into(), "myarr".into()], &ctx).unwrap();
+    declare_cli(&["-A".into(), "myarr".into()], &ctx).unwrap();
     assert_eq!(ctx.get_var("myarr").unwrap(), "__assoc_array__");
 }
 
 #[test]
 fn printf_hex() {
-    let mut buf = Vec::new();
-    {
-        // redirect stdout
-        use std::io::Write;
-        let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
-        let orig = std::mem::replace(&mut *handle, buf.clone());
-    }
-    printf(&["%08x\n".into(), "255".into()]).unwrap();
+    // For now, just test that printf_cli doesn't crash
+    let result = printf_cli(&["%08x\n".into(), "255".into()]);
+    assert!(result.is_ok());
 } 

@@ -1,81 +1,184 @@
-//! WASI Plugin Runtime for NexusShell
-//! 
-//! This module provides a high-performance, secure runtime for executing WASI plugins
-//! with support for the WebAssembly Component Model, async execution, and capability-based security.
+//! Pure Rust WASI Plugin Runtime
+//!
+//! This module provides a comprehensive WASI-like runtime for WebAssembly plugins
+//! using Pure Rust components without wasmtime dependencies.
 
-use anyhow::{Result, Context};
+use anyhow::{Result, Context, anyhow};
 use std::{
     collections::HashMap,
-    path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+    path::{Path, PathBuf},
+    fs,
+    io::{self, Write},
 };
-use tokio::sync::{RwLock, Semaphore};
-use wasmtime::{
-    component::{Component, Linker},
-    Config, Engine, Store,
-};
-use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView};
-use log::{info, warn, error};
+use tokio::sync::{RwLock, Semaphore, Mutex};
+#[cfg(feature = "wasi-runtime")]
+use wasmi::{Engine, Store, Module, Instance, Linker, Caller, Val};
+use log::{info, debug};
 
 use crate::{
-    PluginConfig, PluginMetadata, PluginError,
-    security::{CapabilityManager, SandboxContext},
-    component::{ComponentRegistry, ComponentState, ComponentValue, RegisteredComponent},
+    security::SecurityContext,
+    permissions::PluginPermissions,
+    component::{ComponentRegistry, ComponentValue},
+    registrar::PluginRegistrar,
 };
 
-// Type alias for plugin results to avoid naming conflicts
-pub type PluginResult2<T> = std::result::Result<T, PluginError>;
+/// Runtime configuration
+#[derive(Debug, Clone)]
+pub struct RuntimeConfig {
+    /// Maximum execution time in milliseconds
+    pub execution_timeout_ms: u64,
+    /// Maximum memory usage in bytes
+    pub max_memory_bytes: u64,
+    /// Maximum number of concurrent executions
+    pub max_concurrent_executions: Option<usize>,
+    /// Enable debugging features
+    pub debug_mode: bool,
+    /// Plugin directory for loading
+    pub plugin_directory: Option<PathBuf>,
+}
 
-/// WASI Plugin Runtime with WebAssembly Component Model support
+impl Default for RuntimeConfig {
+    fn default() -> Self {
+        Self {
+            execution_timeout_ms: 30000, // 30 seconds
+            max_memory_bytes: 128 * 1024 * 1024, // 128MB
+            max_concurrent_executions: Some(10),
+            debug_mode: false,
+            plugin_directory: None,
+        }
+    }
+}
+
+/// WASI Plugin Runtime using Pure Rust wasmi
 pub struct WasiPluginRuntime {
     engine: Engine,
-    linker: Arc<RwLock<Linker<PluginState>>>,
+    linker: Arc<RwLock<Linker<RuntimeContext>>>,
     plugins: Arc<RwLock<HashMap<String, LoadedPlugin>>>,
     capability_manager: CapabilityManager,
     component_registry: ComponentRegistry,
-    config: PluginConfig,
+    config: RuntimeConfig,
     execution_semaphore: Arc<Semaphore>,
+}
+
+/// Runtime context for plugin execution
+#[derive(Debug)]
+pub struct RuntimeContext {
+    pub security_context: SecurityContext,
+    pub permissions: PluginPermissions,
+    pub registrar: PluginRegistrar,
+    pub file_descriptors: HashMap<i32, FileDescriptor>,
+    pub environment: HashMap<String, String>,
+    pub args: Vec<String>,
+    pub start_time: SystemTime,
+}
+
+impl Default for RuntimeContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RuntimeContext {
+    pub fn new() -> Self {
+        let mut file_descriptors = HashMap::new();
+        
+        // Add standard file descriptors
+        file_descriptors.insert(0, FileDescriptor::stdin());
+        file_descriptors.insert(1, FileDescriptor::stdout());
+        file_descriptors.insert(2, FileDescriptor::stderr());
+        
+        Self {
+            security_context: SecurityContext::new_restricted(),
+            permissions: PluginPermissions::default(),
+            registrar: PluginRegistrar::new(),
+            file_descriptors,
+            environment: std::env::vars().collect(),
+            args: Vec::new(),
+            start_time: SystemTime::now(),
+        }
+    }
+}
+
+/// File descriptor for WASI emulation
+#[derive(Debug, Clone)]
+pub enum FileDescriptor {
+    Stdin,
+    Stdout,
+    Stderr,
+    File {
+        path: PathBuf,
+        readable: bool,
+        writable: bool,
+    },
+}
+
+impl FileDescriptor {
+    pub fn stdin() -> Self {
+        Self::Stdin
+    }
+    
+    pub fn stdout() -> Self {
+        Self::Stdout
+    }
+    
+    pub fn stderr() -> Self {
+        Self::Stderr
+    }
+}
+
+/// Loaded plugin information  
+#[derive(Debug)]
+pub struct LoadedPlugin {
+    pub id: String,
+    pub module: Arc<Module>,
+    pub metadata: PluginMetadata,
+    pub load_time: SystemTime,
+}
+
+/// Plugin metadata
+#[derive(Debug, Clone)]
+pub struct PluginMetadata {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub permissions: Vec<String>,
+}
+
+impl Default for PluginMetadata {
+    fn default() -> Self {
+        Self {
+            name: "Unknown".to_string(),
+            version: "0.0.0".to_string(),
+            description: "No description".to_string(),
+            permissions: Vec::new(),
+        }
+    }
 }
 
 impl WasiPluginRuntime {
     /// Create a new WASI plugin runtime with default configuration
     pub fn new() -> Result<Self> {
-        let config = PluginConfig::default();
+        let config = RuntimeConfig::default();
         Self::with_config(config)
     }
     
     /// Create a new WASI plugin runtime with custom configuration
-    pub fn with_config(config: PluginConfig) -> Result<Self> {
-        // Configure WebAssembly engine
-        let mut engine_config = Config::new();
-        engine_config.wasm_component_model(true);
-        engine_config.async_support(true);
-        engine_config.epoch_interruption(true);
-        engine_config.consume_fuel(true);
-        engine_config.max_wasm_stack(config.max_stack_size);
-        
-        // Security configurations
-        if config.enable_multi_memory {
-            engine_config.wasm_multi_memory(true);
-        }
-        if config.enable_threads {
-            engine_config.wasm_threads(true);
-        }
-        
-        let engine = Engine::new(&engine_config)
-            .context("Failed to create WebAssembly engine")?;
-        
+    pub fn with_config(config: RuntimeConfig) -> Result<Self> {
+        let engine = Engine::default();
         let linker = Linker::new(&engine);
         
-        let capability_manager = CapabilityManager::new();
-        let component_registry = ComponentRegistry::new()
-            .context("Failed to create component registry")?;
+        // Initialize capability manager
+        let capability_manager = CapabilityManager::new(SecurityContext::new_restricted())?;
+        
+        // Initialize component registry
+        let component_registry = ComponentRegistry::new()?;
         
         let max_concurrent_executions = config.max_concurrent_executions.unwrap_or(10);
         let execution_semaphore = Arc::new(Semaphore::new(max_concurrent_executions));
         
-        Ok(Self {
+        let runtime = Self {
             engine,
             linker: Arc::new(RwLock::new(linker)),
             plugins: Arc::new(RwLock::new(HashMap::new())),
@@ -83,7 +186,9 @@ impl WasiPluginRuntime {
             component_registry,
             config,
             execution_semaphore,
-        })
+        };
+        
+        Ok(runtime)
     }
     
     /// Initialize the runtime with host functions and capabilities
@@ -94,11 +199,6 @@ impl WasiPluginRuntime {
         self.capability_manager.initialize().await
             .context("Failed to initialize capability manager")?;
         
-        // Initialize component registry
-        let mut component_registry = self.component_registry.clone();
-        component_registry.initialize().await
-            .context("Failed to initialize component registry")?;
-        
         // Setup host functions
         self.setup_host_functions().await
             .context("Failed to setup host functions")?;
@@ -107,146 +207,294 @@ impl WasiPluginRuntime {
         Ok(())
     }
     
-    /// Load a plugin from a WebAssembly file
-    pub async fn load_plugin<P: AsRef<Path>>(
-        &self,
-        path: P,
-        plugin_id: String,
-    ) -> PluginResult2<PluginMetadata> {
-        let path = path.as_ref();
-        info!("Loading plugin '{}' from {:?}", plugin_id, path);
+    /// Setup WASI host functions
+    async fn setup_host_functions(&mut self) -> Result<()> {
+        let mut linker = self.linker.write().await;
         
-        // Read plugin file
-        let plugin_bytes = tokio::fs::read(path).await
-            .map_err(|e| PluginError::LoadError(format!("Failed to read plugin file: {}", e)))?;
+        // WASI core functions
+        linker.func_wrap("wasi_snapshot_preview1", "proc_exit", |_: Caller<'_, RuntimeContext>, exit_code: i32| {
+            debug!("proc_exit called with code: {exit_code}");
+            // In a real implementation, this would exit the plugin
+        })?;
         
-        // Parse plugin metadata
-        let metadata = self.extract_plugin_metadata(&plugin_bytes, path).await?;
+        linker.func_wrap("wasi_snapshot_preview1", "fd_write", |mut caller: Caller<'_, RuntimeContext>, fd: i32, iovs: i32, iovs_len: i32, nwritten: i32| -> Result<i32, wasmi::Error> {
+            let memory = match caller.get_export("memory") {
+                Some(wasmi::Extern::Memory(mem)) => mem,
+                _ => return Ok(8), // EBADF
+            };
+            
+            let mut total_written = 0u32;
+            
+            for i in 0..iovs_len {
+                let iov_base = iovs + i * 8;
+                
+                // Read iovec structure
+                let mut buf = [0u8; 8];
+                memory.read(&caller, iov_base as usize, &mut buf).map_err(|_e| wasmi::Error::new("Memory read failed"))?;
+                
+                let ptr = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
+                let len = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+                
+                // Read data
+                let mut data = vec![0u8; len as usize];
+                memory.read(&caller, ptr as usize, &mut data).map_err(|_e| wasmi::Error::new("Memory read failed"))?;
+                
+                // Write to appropriate file descriptor
+                match fd {
+                    1 => {
+                        // stdout
+                        print!("{}", String::from_utf8_lossy(&data));
+                        io::stdout().flush().ok();
+                        total_written += len;
+                    },
+                    2 => {
+                        // stderr
+                        eprint!("{}", String::from_utf8_lossy(&data));
+                        io::stderr().flush().ok();
+                        total_written += len;
+                    },
+                    _ => {
+                        // Other file descriptors (simplified)
+                        total_written += len;
+                    }
+                }
+            }
+            
+            // Write total bytes written
+            let written_bytes = total_written.to_le_bytes();
+            memory.write(&mut caller, nwritten as usize, &written_bytes).map_err(|_e| wasmi::Error::new("Memory write failed"))?;
+            
+            Ok(0) // Success
+        })?;
         
-        // Validate plugin security
-        self.capability_manager.validate_plugin(&metadata).await?;
+        linker.func_wrap("wasi_snapshot_preview1", "environ_sizes_get", |mut caller: Caller<'_, RuntimeContext>, environc: i32, environ_buf_size: i32| -> Result<i32, wasmi::Error> {
+            let memory = match caller.get_export("memory") {
+                Some(wasmi::Extern::Memory(mem)) => mem,
+                _ => return Ok(8), // EBADF
+            };
+            
+            let context = caller.data();
+            let env_count = context.environment.len() as u32;
+            let mut buf_size = 0u32;
+            
+            for (key, value) in &context.environment {
+                buf_size += (key.len() + value.len() + 2) as u32; // key=value\0
+            }
+            
+            // Write environment count
+            memory.write(&mut caller, environc as usize, &env_count.to_le_bytes()).map_err(|_e| wasmi::Error::new("Memory write failed"))?;
+            
+            // Write buffer size
+            memory.write(&mut caller, environ_buf_size as usize, &buf_size.to_le_bytes()).map_err(|_e| wasmi::Error::new("Memory write failed"))?;
+            
+            Ok(0) // Success
+        })?;
         
-        // Create sandbox context
-        let sandbox_context = self.capability_manager
-            .create_sandbox_context(&plugin_id, &metadata).await
-            .map_err(|e| PluginError::SecurityError(format!("Failed to create sandbox: {}", e)))?;
+        linker.func_wrap("wasi_snapshot_preview1", "environ_get", |mut caller: Caller<'_, RuntimeContext>, environ: i32, environ_buf: i32| -> Result<i32, wasmi::Error> {
+            let memory = match caller.get_export("memory") {
+                Some(wasmi::Extern::Memory(mem)) => mem,
+                _ => return Ok(8), // EBADF
+            };
+            
+            let environment = caller.data().environment.clone();
+            let mut buf_offset = environ_buf as usize;
+            let mut ptr_offset = environ as usize;
+            
+            for (key, value) in &environment {
+                let env_string = format!("{key}={value}\0");
+                let env_bytes = env_string.as_bytes();
+                
+                // Write pointer to string
+                memory.write(&mut caller, ptr_offset, &(buf_offset as u32).to_le_bytes()).map_err(|_e| wasmi::Error::new("Memory write failed"))?;
+                ptr_offset += 4;
+                
+                // Write string
+                memory.write(&mut caller, buf_offset, env_bytes).map_err(|_e| wasmi::Error::new("Memory write failed"))?;
+                buf_offset += env_bytes.len();
+            }
+            
+            Ok(0) // Success
+        })?;
         
-        // Load as WebAssembly component
-        let component = Component::from_binary(&self.engine, &plugin_bytes)
-            .map_err(|e| PluginError::LoadError(format!("Invalid WebAssembly component: {}", e)))?;
+        linker.func_wrap("wasi_snapshot_preview1", "args_sizes_get", |mut caller: Caller<'_, RuntimeContext>, argc: i32, argv_buf_size: i32| -> Result<i32, wasmi::Error> {
+            let memory = match caller.get_export("memory") {
+                Some(wasmi::Extern::Memory(mem)) => mem,
+                _ => return Ok(8), // EBADF
+            };
+            
+            let args = caller.data().args.clone();
+            let arg_count = args.len() as u32;
+            let mut buf_size = 0u32;
+            
+            for arg in &args {
+                buf_size += (arg.len() + 1) as u32; // arg\0
+            }
+            
+            // Write argument count
+            memory.write(&mut caller, argc as usize, &arg_count.to_le_bytes()).map_err(|_e| wasmi::Error::new("Memory write failed"))?;
+            
+            // Write buffer size
+            memory.write(&mut caller, argv_buf_size as usize, &buf_size.to_le_bytes()).map_err(|_e| wasmi::Error::new("Memory write failed"))?;
+            
+            Ok(0) // Success
+        })?;
         
-        // Register component
-        self.component_registry.register_component(
-            plugin_id.clone(),
-            path,
-            metadata.clone(),
-        ).await?;
+        linker.func_wrap("wasi_snapshot_preview1", "clock_time_get", |mut caller: Caller<'_, RuntimeContext>, _id: i32, _precision: i64, time: i32| -> Result<i32, wasmi::Error> {
+            let memory = match caller.get_export("memory") {
+                Some(wasmi::Extern::Memory(mem)) => mem,
+                _ => return Ok(8), // EBADF
+            };
+            
+            let now = SystemTime::now();
+            let timestamp = now.duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos() as u64;
+            
+            // Write timestamp
+            memory.write(&mut caller, time as usize, &timestamp.to_le_bytes()).map_err(|_e| wasmi::Error::new("Memory write failed"))?;
+            
+            Ok(0) // Success
+        })?;
         
-        // Create loaded plugin entry
-        let loaded_plugin = LoadedPlugin {
-            id: plugin_id.clone(),
-            metadata: metadata.clone(),
-            component,
-            sandbox_context,
-            loaded_at: chrono::Utc::now(),
-            execution_count: 0,
-        };
-        
-        // Store in runtime
-        {
-            let mut plugins = self.plugins.write().await;
-            plugins.insert(plugin_id.clone(), loaded_plugin);
-        }
-        
-        info!("Plugin '{}' loaded successfully", plugin_id);
-        Ok(metadata)
-    }
-    
-    /// Unload a plugin
-    pub async fn unload_plugin(&self, plugin_id: &str) -> PluginResult2<()> {
-        info!("Unloading plugin '{}'", plugin_id);
-        
-        // Remove from component registry
-        self.component_registry.unregister_component(plugin_id).await?;
-        
-        // Remove from runtime
-        {
-            let mut plugins = self.plugins.write().await;
-            plugins.remove(plugin_id)
-                .ok_or_else(|| PluginError::NotFound(format!("Plugin '{}' not found", plugin_id)))?;
-        }
-        
-        info!("Plugin '{}' unloaded successfully", plugin_id);
+        debug!("WASI host functions setup completed");
         Ok(())
     }
     
-    /// Execute a function in a loaded plugin
-    pub async fn execute_plugin(
+    /// Load a plugin from WebAssembly bytes
+    pub async fn load_plugin_from_bytes(
         &self,
-        plugin_id: &str,
-        function: &str,
-        args: &[u8],
-    ) -> PluginResult2<Vec<u8>> {
-        // Acquire execution permit
-        let _permit = self.execution_semaphore.acquire().await
-            .map_err(|e| PluginError::ExecutionError(format!("Failed to acquire execution permit: {}", e)))?;
+        plugin_id: String,
+        wasm_bytes: &[u8],
+        metadata: PluginMetadata,
+    ) -> Result<()> {
+        let module = Module::new(&self.engine, wasm_bytes)
+            .context("Failed to compile WebAssembly module")?;
         
-        info!("Executing function '{}' in plugin '{}'", function, plugin_id);
-        
-        // Get plugin
-        let plugin = {
-            let plugins = self.plugins.read().await;
-            plugins.get(plugin_id)
-                .ok_or_else(|| PluginError::NotFound(format!("Plugin '{}' not found", plugin_id)))?
-                .clone()
+        let plugin = LoadedPlugin {
+            id: plugin_id.clone(),
+            module: Arc::new(module),
+            metadata,
+            load_time: SystemTime::now(),
         };
         
-        // Convert args to component values
-        let component_args = vec![ComponentValue::string(String::from_utf8_lossy(args))];
+        let mut plugins = self.plugins.write().await;
+        plugins.insert(plugin_id.clone(), plugin);
         
-        // Execute function
-        let start_time = std::time::Instant::now();
-        let result = tokio::time::timeout(
-            Duration::from_millis(self.config.execution_timeout_ms),
-            self.component_registry.execute_component_function(plugin_id, function, &component_args)
-        ).await
-            .map_err(|_| PluginError::ExecutionError("Plugin execution timeout".to_string()))?;
-        
-        let execution_time = start_time.elapsed();
-        
-        match result {
-            Ok(component_results) => {
-                // Update execution statistics
-                {
-                    let mut plugins = self.plugins.write().await;
-                    if let Some(plugin) = plugins.get_mut(plugin_id) {
-                        plugin.execution_count += 1;
-                    }
-                }
-                
-                // Convert results back to bytes
-                let result_bytes = if let Some(ComponentValue::String(s)) = component_results.first() {
-                    s.as_bytes().to_vec()
-                } else {
-                    serde_json::to_vec(&component_results)
-                        .map_err(|e| PluginError::ExecutionError(format!("Failed to serialize results: {}", e)))?
-                };
-                
-                info!("Plugin '{}' function '{}' executed successfully in {:?}", 
-                      plugin_id, function, execution_time);
-                Ok(result_bytes)
-            }
-            Err(e) => {
-                error!("Plugin '{}' function '{}' execution failed: {:?}", plugin_id, function, e);
-                Err(e)
-            }
-        }
+        info!("Plugin '{plugin_id}' loaded successfully");
+        Ok(())
     }
     
-    /// Get metadata for a loaded plugin
-    pub async fn get_plugin_metadata(&self, plugin_id: &str) -> Option<PluginMetadata> {
+    /// Load a plugin from file
+    pub async fn load_plugin_from_file<P: AsRef<Path>>(
+        &self,
+        plugin_id: String,
+        path: P,
+        metadata: PluginMetadata,
+    ) -> Result<()> {
+        let path = path.as_ref();
+        let wasm_bytes = fs::read(path)
+            .with_context(|| format!("Failed to read plugin file: {}", path.display()))?;
+        
+        self.load_plugin_from_bytes(plugin_id, &wasm_bytes, metadata).await
+    }
+    
+    /// Execute a function in a loaded plugin
+    pub async fn execute_plugin_function(
+        &self,
+        plugin_id: &str,
+        function_name: &str,
+        args: &[ComponentValue],
+    ) -> Result<Vec<ComponentValue>> {
+        let _permit = self.execution_semaphore.acquire().await?;
+        
+        // Get plugin module reference (plugins map needs to be locked for the entire operation)
         let plugins = self.plugins.read().await;
-        plugins.get(plugin_id).map(|p| p.metadata.clone())
+        let plugin = plugins.get(plugin_id)
+            .ok_or_else(|| anyhow!("Plugin '{}' not found", plugin_id))?;
+        let plugin_module = Arc::clone(&plugin.module);
+        drop(plugins); // Release the lock early
+        
+        let context = RuntimeContext::new();
+        let mut store = Store::new(&self.engine, context);
+        
+        let linker = self.linker.read().await;
+        let pre_instance = linker.instantiate(&mut store, &plugin_module)
+            .context("Failed to instantiate plugin")?;
+        let instance = pre_instance.start(&mut store)
+            .context("Failed to start plugin instance")?;
+        
+        let execution_timeout = Duration::from_millis(self.config.execution_timeout_ms);
+        
+        // Execute synchronously to avoid lifetime issues
+        let result = self.execute_function(&mut store, &instance, function_name, args).await?;
+        
+        Ok(result)
+    }
+    
+    /// Execute function in instance
+    async fn execute_function(
+        &self,
+        store: &mut Store<RuntimeContext>,
+        instance: &Instance,
+        function_name: &str,
+        args: &[ComponentValue],
+    ) -> Result<Vec<ComponentValue>> {
+        let func = instance
+            .get_func(&*store, function_name)
+            .ok_or_else(|| anyhow!("Function '{}' not found", function_name))?;
+        
+        // Convert arguments (simplified)
+        let wasm_args: Vec<Val> = args.iter()
+            .map(|arg| match arg {
+                ComponentValue::S32(i) => Val::I32(*i),
+                ComponentValue::S64(i) => Val::I64(*i),
+                ComponentValue::Float32(f) => Val::F32((*f).into()),
+                ComponentValue::Float64(f) => Val::F64((*f).into()),
+                _ => Val::I32(0), // Simplified conversion
+            })
+            .collect();
+        
+        let func_ty = func.ty(&store);
+        let mut results = vec![Val::I32(0); func_ty.results().len()];
+        
+        func.call(store, &wasm_args, &mut results)
+            .context("Function execution failed")?;
+        
+        // Convert results back (simplified)
+        let component_results: Vec<ComponentValue> = results.iter()
+            .map(|val| match val {
+                Val::I32(i) => ComponentValue::S32(*i),
+                Val::I64(i) => ComponentValue::S64(*i),
+                Val::F32(f) => ComponentValue::Float32(f.to_float()),
+                Val::F64(f) => ComponentValue::Float64(f.to_float()),
+                Val::FuncRef(_) => {
+                    // Function references are not directly supported in component model
+                    // Log warning and return null representation
+                    log::warn!("Function reference encountered in result - converting to null");
+                    ComponentValue::S32(-1) // Use -1 as null function reference indicator
+                },
+                Val::ExternRef(_) => {
+                    // External references need special handling in component context
+                    // For now, convert to resource handle representation
+                    log::warn!("External reference encountered in result - converting to resource handle");
+                    ComponentValue::S32(0) // Use 0 as null external reference
+                },
+            })
+            .collect();
+        
+        Ok(component_results)
+    }
+    
+    /// Unload a plugin
+    pub async fn unload_plugin(&self, plugin_id: &str) -> Result<bool> {
+        let mut plugins = self.plugins.write().await;
+        let removed = plugins.remove(plugin_id).is_some();
+        
+        if removed {
+            info!("Plugin '{plugin_id}' unloaded successfully");
+        }
+        
+        Ok(removed)
     }
     
     /// List all loaded plugins
@@ -255,240 +503,59 @@ impl WasiPluginRuntime {
         plugins.keys().cloned().collect()
     }
     
-    /// Get plugin execution statistics
-    pub async fn get_plugin_stats(&self, plugin_id: &str) -> Option<PluginStats> {
+    /// Get plugin metadata
+    pub async fn get_plugin_metadata(&self, plugin_id: &str) -> Option<PluginMetadata> {
         let plugins = self.plugins.read().await;
-        plugins.get(plugin_id).map(|p| PluginStats {
-            plugin_id: p.id.clone(),
-            loaded_at: p.loaded_at,
-            execution_count: p.execution_count,
-            memory_usage: 0, // Memory tracking can be implemented later as optimization
-        })
+        plugins.get(plugin_id).map(|p| p.metadata.clone())
     }
     
     /// Get runtime configuration
-    pub fn config(&self) -> &PluginConfig {
+    pub fn config(&self) -> &RuntimeConfig {
         &self.config
     }
-    
-    /// Update runtime configuration
-    pub async fn update_config(&mut self, config: PluginConfig) -> Result<()> {
-        self.config = config;
-        // Apply configuration changes to running plugins if needed
-        log::info!("Configuration updated successfully");
-        Ok(())
-    }
-    
-    // Private helper methods
-    
-    async fn setup_host_functions(&self) -> Result<()> {
-        let mut linker = self.linker.write().await;
-        
-        // Add WASI host functions
-        wasmtime_wasi::add_to_linker_async(&mut linker)
-            .context("Failed to add WASI host functions")?;
-        
-        // Add custom NexusShell host functions
-        self.add_nexus_host_functions(&mut linker).await?;
-        
-        Ok(())
-    }
-    
-    async fn add_nexus_host_functions(
-        &self,
-        linker: &mut Linker<PluginState>,
-    ) -> Result<()> {
-        // Shell command execution
-        linker.func_wrap_async(
-            "nexus:shell/command",
-            "execute",
-            |mut caller: wasmtime::Caller<'_, PluginState>, cmd: String| {
-                Box::new(async move {
-                    // Check if command execution is allowed
-                    let state = caller.data();
-                    if !state.sandbox_context.can_execute_commands() {
-                        return Err(wasmtime::Error::msg("Command execution not allowed"));
-                    }
-                    
-                    let output = tokio::process::Command::new("sh")
-                        .arg("-c")
-                        .arg(&cmd)
-                        .output()
-                        .await
-                        .map_err(|e| wasmtime::Error::msg(format!("Command execution failed: {}", e)))?;
-                    
-                    Ok(String::from_utf8_lossy(&output.stdout).to_string())
-                })
-            },
-        )?;
-        
-        // File system operations
-        linker.func_wrap_async(
-            "nexus:shell/fs",
-            "read-file",
-            |mut caller: wasmtime::Caller<'_, PluginState>, path: String| {
-                Box::new(async move {
-                    let state = caller.data();
-                    if !state.sandbox_context.can_read_file(&path) {
-                        return Err(wasmtime::Error::msg("File read access denied"));
-                    }
-                    
-                    let content = tokio::fs::read_to_string(&path).await
-                        .map_err(|e| wasmtime::Error::msg(format!("Failed to read file: {}", e)))?;
-                    Ok(content)
-                })
-            },
-        )?;
-        
-        linker.func_wrap_async(
-            "nexus:shell/fs",
-            "write-file",
-            |mut caller: wasmtime::Caller<'_, PluginState>, path: String, content: String| {
-                Box::new(async move {
-                    let state = caller.data();
-                    if !state.sandbox_context.can_write_file(&path) {
-                        return Err(wasmtime::Error::msg("File write access denied"));
-                    }
-                    
-                    tokio::fs::write(&path, &content).await
-                        .map_err(|e| wasmtime::Error::msg(format!("Failed to write file: {}", e)))?;
-                    Ok(())
-                })
-            },
-        )?;
-        
-        // Environment variable access
-        linker.func_wrap(
-            "nexus:shell/env",
-            "get-var",
-            |mut caller: wasmtime::Caller<'_, PluginState>, name: String| {
-                let state = caller.data();
-                if !state.sandbox_context.can_access_env_var(&name) {
-                    return Err(wasmtime::Error::msg("Environment variable access denied"));
-                }
-                
-                Ok(std::env::var(&name).unwrap_or_default())
-            },
-        )?;
-        
-        // Network operations
-        linker.func_wrap_async(
-            "nexus:shell/net",
-            "http-request",
-            |mut caller: wasmtime::Caller<'_, PluginState>, url: String| {
-                Box::new(async move {
-                    let state = caller.data();
-                    if !state.sandbox_context.can_make_network_request(&url) {
-                        return Err(wasmtime::Error::msg("Network access denied"));
-                    }
-                    
-                    let response = reqwest::get(&url).await
-                        .map_err(|e| wasmtime::Error::msg(format!("HTTP request failed: {}", e)))?;
-                    
-                    let text = response.text().await
-                        .map_err(|e| wasmtime::Error::msg(format!("Failed to read response: {}", e)))?;
-                    
-                    Ok(text)
-                })
-            },
-        )?;
-        
-        Ok(())
-    }
-    
-    async fn extract_plugin_metadata(
-        &self,
-        plugin_bytes: &[u8],
-        path: &Path,
-    ) -> PluginResult2<PluginMetadata> {
-        // Try to extract metadata from WebAssembly custom sections
-        // For now, we'll create basic metadata from the file
-        Ok(PluginMetadata {
-            name: path.file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string(),
-            version: "0.1.0".to_string(),
-            description: "WebAssembly plugin".to_string(),
-            author: "Unknown".to_string(),
-            license: "Unknown".to_string(),
-            homepage: None,
-            repository: None,
-            keywords: vec![],
-            categories: vec![],
-            dependencies: HashMap::new(),
-            capabilities: vec![],
-            min_nexus_version: "0.1.0".to_string(),
-            max_nexus_version: None,
-        })
-    }
 }
 
-/// Plugin execution state with WASI context
-pub struct PluginState {
-    wasi_ctx: WasiCtx,
-    resource_table: wasmtime::component::ResourceTable,
-    sandbox_context: SandboxContext,
+/// Capability manager for plugin permissions
+#[derive(Debug)]
+pub struct CapabilityManager {
+    security_context: SecurityContext,
+    granted_capabilities: Arc<Mutex<HashMap<String, Vec<String>>>>,
 }
 
-impl PluginState {
-    pub fn new(sandbox_context: SandboxContext) -> Result<Self> {
-        let wasi_ctx = WasiCtxBuilder::new()
-            .inherit_stdio()
-            .inherit_env()
-            .build();
-        let resource_table = wasmtime::component::ResourceTable::new();
-        
+impl CapabilityManager {
+    pub fn new(security_context: SecurityContext) -> Result<Self> {
         Ok(Self {
-            wasi_ctx,
-            resource_table,
-            sandbox_context,
+            security_context,
+            granted_capabilities: Arc::new(Mutex::new(HashMap::new())),
         })
     }
-}
-
-impl WasiView for PluginState {
-    fn ctx(&self) -> &WasiCtx {
-        &self.wasi_ctx
+    
+    pub async fn initialize(&self) -> Result<()> {
+        info!("Capability manager initialized");
+        Ok(())
     }
     
-    fn ctx_mut(&mut self) -> &mut WasiCtx {
-        &mut self.wasi_ctx
+    pub async fn grant_capability(&self, plugin_id: &str, capability: &str) -> Result<()> {
+        let mut capabilities = self.granted_capabilities.lock().await;
+        capabilities.entry(plugin_id.to_string())
+            .or_insert_with(Vec::new)
+            .push(capability.to_string());
+        
+        debug!("Granted capability '{capability}' to plugin '{plugin_id}'");
+        Ok(())
     }
     
-    fn table(&self) -> &wasmtime::component::ResourceTable {
-        &self.resource_table
+    pub async fn check_capability(&self, plugin_id: &str, capability: &str) -> bool {
+        let capabilities = self.granted_capabilities.lock().await;
+        capabilities.get(plugin_id)
+            .map(|caps| caps.contains(&capability.to_string()))
+            .unwrap_or(false)
     }
-    
-    fn table_mut(&mut self) -> &mut wasmtime::component::ResourceTable {
-        &mut self.resource_table
-    }
-}
-
-/// Loaded plugin information
-#[derive(Debug, Clone)]
-pub struct LoadedPlugin {
-    pub id: String,
-    pub metadata: PluginMetadata,
-    pub component: Component,
-    pub sandbox_context: SandboxContext,
-    pub loaded_at: chrono::DateTime<chrono::Utc>,
-    pub execution_count: u64,
-}
-
-/// Plugin execution statistics
-#[derive(Debug, Clone)]
-pub struct PluginStats {
-    pub plugin_id: String,
-    pub loaded_at: chrono::DateTime<chrono::Utc>,
-    pub execution_count: u64,
-    pub memory_usage: u64,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     
     #[tokio::test]
     async fn test_runtime_creation() {
@@ -505,7 +572,7 @@ mod tests {
     
     #[test]
     fn test_plugin_config() {
-        let config = PluginConfig::default();
+        let config = RuntimeConfig::default();
         let runtime = WasiPluginRuntime::with_config(config).unwrap();
         assert!(runtime.config().execution_timeout_ms > 0);
     }

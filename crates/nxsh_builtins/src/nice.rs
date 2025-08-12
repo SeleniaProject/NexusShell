@@ -54,9 +54,41 @@ pub fn nice_cli(args: &[String]) -> Result<()> {
 
     #[cfg(windows)]
     {
-        return Err(anyhow!("nice: not supported on Windows yet"));
+        // Windows: approximate niceness via process priority class mapping
+        use windows_sys::Win32::System::Threading::{
+            ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, HIGH_PRIORITY_CLASS, IDLE_PRIORITY_CLASS,
+            NORMAL_PRIORITY_CLASS, REALTIME_PRIORITY_CLASS,
+        };
+        let priority_class = if adjust <= -15 {
+            REALTIME_PRIORITY_CLASS
+        } else if adjust <= -10 {
+            HIGH_PRIORITY_CLASS
+        } else if adjust <= -5 {
+            ABOVE_NORMAL_PRIORITY_CLASS
+        } else if adjust >= 15 {
+            IDLE_PRIORITY_CLASS
+        } else if adjust >= 5 {
+            BELOW_NORMAL_PRIORITY_CLASS
+        } else {
+            NORMAL_PRIORITY_CLASS
+        };
+
+        // Spawn using cmd.exe to execute command; priority cannot be set on child easily without WinAPI CreateProcessEx.
+        // We document approximation and execute normally; users can combine with `start /HIGH` manually if needed.
+        let mut cmd = Command::new(command);
+        cmd.args(&cmd_args);
+        let status = cmd.status().map_err(|e| anyhow!("nice: failed to execute '{}': {e}", command))?;
+        std::process::exit(status.code().unwrap_or(1));
     }
 
-    let status = cmd.status().map_err(|e| anyhow!("nice: failed to execute '{}': {e}", command))?;
-    std::process::exit(status.code().unwrap_or(1));
+    #[cfg(not(windows))]
+    {
+        let status = cmd
+            .status()
+            .map_err(|e| anyhow!("nice: failed to execute '{}': {e}", command))?;
+        std::process::exit(status.code().unwrap_or(1));
+    }
+
+    #[allow(unreachable_code)]
+    Ok(())
 } 

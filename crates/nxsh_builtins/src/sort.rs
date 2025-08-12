@@ -5,6 +5,7 @@
 use std::io::Write;
 use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError};
 use nxsh_core::executor::{ExecutionStrategy, ExecutionMetrics};
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::cmp::Ordering;
 use std::fs::File;
@@ -94,7 +95,7 @@ impl Builtin for SortCommand {
         "sort [OPTIONS] [FILE...]"
     }
 
-    fn execute(&self, ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
+    fn execute(&self, _ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
         let options = parse_sort_args(args)?;
 
         if options.check || options.check_silent {
@@ -124,6 +125,12 @@ impl Builtin for SortCommand {
 
         output_lines(&lines, &options)?;
         Ok(ExecutionResult::success(0))
+    }
+}
+
+impl Default for SortCommand {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -278,7 +285,7 @@ fn parse_sort_args(args: &[String]) -> ShellResult<SortOptions> {
                         'C' => options.check_silent = true,
                         's' => options.stable = true,
                         'z' => options.zero_terminated = true,
-                        _ => return Err(runtime_error(&format!("Unknown option: -{}", ch))),
+                        _ => return Err(runtime_error(&format!("Unknown option: -{ch}"))),
                     }
                 }
             }
@@ -319,11 +326,11 @@ fn parse_sort_key(key_def: &str) -> ShellResult<SortKey> {
     let (end_field, end_char, end_opts) = if parts.len() > 1 {
         parse_field_spec(parts[1])?
     } else {
-        (start_field, start_char.clone(), String::new())
+        (start_field, start_char, String::new())
     };
     
     // Combine options from both parts
-    let combined_opts = format!("{}{}", start_opts, end_opts);
+    let combined_opts = format!("{start_opts}{end_opts}");
     let key_options = parse_key_options(&combined_opts);
 
     Ok(SortKey {
@@ -441,7 +448,7 @@ fn collect_lines(options: &SortOptions) -> ShellResult<Vec<String>> {
     } else {
         for file_path in &options.files {
             let file = File::open(file_path)
-                .map_err(|e| io_error(&format!("Cannot open {}: {}", file_path, e)))?;
+                .map_err(|e| io_error(&format!("Cannot open {file_path}: {e}")))?;
             let mut reader = BufReader::new(file);
             let mut buffer = Vec::new();
             
@@ -468,7 +475,14 @@ fn collect_lines(options: &SortOptions) -> ShellResult<Vec<String>> {
 fn sort_lines(lines: &mut [String], options: &SortOptions) -> ShellResult<()> {
     if options.parallel > 1 && lines.len() > 1000 {
         // Use parallel sorting for large datasets
-        lines.par_sort_unstable_by(|a, b| compare_lines(a, b, options));
+        #[cfg(feature = "parallel")]
+        {
+            lines.par_sort_unstable_by(|a, b| compare_lines(a, b, options));
+        }
+        #[cfg(not(feature = "parallel"))]
+        {
+            lines.sort_unstable_by(|a, b| compare_lines(a, b, options));
+        }
     } else if options.stable {
         lines.sort_by(|a, b| compare_lines(a, b, options));
     } else {
@@ -531,11 +545,9 @@ fn extract_key(line: &str, key: &SortKey, field_separator: &Option<String>) -> S
     } else {
         // Multiple fields
         let mut result = String::new();
-        for i in start_field_idx..=end_field_idx.min(fields.len() - 1) {
-            if i > start_field_idx {
-                result.push(' ');
-            }
-            result.push_str(&fields[i]);
+        for (i, field) in fields.iter().enumerate().take(end_field_idx.min(fields.len() - 1) + 1).skip(start_field_idx) {
+            if i > start_field_idx { result.push(' '); }
+            result.push_str(field);
         }
         result
     }
@@ -634,7 +646,7 @@ fn check_sorted(options: &SortOptions) -> ShellResult<ExecutionResult> {
         if compare_lines(&lines[i-1], &lines[i], options) == Ordering::Greater {
             if !options.check_silent {
                 eprintln!("sort: {}:{}:disorder: {}", 
-                    options.files.get(0).unwrap_or(&"<stdin>".to_string()),
+                    options.files.first().unwrap_or(&"<stdin>".to_string()),
                     i + 1,
                     lines[i]);
             }
@@ -678,18 +690,28 @@ fn output_lines(lines: &[String], options: &SortOptions) -> ShellResult<()> {
     
     if let Some(ref output_file) = options.output_file {
         let file = File::create(output_file)
-            .map_err(|e| io_error(&format!("Cannot create {}: {}", output_file, e)))?;
+            .map_err(|e| io_error(&format!("Cannot create {output_file}: {e}")))?;
         let mut writer = BufWriter::new(file);
         
         for line in lines {
-            write!(writer, "{}{}", line, separator)?;
+            write!(writer, "{line}{separator}")?;
         }
         writer.flush()?;
     } else {
         for line in lines {
-            print!("{}{}", line, separator);
+            print!("{line}{separator}");
         }
     }
     
     Ok(())
+}
+
+/// CLI wrapper function for sort command
+pub fn sort_cli(args: &[String]) -> anyhow::Result<()> {
+    let mut ctx = nxsh_core::context::ShellContext::new();
+    let command = SortCommand::new();
+    match command.execute(&mut ctx, args) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(anyhow::anyhow!("sort command failed: {}", e)),
+    }
 } 

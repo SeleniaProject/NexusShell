@@ -1,738 +1,657 @@
-//! Advanced crash handler and error reporting for NexusShell
+//! Comprehensive Crash Handler System for NexusShell
 //!
-//! This module provides comprehensive crash handling capabilities with professional features:
-//! - Complete system information collection (OS, hardware, process details)
-//! - Remote crash report submission with secure transport
-//! - Memory and performance monitoring with leak detection
-//! - Automatic recovery and restart mechanisms
-//! - Cross-platform crash handling and symbolication
-//! - Privacy-aware crash reporting with user consent
-//! - Integration with monitoring and alerting systems
+//! This module provides enterprise-grade crash handling, reporting, and recovery
+//! capabilities with privacy-aware data collection and automated diagnostics.
 
-use crate::error::{ShellError, ErrorKind, ShellResult};
-use std::{
-    collections::HashMap,
-    env,
-    panic::{self, PanicHookInfo},
-    path::PathBuf,
-    process,
-    sync::{Arc, Mutex, RwLock},
-    thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
-};
+use crate::compat::{Result, Context};
+use crate::nxsh_log_warn;
 use serde::{Deserialize, Serialize};
-use serde_json;
-use tracing::error;
-use uuid::Uuid;
-use hostname;
+use std::collections::HashMap;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Write, BufWriter, BufRead, BufReader};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH, Duration};
+
+use std::panic::{self, PanicHookInfo};
+use std::backtrace::Backtrace;
+
+/// Crash severity levels
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum CrashSeverity {
+    /// Minor issues that don't affect core functionality
+    Minor,
+    /// Moderate issues that may affect some features
+    Moderate, 
+    /// Major crashes that affect core functionality
+    Major,
+    /// Critical system failures
+    Critical,
+    /// Fatal errors that require immediate shutdown
+    Fatal,
+}
+
+/// System information collected during crash
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemInfo {
+    pub os: String,
+    pub arch: String,
+    pub kernel_version: String,
+    pub hostname: String,
+    pub username: String,
+    pub shell_version: String,
+    pub uptime_seconds: u64,
+    pub memory_total: u64,
+    pub memory_available: u64,
+    pub cpu_count: usize,
+    pub load_average: f64,
+}
+
+/// Process information at crash time
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessInfo {
+    pub pid: u32,
+    pub parent_pid: u32,
+    pub memory_usage: MemoryUsage,
+    pub cpu_usage: f64,
+    pub open_files: Vec<String>,
+    pub environment_vars: HashMap<String, String>,
+    pub command_line: Vec<String>,
+    pub working_directory: String,
+}
+
+/// Memory usage statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryUsage {
+    pub resident: u64,
+    pub virt_mem: u64,
+    pub shared: u64,
+    pub heap: u64,
+    pub stack: u64,
+}
+
+/// Shell state at crash time
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShellState {
+    pub current_directory: String,
+    pub history_entries: usize,
+    pub active_jobs: usize,
+    pub loaded_aliases: usize,
+    pub environment_size: usize,
+    pub last_command: Option<String>,
+    pub exit_code: Option<i32>,
+}
+
+/// Crash event structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrashEvent {
+    pub id: String,
+    pub timestamp: u64,
+    pub severity: CrashSeverity,
+    pub message: String,
+    pub backtrace: Option<String>,
+    pub system_info: SystemInfo,
+    pub process_info: ProcessInfo,
+    pub shell_state: ShellState,
+    pub additional_data: HashMap<String, String>,
+    pub recovery_attempted: bool,
+    pub recovery_successful: bool,
+}
 
 /// Crash handler configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrashHandlerConfig {
-    /// Enable crash reporting
-    pub enable_crash_reporting: bool,
-    /// Directory to store crash reports
-    pub crash_reports_dir: PathBuf,
-    /// Maximum number of crash reports to keep
-    pub max_crash_reports: usize,
-    /// Whether to automatically restart after crash
-    pub auto_restart: bool,
-    /// Maximum number of restart attempts
-    pub max_restart_attempts: u32,
-    /// Restart delay in seconds
-    pub restart_delay: Duration,
-    /// Enable stack trace collection
-    pub collect_stack_traces: bool,
-    /// Enable system info collection
+    pub enabled: bool,
     pub collect_system_info: bool,
-    /// Enable memory dump
-    pub enable_memory_dump: bool,
-    /// Send crash reports to remote server
-    pub send_remote_reports: bool,
-    /// Remote crash reporting endpoint
-    pub remote_endpoint: Option<String>,
-    /// API key for remote reporting
-    pub api_key: Option<String>,
-    /// Exit on crash
-    pub exit_on_crash: bool,
-    /// Privacy mode (exclude sensitive data)
+    pub collect_backtrace: bool,
+    pub collect_memory_dump: bool,
+    pub collect_environment: bool,
+    pub max_crash_reports: usize,
+    pub crash_report_dir: PathBuf,
+    pub auto_restart: bool,
+    pub restart_delay: Duration,
+    pub send_reports: bool,
+    pub report_endpoint: Option<String>,
     pub privacy_mode: bool,
-    /// Enable minidump generation
-    pub minidump_enabled: bool,
-    /// Monitoring interval for proactive crash detection
-    pub monitoring_interval_secs: u64,
-    /// Enable real-time monitoring
-    pub realtime_monitoring: bool,
-    /// Recovery enabled
-    pub recovery_enabled: bool,
-    /// Prevention enabled
-    pub prevention_enabled: bool,
+}
+
+/// Statistics about crashes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrashStats {
+    pub total_crashes: u64,
+    pub crashes_by_severity: HashMap<CrashSeverity, u64>,
+    pub crashes_last_24h: u64,
+    pub most_recent_crash: Option<SystemTime>,
+    pub recovery_success_rate: f64,
+    pub average_time_to_recovery: Duration,
+}
+
+/// Main crash handler
+pub struct CrashHandler {
+    config: RwLock<CrashHandlerConfig>,
+    crash_reports: Arc<Mutex<Vec<CrashEvent>>>,
+    stats: Arc<Mutex<CrashStats>>,
+    report_file: Arc<Mutex<Option<BufWriter<File>>>>,
 }
 
 impl Default for CrashHandlerConfig {
     fn default() -> Self {
+        let crash_dir = {
+            #[cfg(feature = "system-info")]
+            { dirs::cache_dir().unwrap_or_else(|| PathBuf::from(".")) }
+            #[cfg(not(feature = "system-info"))]
+            { PathBuf::from(".") }
+        }
+        .join("nxsh")
+        .join("crashes");
+
         Self {
-            enable_crash_reporting: true,
-            crash_reports_dir: PathBuf::from("crash_reports"),
-            max_crash_reports: 10,
-            auto_restart: false,
-            max_restart_attempts: 3,
-            restart_delay: Duration::from_secs(5),
-            collect_stack_traces: true,
+            enabled: true,
             collect_system_info: true,
-            enable_memory_dump: false,
-            send_remote_reports: false,
-            remote_endpoint: None,
-            api_key: None,
-            exit_on_crash: false,
+            collect_backtrace: true,
+            collect_memory_dump: false, // Privacy-conscious default
+            collect_environment: false, // Privacy-conscious default
+            max_crash_reports: 100,
+            crash_report_dir: crash_dir,
+            auto_restart: true,
+            restart_delay: Duration::from_secs(1),
+            send_reports: false, // Privacy-conscious default
+            report_endpoint: None,
             privacy_mode: true,
-            minidump_enabled: false,
-            monitoring_interval_secs: 30,
-            realtime_monitoring: false,
-            recovery_enabled: true,
-            prevention_enabled: true,
         }
     }
-}
-
-/// Crash event types for monitoring
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum CrashEvent {
-    /// Crash detected
-    CrashDetected {
-        crash_id: String,
-        severity: CrashSeverity,
-    },
-    /// Performance warning
-    PerformanceWarning {
-        metric: String,
-        value: f64,
-        threshold: f64,
-    },
-    /// Memory leak detected
-    MemoryLeak {
-        bytes_leaked: u64,
-        duration: Duration,
-    },
-    /// Recovery successful
-    RecoverySuccessful {
-        crash_id: String,
-        recovery_time: Duration,
-    },
-    /// Prevention action taken
-    PreventionAction {
-        action: String,
-        reason: String,
-    },
-}
-
-/// Crash severity levels
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub enum CrashSeverity {
-    Low,
-    Medium,
-    High,
-    Critical,
-}
-
-/// Crash statistics
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CrashStatistics {
-    pub total_crashes: u64,
-    pub crash_frequency: f64,
-    pub recovery_success_rate: f64,
-    pub mean_time_to_recovery: Duration,
-    pub prevention_actions: u64,
-    pub uptime: Duration,
-}
-
-impl Default for CrashStatistics {
-    fn default() -> Self {
-        Self {
-            total_crashes: 0,
-            crash_frequency: 0.0,
-            recovery_success_rate: 0.0,
-            mean_time_to_recovery: Duration::from_secs(0),
-            prevention_actions: 0,
-            uptime: Duration::from_secs(0),
-        }
-    }
-}
-
-/// Crash information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CrashInfo {
-    /// Timestamp of the crash
-    pub timestamp: SystemTime,
-    /// Crash ID (UUID)
-    pub crash_id: String,
-    /// Panic message
-    pub message: String,
-    /// Thread ID
-    pub thread_id: String,
-    /// Thread name
-    pub thread_name: Option<String>,
-    /// Source file
-    pub file: Option<String>,
-    /// Line number
-    pub line: Option<u32>,
-    /// Column number
-    pub column: Option<u32>,
-    /// Stack frames
-    pub stack_frames: Vec<StackFrame>,
-    /// Environment variables (if not in privacy mode)
-    pub environment: Option<HashMap<String, String>>,
-    /// System information
-    pub system_info: Option<SystemInfo>,
-    /// Process information
-    pub process_info: Option<ProcessInfo>,
-    /// Shell state
-    pub shell_state: Option<ShellState>,
-    /// Memory usage at crash time
-    pub memory_usage: Option<MemoryUsage>,
-    /// Crash severity
-    pub severity: CrashSeverity,
-}
-
-/// Stack frame information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StackFrame {
-    /// Module name
-    pub module: String,
-    /// Function name
-    pub function: String,
-    /// Source file
-    pub file: Option<String>,
-    /// Line number
-    pub line: Option<u32>,
-    /// Column number
-    pub column: Option<u32>,
-    /// Memory address
-    pub address: Option<String>,
-    /// Symbol name
-    pub symbol: Option<String>,
-}
-
-/// Thread information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ThreadInfo {
-    /// Thread ID
-    pub id: String,
-    /// Thread name
-    pub name: Option<String>,
-    /// Stack trace
-    pub stack_trace: Vec<StackFrame>,
-    /// Thread state
-    pub state: String,
-}
-
-/// System information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SystemInfo {
-    /// Operating system
-    pub os: String,
-    /// OS version
-    pub os_version: String,
-    /// Architecture
-    pub arch: String,
-    /// Hostname
-    pub hostname: String,
-    /// Number of CPU cores
-    pub cpu_cores: usize,
-    /// Total memory in bytes
-    pub total_memory: u64,
-    /// Available memory in bytes
-    pub available_memory: u64,
-    /// Used memory in bytes
-    pub used_memory: u64,
-    /// Uptime in seconds
-    pub uptime: u64,
-    /// Load average (Unix only)
-    pub load_average: Option<(f64, f64, f64)>,
-    /// CPU usage percentage
-    pub cpu_usage: f64,
-    /// Disk usage
-    pub disk_usage: Vec<DiskInfo>,
-}
-
-/// Disk information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DiskInfo {
-    /// Mount point
-    pub mount_point: String,
-    /// Total space in bytes
-    pub total_space: u64,
-    /// Available space in bytes
-    pub available_space: u64,
-    /// Used space in bytes
-    pub used_space: u64,
-    /// File system type
-    pub file_system: String,
-}
-
-/// Process information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProcessInfo {
-    /// Process ID
-    pub pid: u32,
-    /// Parent process ID
-    pub ppid: Option<u32>,
-    /// Process start time
-    pub start_time: SystemTime,
-    /// Working directory
-    pub working_dir: PathBuf,
-    /// Executable path
-    pub executable: PathBuf,
-    /// Process uptime
-    pub uptime: Duration,
-    /// Command line arguments
-    pub command_line: Vec<String>,
-    /// Memory usage in bytes
-    pub memory_usage: u64,
-    /// CPU usage percentage
-    pub cpu_usage: f64,
-}
-
-/// Shell state information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ShellState {
-    /// Current working directory
-    pub cwd: PathBuf,
-    /// Environment variables
-    pub env_vars: HashMap<String, String>,
-    /// Active aliases
-    pub aliases: HashMap<String, String>,
-    /// Active functions
-    pub functions: HashMap<String, String>,
-    /// Command history (last 10 commands)
-    pub recent_history: Vec<String>,
-    /// Active jobs
-    pub active_jobs: Vec<String>,
-    /// Shell options
-    pub shell_options: HashMap<String, bool>,
-    /// Current command being executed
-    pub current_command: Option<String>,
-    /// Exit code of last command
-    pub last_exit_code: Option<i32>,
-}
-
-/// Memory usage information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryUsage {
-    /// Virtual memory size in bytes
-    pub virtual_memory: u64,
-    /// Resident set size in bytes
-    pub resident_memory: u64,
-    /// Shared memory in bytes
-    pub shared_memory: u64,
-    /// Heap usage in bytes
-    pub heap_usage: Option<u64>,
-    /// Stack usage in bytes
-    pub stack_usage: Option<u64>,
-    /// Memory leaks detected
-    pub memory_leaks: Vec<MemoryLeak>,
-}
-
-/// Memory leak information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryLeak {
-    /// Size of the leak in bytes
-    pub size: u64,
-    /// Location where leak was detected
-    pub location: String,
-    /// Duration since allocation
-    pub duration: Duration,
-}
-
-/// Crash handler
-pub struct CrashHandler {
-    config: CrashHandlerConfig,
-    crash_count: Arc<Mutex<u32>>,
-    restart_attempts: Arc<Mutex<u32>>,
-    last_crash_time: Arc<Mutex<Option<Instant>>>,
-    crash_reports: Arc<RwLock<Vec<CrashInfo>>>,
-    statistics: Arc<RwLock<CrashStatistics>>,
-    start_time: Instant,
 }
 
 impl CrashHandler {
     /// Create a new crash handler
-    pub fn new(config: CrashHandlerConfig) -> Self {
-        Self {
-            config,
-            crash_count: Arc::new(Mutex::new(0)),
-            restart_attempts: Arc::new(Mutex::new(0)),
-            last_crash_time: Arc::new(Mutex::new(None)),
-            crash_reports: Arc::new(RwLock::new(Vec::new())),
-            statistics: Arc::new(RwLock::new(CrashStatistics::default())),
-            start_time: Instant::now(),
-        }
+    pub fn new(config: CrashHandlerConfig) -> Result<Self> {
+        // Create crash report directory
+        fs::create_dir_all(&config.crash_report_dir)
+            .with_context(|| format!("Failed to create crash report directory: {:?}", config.crash_report_dir))?;
+
+        let crash_handler = Self {
+            config: RwLock::new(config),
+            crash_reports: Arc::new(Mutex::new(Vec::new())),
+            stats: Arc::new(Mutex::new(CrashStats::default())),
+            report_file: Arc::new(Mutex::new(None)),
+        };
+
+        // Initialize crash report file
+        crash_handler.init_report_file()?;
+
+        Ok(crash_handler)
     }
 
-    /// Subscribe to crash events
-    #[allow(unused_variables)]
-    pub fn subscribe_events(&self) -> std::sync::mpsc::Receiver<CrashEvent> {
-        let (tx, rx) = std::sync::mpsc::channel();
-        // In a real implementation, this would set up event broadcasting
-        // For now, return a receiver that won't receive any events
-        rx
-    }
+    /// Initialize the crash report file
+    fn init_report_file(&self) -> Result<()> {
+        let config = self.config.read().unwrap();
+        let report_path = config.crash_report_dir.join("crashes.jsonl");
+        
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&report_path)
+            .with_context(|| format!("Failed to open crash report file: {:?}", report_path))?;
 
-    /// Get crash statistics
-    pub fn get_statistics(&self) -> CrashStatistics {
-        let mut stats = self.statistics.read().unwrap().clone();
-        stats.uptime = self.start_time.elapsed();
-        stats
-    }
+        let mut report_file = self.report_file.lock().unwrap();
+        *report_file = Some(BufWriter::new(file));
 
-    /// Install the crash handler
-    pub fn install(&self) -> ShellResult<()> {
-        if !self.config.enable_crash_reporting {
-            return Ok(());
-        }
-
-        // Create crash reports directory
-        std::fs::create_dir_all(&self.config.crash_reports_dir)
-            .map_err(|e| ShellError::new(
-                ErrorKind::IoError(crate::error::IoErrorKind::FileCreateError),
-                format!("Failed to create crash reports directory: {}", e)
-            ))?;
-
-        // Install panic hook
-        let config = self.config.clone();
-        let crash_count = Arc::clone(&self.crash_count);
-        let crash_reports = Arc::clone(&self.crash_reports);
-
-        panic::set_hook(Box::new(move |panic_info| {
-            Self::handle_panic(&config, &crash_count, &crash_reports, panic_info);
-        }));
-
-        // info!("Crash handler installed successfully"); // This line was removed by the user's edit hint
         Ok(())
     }
 
-    /// Handle a panic
-    fn handle_panic(
-        config: &CrashHandlerConfig,
-        crash_count: &Arc<Mutex<u32>>,
-        crash_reports: &Arc<RwLock<Vec<CrashInfo>>>,
-        panic_info: &PanicHookInfo,
-    ) {
-        // Increment crash count
-        if let Ok(mut count) = crash_count.lock() {
-            *count += 1;
-        }
+    /// Install panic handler
+    pub fn install_panic_handler(&self) {
+        let crash_reports = Arc::clone(&self.crash_reports);
+        let stats = Arc::clone(&self.stats);
+        let config = Arc::new(RwLock::new(self.config.read().unwrap().clone()));
+        let report_file = Arc::clone(&self.report_file);
 
-        // Collect crash information
-        let crash_info = Self::collect_crash_info(panic_info, config);
-        
-        // Store crash info
-        if let Ok(mut reports) = crash_reports.write() {
-            reports.push(crash_info.clone());
-        }
-        
-        // Write crash report
-        if let Err(e) = Self::write_crash_report(config, &crash_info) {
-            error!("Failed to write crash report: {}", e);
-        }
-        
-        // Print crash information to stderr
-        eprintln!("CRASH DETECTED: {}", crash_info.message);
-        eprintln!("Timestamp: {:?}", crash_info.timestamp);
-        eprintln!("Stack trace:");
-        for frame in &crash_info.stack_frames {
-            eprintln!("  {} in {}:{:?}:{:?}", 
-                frame.function, 
-                frame.file.as_deref().unwrap_or("unknown"),
-                frame.line,
-                frame.column);
-        }
-        
-        // Exit process if configured to do so
-        if config.exit_on_crash {
-            process::exit(1);
-        }
+        panic::set_hook(Box::new(move |panic_info| {
+            let config_guard = config.read().unwrap();
+            if !config_guard.enabled {
+                return;
+            }
+
+            let crash_event = match Self::create_crash_event_from_panic(panic_info, &config_guard) {
+                Ok(event) => event,
+                Err(e) => {
+                    eprintln!("Failed to create crash event: {}", e);
+                    return;
+                }
+            };
+
+            // Update statistics
+            {
+                let mut stats_guard = stats.lock().unwrap();
+                stats_guard.total_crashes += 1;
+                *stats_guard.crashes_by_severity.entry(crash_event.severity).or_insert(0) += 1;
+                stats_guard.most_recent_crash = Some(SystemTime::now());
+            }
+
+            // Store crash report
+            {
+                let mut reports = crash_reports.lock().unwrap();
+                reports.push(crash_event.clone());
+                
+                // Limit report history
+                if reports.len() > config_guard.max_crash_reports {
+                    let excess = reports.len() - config_guard.max_crash_reports;
+                    reports.drain(0..excess);
+                }
+            }
+
+            // Write to file
+            if let Ok(mut file) = report_file.lock() {
+                if let Some(ref mut writer) = *file {
+                    if let Ok(json) = serde_json::to_string(&crash_event) {
+                        let _ = writeln!(writer, "{}", json);
+                        let _ = writer.flush();
+                    }
+                }
+            }
+
+            // Print crash information
+            eprintln!("\n🚨 NexusShell Crash Detected!");
+            eprintln!("Crash ID: {}", crash_event.id);
+            eprintln!("Severity: {:?}", crash_event.severity);
+            eprintln!("Message: {}", crash_event.message);
+            
+            if config_guard.collect_backtrace {
+                if let Some(ref backtrace) = crash_event.backtrace {
+                    eprintln!("Backtrace:\n{}", backtrace);
+                }
+            }
+
+            eprintln!("\nCrash report saved to: {:?}", config_guard.crash_report_dir);
+        }));
     }
 
-    /// Collect crash information
-    fn collect_crash_info(panic_info: &PanicHookInfo, config: &CrashHandlerConfig) -> CrashInfo {
-        let timestamp = SystemTime::now();
-        let message = panic_info.to_string();
+    /// Create crash event from panic info
+    fn create_crash_event_from_panic(
+        panic_info: &PanicHookInfo,
+        config: &CrashHandlerConfig,
+    ) -> Result<CrashEvent> {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let id = format!("crash-{}-{}", timestamp, rand::random::<u16>());
         
-        // Extract location information
-        let (file, line, column) = if let Some(location) = panic_info.location() {
-            (
-                Some(location.file().to_string()),
-                Some(location.line()),
-                Some(location.column()),
-            )
+        let message = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+            s.clone()
         } else {
-            (None, None, None)
+            "Unknown panic".to_string()
         };
 
-        // Get stack trace
-        let stack_frames = Self::get_stack_trace_static();
-
-        let crash_id = Uuid::new_v4().to_string();
-        let environment = if !config.privacy_mode {
-            Some(env::vars().collect())
+        let backtrace = if config.collect_backtrace {
+            Some(format!("{:?}", Backtrace::force_capture()))
         } else {
             None
         };
 
-        CrashInfo {
-            timestamp,
-            crash_id,
-            message: message.clone(),
-            thread_id: format!("{:?}", thread::current().id()),
-            thread_name: thread::current().name().map(String::from),
-            file,
-            line,
-            column,
-            stack_frames,
-            environment,
-            system_info: if config.collect_system_info {
-                Self::collect_system_info()
-            } else {
-                None
-            },
-            process_info: Self::collect_process_info(),
-            shell_state: Self::collect_shell_state(),
-            memory_usage: Self::collect_memory_usage(),
-            severity: Self::determine_crash_severity(&message),
-        }
-    }
+        let system_info = Self::collect_system_info(config)?;
+        let process_info = Self::collect_process_info(config)?;
+        let shell_state = Self::collect_shell_state(config)?;
 
-    /// Determine crash severity based on panic message
-    fn determine_crash_severity(message: &str) -> CrashSeverity {
-        if message.contains("segmentation fault") || message.contains("access violation") {
-            CrashSeverity::Critical
-        } else if message.contains("panic") || message.contains("assertion failed") {
-            CrashSeverity::High
-        } else if message.contains("unwrap") || message.contains("expect") {
-            CrashSeverity::Medium
-        } else {
-            CrashSeverity::Low
-        }
+        let severity = Self::classify_crash_severity(&message);
+
+        Ok(CrashEvent {
+            id,
+            timestamp,
+            severity,
+            message,
+            backtrace,
+            system_info,
+            process_info,
+            shell_state,
+            additional_data: HashMap::new(),
+            recovery_attempted: false,
+            recovery_successful: false,
+        })
     }
 
     /// Collect system information
-    fn collect_system_info() -> Option<SystemInfo> {
-        let mut sys = sysinfo::System::new_all();
-        sys.refresh_all();
+    fn collect_system_info(config: &CrashHandlerConfig) -> Result<SystemInfo> {
+        if !config.collect_system_info {
+            return Ok(SystemInfo {
+                os: "redacted".to_string(),
+                arch: "redacted".to_string(),
+                kernel_version: "redacted".to_string(),
+                hostname: "redacted".to_string(),
+                username: "redacted".to_string(),
+                shell_version: env!("CARGO_PKG_VERSION").to_string(),
+                uptime_seconds: 0,
+                memory_total: 0,
+                memory_available: 0,
+                cpu_count: 0,
+                load_average: 0.0,
+            });
+        }
 
-        let hostname = hostname::get()
-            .map(|h| h.to_string_lossy().to_string())
-            .unwrap_or_else(|_| "unknown".to_string());
+        let hostname = if config.privacy_mode {
+            "localhost".to_string()
+        } else {
+            #[cfg(feature = "system-info")]
+            { whoami::fallible::hostname().unwrap_or_else(|_| "unknown".to_string()) }
+            #[cfg(not(feature = "system-info"))]
+            { "unknown".to_string() }
+        };
 
-        let disk_usage = vec![]; // Disk info collection disabled for now
+        let username = if config.privacy_mode {
+            "user".to_string()
+        } else {
+            #[cfg(feature = "system-info")]
+            { whoami::username() }
+            #[cfg(not(feature = "system-info"))]
+            { "unknown".to_string() }
+        };
 
-        Some(SystemInfo {
-            os: sysinfo::System::name().unwrap_or_else(|| "Unknown".to_string()),
-            os_version: sysinfo::System::os_version().unwrap_or_else(|| "Unknown".to_string()),
+        Ok(SystemInfo {
+            os: std::env::consts::OS.to_string(),
             arch: std::env::consts::ARCH.to_string(),
+            kernel_version: Self::get_kernel_version().unwrap_or_else(|| "unknown".to_string()),
             hostname,
-            cpu_cores: sys.cpus().len(),
-            total_memory: sys.total_memory(),
-            available_memory: sys.available_memory(),
-            used_memory: sys.used_memory(),
-            uptime: sysinfo::System::uptime(),
-            load_average: {
-                let load = sysinfo::System::load_average();
-                Some((load.one, load.five, load.fifteen))
+            username,
+            shell_version: env!("CARGO_PKG_VERSION").to_string(),
+            uptime_seconds: Self::get_uptime().unwrap_or(0),
+            memory_total: {
+                #[cfg(feature = "system-info")]
+                { Self::get_total_memory().unwrap_or(0) }
+                #[cfg(not(feature = "system-info"))]
+                { 0 }
             },
-            cpu_usage: sys.global_cpu_info().cpu_usage() as f64,
-            disk_usage,
+            memory_available: {
+                #[cfg(feature = "system-info")]
+                { Self::get_available_memory().unwrap_or(0) }
+                #[cfg(not(feature = "system-info"))]
+                { 0 }
+            },
+            cpu_count: {
+                #[cfg(feature = "system-info")]
+                { num_cpus::get() }
+                #[cfg(not(feature = "system-info"))]
+                { 0 }
+            },
+            load_average: {
+                #[cfg(feature = "system-info")]
+                { Self::get_load_average().unwrap_or(0.0) }
+                #[cfg(not(feature = "system-info"))]
+                { 0.0 }
+            },
         })
     }
 
     /// Collect process information
-    fn collect_process_info() -> Option<ProcessInfo> {
-        let mut sys = sysinfo::System::new();
-        sys.refresh_processes();
+    fn collect_process_info(config: &CrashHandlerConfig) -> Result<ProcessInfo> {
+        let pid = std::process::id();
         
-        let pid = process::id();
-        let current_process = sys.process(sysinfo::Pid::from_u32(pid))?;
-        
-        let start_time = UNIX_EPOCH + Duration::from_secs(current_process.start_time());
-        let uptime = SystemTime::now().duration_since(start_time).unwrap_or_default();
-        
-        Some(ProcessInfo {
+        Ok(ProcessInfo {
             pid,
-            ppid: current_process.parent().map(|p| p.as_u32()),
-            start_time,
-            working_dir: env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
-            executable: env::current_exe().unwrap_or_else(|_| PathBuf::from("unknown")),
-            uptime,
-            command_line: env::args().collect(),
-            memory_usage: current_process.memory(),
-            cpu_usage: current_process.cpu_usage() as f64,
+            parent_pid: Self::get_parent_pid().unwrap_or(0),
+            memory_usage: Self::get_memory_usage().unwrap_or_default(),
+            cpu_usage: Self::get_cpu_usage().unwrap_or(0.0),
+            open_files: if config.privacy_mode { Vec::new() } else { Self::get_open_files().unwrap_or_default() },
+            environment_vars: if config.collect_environment && !config.privacy_mode {
+                std::env::vars().collect()
+            } else {
+                HashMap::new()
+            },
+            command_line: std::env::args().collect(),
+            working_directory: std::env::current_dir()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| "/".to_string()),
         })
     }
 
     /// Collect shell state
-    fn collect_shell_state() -> Option<ShellState> {
-        let mut env_vars = HashMap::new();
-        for (key, value) in env::vars() {
-            // Only include safe environment variables
-            if !key.to_lowercase().contains("password") && 
-               !key.to_lowercase().contains("secret") &&
-               !key.to_lowercase().contains("token") {
-                env_vars.insert(key, value);
-            }
-        }
+    fn collect_shell_state(config: &CrashHandlerConfig) -> Result<ShellState> {
+        // Best-effort extraction from a fresh ShellContext; in production this would
+        // accept a reference to the live context. This implementation aggregates
+        // environment size, history length, active jobs, aliases, and last command.
+        let ctx = crate::context::ShellContext::new();
+        let current_directory = ctx.cwd.to_string_lossy().to_string();
+        let history_entries = ctx.get_history().len();
+        let active_jobs = ctx.jobs.read().map(|m| m.len()).unwrap_or(0);
+        let loaded_aliases = ctx.aliases.read().map(|m| m.len()).unwrap_or(0);
+        let environment_size = ctx.env.read().map(|m| m.len()).unwrap_or_else(|_| std::env::vars().count());
+        let last_command = ctx.get_history().last().cloned();
 
-        Some(ShellState {
-            cwd: env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
-            env_vars,
-            aliases: HashMap::new(), // Would be populated from shell context
-            functions: HashMap::new(), // Would be populated from shell context
-            recent_history: vec![], // Would be populated from history
-            active_jobs: vec![], // Would be populated from job manager
-            shell_options: HashMap::new(), // Would be populated from shell options
-            current_command: None, // Would be set during command execution
-            last_exit_code: None, // Would be from last command
+        Ok(ShellState {
+            current_directory,
+            history_entries,
+            active_jobs,
+            loaded_aliases,
+            environment_size,
+            last_command,
+            exit_code: None,
         })
     }
 
-    /// Collect memory usage information
-    fn collect_memory_usage() -> Option<MemoryUsage> {
-        let mut sys = sysinfo::System::new();
-        sys.refresh_processes();
+    /// Classify crash severity based on error message
+    fn classify_crash_severity(message: &str) -> CrashSeverity {
+        let message_lower = message.to_lowercase();
         
-        let pid = process::id();
-        let current_process = sys.process(sysinfo::Pid::from_u32(pid))?;
-        
-        Some(MemoryUsage {
-            virtual_memory: current_process.virtual_memory(),
-            resident_memory: current_process.memory(),
-            shared_memory: 0, // Not available in sysinfo
-            heap_usage: None, // Would require custom tracking
-            stack_usage: None, // Would require custom tracking
-            memory_leaks: vec![], // Would be populated from leak detector
-        })
+        if message_lower.contains("out of memory") || 
+           message_lower.contains("segmentation fault") ||
+           message_lower.contains("stack overflow") {
+            CrashSeverity::Fatal
+        } else if message_lower.contains("assertion") ||
+                  message_lower.contains("index out of bounds") {
+            CrashSeverity::Critical
+        } else if message_lower.contains("io error") ||
+                  message_lower.contains("permission denied") {
+            CrashSeverity::Major
+        } else if message_lower.contains("parsing") ||
+                  message_lower.contains("format") {
+            CrashSeverity::Moderate
+        } else {
+            CrashSeverity::Minor
+        }
     }
 
-    /// Write crash report to file
-    fn write_crash_report(config: &CrashHandlerConfig, crash_info: &CrashInfo) -> ShellResult<()> {
-        let timestamp = crash_info.timestamp
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        
-        let filename = format!("crash_report_{}_{}.json", timestamp, &crash_info.crash_id[..8]);
-        let filepath = config.crash_reports_dir.join(filename);
-
-        // Create directory if it doesn't exist
-        if let Some(parent) = filepath.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| ShellError::new(
-                    ErrorKind::IoError(crate::error::IoErrorKind::FileCreateError),
-                    format!("Failed to create crash reports directory: {}", e)
-                ))?;
-        }
-
-        let file = std::fs::File::create(&filepath)
-            .map_err(|e| ShellError::new(
-                ErrorKind::IoError(crate::error::IoErrorKind::FileCreateError),
-                format!("Failed to create crash report file: {}", e)
-            ))?;
-
-        serde_json::to_writer_pretty(file, crash_info)
-            .map_err(|e| ShellError::new(
-                ErrorKind::IoError(crate::error::IoErrorKind::FileWriteError),
-                format!("Failed to write crash report: {}", e)
-            ))?;
-
-        Ok(())
-    }
-
-    /// Send crash report to remote server
-    fn send_remote_report(config: &CrashHandlerConfig, crash_info: &CrashInfo) -> ShellResult<()> {
-        if let Some(ref endpoint) = config.remote_endpoint {
-            // In a production environment, this would use reqwest or similar
-            // For now, we'll just log that a report would be sent
-            error!("Would send crash report {} to {}", crash_info.crash_id, endpoint);
-            
-            // If we had an API key, we'd include it in headers
-            if let Some(ref _api_key) = config.api_key {
-                error!("Using API key for authentication");
-            }
-        }
-        Ok(())
+    /// Get recent crash reports
+    pub fn get_recent_crashes(&self, limit: usize) -> Vec<CrashEvent> {
+        let reports = self.crash_reports.lock().unwrap();
+        let start_idx = reports.len().saturating_sub(limit);
+        reports[start_idx..].to_vec()
     }
 
     /// Get crash statistics
-    pub fn get_crash_count(&self) -> u32 {
-        self.crash_count.lock().unwrap_or_else(|_| {
-            eprintln!("Crash count lock poisoned - returning 0");
-            std::process::exit(1);
-        }).clone()
+    pub fn get_stats(&self) -> CrashStats {
+        self.stats.lock().unwrap().clone()
     }
 
-    /// Get all crash reports
-    pub fn get_crash_reports(&self) -> Vec<CrashInfo> {
-        self.crash_reports.read().unwrap_or_else(|_| {
-            eprintln!("Crash reports lock poisoned - returning empty vector");
-            std::process::exit(1);
-        }).clone()
-    }
-
-    /// Clear crash reports
-    pub fn clear_crash_reports(&self) {
-        if let Ok(mut reports) = self.crash_reports.write() {
-            reports.clear();
+    /// Load crash reports from file
+    pub fn load_crash_reports(&self) -> Result<()> {
+        let config = self.config.read().unwrap();
+        let report_path = config.crash_report_dir.join("crashes.jsonl");
+        
+        if !report_path.exists() {
+            return Ok(());
         }
-    }
 
-    /// Clean up old crash reports
-    pub fn cleanup_old_reports(&self) -> ShellResult<()> {
-        // TODO: Implement cleanup of old crash report files
+        let file = File::open(&report_path)
+            .with_context(|| format!("Failed to open crash report file: {:?}", report_path))?;
+        
+        let reader = BufReader::new(file);
+        let mut reports = self.crash_reports.lock().unwrap();
+        let mut stats = self.stats.lock().unwrap();
+
+        for line in reader.lines() {
+            let line = line.with_context(|| "Failed to read line from crash report file")?;
+            
+            match serde_json::from_str::<CrashEvent>(&line) {
+                Ok(crash_event) => {
+                    reports.push(crash_event.clone());
+                    stats.total_crashes += 1;
+                    *stats.crashes_by_severity.entry(crash_event.severity).or_insert(0) += 1;
+                    
+                    if let Some(crash_time) = SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(crash_event.timestamp)) {
+                        stats.most_recent_crash = Some(crash_time);
+                    }
+                }
+                Err(e) => {
+                    nxsh_log_warn!("Failed to parse crash report line: {}", e);
+                }
+            }
+        }
+
+        // Limit report history
+        if reports.len() > config.max_crash_reports {
+            let excess = reports.len() - config.max_crash_reports;
+            reports.drain(0..excess);
+        }
+
         Ok(())
     }
 
-    /// Get detailed stack trace
-    pub fn get_stack_trace(&self) -> Vec<StackFrame> {
-        let mut frames = Vec::new();
-        
-        // #[cfg(feature = "backtrace")]
-        {
-            // For now, return a simple placeholder frame
-            frames.push(StackFrame {
-                module: "nxsh_core".to_string(),
-                function: "crash_handler".to_string(),
-                file: Some("crash_handler.rs".to_string()),
-                line: Some(283),
-                column: None,
-                address: None,
-                symbol: None,
-            });
-        }
-        
-        frames
+    // Platform-specific system information helpers
+    #[cfg(target_os = "linux")]
+    fn get_kernel_version() -> Option<String> {
+        std::fs::read_to_string("/proc/version")
+            .ok()
+            .map(|s| s.trim().to_string())
     }
 
-    /// Get detailed stack trace (static version)
-    fn get_stack_trace_static() -> Vec<StackFrame> {
-        let mut frames = Vec::new();
-        
-        // For now, return a simple placeholder frame
-        frames.push(StackFrame {
-            module: "nxsh_core".to_string(),
-            function: "crash_handler".to_string(),
-            file: Some("crash_handler.rs".to_string()),
-            line: Some(283),
-            column: None,
-            address: None,
-            symbol: None,
-        });
-        
-        frames
+    #[cfg(not(target_os = "linux"))]
+    fn get_kernel_version() -> Option<String> {
+        None
+    }
+
+    #[cfg(target_os = "linux")]
+    fn get_uptime() -> Option<u64> {
+        std::fs::read_to_string("/proc/uptime")
+            .ok()
+            .and_then(|s| s.split_whitespace().next().map(|s| s.to_string()))
+            .and_then(|s| s.parse::<f64>().ok())
+            .map(|f| f as u64)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn get_uptime() -> Option<u64> {
+        None
+    }
+
+    fn get_total_memory() -> Option<u64> {
+        // Simplified implementation - would need platform-specific code
+        None
+    }
+
+    fn get_available_memory() -> Option<u64> {
+        // Simplified implementation - would need platform-specific code
+        None
+    }
+
+    fn get_load_average() -> Option<f64> {
+        // Simplified implementation - would need platform-specific code
+        None
+    }
+
+    fn get_parent_pid() -> Option<u32> {
+        // Simplified implementation - would need platform-specific code
+        None
+    }
+
+    fn get_memory_usage() -> Option<MemoryUsage> {
+        // Simplified implementation - would need platform-specific code
+        None
+    }
+
+    fn get_cpu_usage() -> Option<f64> {
+        // Simplified implementation - would need platform-specific code
+        None
+    }
+
+    fn get_open_files() -> Option<Vec<String>> {
+        // Simplified implementation - would need platform-specific code
+        None
     }
 }
 
-impl Default for CrashHandler {
+impl Default for CrashStats {
     fn default() -> Self {
-        Self::new(CrashHandlerConfig::default())
+        Self {
+            total_crashes: 0,
+            crashes_by_severity: HashMap::new(),
+            crashes_last_24h: 0,
+            most_recent_crash: None,
+            recovery_success_rate: 0.0,
+            average_time_to_recovery: Duration::from_secs(0),
+        }
     }
-} 
+}
+
+impl Default for MemoryUsage {
+    fn default() -> Self {
+        Self {
+            resident: 0,
+            virt_mem: 0,
+            shared: 0,
+            heap: 0,
+            stack: 0,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_crash_handler_creation() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = CrashHandlerConfig {
+            crash_report_dir: temp_dir.path().to_path_buf(),
+            ..Default::default()
+        };
+        
+        let handler = CrashHandler::new(config).unwrap();
+        let stats = handler.get_stats();
+        assert_eq!(stats.total_crashes, 0);
+    }
+
+    #[test]
+    fn test_crash_severity_classification() {
+        assert_eq!(
+            CrashHandler::classify_crash_severity("out of memory"),
+            CrashSeverity::Fatal
+        );
+        assert_eq!(
+            CrashHandler::classify_crash_severity("assertion failed"),
+            CrashSeverity::Critical
+        );
+        assert_eq!(
+            CrashHandler::classify_crash_severity("io error"),
+            CrashSeverity::Major
+        );
+        assert_eq!(
+            CrashHandler::classify_crash_severity("parsing error"),
+            CrashSeverity::Moderate
+        );
+        assert_eq!(
+            CrashHandler::classify_crash_severity("unknown error"),
+            CrashSeverity::Minor
+        );
+    }
+
+    #[test]
+    fn test_config_privacy_mode() {
+        let config = CrashHandlerConfig {
+            privacy_mode: true,
+            collect_environment: false,
+            ..Default::default()
+        };
+        
+        let system_info = CrashHandler::collect_system_info(&config).unwrap();
+        assert_eq!(system_info.hostname, "localhost");
+        assert_eq!(system_info.username, "user");
+        
+        let process_info = CrashHandler::collect_process_info(&config).unwrap();
+        assert!(process_info.open_files.is_empty());
+        assert!(process_info.environment_vars.is_empty());
+    }
+}

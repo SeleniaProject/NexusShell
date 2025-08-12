@@ -4,6 +4,7 @@
 
 use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use crate::common::process_utils::execute_uptime_command;
 
 pub struct UptimeBuiltin;
 
@@ -39,8 +40,8 @@ impl Builtin for UptimeBuiltin {
         "Display system uptime and load averages"
     }
 
-    fn execute(&self, ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
-        let options = parse_uptime_args(&args)?;
+    fn execute(&self, _ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
+        let options = parse_uptime_args(args)?; // keep options use below
         
         let uptime_info = collect_uptime_info()?;
         
@@ -93,9 +94,9 @@ fn parse_uptime_args(args: &[String]) -> ShellResult<UptimeOptions> {
             "-s" | "--since" => options.since = true,
             "--help" => return Err(ShellError::command_not_found("Help requested")),
             _ if arg.starts_with("-") => {
-                return Err(ShellError::command_not_found(&format!("Unknown option: {}", arg)));
+                return Err(ShellError::command_not_found(&format!("Unknown option: {arg}")));
             }
-            _ => return Err(ShellError::command_not_found(&format!("Unknown argument: {}", arg))),
+            _ => return Err(ShellError::command_not_found(&format!("Unknown argument: {arg}"))),
         }
     }
 
@@ -264,12 +265,12 @@ fn display_standard(uptime_info: &UptimeInfo) {
 
 fn display_pretty(uptime_info: &UptimeInfo) {
     let uptime_str = format_uptime_pretty(uptime_info.uptime);
-    println!("up {}", uptime_str);
+    println!("up {uptime_str}");
 }
 
 fn display_since(uptime_info: &UptimeInfo) {
     let boot_time_str = format_boot_time(uptime_info.boot_time);
-    println!("{}", boot_time_str);
+    println!("{boot_time_str}");
 }
 
 fn format_current_time() -> String {
@@ -278,7 +279,7 @@ fn format_current_time() -> String {
             let timestamp = duration.as_secs();
             let hours = (timestamp % 86400) / 3600;
             let minutes = (timestamp % 3600) / 60;
-            format!("{:02}:{:02}", hours, minutes)
+            format!("{hours:02}:{minutes:02}")
         }
         Err(_) => "??:??".to_string(),
     }
@@ -293,21 +294,19 @@ fn format_uptime_duration(uptime: Duration) -> String {
     if days > 0 {
         if days == 1 {
             if hours > 0 {
-                format!("{} day, {}:{:02}", days, hours, minutes)
+                format!("{days} day, {hours}:{minutes:02}")
             } else {
-                format!("{} day, {} min", days, minutes)
+                format!("{days} day, {minutes} min")
             }
+        } else if hours > 0 {
+            format!("{days} days, {hours}:{minutes:02}")
         } else {
-            if hours > 0 {
-                format!("{} days, {}:{:02}", days, hours, minutes)
-            } else {
-                format!("{} days, {} min", days, minutes)
-            }
+            format!("{days} days, {minutes} min")
         }
     } else if hours > 0 {
-        format!("{}:{:02}", hours, minutes)
+        format!("{hours}:{minutes:02}")
     } else {
-        format!("{} min", minutes)
+        format!("{minutes} min")
     }
 }
 
@@ -323,7 +322,7 @@ fn format_uptime_pretty(uptime: Duration) -> String {
         if days == 1 {
             parts.push("1 day".to_string());
         } else {
-            parts.push(format!("{} days", days));
+            parts.push(format!("{days} days"));
         }
     }
     
@@ -331,7 +330,7 @@ fn format_uptime_pretty(uptime: Duration) -> String {
         if hours == 1 {
             parts.push("1 hour".to_string());
         } else {
-            parts.push(format!("{} hours", hours));
+            parts.push(format!("{hours} hours"));
         }
     }
     
@@ -339,7 +338,7 @@ fn format_uptime_pretty(uptime: Duration) -> String {
         if minutes == 1 {
             parts.push("1 minute".to_string());
         } else {
-            parts.push(format!("{} minutes", minutes));
+            parts.push(format!("{minutes} minutes"));
         }
     }
     
@@ -350,7 +349,7 @@ fn format_uptime_pretty(uptime: Duration) -> String {
     } else if parts.len() == 2 {
         format!("{} and {}", parts[0], parts[1])
     } else {
-        let last = parts.pop().unwrap();
+        let last = parts.pop().unwrap_or_default();
         format!("{}, and {}", parts.join(", "), last)
     }
 }
@@ -371,10 +370,19 @@ fn format_boot_time(boot_time: SystemTime) -> String {
             let minutes = (timestamp % 3600) / 60;
             let seconds = timestamp % 60;
             
-            format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
-                year, month, day, hours, minutes, seconds)
+            format!("{year:04}-{month:02}-{day:02} {hours:02}:{minutes:02}:{seconds:02}")
         }
         Err(_) => "unknown".to_string(),
+    }
+}
+
+/// CLI wrapper function for uptime command
+pub fn uptime_cli(args: &[String]) -> anyhow::Result<()> {
+    let _options = parse_uptime_args(args)?;
+    let result = execute_uptime_command();
+    match result {
+        Ok(_) => Ok(()),
+        Err(e) => Err(anyhow::anyhow!("uptime command failed: {}", e)),
     }
 }
 
@@ -402,4 +410,4 @@ mod tests {
         assert_eq!(format_uptime_pretty(Duration::from_secs(86400)), "1 day");
         assert_eq!(format_uptime_pretty(Duration::from_secs(90060)), "1 day, 1 hour, and 1 minute");
     }
-} 
+}

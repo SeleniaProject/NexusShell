@@ -5,6 +5,7 @@
 //! Times are printed in seconds with 2 decimal precision.
 
 use anyhow::Result;
+#[cfg(feature = "system-info")]
 use sysinfo::{ProcessExt, System, SystemExt, PidExt};
 use std::time::Instant;
 
@@ -105,7 +106,7 @@ mod tests {
     #[test]
     fn test_shell_timing() {
         init_shell_timing();
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::sleep(std::time::Duration::from_millis(10));
         let runtime = get_shell_runtime();
         assert!(runtime > 0.0);
         assert!(runtime < 1.0); // Should be less than 1 second

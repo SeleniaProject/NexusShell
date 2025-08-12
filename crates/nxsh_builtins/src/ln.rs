@@ -269,7 +269,7 @@ fn parse_ln_args(args: &[String]) -> Result<LnOptions> {
     }
     
     // Handle target directory mode
-    if let Some(ref target_dir) = options.target_directory {
+    if let Some(ref _target_dir) = options.target_directory {
         // All remaining arguments are targets
     } else if options.link_name.is_none() && options.targets.len() >= 2 {
         // Last argument is the link name/directory
@@ -303,7 +303,7 @@ fn determine_target_mode(options: &LnOptions) -> Result<(PathBuf, bool)> {
         return Ok((link_path, false));
     }
     
-    return Err(anyhow!("ln: missing destination"));
+    Err(anyhow!("ln: missing destination"))
 }
 
 fn should_overwrite(link_path: &Path, options: &LnOptions) -> Result<bool> {
@@ -322,7 +322,7 @@ fn should_overwrite(link_path: &Path, options: &LnOptions) -> Result<bool> {
     }
     
     // Default behavior: fail if destination exists
-    return Err(anyhow!("ln: failed to create link '{}': File exists", link_path.display()));
+    Err(anyhow!("ln: failed to create link '{}': File exists", link_path.display()))
 }
 
 fn create_backup(dest: &Path, options: &LnOptions) -> Result<()> {
@@ -366,7 +366,7 @@ fn find_numbered_backup_name(dest: &Path, suffix: &str) -> Result<PathBuf> {
     
     let mut number = 1;
     loop {
-        let backup_name = format!("{}.{}{}", filename, number, suffix);
+        let backup_name = format!("{filename}.{number}{suffix}");
         let backup_path = parent.join(backup_name);
         
         if !backup_path.exists() {
@@ -385,15 +385,13 @@ fn has_numbered_backups(dest: &Path, suffix: &str) -> Result<bool> {
     let filename = dest.file_name().unwrap().to_string_lossy();
     
     if let Ok(entries) = fs::read_dir(parent) {
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let entry_name = entry.file_name().to_string_lossy().into_owned();
-                if entry_name.starts_with(&format!("{}.", filename)) && 
-                   entry_name.ends_with(suffix) {
-                    let middle = &entry_name[filename.len() + 1..entry_name.len() - suffix.len()];
-                    if middle.parse::<u32>().is_ok() {
-                        return Ok(true);
-                    }
+        for entry in entries.flatten() {
+            let entry_name = entry.file_name().to_string_lossy().into_owned();
+            if entry_name.starts_with(&format!("{filename}.")) &&
+               entry_name.ends_with(suffix) {
+                let middle = &entry_name[filename.len() + 1..entry_name.len() - suffix.len()];
+                if middle.parse::<u32>().is_ok() {
+                    return Ok(true);
                 }
             }
         }
@@ -577,9 +575,9 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
-    use std::fs::File;
-    use std::io::Write;
+    
+    
+    
     
     #[test]
     fn test_parse_args() {

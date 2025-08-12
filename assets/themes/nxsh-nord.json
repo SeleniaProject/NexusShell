@@ -1,0 +1,40 @@
+{
+  "name": "nxsh-nord",
+  "version": "1.0.0",
+  "author": "NexusShell Team",
+  "description": "Arctic-inspired theme with cool blues",
+  "colors": {
+    "primary": "#5e81ac",
+    "secondary": "#4c566a",
+    "accent": "#d08770",
+    "background": "#2e3440",
+    "foreground": "#eceff4",
+    "error": "#bf616a",
+    "warning": "#d08770",
+    "success": "#a3be8c",
+    "info": "#5e81ac",
+    "muted": "#4c566a",
+    "highlight": "#ebcb8b",
+    "border": "#3b4252"
+  },
+  "styles": {
+    "prompt": {
+      "foreground": "Blue",
+      "bold": true
+    },
+    "command": {
+      "foreground": "White"
+    },
+    "error": {
+      "foreground": "Red",
+      "bold": true
+    },
+    "warning": {
+      "foreground": "Yellow"
+    },
+    "success": {
+      "foreground": "Green",
+      "bold": true
+    }
+  }
+}

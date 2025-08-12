@@ -43,6 +43,6 @@ mod tests {
             buf.push(format!("line {}", i));
         }
         buf.scroll(-5);
-        assert_eq!(buf.view(1).next().unwrap(), "line 195");
+        assert_eq!(buf.view(1).next().expect("line should exist"), "line 195");
     }
 } 

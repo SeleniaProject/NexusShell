@@ -26,18 +26,28 @@ fn json_table_roundtrip() {
         .collect();
     let table_str = Table::new(rows).to_string();
 
-    // Parse table back (very naive split by lines)
-    let mut lines = table_str.lines();
-    lines.next(); // skip border
+    // Debug the table output
+    println!("Table output:\n{table_str}");
+    
+    // Parse table back (more robust parsing)
+    let lines: Vec<&str> = table_str.lines().collect();
     let mut parsed = Vec::new();
-    for line in lines {
-        if line.starts_with('+') { break; }
+    
+    // Skip header lines and borders
+    for line in lines.iter().skip(2) { // Skip top border and header
+        if line.starts_with('+') || !line.starts_with('|') { 
+            continue; // Skip border lines and empty lines
+        }
         let cols: Vec<&str> = line.split('|').collect();
         if cols.len() >= 3 {
             let name = cols[1].trim();
             let value = cols[2].trim();
-            parsed.push(json!({"name": name, "value": value}));
+            // Skip header row
+            if name != "name" && value != "value" {
+                parsed.push(json!({"name": name, "value": value}));
+            }
         }
     }
+    
     assert_eq!(data, json!(parsed));
 } 

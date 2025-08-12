@@ -11,14 +11,19 @@
 //! - Support multiple platforms (Unix, Linux, macOS, Windows, FreeBSD)
 
 pub mod fs;
+pub mod fs_enhanced;
 pub mod process;
+pub mod process_enhanced;
 pub mod pipe;
 pub mod seccomp;
 pub mod platform;
 pub mod error;
 pub mod memory;
 pub mod time;
+pub mod time_enhanced;
 pub mod network;
+pub mod completion;
+pub mod fast_completion;
 
 pub use error::{HalError, HalResult};
 
@@ -31,7 +36,7 @@ pub use process::{ProcessManager, ProcessHandle, ProcessInfo};
 pub use pipe::{PipeManager, PipeHandle};
 pub use memory::{MemoryManager, MemoryInfo};
 pub use time::TimeManager;
-pub use network::{NetworkManager, NetworkInfo};
+pub use network::{NetworkManager};
 
 /// Initialize the HAL with platform-specific optimizations
 pub fn initialize() -> HalResult<()> {

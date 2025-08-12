@@ -1,0 +1,40 @@
+{
+  "name": "nxsh-solarized-dark",
+  "version": "1.0.0",
+  "author": "NexusShell Team",
+  "description": "Dark variant of Solarized color scheme",
+  "colors": {
+    "primary": "#268bd2",
+    "secondary": "#657b83",
+    "accent": "#cb4b16",
+    "background": "#002b36",
+    "foreground": "#839496",
+    "error": "#dc322f",
+    "warning": "#b58900",
+    "success": "#859900",
+    "info": "#268bd2",
+    "muted": "#657b83",
+    "highlight": "#d33682",
+    "border": "#073642"
+  },
+  "styles": {
+    "prompt": {
+      "foreground": "Blue",
+      "bold": true
+    },
+    "command": {
+      "foreground": "White"
+    },
+    "error": {
+      "foreground": "Red",
+      "bold": true
+    },
+    "warning": {
+      "foreground": "Yellow"
+    },
+    "success": {
+      "foreground": "Green",
+      "bold": true
+    }
+  }
+}

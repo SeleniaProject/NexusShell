@@ -5,13 +5,25 @@
 
 use anyhow::{anyhow, Result};
 use std::path::Path;
-use tokio::task;
+#[cfg(feature = "async-runtime")] use tokio::task;
 
 #[cfg(unix)]
 use nix::libc::{statvfs, c_ulong};
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 
+#[cfg(not(feature = "async-runtime"))]
+pub fn df_cli(args: &[String]) -> Result<()> {
+    let mut human = false;
+    let mut path = ".".to_string();
+    for arg in args { if arg == "-h" { human = true; continue; } path = arg.clone(); }
+    let (blocks, _bfree, bavail, bsize) = stat_fs(Path::new(&path).to_path_buf())?;
+    let total = blocks * bsize; let avail = bavail * bsize; let used = total - avail;
+    if human { println!("Filesystem Size Used Avail"); println!("/ {} {} {}", bytesize::ByteSize::b(total).to_string_as(true), bytesize::ByteSize::b(used).to_string_as(true), bytesize::ByteSize::b(avail).to_string_as(true)); } else { println!("Filesystem 1K-blocks Used Available"); println!("/ {} {} {}", total/1024, used/1024, avail/1024); }
+    Ok(())
+}
+
+#[cfg(feature = "async-runtime")]
 pub async fn df_cli(args: &[String]) -> Result<()> {
     let mut human = false;
     let mut path = ".".to_string();
@@ -20,7 +32,7 @@ pub async fn df_cli(args: &[String]) -> Result<()> {
         path = arg.clone();
     }
     let p = Path::new(&path).to_path_buf();
-    let (blocks, bfree, bavail, bsize) = task::spawn_blocking(move || stat_fs(p)).await??;
+    let (blocks, _bfree, bavail, bsize) = task::spawn_blocking(move || stat_fs(p)).await??;
     let total = blocks * bsize;
     let avail = bavail * bsize;
     let used = total - avail;
@@ -46,7 +58,6 @@ fn stat_fs(p: std::path::PathBuf) -> Result<(u64,u64,u64,u64)> {
 }
 
 #[cfg(windows)]
-#[cfg(windows)]
 fn stat_fs(p: std::path::PathBuf) -> Result<(u64,u64,u64,u64)> {
     use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
     use std::os::windows::ffi::OsStrExt;
@@ -63,4 +74,4 @@ fn stat_fs(p: std::path::PathBuf) -> Result<(u64,u64,u64,u64)> {
 }
 
 #[cfg(test)]
-mod tests { use super::*; #[tokio::test] async fn df_runs(){ df_cli(&[]).await.unwrap();}} 
+mod tests { use super::*; #[cfg(feature = "async-runtime")] #[tokio::test] async fn df_runs(){ df_cli(&[]).await.unwrap(); } #[cfg(not(feature = "async-runtime"))] #[test] fn df_runs_sync(){ df_cli(&[]).unwrap(); } } 

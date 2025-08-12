@@ -29,6 +29,7 @@
 use anyhow::{Result, anyhow};
 use std::fs::{self, Metadata};
 #[cfg(unix)]
+#[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -48,14 +49,10 @@ pub struct GitRepository {
 impl GitRepository {
     /// Create a Git repository instance
     pub fn new(path: &Path) -> Option<Self> {
-        if let Some(git_root) = Self::find_git_root(path) {
-            Some(GitRepository {
+        Self::find_git_root(path).map(|git_root| GitRepository {
                 root_path: git_root,
                 is_initialized: true,
             })
-        } else {
-            None
-        }
     }
 
     /// Find the Git repository root by walking up directories
@@ -87,8 +84,8 @@ impl GitRepository {
 
         // Use git command to get status
         if let Ok(output) = std::process::Command::new("git")
-            .args(&["status", "--porcelain", "--"])
-            .arg(&relative_path)
+            .args(["status", "--porcelain", "--"])
+            .arg(relative_path)
             .current_dir(&self.root_path)
             .output()
         {
@@ -162,7 +159,10 @@ fn get_group_name(gid: u32) -> String {
 }
 
 /// Resolve user name from UID using multiple methods for maximum compatibility
+/// Note: We intentionally avoid libc bindings to keep a pure-Rust dependency profile.
 #[cfg(unix)]
+// Cross-platform resolution helpers appended for non-unix targets
+#[cfg(not(unix))]
 fn resolve_user_name(uid: u32) -> Option<String> {
     use std::fs::File;
     use std::io::{BufRead, BufReader};
@@ -176,25 +176,6 @@ fn resolve_user_name(uid: u32) -> Option<String> {
                 if let Ok(file_uid) = parts[2].parse::<u32>() {
                     if file_uid == uid {
                         return Some(parts[0].to_string());
-                    }
-                }
-            }
-        }
-    }
-    
-    // Method 2: Use libc getpwuid for system integration
-    #[cfg(target_os = "linux")]
-    {
-        use std::ffi::CStr;
-        use std::ptr;
-        
-        unsafe {
-            let pwd = libc::getpwuid(uid);
-            if !pwd.is_null() {
-                let name_ptr = (*pwd).pw_name;
-                if !name_ptr.is_null() {
-                    if let Ok(name) = CStr::from_ptr(name_ptr).to_str() {
-                        return Some(name.to_string());
                     }
                 }
             }
@@ -233,6 +214,7 @@ fn resolve_user_name(uid: u32) -> Option<String> {
 
 /// Resolve group name from GID using multiple methods for maximum compatibility
 #[cfg(unix)]
+#[cfg(not(unix))]
 fn resolve_group_name(gid: u32) -> Option<String> {
     use std::fs::File;
     use std::io::{BufRead, BufReader};
@@ -246,25 +228,6 @@ fn resolve_group_name(gid: u32) -> Option<String> {
                 if let Ok(file_gid) = parts[2].parse::<u32>() {
                     if file_gid == gid {
                         return Some(parts[0].to_string());
-                    }
-                }
-            }
-        }
-    }
-    
-    // Method 2: Use libc getgrgid for system integration
-    #[cfg(target_os = "linux")]
-    {
-        use std::ffi::CStr;
-        use std::ptr;
-        
-        unsafe {
-            let grp = libc::getgrgid(gid);
-            if !grp.is_null() {
-                let name_ptr = (*grp).gr_name;
-                if !name_ptr.is_null() {
-                    if let Ok(name) = CStr::from_ptr(name_ptr).to_str() {
-                        return Some(name.to_string());
                     }
                 }
             }
@@ -303,7 +266,7 @@ fn resolve_group_name(gid: u32) -> Option<String> {
 
 /// Windows fallback implementations
 #[cfg(windows)]
-fn resolve_user_name(uid: u32) -> Option<String> {
+fn resolve_user_name(_uid: u32) -> Option<String> {
     // On Windows, use whoami or fallback to numeric ID
     if let Ok(output) = std::process::Command::new("whoami").output() {
         if output.status.success() {
@@ -320,7 +283,7 @@ fn resolve_user_name(uid: u32) -> Option<String> {
 fn resolve_group_name(gid: u32) -> Option<String> {
     // Windows doesn't have Unix-style group resolution
     // Return the GID as string
-    Some(format!("group{}", gid))
+    Some(format!("group{gid}"))
 }
 
 
@@ -376,7 +339,7 @@ fn get_blocks(metadata: &Metadata) -> u64 {
 #[cfg(not(unix))]
 fn get_blocks(metadata: &Metadata) -> u64 {
     // Approximate blocks from file size
-    (metadata.len() + 511) / 512
+    metadata.len().div_ceil(512)
 }
 
 #[cfg(unix)]
@@ -700,7 +663,7 @@ fn get_file_info(path: &Path, git_repo: Option<&GitRepository>) -> Result<FileIn
     let metadata = fs::symlink_metadata(path)?;
     let is_symlink = metadata.file_type().is_symlink();
     let name = path.file_name()
-        .unwrap_or_else(|| path.as_os_str())
+        .unwrap_or(path.as_os_str())
         .to_string_lossy()
         .to_string();
     
@@ -710,11 +673,7 @@ fn get_file_info(path: &Path, git_repo: Option<&GitRepository>) -> Result<FileIn
         None
     };
     
-    let git_status = if let Some(repo) = git_repo {
-        Some(get_git_status(repo, path))
-    } else {
-        None
-    };
+    let git_status = git_repo.map(|repo| get_git_status(repo, path));
     
     Ok(FileInfo {
         name,
@@ -788,13 +747,13 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
         
         if !options.long_no_owner && !options.numeric_ids {
             let uid = get_uid(&entry.metadata);
-            let user_name = get_user_name(uid);
+            let user_name = resolve_user_name(uid).unwrap_or_else(|| uid.to_string());
             max_user = max_user.max(user_name.len());
         }
         
         if !options.long_no_group && !options.no_group && !options.numeric_ids {
             let gid = get_gid(&entry.metadata);
-            let group_name = get_group_name(gid);
+            let group_name = resolve_group_name(gid).unwrap_or_else(|| gid.to_string());
             max_group = max_group.max(group_name.len());
         }
     }
@@ -826,7 +785,7 @@ fn print_long_entry(
     // Block size
     if options.show_size_blocks {
         let blocks = get_blocks(&entry.metadata);
-        line.push_str(&format!("{:6} ", blocks));
+        line.push_str(&format!("{blocks:6} "));
     }
     
     // File type and permissions
@@ -837,31 +796,23 @@ fn print_long_entry(
     
     // Owner
     if !options.long_no_owner {
-        let owner = if options.numeric_ids {
-            get_uid(&entry.metadata).to_string()
-        } else {
-            get_user_name(get_uid(&entry.metadata))
-        };
-        line.push_str(&format!(" {:width$}", owner, width = max_user));
+        let owner = if options.numeric_ids { get_uid(&entry.metadata).to_string() } else { resolve_user_name(get_uid(&entry.metadata)).unwrap_or_else(|| get_uid(&entry.metadata).to_string()) };
+        line.push_str(&format!(" {owner:max_user$}"));
     }
     
     // Group
     if !options.long_no_group && !options.no_group {
-        let group = if options.numeric_ids {
-            get_gid(&entry.metadata).to_string()
-        } else {
-            get_group_name(get_gid(&entry.metadata))
-        };
-        line.push_str(&format!(" {:width$}", group, width = max_group));
+        let group = if options.numeric_ids { get_gid(&entry.metadata).to_string() } else { resolve_group_name(get_gid(&entry.metadata)).unwrap_or_else(|| get_gid(&entry.metadata).to_string()) };
+        line.push_str(&format!(" {group:max_group$}"));
     }
     
     // File size
     let size_str = format_file_size(entry.metadata.len(), options.human_readable);
-    line.push_str(&format!(" {:>width$}", size_str, width = max_size));
+    line.push_str(&format!(" {size_str:>max_size$}"));
     
     // Modification time
     let time_str = format_time(&entry.metadata, &options.time_style, options.full_time);
-    line.push_str(&format!(" {}", time_str));
+    line.push_str(&format!(" {time_str}"));
     
     // File name with colors and git status
     line.push(' ');
@@ -876,7 +827,7 @@ fn print_long_entry(
         }
     }
     
-    println!("{}", line);
+    println!("{line}");
     
     Ok(())
 }
@@ -892,13 +843,13 @@ fn print_short_format(entries: &[FileInfo], options: &LsOptions, use_colors: boo
             
             if options.show_size_blocks {
                 let blocks = get_blocks(&entry.metadata);
-                line.push_str(&format!("{:6} ", blocks));
+                line.push_str(&format!("{blocks:6} "));
             }
             
             let colored_name = format_file_name(entry, use_colors, options.classify);
             line.push_str(&colored_name);
             
-            println!("{}", line);
+            println!("{line}");
         }
     } else {
         // Multi-column output
@@ -922,7 +873,7 @@ fn print_columns(entries: &[FileInfo], options: &LsOptions, use_colors: bool, te
         
         if options.show_size_blocks {
             let blocks = get_blocks(&entry.metadata);
-            name.push_str(&format!("{:6} ", blocks));
+            name.push_str(&format!("{blocks:6} "));
         }
         
         let colored_name = format_file_name(entry, use_colors, options.classify);
@@ -938,7 +889,7 @@ fn print_columns(entries: &[FileInfo], options: &LsOptions, use_colors: bool, te
     }
     
     let cols = (term_width / (max_width + 2)).max(1);
-    let rows = (names.len() + cols - 1) / cols;
+    let rows = names.len().div_ceil(cols);
     
     for row in 0..rows {
         let mut line = String::new();
@@ -956,7 +907,7 @@ fn print_columns(entries: &[FileInfo], options: &LsOptions, use_colors: bool, te
                 }
             }
         }
-        println!("{}", line);
+        println!("{line}");
     }
     
     Ok(())
@@ -1136,6 +1087,8 @@ fn format_file_name(entry: &FileInfo, use_colors: bool, classify: bool) -> Strin
     
     style.paint(name).to_string()
 }
+
+// (removed duplicate generic helpers; platform-specific versions above are used)
 
 /* TODO: Implement with pure Rust alternative
 fn get_user_name(uid: u32, users_cache: &UsersCache) -> String {

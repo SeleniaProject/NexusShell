@@ -12,9 +12,9 @@ pub fn local_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
     }
     for arg in args {
         if let Some((name, val)) = arg.split_once('=') {
-            ctx.set_var(format!("__local_{}", name), val);
+            ctx.set_var(format!("__local_{name}"), val);
         } else {
-            ctx.set_var(format!("__local_{}", arg), "");
+            ctx.set_var(format!("__local_{arg}"), "");
         }
     }
     Ok(())

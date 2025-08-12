@@ -26,7 +26,7 @@ pub fn expr_cli(args: &[String]) -> Result<()> {
     }
 
     let result = evaluate_expression(args)?;
-    println!("{}", result);
+    println!("{result}");
     
     // expr returns exit code 1 if result is 0 or empty string
     if result == "0" || result.is_empty() {
@@ -135,7 +135,7 @@ fn tokenize(expr: &str) -> Vec<String> {
 
 fn evaluate_tokens(tokens: &[String]) -> Result<String> {
     if tokens.len() < 3 {
-        return Ok(tokens.get(0).unwrap_or(&"0".to_string()).clone());
+        return Ok(tokens.first().unwrap_or(&"0".to_string()).clone());
     }
     
     // Find operators with lowest precedence (right to left)
@@ -158,7 +158,7 @@ fn evaluate_tokens(tokens: &[String]) -> Result<String> {
         if let Some(pos) = find_operator(tokens, op) {
             let left = evaluate_tokens(&tokens[..pos])?;
             let right = evaluate_tokens(&tokens[pos + 1..])?;
-            return Ok(compare(&left, &right, op)?);
+            return compare(&left, &right, op);
         }
     }
     
@@ -167,7 +167,7 @@ fn evaluate_tokens(tokens: &[String]) -> Result<String> {
         if let Some(pos) = find_operator(tokens, op) {
             let left = evaluate_tokens(&tokens[..pos])?;
             let right = evaluate_tokens(&tokens[pos + 1..])?;
-            return Ok(arithmetic(&left, &right, op)?);
+            return arithmetic(&left, &right, op);
         }
     }
     
@@ -175,7 +175,7 @@ fn evaluate_tokens(tokens: &[String]) -> Result<String> {
         if let Some(pos) = find_operator(tokens, op) {
             let left = evaluate_tokens(&tokens[..pos])?;
             let right = evaluate_tokens(&tokens[pos + 1..])?;
-            return Ok(arithmetic(&left, &right, op)?);
+            return arithmetic(&left, &right, op);
         }
     }
     

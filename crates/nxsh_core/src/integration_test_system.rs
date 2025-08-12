@@ -11,7 +11,7 @@ use std::{
     io::Write,
 };
 
-use anyhow::Result;
+use crate::compat::Result;
 use serde::{Deserialize, Serialize};
 use tokio::{
     process::Command as TokioCommand,
@@ -765,7 +765,7 @@ impl IntegrationTestSystem {
             return Ok(values?);
         }
         
-        Err(anyhow::anyhow!("Failed to parse /proc/stat"))
+    Err(crate::anyhow!("Failed to parse /proc/stat"))
     }
     
     #[cfg(target_os = "linux")]

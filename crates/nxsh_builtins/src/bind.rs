@@ -23,7 +23,7 @@ pub fn bind_cli(args: &[String]) -> Result<()> {
     if args.is_empty() {
         // List
         for (k, v) in &bindings {
-            println!("{}:{}", k, v);
+            println!("{k}:{v}");
         }
         return Ok(());
     }
@@ -72,7 +72,7 @@ fn save_bindings(map: &HashMap<String, String>) -> Result<()> {
     entries.sort_by_key(|(k, _)| *k);
     let content: String = entries
         .into_iter()
-        .map(|(k, v)| format!("{}:{}\n", k, v))
+        .map(|(k, v)| format!("{k}:{v}\n"))
         .collect();
     fs::write(path, content)?;
     Ok(())
@@ -93,7 +93,7 @@ mod tests {
 
         // Load again and assert
         let map = load_bindings().unwrap();
-        assert_eq!(map.get("C-S", None).unwrap(), "split-pane-horizontal");
+        assert_eq!(map.get("C-S").unwrap(), "split-pane-horizontal");
 
         // List should output the binding (capture stdout)
         // Simple smoke test  Eensure no error

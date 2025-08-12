@@ -34,10 +34,32 @@ use walkdir::{WalkDir, DirEntry as WalkDirEntry};
 use regex::RegexBuilder;
 use glob::{Pattern, MatchOptions};
 use chrono::{DateTime, Local};
-use rayon::prelude::*;
+// use rayon::prelude::*; // TODO: 並列探索未実装なら削除検討 (par_iter使用未確認)
+#[cfg(feature = "progress-ui")]
 use indicatif::{ProgressBar, ProgressStyle};
+#[cfg(not(feature = "progress-ui"))]
+#[derive(Clone)]
+struct ProgressBar;
+#[cfg(not(feature = "progress-ui"))]
+struct ProgressStyle;
+#[cfg(not(feature = "progress-ui"))]
+impl ProgressBar {
+    fn new(_len: u64) -> Self { Self }
+    fn new_spinner() -> Self { Self }
+    fn set_style(&self, _style: ProgressStyle) -> &Self { self }
+    fn set_message<S: Into<String>>(&self, _msg: S) {}
+    fn finish_with_message<S: Into<String>>(&self, _msg: S) {}
+}
+#[cfg(not(feature = "progress-ui"))]
+impl ProgressStyle {
+    fn default_bar() -> Self { Self }
+    fn default_spinner() -> Self { Self }
+    fn template(self, _t: &str) -> Result<Self, ()> { Ok(Self) }
+    fn progress_chars(self, _c: &str) -> Self { Self }
+}
 
 // Pure Rust cross-platform user/group handling
+#[cfg(feature = "system-info")]
 use sysinfo::{System, SystemExt, UserExt};
 
 // Windows compatibility constants for file types
@@ -236,6 +258,12 @@ impl Default for FindOptions {
     }
 }
 
+impl Default for FindStats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FindStats {
     pub fn new() -> Self {
         Self {
@@ -257,10 +285,10 @@ impl FindStats {
         let bytes = self.bytes_processed.load(Ordering::Relaxed);
         
         eprintln!("\nFind Statistics:");
-        eprintln!("  Files examined: {}", files);
-        eprintln!("  Directories traversed: {}", dirs);
-        eprintln!("  Matches found: {}", matches);
-        eprintln!("  Errors encountered: {}", errors);
+        eprintln!("  Files examined: {files}");
+        eprintln!("  Directories traversed: {dirs}");
+        eprintln!("  Matches found: {matches}");
+        eprintln!("  Errors encountered: {errors}");
         eprintln!("  Bytes processed: {}", format_bytes(bytes));
         eprintln!("  Elapsed time: {:.2}s", elapsed.as_secs_f64());
         if elapsed.as_secs() > 0 {
@@ -361,32 +389,28 @@ impl CrossPlatformMetadataExt for Metadata {
 }
 
 // Cross-platform user/group lookup functions
-fn get_user_by_name(name: &str) -> Option<sysinfo::User> {
+#[cfg(feature = "system-info")]
+fn get_user_by_name(name: &str) -> Option<String> {
     let system = System::new_all();
-    // Since User doesn't implement Clone, we need to work differently
-    if let Some(user) = system.users().iter().find(|user| user.name() == name) {
-        // For now, return None as we can't clone the User
-        // In a real implementation, you'd extract the needed data
-        None
-    } else {
-        None
-    }
+    system.users().iter().find(|user| user.name() == name).map(|u| u.name().to_string())
 }
+#[cfg(not(feature = "system-info"))]
+fn get_user_by_name(_name: &str) -> Option<String> { None }
 
-fn get_group_by_name(_name: &str) -> Option<u32> {
-    // Cross-platform group lookup is limited; return None for now
-    None
-}
+#[cfg(feature = "system-info")]
+fn get_group_by_name(_name: &str) -> Option<u32> { None }
+#[cfg(not(feature = "system-info"))]
+fn get_group_by_name(_name: &str) -> Option<u32> { None }
 
-fn get_user_by_uid(_uid: u32) -> Option<sysinfo::User> {
-    // Cross-platform UID lookup is limited; return None for now
-    None
-}
+#[cfg(feature = "system-info")]
+fn get_user_by_uid(_uid: u32) -> Option<String> { None }
+#[cfg(not(feature = "system-info"))]
+fn get_user_by_uid(_uid: u32) -> Option<String> { None }
 
-fn get_group_by_gid(_gid: u32) -> Option<u32> {
-    // Cross-platform GID lookup is limited; return None for now
-    None
-}
+#[cfg(feature = "system-info")]
+fn get_group_by_gid(_gid: u32) -> Option<u32> { None }
+#[cfg(not(feature = "system-info"))]
+fn get_group_by_gid(_gid: u32) -> Option<u32> { None }
 
 pub fn find_cli(args: &[String]) -> Result<()> {
     let options = parse_find_args(args)?;
@@ -394,15 +418,18 @@ pub fn find_cli(args: &[String]) -> Result<()> {
     
     // Setup progress bar if requested
     let progress = if options.show_progress {
-        let pb = ProgressBar::new_spinner();
-        pb.set_style(ProgressStyle::default_spinner()
-            .template("{spinner:.green} [{elapsed_precise}] {msg}")
-            .unwrap());
-        pb.set_message("Searching...");
-        Some(pb)
-    } else {
-        None
-    };
+        #[cfg(feature = "progress-ui")]
+        {
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(ProgressStyle::default_spinner()
+                .template("{spinner:.green} [{elapsed_precise}] {msg}")
+                .unwrap());
+            pb.set_message("Searching...");
+            Some(pb)
+        }
+        #[cfg(not(feature = "progress-ui"))]
+        { None }
+    } else { None };
     
     let result = if options.parallel {
         find_parallel(&options, stats.clone(), progress.clone())
@@ -410,9 +437,8 @@ pub fn find_cli(args: &[String]) -> Result<()> {
         find_sequential(&options, stats.clone(), progress.as_ref())
     };
     
-    if let Some(pb) = progress {
-        pb.finish_with_message("Search completed");
-    }
+    #[cfg(feature = "progress-ui")]
+    if let Some(pb) = progress { pb.finish_with_message("Search completed"); }
     
     if options.print_stats {
         stats.print_summary();
@@ -430,7 +456,7 @@ fn find_sequential(
         let path_buf = PathBuf::from(path);
         
         if !path_buf.exists() {
-            eprintln!("find: '{}': No such file or directory", path);
+            eprintln!("find: '{path}': No such file or directory");
             stats.errors_encountered.fetch_add(1, Ordering::Relaxed);
             continue;
         }
@@ -461,7 +487,7 @@ fn find_parallel(
             let path_buf = PathBuf::from(path);
             
             if !path_buf.exists() {
-                eprintln!("find: '{}': No such file or directory", path);
+                eprintln!("find: '{path}': No such file or directory");
                 stats_clone.errors_encountered.fetch_add(1, Ordering::Relaxed);
                 continue;
             }
@@ -497,7 +523,10 @@ fn find_parallel(
         let receiver = Arc::clone(&receiver);
         let options_clone = Arc::clone(&options_arc);
         let stats_clone = stats.clone();
-        let progress_clone = if i == 0 { Some(progress.clone()) } else { None }; // Only one thread updates progress
+    #[cfg(feature = "progress-ui")]
+    let progress_clone = if i == 0 { Some(progress.clone()) } else { None }; // Only one thread updates progress
+    #[cfg(not(feature = "progress-ui"))]
+    let progress_clone: Option<Option<ProgressBar>> = None;
         
         let handle = thread::spawn(move || {
             loop {
@@ -516,7 +545,7 @@ fn find_parallel(
                                 }
                             }
                             Err(e) => {
-                                eprintln!("find: {}", e);
+                                eprintln!("find: {e}");
                                 stats_clone.errors_encountered.fetch_add(1, Ordering::Relaxed);
                             }
                         }
@@ -524,11 +553,10 @@ fn find_parallel(
                     Err(_) => break, // Channel closed
                 }
                 
+                #[cfg(feature = "progress-ui")]
                 if let Some(ref pb) = progress_clone {
                     let examined = stats_clone.files_examined.load(Ordering::Relaxed);
-                    if let Some(bar) = pb.as_ref() {
-                        bar.set_message(format!("Examined {} files", examined));
-                    }
+                    if let Some(bar) = pb.as_ref() { bar.set_message(format!("Examined {examined} files")); }
                 }
             }
         });
@@ -566,13 +594,14 @@ fn find_in_path(
                     stats.errors_encountered.fetch_add(1, Ordering::Relaxed);
                 }
                 
+                #[cfg(feature = "progress-ui")]
                 if let Some(pb) = progress {
                     let examined = stats.files_examined.load(Ordering::Relaxed);
-                    pb.set_message(format!("Examined {} files", examined));
+                    pb.set_message(format!("Examined {examined} files"));
                 }
             }
             Err(e) => {
-                eprintln!("find: {}", e);
+                eprintln!("find: {e}");
                 stats.errors_encountered.fetch_add(1, Ordering::Relaxed);
             }
         }
@@ -670,7 +699,7 @@ fn evaluate_expression(
             #[cfg(windows)]
             {
                 // On Windows, check if it's an executable file extension
-                Ok(path.extension().map_or(false, |ext| {
+                Ok(path.extension().is_some_and(|ext| {
                     matches!(ext.to_str(), Some("exe") | Some("bat") | Some("cmd") | Some("com"))
                 }))
             }
@@ -699,7 +728,7 @@ fn evaluate_expression(
             }
         }
         
-        Expression::Perm(perm_test) => {
+    Expression::Perm(perm_test) => {
             #[cfg(unix)]
             {
                 Ok(match_perm_test(metadata.get_mode(), perm_test))
@@ -965,13 +994,12 @@ fn match_perm_test(mode: u32, test: &PermTest) -> bool {
 
 fn match_user(uid: u32, user: &str) -> Result<bool> {
     if let Ok(target_uid) = user.parse::<u32>() {
-        Ok(uid == target_uid)
-    } else if let Some(user_info) = get_user_by_name(user) {
-        // Since sysinfo doesn't provide UIDs directly, we'll use a simplified approach
-        Ok(user_info.name() == user)
-    } else {
-        Ok(false)
+        return Ok(uid == target_uid);
     }
+    if let Some(name) = get_user_by_name(user) {
+        return Ok(name == user);
+    }
+    Ok(false)
 }
 
 fn match_group(gid: u32, group: &str) -> Result<bool> {
@@ -1048,7 +1076,7 @@ fn print_formatted(format: &str, path: &Path, metadata: &Metadata) -> Result<()>
         }
     }
     
-    print!("{}", result);
+    print!("{result}");
     Ok(())
 }
 
@@ -1084,7 +1112,6 @@ fn format_ls_line(path: &Path, metadata: &Metadata) -> Result<String> {
     );
     
     let user = get_user_by_uid(metadata.get_uid())
-        .map(|u| u.name().to_string())
         .unwrap_or_else(|| metadata.get_uid().to_string());
     
     let group = get_group_by_gid(metadata.get_gid())
@@ -1439,15 +1466,12 @@ fn parse_find_args(args: &[String]) -> Result<FindOptions> {
 }
 
 fn parse_size_test(s: &str) -> Result<SizeTest> {
-    if s.starts_with('+') {
-        let size = parse_size(&s[1..])?;
-        Ok(SizeTest::Greater(size))
-    } else if s.starts_with('-') {
-        let size = parse_size(&s[1..])?;
-        Ok(SizeTest::Less(size))
+    if let Some(rest) = s.strip_prefix('+') {
+        Ok(SizeTest::Greater(parse_size(rest)?))
+    } else if let Some(rest) = s.strip_prefix('-') {
+        Ok(SizeTest::Less(parse_size(rest)?))
     } else {
-        let size = parse_size(s)?;
-        Ok(SizeTest::Exact(size))
+        Ok(SizeTest::Exact(parse_size(s)?))
     }
 }
 
@@ -1482,28 +1506,22 @@ fn parse_size(s: &str) -> Result<u64> {
 }
 
 fn parse_num_test(s: &str) -> Result<NumTest> {
-    if s.starts_with('+') {
-        let num = s[1..].parse()?;
-        Ok(NumTest::Greater(num))
-    } else if s.starts_with('-') {
-        let num = s[1..].parse()?;
-        Ok(NumTest::Less(num))
+    if let Some(rest) = s.strip_prefix('+') {
+        Ok(NumTest::Greater(rest.parse()?))
+    } else if let Some(rest) = s.strip_prefix('-') {
+        Ok(NumTest::Less(rest.parse()?))
     } else {
-        let num = s.parse()?;
-        Ok(NumTest::Exact(num))
+        Ok(NumTest::Exact(s.parse()?))
     }
 }
 
 fn parse_perm_test(s: &str) -> Result<PermTest> {
-    if s.starts_with('/') {
-        let perm = u32::from_str_radix(&s[1..], 8)?;
-        Ok(PermTest::Any(perm))
-    } else if s.starts_with('-') {
-        let perm = u32::from_str_radix(&s[1..], 8)?;
-        Ok(PermTest::All(perm))
+    if let Some(rest) = s.strip_prefix('/') {
+        Ok(PermTest::Any(u32::from_str_radix(rest, 8)?))
+    } else if let Some(rest) = s.strip_prefix('-') {
+        Ok(PermTest::All(u32::from_str_radix(rest, 8)?))
     } else {
-        let perm = u32::from_str_radix(s, 8)?;
-        Ok(PermTest::Exact(perm))
+        Ok(PermTest::Exact(u32::from_str_radix(s, 8)?))
     }
 }
 
@@ -1530,24 +1548,24 @@ mod tests {
         match parse_size_test("+100").unwrap() {
             SizeTest::Greater(100) => {},
             other => {
-                eprintln!("Expected Greater(100), got {:?}", other);
-                assert!(false, "Expected Greater(100)");
+                eprintln!("Expected Greater(100), got {other:?}");
+                unreachable!("Expected Greater(100)");
             }
         }
         
         match parse_size_test("-100").unwrap() {
             SizeTest::Less(100) => {},
             other => {
-                eprintln!("Expected Less(100), got {:?}", other);
-                assert!(false, "Expected Less(100)");
+                eprintln!("Expected Less(100), got {other:?}");
+                unreachable!("Expected Less(100)");
             }
         }
         
         match parse_size_test("100").unwrap() {
             SizeTest::Exact(100) => {},
             other => {
-                eprintln!("Expected Exact(100), got {:?}", other);
-                assert!(false, "Expected Exact(100)");
+                eprintln!("Expected Exact(100), got {other:?}");
+                unreachable!("Expected Exact(100)");
             }
         }
     }

@@ -59,9 +59,9 @@ fn join_streams<R1: BufRead, R2: BufRead>(mut r1: R1, mut r2: R2) -> Result<()> 
         let (k1, rest1) = split_key(l1.trim_end_matches('\n'));
         let (k2, rest2) = split_key(l2.trim_end_matches('\n'));
 
-        match k1.cmp(&k2) {
+        match k1.cmp(k2) {
             std::cmp::Ordering::Equal => {
-                writeln!(out, "{}\t{}\t{}", k1, rest1, rest2)?;
+                writeln!(out, "{k1}\t{rest1}\t{rest2}")?;
                 l2.clear();
                 eof2 = r2.read_line(&mut l2)? == 0;
             }
@@ -88,7 +88,7 @@ mod tests {
         let data1 = b"a 1\nb 2\nc 3\n";
         let data2 = b"a X\nc Z\n";
         // Execute join_streams; ensure it returns Ok.
-        let _ = join_streams(
+        join_streams(
             BufReader::new(Cursor::new(&data1[..])),
             BufReader::new(Cursor::new(&data2[..]))
         ).unwrap();

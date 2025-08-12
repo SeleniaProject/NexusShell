@@ -181,13 +181,13 @@ fn print_head_file(
     path: &str,
     options: &HeadOptions,
     show_header: bool,
-    total_files: usize,
+    _total_files: usize,
 ) -> Result<()> {
     if show_header {
         if path == "-" {
             println!("==> standard input <==");
         } else {
-            println!("==> {} <==", path);
+            println!("==> {path} <==");
         }
     }
 
@@ -204,7 +204,7 @@ fn print_head_lines(path: &str, options: &HeadOptions) -> Result<()> {
         Box::new(BufReader::new(io::stdin()))
     } else {
         let file = File::open(Path::new(path))
-            .with_context(|| format!("head: cannot open '{}' for reading", path))?;
+            .with_context(|| format!("head: cannot open '{path}' for reading"))?;
         Box::new(BufReader::new(file))
     };
 
@@ -268,7 +268,7 @@ fn print_head_bytes(path: &str, options: &HeadOptions) -> Result<()> {
         Box::new(io::stdin())
     } else {
         let file = File::open(Path::new(path))
-            .with_context(|| format!("head: cannot open '{}' for reading", path))?;
+            .with_context(|| format!("head: cannot open '{path}' for reading"))?;
         Box::new(file)
     };
 
@@ -328,7 +328,7 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
+    
     use tempfile::NamedTempFile;
     use std::io::Write as IoWrite;
 
@@ -398,7 +398,7 @@ mod tests {
         
         assert_eq!(options.count, 20);
         assert_eq!(options.mode, CountMode::Lines);
-        assert_eq!(options.verbose, true);
+        assert!(options.verbose);
         assert_eq!(files, vec!["file.txt"]);
     }
 

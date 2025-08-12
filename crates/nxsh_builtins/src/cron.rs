@@ -884,27 +884,45 @@ impl CronDaemon {
             std::env::set_var(key, value);
         }
 
-        // Execute command with timeout
+        // Execute command with timeout (spawn to capture PID for monitoring)
         let mut cmd = AsyncCommand::new("sh");
         cmd.arg("-c")
            .arg(&job.command)
            .stdout(Stdio::piped())
            .stderr(Stdio::piped());
 
-        let execution_future = cmd.output();
-        let timeout_duration = job.max_runtime.unwrap_or(Duration::from_secs(3600));
+        let mut child = cmd.spawn()?;
+        let pid_for_monitor = child.id().unwrap_or(0);
+        let monitor_handle = crate::common::resource_monitor::spawn_basic_monitor(pid_for_monitor);
 
-        let output = match tokio::time::timeout(timeout_duration, execution_future).await {
+        let timeout_duration = job.max_runtime.unwrap_or(Duration::from_secs(3600));
+        let output = match tokio::time::timeout(timeout_duration, child.wait_with_output()).await {
             Ok(Ok(output)) => output,
             Ok(Err(e)) => return Err(e.into()),
             Err(_) => {
-                // Timeout occurred
                 return Err(anyhow!("Job execution timed out after {:?}", timeout_duration));
             }
         };
 
         let end_time = Utc::now();
         let duration = Duration::from_std(end_time.signed_duration_since(start_time).to_std()?)?;
+
+        let usage_final = {
+            use tokio::time::timeout;
+            if let Ok(Ok(b)) = timeout(std::time::Duration::from_secs(1), monitor_handle).await {
+                CronResourceUsage {
+                    cpu_time: duration,
+                    memory_peak: b.memory_peak_bytes,
+                    memory_average: 0,
+                    disk_read: 0,
+                    disk_write: 0,
+                    network_rx: b.network_rx,
+                    network_tx: b.network_tx,
+                    file_descriptors: 0,
+                    processes: 0,
+                }
+            } else { CronResourceUsage::default() }
+        };
 
         let execution = CronExecution {
             id: execution_id,
@@ -914,7 +932,7 @@ impl CronDaemon {
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
             stderr: String::from_utf8_lossy(&output.stderr).to_string(),
             duration,
-            resource_usage: CronResourceUsage::default(), // TODO: Implement resource monitoring
+            resource_usage: usage_final,
             triggered_by: trigger,
         };
 
@@ -929,15 +947,70 @@ impl CronDaemon {
         let should_notify = (success && job.notification_settings.email_on_success) ||
                            (!success && job.notification_settings.email_on_failure);
 
-        if should_notify && config.mail_enabled {
-            // TODO: Implement email notifications
+        if should_notify && config.mail_enabled && !job.notification_settings.email_addresses.is_empty() {
+            // Minimal SMTP sender (best-effort). Real implementation would use a crate; here we simulate or invoke sendmail when available.
+            #[cfg(unix)]
+            {
+                use tokio::process::Command as AsyncCommand;
+                let subject = format!("[cron] {} {}", job.name, if success { "OK" } else { "FAIL" });
+                let body = format!(
+                    "job: {}\ncmd: {}\nexit: {:?}\nstart: {}\nend: {}\nstdout:\n{}\n\nstderr:\n{}\n",
+                    job.name,
+                    job.command,
+                    execution.exit_code,
+                    execution.start_time,
+                    execution.end_time.unwrap_or_default(),
+                    execution.stdout,
+                    execution.stderr
+                );
+                for addr in &job.notification_settings.email_addresses {
+                    // Try sendmail if present
+                    let mut proc = AsyncCommand::new("/usr/sbin/sendmail");
+                    proc.arg("-t");
+                    let mut child = proc.stdin(std::process::Stdio::piped()).spawn();
+                    if let Ok(mut child) = child.as_mut() {
+                        use tokio::io::AsyncWriteExt;
+                        if let Some(stdin) = child.stdin.as_mut() {
+                            let _ = stdin.write_all(format!("To: {}\nSubject: {}\n\n{}", addr, subject, body).as_bytes()).await;
+                        }
+                        let _ = child.wait().await;
+                    }
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                // Log-only fallback for non-Unix platforms
+                nxsh_log_info!("cron email notify: would send to {:?}", job.notification_settings.email_addresses);
+            }
         }
 
         let should_webhook = (success && job.notification_settings.webhook_on_success) ||
                             (!success && job.notification_settings.webhook_on_failure);
 
         if should_webhook && !job.notification_settings.webhook_urls.is_empty() {
-            // TODO: Implement webhook notifications
+            // POST JSON payload to each webhook URL (ureq; blocking but small payload; in async use spawn_blocking)
+            #[cfg(feature = "updates")]
+            {
+                let payload = serde_json::json!({
+                    "job_id": job.id,
+                    "name": job.name,
+                    "command": job.command,
+                    "success": success,
+                    "exit_code": execution.exit_code,
+                    "start_time": execution.start_time,
+                    "end_time": execution.end_time,
+                    "stdout": execution.stdout,
+                    "stderr": execution.stderr,
+                }).to_string();
+                for url in &job.notification_settings.webhook_urls {
+                    let _ = ureq::AgentBuilder::new().timeout(config.webhook_timeout).build()
+                        .post(url).set("Content-Type", "application/json").send_string(&payload);
+                }
+            }
+            #[cfg(not(feature = "updates"))]
+            {
+                nxsh_log_info!("cron webhook notify: would POST to {:?}", job.notification_settings.webhook_urls);
+            }
         }
 
         Ok(())

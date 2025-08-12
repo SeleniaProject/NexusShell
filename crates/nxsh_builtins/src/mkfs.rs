@@ -61,6 +61,8 @@ pub async fn mkfs_cli(args: &[String]) -> Result<()> {
     }
 
     let device = device.ok_or_else(|| anyhow!("mkfs: missing DEVICE"))?;
+    #[cfg(not(unix))]
+    { let _ = &label; let _ = &device; }
 
     match fstype.to_lowercase().as_str() {
         "fat" | "fat32" | "vfat" => {
@@ -107,14 +109,15 @@ fn format_fat32(dev: &str, label: &str) -> Result<()> {
 mod tests {
     use super::*;
     use tempfile::tempfile;
-    use std::io::Write;
+    
 
     #[tokio::test]
     async fn create_fat_image() {
-        let mut img = tempfile().unwrap();
+        let img = tempfile().unwrap();
         img.set_len(8 * 1024 * 1024).unwrap(); // 8 MiB image
         let path = "/tmp/mkfs_test.img";
-        std::fs::copy(img, path).unwrap();
+        let img_path = std::path::Path::new("test.img");
+        std::fs::copy(img_path, path).unwrap();
         let _ = mkfs_cli(&["-t".into(), "fat32".into(), path.into()]).await;
         std::fs::remove_file(path).unwrap();
     }

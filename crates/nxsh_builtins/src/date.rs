@@ -23,14 +23,18 @@ use chrono::{
     DateTime, Utc, NaiveDateTime, NaiveDate, TimeZone, 
     Duration as ChronoDuration, Datelike, Timelike, Weekday
 };
+#[cfg(feature = "i18n")]
 use chrono_tz::Tz;
+#[cfg(not(feature = "i18n"))]
+type Tz = chrono::Utc; // Stub type: no parsing / variants
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fmt,
     fs,
 };
-use crate::common::i18n::I18n;
+use crate::common::i18n::I18n; // Stub provides same symbol when feature off
+use crate::t;
 
 // Configuration constants
 const DEFAULT_FORMAT: &str = "%a %b %e %H:%M:%S %Z %Y";
@@ -98,6 +102,9 @@ pub struct DateOptions {
     pub batch_mode: bool,
     pub quiet: bool,
     pub verbose: bool,
+    pub include_holidays: bool,
+    pub show_holiday_info: bool,
+    pub holiday_regions: Vec<String>,
 }
 
 impl Default for DateOptions {
@@ -127,6 +134,9 @@ impl Default for DateOptions {
             batch_mode: false,
             quiet: false,
             verbose: false,
+            include_holidays: false,
+            show_holiday_info: false,
+            holiday_regions: vec!["US".to_string()],
         }
     }
 }
@@ -194,21 +204,282 @@ pub struct Location {
     pub timezone: String,
 }
 
+/// Holiday system for business day calculations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Holiday {
+    /// Holiday name (for display purposes)
+    pub name: String,
+    /// Holiday date
+    pub date: NaiveDate,
+    /// Holiday region/country (e.g., "US", "JP", "GB")
+    pub region: String,
+    /// Holiday type (national, regional, religious, etc.)
+    pub holiday_type: HolidayType,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum HolidayType {
+    National,
+    Regional,
+    Religious,
+    Cultural,
+    Corporate,
+}
+
+/// Holiday database manager
+#[derive(Debug, Clone)]
+pub struct HolidayDatabase {
+    holidays: HashMap<String, Vec<Holiday>>,
+    enabled_regions: Vec<String>,
+}
+
+impl Default for HolidayDatabase {
+    fn default() -> Self {
+        let mut db = Self {
+            holidays: HashMap::new(),
+            enabled_regions: vec!["US".to_string()], // Default to US holidays
+        };
+        db.load_default_holidays();
+        db
+    }
+}
+
+impl HolidayDatabase {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_regions(regions: Vec<String>) -> Self {
+        let mut db = Self {
+            holidays: HashMap::new(),
+            enabled_regions: regions,
+        };
+        db.load_default_holidays();
+        db
+    }
+
+    pub fn is_holiday(&self, date: NaiveDate) -> bool {
+        self.enabled_regions.iter().any(|region| {
+            self.holidays
+                .get(region)
+                .map(|holidays| holidays.iter().any(|h| h.date == date))
+                .unwrap_or(false)
+        })
+    }
+
+    pub fn get_holiday(&self, date: NaiveDate) -> Option<&Holiday> {
+        for region in &self.enabled_regions {
+            if let Some(holidays) = self.holidays.get(region) {
+                if let Some(holiday) = holidays.iter().find(|h| h.date == date) {
+                    return Some(holiday);
+                }
+            }
+        }
+        None
+    }
+
+    /// Load default holidays for common regions
+    fn load_default_holidays(&mut self) {
+        self.load_us_holidays();
+        self.load_jp_holidays();
+        self.load_gb_holidays();
+        self.load_de_holidays();
+    }
+
+    fn load_us_holidays(&mut self) {
+        let current_year = chrono::Utc::now().year();
+        let mut us_holidays = Vec::new();
+
+        // Fixed date holidays
+        us_holidays.push(Holiday {
+            name: "New Year's Day".to_string(),
+            date: NaiveDate::from_ymd_opt(current_year, 1, 1).unwrap(),
+            region: "US".to_string(),
+            holiday_type: HolidayType::National,
+        });
+
+        us_holidays.push(Holiday {
+            name: "Independence Day".to_string(),
+            date: NaiveDate::from_ymd_opt(current_year, 7, 4).unwrap(),
+            region: "US".to_string(),
+            holiday_type: HolidayType::National,
+        });
+
+        us_holidays.push(Holiday {
+            name: "Christmas Day".to_string(),
+            date: NaiveDate::from_ymd_opt(current_year, 12, 25).unwrap(),
+            region: "US".to_string(),
+            holiday_type: HolidayType::National,
+        });
+
+        // Calculate floating holidays
+        if let Some(labor_day) = self.get_nth_weekday_of_month(current_year, 9, Weekday::Mon, 1) {
+            us_holidays.push(Holiday {
+                name: "Labor Day".to_string(),
+                date: labor_day,
+                region: "US".to_string(),
+                holiday_type: HolidayType::National,
+            });
+        }
+
+        if let Some(thanksgiving) = self.get_nth_weekday_of_month(current_year, 11, Weekday::Thu, 4) {
+            us_holidays.push(Holiday {
+                name: "Thanksgiving Day".to_string(),
+                date: thanksgiving,
+                region: "US".to_string(),
+                holiday_type: HolidayType::National,
+            });
+        }
+
+        self.holidays.insert("US".to_string(), us_holidays);
+    }
+
+    fn load_jp_holidays(&mut self) {
+        let current_year = chrono::Utc::now().year();
+        let mut jp_holidays = Vec::new();
+
+        // Japanese national holidays
+        jp_holidays.push(Holiday {
+            name: "元日 (New Year's Day)".to_string(),
+            date: NaiveDate::from_ymd_opt(current_year, 1, 1).unwrap(),
+            region: "JP".to_string(),
+            holiday_type: HolidayType::National,
+        });
+
+        jp_holidays.push(Holiday {
+            name: "建国記念の日 (National Foundation Day)".to_string(),
+            date: NaiveDate::from_ymd_opt(current_year, 2, 11).unwrap(),
+            region: "JP".to_string(),
+            holiday_type: HolidayType::National,
+        });
+
+        jp_holidays.push(Holiday {
+            name: "天皇誕生日 (Emperor's Birthday)".to_string(),
+            date: NaiveDate::from_ymd_opt(current_year, 2, 23).unwrap(),
+            region: "JP".to_string(),
+            holiday_type: HolidayType::National,
+        });
+
+        jp_holidays.push(Holiday {
+            name: "憲法記念日 (Constitution Memorial Day)".to_string(),
+            date: NaiveDate::from_ymd_opt(current_year, 5, 3).unwrap(),
+            region: "JP".to_string(),
+            holiday_type: HolidayType::National,
+        });
+
+        jp_holidays.push(Holiday {
+            name: "こどもの日 (Children's Day)".to_string(),
+            date: NaiveDate::from_ymd_opt(current_year, 5, 5).unwrap(),
+            region: "JP".to_string(),
+            holiday_type: HolidayType::National,
+        });
+
+        self.holidays.insert("JP".to_string(), jp_holidays);
+    }
+
+    fn load_gb_holidays(&mut self) {
+        let current_year = chrono::Utc::now().year();
+        let mut gb_holidays = Vec::new();
+
+        gb_holidays.push(Holiday {
+            name: "New Year's Day".to_string(),
+            date: NaiveDate::from_ymd_opt(current_year, 1, 1).unwrap(),
+            region: "GB".to_string(),
+            holiday_type: HolidayType::National,
+        });
+
+        gb_holidays.push(Holiday {
+            name: "Christmas Day".to_string(),
+            date: NaiveDate::from_ymd_opt(current_year, 12, 25).unwrap(),
+            region: "GB".to_string(),
+            holiday_type: HolidayType::National,
+        });
+
+        gb_holidays.push(Holiday {
+            name: "Boxing Day".to_string(),
+            date: NaiveDate::from_ymd_opt(current_year, 12, 26).unwrap(),
+            region: "GB".to_string(),
+            holiday_type: HolidayType::National,
+        });
+
+        self.holidays.insert("GB".to_string(), gb_holidays);
+    }
+
+    fn load_de_holidays(&mut self) {
+        let current_year = chrono::Utc::now().year();
+        let mut de_holidays = Vec::new();
+
+        de_holidays.push(Holiday {
+            name: "Neujahr (New Year's Day)".to_string(),
+            date: NaiveDate::from_ymd_opt(current_year, 1, 1).unwrap(),
+            region: "DE".to_string(),
+            holiday_type: HolidayType::National,
+        });
+
+        de_holidays.push(Holiday {
+            name: "Tag der Deutschen Einheit (German Unity Day)".to_string(),
+            date: NaiveDate::from_ymd_opt(current_year, 10, 3).unwrap(),
+            region: "DE".to_string(),
+            holiday_type: HolidayType::National,
+        });
+
+        de_holidays.push(Holiday {
+            name: "Weihnachtstag (Christmas Day)".to_string(),
+            date: NaiveDate::from_ymd_opt(current_year, 12, 25).unwrap(),
+            region: "DE".to_string(),
+            holiday_type: HolidayType::National,
+        });
+
+        de_holidays.push(Holiday {
+            name: "2. Weihnachtstag (Boxing Day)".to_string(),
+            date: NaiveDate::from_ymd_opt(current_year, 12, 26).unwrap(),
+            region: "DE".to_string(),
+            holiday_type: HolidayType::National,
+        });
+
+        self.holidays.insert("DE".to_string(), de_holidays);
+    }
+
+    /// Helper function to calculate nth weekday of a month (e.g., 3rd Monday)
+    fn get_nth_weekday_of_month(&self, year: i32, month: u32, weekday: Weekday, n: u32) -> Option<NaiveDate> {
+        let first_of_month = NaiveDate::from_ymd_opt(year, month, 1)?;
+        let first_weekday = first_of_month.weekday();
+        
+        let days_to_target = (7 + weekday.num_days_from_monday() - first_weekday.num_days_from_monday()) % 7;
+        let target_date = first_of_month + ChronoDuration::days(days_to_target as i64 + (n - 1) as i64 * 7);
+        
+        // Ensure we're still in the same month
+        if target_date.month() == month {
+            Some(target_date)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DateManager {
     config: DateConfig,
     i18n: I18n,
     timezone_cache: HashMap<String, Tz>,
     format_cache: HashMap<String, String>,
+    holiday_db: HolidayDatabase,
 }
 
 impl DateManager {
     pub fn new(config: DateConfig, i18n: I18n) -> Self {
+        // Create holiday database with regions based on config or environment
+        let regions = std::env::var("NXSH_HOLIDAY_REGIONS")
+            .ok()
+            .map(|regions| regions.split(',').map(|s| s.trim().to_string()).collect())
+            .unwrap_or_else(|| vec!["US".to_string()]);
+
         Self {
             config,
             i18n,
             timezone_cache: HashMap::new(),
             format_cache: HashMap::new(),
+            holiday_db: HolidayDatabase::with_regions(regions),
         }
     }
 
@@ -218,7 +489,7 @@ impl DateManager {
         
         if options.verbose {
             let metadata = self.get_date_metadata(&datetime, options)?;
-            Ok(format!("{}\n{}", formatted, metadata))
+            Ok(format!("{formatted}\n{metadata}"))
         } else {
             Ok(formatted)
         }
@@ -498,12 +769,21 @@ impl DateManager {
         let direction = if subtract { -1 } else { 1 };
 
         while remaining_days > 0 {
-            current_date = current_date + ChronoDuration::days(direction);
+            current_date += ChronoDuration::days(direction);
             
             // Skip weekends
             if current_date.weekday() != Weekday::Sat && current_date.weekday() != Weekday::Sun {
-                // TODO: Check holidays if enabled
-                remaining_days -= 1;
+                // Check holidays if enabled in configuration
+                let is_holiday = if self.config.include_holidays {
+                    self.holiday_db.is_holiday(current_date)
+                } else {
+                    false
+                };
+
+                // Only count as business day if not a holiday
+                if !is_holiday {
+                    remaining_days -= 1;
+                }
             }
         }
 
@@ -516,10 +796,10 @@ impl DateManager {
 
     fn get_file_time(&self, file_path: &str) -> Result<DateTime<Utc>> {
         let metadata = fs::metadata(file_path)
-            .with_context(|| format!("Failed to read file metadata: {}", file_path))?;
+            .with_context(|| format!("Failed to read file metadata: {file_path}"))?;
 
         let system_time = metadata.modified()
-            .with_context(|| format!("Failed to get modification time: {}", file_path))?;
+            .with_context(|| format!("Failed to get modification time: {file_path}"))?;
 
         Ok(DateTime::<Utc>::from(system_time))
     }
@@ -629,7 +909,7 @@ impl DateManager {
 
         if options.show_julian_day {
             let julian_day = self.calculate_julian_day(datetime)?;
-            result.push_str(&format!(" JD:{}", julian_day));
+            result.push_str(&format!(" JD:{julian_day}"));
         }
 
         if options.show_week_number {
@@ -638,7 +918,7 @@ impl DateManager {
             } else {
                 ((datetime.ordinal() - 1) / 7) + 1
             };
-            result.push_str(&format!(" W{:02}", week));
+            result.push_str(&format!(" W{week:02}"));
         }
 
         if options.show_day_of_year {
@@ -648,14 +928,14 @@ impl DateManager {
         // Add relative time if requested
         if options.relative_format {
             let relative = self.format_relative_time(datetime)?;
-            result.push_str(&format!(" ({})", relative));
+            result.push_str(&format!(" ({relative})"));
         }
 
         // Add astronomical information if requested
         if options.astronomical_mode {
             if let Some(ref location) = self.config.location {
                 let astro_info = self.calculate_astronomical_info(datetime, location)?;
-                result.push_str(&format!(" {}", astro_info));
+                result.push_str(&format!(" {astro_info}"));
             }
         }
 
@@ -670,17 +950,21 @@ impl DateManager {
         } else {
             &self.config.default_timezone
         };
-
-        if tz_name == "local" {
-            return Ok(chrono_tz::UTC); // Fallback to UTC for now
+        #[cfg(feature = "i18n")]
+        {
+            if tz_name == "local" { return Ok(chrono_tz::UTC); }
+            return tz_name.parse::<Tz>().map_err(|_| anyhow!("Invalid timezone: {}", tz_name));
         }
-
-        tz_name.parse::<Tz>()
-            .map_err(|_| anyhow!("Invalid timezone: {}", tz_name))
+        #[cfg(not(feature = "i18n"))]
+        {
+            let _ = tz_name;
+            Ok(chrono::Utc) // alias Tz = chrono::Utc
+        }
     }
 
     fn get_date_metadata(&self, datetime: &DateTime<Utc>, options: &DateOptions) -> Result<String> {
         let mut metadata = Vec::new();
+        let date_naive = datetime.date_naive();
 
         metadata.push(format!("Unix timestamp: {}", datetime.timestamp()));
         metadata.push(format!("Julian day: {}", self.calculate_julian_day(datetime)?));
@@ -688,9 +972,23 @@ impl DateManager {
         metadata.push(format!("Week number: {}", datetime.iso_week().week()));
         metadata.push(format!("Weekday: {}", datetime.weekday()));
 
+        // Add holiday information if requested
+        if options.show_holiday_info && (options.include_holidays || self.config.include_holidays) {
+            if let Some(holiday) = self.holiday_db.get_holiday(date_naive) {
+                metadata.push(format!("Holiday: {} ({})", holiday.name, holiday.region));
+            } else {
+                // Check if it's a weekend
+                if date_naive.weekday() == Weekday::Sat || date_naive.weekday() == Weekday::Sun {
+                    metadata.push("Type: Weekend".to_string());
+                } else if !self.holiday_db.is_holiday(date_naive) {
+                    metadata.push("Type: Business day".to_string());
+                }
+            }
+        }
+
         if let Some(ref location) = self.config.location {
             let astro_info = self.calculate_astronomical_info(datetime, location)?;
-            metadata.push(format!("Astronomical: {}", astro_info));
+            metadata.push(format!("Astronomical: {astro_info}"));
         }
 
         Ok(metadata.join(", "))
@@ -724,28 +1022,28 @@ impl DateManager {
         } else if duration.num_minutes().abs() < 60 {
             let mins = duration.num_minutes();
             if mins > 0 {
-                Ok(format!("{} minutes ago", mins))
+                Ok(format!("{mins} minutes ago"))
             } else {
                 Ok(format!("in {} minutes", -mins))
             }
         } else if duration.num_hours().abs() < 24 {
             let hours = duration.num_hours();
             if hours > 0 {
-                Ok(format!("{} hours ago", hours))
+                Ok(format!("{hours} hours ago"))
             } else {
                 Ok(format!("in {} hours", -hours))
             }
         } else {
             let days = duration.num_days();
             if days > 0 {
-                Ok(format!("{} days ago", days))
+                Ok(format!("{days} days ago"))
             } else {
                 Ok(format!("in {} days", -days))
             }
         }
     }
 
-    fn calculate_astronomical_info(&self, datetime: &DateTime<impl TimeZone>, location: &Location) -> Result<String> {
+    fn calculate_astronomical_info(&self, _datetime: &DateTime<impl TimeZone>, location: &Location) -> Result<String> {
         // Simplified astronomical calculations
         // In a real implementation, this would use proper astronomical libraries
         Ok(format!("lat:{:.2}, lon:{:.2}", location.latitude, location.longitude))
@@ -762,6 +1060,64 @@ impl DateManager {
             2 => Ok(if self.is_leap_year(year) { 29 } else { 28 }),
             _ => Err(anyhow!("Invalid month: {}", month)),
         }
+    }
+
+    /// List all holidays for the given year and regions
+    pub fn list_holidays(&self, year: Option<i32>, regions: Option<Vec<String>>) -> Result<String> {
+        let target_year = year.unwrap_or_else(|| chrono::Utc::now().year());
+        let target_regions = regions.unwrap_or_else(|| self.holiday_db.enabled_regions.clone());
+
+        let mut all_holidays = Vec::new();
+
+        for region in &target_regions {
+            if let Some(holidays) = self.holiday_db.holidays.get(region) {
+                for holiday in holidays {
+                    if holiday.date.year() == target_year {
+                        all_holidays.push(holiday.clone());
+                    }
+                }
+            }
+        }
+
+        // Sort by date
+        all_holidays.sort_by_key(|h| h.date);
+
+        if all_holidays.is_empty() {
+            return Ok(format!("No holidays found for year {} in regions: {}", 
+                             target_year, 
+                             target_regions.join(", ")));
+        }
+
+        let mut output = format!("Holidays for {} in regions: {}\n", 
+                                target_year, 
+                                target_regions.join(", "));
+        output.push_str("=====================================\n");
+
+        for holiday in &all_holidays {
+            output.push_str(&format!("{} - {} ({}, {})\n", 
+                                   holiday.date.format("%Y-%m-%d %a"), 
+                                   holiday.name, 
+                                   holiday.region,
+                                   format!("{:?}", holiday.holiday_type).to_lowercase()));
+        }
+
+        output.push_str(&format!("\nTotal: {} holidays\n", all_holidays.len()));
+        Ok(output)
+    }
+
+    /// Check if a specific date is a business day (not weekend or holiday)
+    pub fn is_business_day(&self, date: NaiveDate) -> bool {
+        // Check if it's a weekend
+        if date.weekday() == Weekday::Sat || date.weekday() == Weekday::Sun {
+            return false;
+        }
+
+        // Check if it's a holiday (if holiday checking is enabled)
+        if self.config.include_holidays && self.holiday_db.is_holiday(date) {
+            return false;
+        }
+
+        true
     }
 }
 
@@ -830,6 +1186,25 @@ pub async fn date_cli(args: &[String]) -> Result<()> {
             "--relative" => options.relative_format = true,
             "--astronomical" => options.astronomical_mode = true,
             "--business" => options.business_mode = true,
+            "--holidays" => {
+                options.include_holidays = true;
+                options.show_holiday_info = true;
+            }
+            "--list-holidays" => {
+                // Special mode to list holidays for current year
+                let manager = DateManager::new(DateConfig::default(), I18n::new());
+                let holiday_list = manager.list_holidays(None, None)?;
+                println!("{}", holiday_list);
+                return Ok(());
+            }
+            "--holiday-regions" => {
+                if i + 1 < args.len() {
+                    i += 1;
+                    options.holiday_regions = args[i].split(',').map(|s| s.trim().to_string()).collect();
+                } else {
+                    return Err(anyhow!("--holiday-regions requires a comma-separated list"));
+                }
+            }
             "--json" => options.output_format = OutputFormat::Json,
             "--xml" => options.output_format = OutputFormat::Xml,
             "--csv" => options.output_format = OutputFormat::Csv,
@@ -859,19 +1234,30 @@ pub async fn date_cli(args: &[String]) -> Result<()> {
         return Ok(());
     }
 
-    let config = DateConfig::default();
+    let mut config = DateConfig::default();
+    
+    // Apply options to config
+    if options.include_holidays {
+        config.include_holidays = true;
+    }
+    
+    // Check environment variable for holiday checking
+    if std::env::var("NXSH_DATE_HOLIDAYS").unwrap_or_default() == "1" {
+        config.include_holidays = true;
+    }
+
     let i18n = I18n::new();
     let date_manager = DateManager::new(config, i18n);
 
     match date_manager.format_date(&options) {
         Ok(formatted) => {
             if !options.quiet {
-                println!("{}", formatted);
+                println!("{formatted}");
             }
         }
         Err(e) => {
             if !options.quiet {
-                eprintln!("date: {}", e);
+                eprintln!("date: {e}");
             }
             std::process::exit(1);
         }
@@ -902,7 +1288,11 @@ fn print_help() {
     println!("      --week                 show week number");
     println!("      --day-of-year          show day of year");
     println!("      --relative             show relative time");
-    println!("      --astronomical         show astronomical information");
+    println!("      --astronomical         show astronomical information
+      --business             enable business day mode
+      --holidays             include holiday information and checking
+      --list-holidays        list all holidays for current year
+      --holiday-regions=LIST specify holiday regions (comma-separated, e.g., US,JP,GB)");
     println!("      --business             business calendar mode");
     println!("      --json                 output in JSON format");
     println!("      --xml                  output in XML format");
@@ -1025,7 +1415,7 @@ mod tests {
     #[test]
     fn test_parse_arithmetic() {
         let config = DateConfig::default();
-        let i18n = I18n::new().unwrap();
+        let i18n = I18n::new();
         let manager = DateManager::new(config, i18n);
 
         let arithmetic = manager.parse_arithmetic_expression("+1 day").unwrap().unwrap();
@@ -1042,7 +1432,7 @@ mod tests {
     #[test]
     fn test_julian_day_calculation() {
         let config = DateConfig::default();
-        let i18n = I18n::new().unwrap();
+        let i18n = I18n::new();
         let manager = DateManager::new(config, i18n);
 
         let datetime = Utc.with_ymd_and_hms(2000, 1, 1, 12, 0, 0).unwrap();
@@ -1055,7 +1445,7 @@ mod tests {
     #[test]
     fn test_leap_year() {
         let config = DateConfig::default();
-        let i18n = I18n::new().unwrap();
+        let i18n = I18n::new();
         let manager = DateManager::new(config, i18n);
 
         assert!(manager.is_leap_year(2000));  // Divisible by 400
@@ -1067,12 +1457,59 @@ mod tests {
     #[test]
     fn test_days_in_month() {
         let config = DateConfig::default();
-        let i18n = I18n::new().unwrap();
+        let i18n = I18n::new();
         let manager = DateManager::new(config, i18n);
 
         assert_eq!(manager.days_in_month(2000, 2).unwrap(), 29); // Leap year February
         assert_eq!(manager.days_in_month(2001, 2).unwrap(), 28); // Regular February
         assert_eq!(manager.days_in_month(2001, 1).unwrap(), 31); // January
         assert_eq!(manager.days_in_month(2001, 4).unwrap(), 30); // April
+    }
+
+    #[test]
+    fn test_holiday_database() {
+        let db = HolidayDatabase::new();
+        assert!(!db.enabled_regions.is_empty());
+        assert!(db.enabled_regions.contains(&"US".to_string()));
+        
+        let current_year = chrono::Utc::now().year();
+        
+        // Test New Year's Day
+        let new_years = NaiveDate::from_ymd_opt(current_year, 1, 1).unwrap();
+        assert!(db.is_holiday(new_years));
+        
+        // Test non-holiday
+        let random_date = NaiveDate::from_ymd_opt(current_year, 6, 15).unwrap();
+        assert!(!db.is_holiday(random_date));
+    }
+
+    #[test]
+    fn test_business_day_with_holidays() {
+        let mut config = DateConfig::default();
+        config.include_holidays = true;
+        let i18n = I18n::new();
+        let manager = DateManager::new(config, i18n);
+        
+        let current_year = chrono::Utc::now().year();
+        
+        // Test New Year's Day (should not be business day)
+        let new_years = NaiveDate::from_ymd_opt(current_year, 1, 1).unwrap();
+        if new_years.weekday() != Weekday::Sat && new_years.weekday() != Weekday::Sun {
+            assert!(!manager.is_business_day(new_years));
+        }
+    }
+
+    #[test]
+    fn test_list_holidays() {
+        let config = DateConfig::default();
+        let i18n = I18n::new();
+        let manager = DateManager::new(config, i18n);
+        
+        let current_year = chrono::Utc::now().year();
+        let holiday_list = manager.list_holidays(Some(current_year), Some(vec!["US".to_string()])).unwrap();
+        
+        assert!(holiday_list.contains("New Year's Day"));
+        assert!(holiday_list.contains("Independence Day"));
+        assert!(holiday_list.contains("Christmas Day"));
     }
 }

@@ -26,7 +26,7 @@ pub fn chgrp_cli(args: &[String]) -> Result<()> {
         return Err(anyhow!("chgrp: missing GROUP or FILE"));
     }
 
-    let gid: i32 = args[0]
+    let _gid: i32 = args[0]
         .parse()
         .map_err(|_| anyhow!("chgrp: fallback expects numeric GID"))?;
 
@@ -41,7 +41,7 @@ pub fn chgrp_cli(args: &[String]) -> Result<()> {
         // For now, we'll provide a warning that this operation is not supported
         #[cfg(windows)]
         {
-            eprintln!("chgrp: group change not supported on Windows - operation skipped for '{}'", file);
+            eprintln!("chgrp: group change not supported on Windows - operation skipped for '{file}'");
         }
         
         #[cfg(unix)]

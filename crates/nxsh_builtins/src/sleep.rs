@@ -19,19 +19,40 @@
 //! - Custom callback functions
 
 use anyhow::{anyhow, Result, Context};
+#[cfg(feature = "progress-ui")]
 use indicatif::{ProgressBar, ProgressStyle};
+#[cfg(not(feature = "progress-ui"))]
+#[derive(Clone)]
+struct ProgressBar;
+#[cfg(not(feature = "progress-ui"))]
+struct ProgressStyle;
+#[cfg(not(feature = "progress-ui"))]
+impl ProgressBar {
+    fn new(_len: u64) -> Self { Self }
+    fn new_spinner() -> Self { Self }
+    fn set_style(&self, _style: ProgressStyle) -> &Self { self }
+    fn set_message<S: Into<String>>(&self, _msg: S) {}
+    fn set_position(&self, _pos: u64) {}
+    fn finish_with_message<S: Into<String>>(&self, _msg: S) {}
+    fn abandon_with_message<S: Into<String>>(&self, _msg: S) {}
+}
+#[cfg(not(feature = "progress-ui"))]
+impl ProgressStyle {
+    fn default_bar() -> Self { Self }
+    fn default_spinner() -> Self { Self }
+    fn template(self, _t: &str) -> Result<Self, ()> { Ok(Self) }
+    fn progress_chars(self, _c: &str) -> Self { Self }
+}
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     sync::{Arc, atomic::{AtomicBool, Ordering}},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use tokio::{
-    signal,
-    sync::{broadcast},
-    time::{sleep as async_sleep, sleep_until},
-};
-use crate::common::i18n::I18n;
+#[cfg(feature = "async-runtime")]
+use tokio::{ signal, sync::broadcast, time::{sleep as async_sleep, sleep_until}};
+use crate::common::i18n::I18n; // stub when i18n disabled
+use crate::t;
 
 // High-precision sleep configuration
 const SPIN_THRESHOLD_NS: u64 = 10_000_000; // 10ms - switch to spin-sleep below this
@@ -102,6 +123,7 @@ pub struct SleepStatistics {
     pub method_usage: HashMap<String, u64>,
 }
 
+#[cfg(feature = "async-runtime")]
 #[derive(Debug)]
 pub struct SleepManager {
     config: SleepConfig,
@@ -112,6 +134,7 @@ pub struct SleepManager {
     i18n: I18n,
 }
 
+#[cfg(feature = "async-runtime")]
 impl SleepManager {
     pub fn new(config: SleepConfig, i18n: I18n) -> Self {
         let (tx, _) = broadcast::channel(100);
@@ -152,7 +175,7 @@ impl SleepManager {
         // Setup interrupt handling
         let interrupt_flag = Arc::clone(&self.interrupt_flag);
         let _interrupt_handler = tokio::spawn(async move {
-            if let Ok(_) = signal::ctrl_c().await {
+            if signal::ctrl_c().await.is_ok() {
                 interrupt_flag.store(true, Ordering::Relaxed);
             }
         });
@@ -168,11 +191,7 @@ impl SleepManager {
 
         // Calculate actual duration and precision
         let actual_duration = start_instant.elapsed();
-        let precision_error = if actual_duration > duration {
-            actual_duration - duration
-        } else {
-            duration - actual_duration
-        };
+        let precision_error = actual_duration.abs_diff(duration);
 
         operation.end_time = Some(SystemTime::now());
         operation.actual_duration = Some(actual_duration);
@@ -230,7 +249,7 @@ impl SleepManager {
         }
     }
 
-    async fn spin_sleep(&self, duration: Duration, label: &Option<String>) -> Result<()> {
+    async fn spin_sleep(&self, duration: Duration, _label: &Option<String>) -> Result<()> {
         if duration.as_nanos() > SPIN_THRESHOLD_NS as u128 {
             // Hybrid approach: sleep most of the time, then spin
             let sleep_duration = duration - Duration::from_nanos(SPIN_THRESHOLD_NS);
@@ -256,7 +275,7 @@ impl SleepManager {
         Ok(())
     }
 
-    async fn adaptive_sleep(&self, duration: Duration, label: &Option<String>) -> Result<()> {
+    async fn adaptive_sleep(&self, duration: Duration, _label: &Option<String>) -> Result<()> {
         let chunk_size = Duration::from_millis(100);
         let mut remaining = duration;
         
@@ -279,7 +298,7 @@ impl SleepManager {
         Ok(())
     }
 
-    async fn scheduled_sleep(&self, duration: Duration, label: &Option<String>) -> Result<()> {
+    async fn scheduled_sleep(&self, duration: Duration, _label: &Option<String>) -> Result<()> {
         let target_time = Instant::now() + duration;
         sleep_until(target_time.into()).await;
         Ok(())
@@ -317,10 +336,12 @@ impl SleepManager {
 
     async fn sleep_with_progress(&self, duration: Duration, label: &Option<String>, method: SleepMethod) -> Result<()> {
         let pb = ProgressBar::new(duration.as_millis() as u64);
+        #[cfg(feature = "progress-ui")]
         pb.set_style(
             ProgressStyle::default_bar()
                 .template(&format!("{{spinner:.green}} {} [{{wide_bar:.cyan/blue}}] {{pos}}/{{len}}ms ({{eta}})", 
-                    label.as_deref().unwrap_or(&self.i18n.get("sleep.progress.sleeping", None))))?
+                    label.as_deref().unwrap_or(&self.i18n.get("sleep.progress.sleeping", None))))
+                .unwrap()
                 .progress_chars("#>-")
         );
 
@@ -346,7 +367,7 @@ impl SleepManager {
         }
 
         let completed_msg = self.i18n.get("sleep.progress.completed", None);
-        pb.finish_with_message(format!("{} ({:?})", completed_msg, method));
+        pb.finish_with_message(format!("{completed_msg} ({method:?})"));
         Ok(())
     }
 
@@ -393,7 +414,7 @@ impl SleepManager {
             .context("Failed to serialize sleep operation")?;
         
         // In a real implementation, this would write to a log file
-        eprintln!("[SLEEP_LOG] {}", log_entry);
+        eprintln!("[SLEEP_LOG] {log_entry}");
         Ok(())
     }
 
@@ -409,7 +430,7 @@ impl SleepManager {
         
         println!("\n{}", self.i18n.get("sleep.stats.method_usage", None));
         for (method, count) in &self.statistics.method_usage {
-            println!("  {}: {}", method, count);
+            println!("  {method}: {count}");
         }
         
         Ok(())
@@ -486,6 +507,17 @@ pub fn parse_advanced_duration(input: &str) -> Result<Duration> {
 }
 
 // Main CLI interface
+#[cfg(not(feature = "async-runtime"))]
+pub fn sleep_cli(args: &[String]) -> Result<()> {
+    if args.is_empty() { return Err(anyhow!("sleep: missing operand")); }
+    // Parse a single duration in seconds (fractional allowed) for ultra-min build
+    let dur: f64 = args[0].parse().map_err(|_| anyhow!("sleep: invalid time"))?;
+    let ms = (dur * 1000.0) as u64;
+    std::thread::sleep(Duration::from_millis(ms));
+    Ok(())
+}
+
+#[cfg(feature = "async-runtime")]
 pub async fn sleep_cli(args: &[String]) -> Result<()> {
     if args.is_empty() {
         return Err(anyhow!("sleep: missing operand\nTry 'sleep --help' for more information."));
@@ -526,7 +558,7 @@ pub async fn sleep_cli(args: &[String]) -> Result<()> {
             },
             duration_str => {
                 let duration = parse_advanced_duration(duration_str)
-                    .with_context(|| format!("Invalid duration: {}", duration_str))?;
+                    .with_context(|| format!("Invalid duration: {duration_str}"))?;
                 durations.push(duration);
             }
         }
@@ -575,6 +607,7 @@ pub async fn sleep_cli(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "async-runtime")]
 fn print_help(i18n: &I18n) {
     println!("{}", i18n.get("sleep.help.title", None));
     println!();

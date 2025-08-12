@@ -1,0 +1,40 @@
+{
+  "name": "nxsh-sunset",
+  "version": "1.0.0",
+  "author": "NexusShell Team",
+  "description": "Warm sunset colors",
+  "colors": {
+    "primary": "#ff6b35",
+    "secondary": "#7209b7",
+    "accent": "#ffd23f",
+    "background": "#2d1b69",
+    "foreground": "#f0f0f0",
+    "error": "#e74c3c",
+    "warning": "#f39c12",
+    "success": "#2ecc71",
+    "info": "#3498db",
+    "muted": "#7209b7",
+    "highlight": "#ffd23f",
+    "border": "#553c9a"
+  },
+  "styles": {
+    "prompt": {
+      "foreground": "Blue",
+      "bold": true
+    },
+    "command": {
+      "foreground": "White"
+    },
+    "error": {
+      "foreground": "Red",
+      "bold": true
+    },
+    "warning": {
+      "foreground": "Yellow"
+    },
+    "success": {
+      "foreground": "Green",
+      "bold": true
+    }
+  }
+}

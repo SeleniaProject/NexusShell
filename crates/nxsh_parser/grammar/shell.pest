@@ -45,20 +45,31 @@ semicolon = { ";" }
 // Keywords (already defined above - remove duplicate definitions)
 
 // Expressions
-word = { identifier | string_literal | number }
+glob_word = @{ (!WHITESPACE ~ !COMMENT ~ !(";" | "|" | "&&" | "||" | "&" | "(" | ")") ~ ANY)+ }
+word = { identifier | string_literal | number | glob_word }
+assignment = { identifier ~ "=" ~ assignment_value }
+assignment_value = { (!WHITESPACE ~ !COMMENT ~ !semiconductor_char ~ ANY)+ }
+semiconductor_char = { "|" | "&" | ";" | "(" | ")" }
 simple_word = { identifier }
 
 // Variables
 variable = { "$" ~ identifier | "${" ~ identifier ~ "}" }
 command_substitution = { "$(" ~ simple_word ~ ")" | "`" ~ simple_word ~ "`" }
 
-argument = { word | variable | command_substitution }
+argument = { assignment | closure_expr | variable | command_substitution | word }
+
+// Closures (experimental): (param1,param2){ ... }
+closure_param_list = { identifier ~ ("," ~ identifier)* }
+closure_expr = { "(" ~ closure_param_list? ~ ")" ~ brace_group }
 
 // Commands
 redirection = { (redirect_in | redirect_out | redirect_append | redirect_err | redirect_both) ~ word }
-simple_command = { word ~ argument* ~ redirection* }
-pipeline = { simple_command ~ (pipe ~ simple_command)* }
-command = { pipeline }
+// simple_command 拡張: ジェネリクス呼び出し (call_generic_args) を許可
+simple_command = { (assignment ~ (WHITESPACE* ~ assignment)*)? ~ word ~ call_generic_args? ~ argument* ~ redirection* }
+subshell = { "(" ~ command_list ~ ")" }
+command_element = { simple_command | subshell }
+pipeline = { command_element ~ (pipe ~ command_element)* }
+command = { pipeline | subshell }
 
 // Control structures - Simplified and corrected structure
 if_statement = { if_kw ~ test_command ~ then_kw ~ command_list ~ (elif_kw ~ test_command ~ then_kw ~ command_list)* ~ (else_kw ~ command_list)? ~ fi_kw }
@@ -75,24 +86,49 @@ word_list = { word+ }
 line_terminator = { semicolon | "\n" }
 
 // Function definition
-function_def = { function_kw ~ identifier ~ "(" ~ ")" ~ "{" ~ command_list ~ "}" }
+// Function definition (拡張: ジェネリクス + パラメータ)
+function_def = { function_kw ~ identifier ~ generic_params? ~ "(" ~ parameter_list? ~ ")" ~ brace_group }
+
+// Generics & parameters
+generic_params = { "<" ~ identifier ~ ("," ~ identifier)* ~ ">" }
+parameter_list = { identifier ~ ("," ~ identifier)* }
+
+// Brace group (既存 command_list より高レベル構造用)
+brace_group = { "{" ~ statement_list? ~ "}" }
 
 // Match statement (advanced feature)
 match_statement = { match_kw ~ argument ~ with_kw ~ match_arm* }
 match_arm = { pattern ~ "=>" ~ program }
 
 // Statements - Control structures MUST be checked before simple commands
-statement = { 
-    if_statement | 
-    for_statement | 
-    while_statement | 
-    case_statement | 
+// Macro + 拡張ステートメント
+macro_declaration = { "macro" ~ identifier ~ "(" ~ macro_param_list? ~ ")" ~ brace_group }
+macro_param_list = { identifier ~ ("," ~ identifier)* }
+macro_invocation = { identifier ~ "!" ~ "(" ~ macro_argument_list? ~ ")" }
+macro_argument_list = { (word | string_literal) ~ ("," ~ (word | string_literal))* }
+
+// call site generics for simple command interpreted as function call
+call_generic_args = { "<" ~ identifier ~ ("," ~ identifier)* ~ ">" }
+
+statement = {
+    closure_expr |
+    macro_declaration |
+    macro_invocation |
+    if_statement |
+    for_statement |
+    while_statement |
+    case_statement |
     function_def |
     match_statement |
-    command 
+    command
 }
 
+// statement_list (ブロック内などで使用)
+statement_list = { (statement ~ line_terminator?)* }
+
 // Program structure - Improved to handle control structures properly
-line = { statement ~ (and_op ~ statement | or_op ~ statement | semicolon ~ statement)* ~ background? ~ line_terminator? }
+line = { statement ~ (and_op ~ statement | or_op ~ statement | semicolon ~ statement)* ~ background? ~ COMMENT? ~ line_terminator? }
 inner_program = { line* }
-program = { SOI ~ inner_program ~ EOI } 
+program = { SOI ~ inner_program ~ COMMENT? ~ EOI }
+
+// (duplicate simple_command definition removed)

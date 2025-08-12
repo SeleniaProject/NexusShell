@@ -34,3 +34,20 @@ sha2 = "0.10"
 regex = "1.10"
 dirs = "5.0"
 tempfile = "3.8" 
+
+# Performance optimization profiles
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "fat"
+panic = "abort"
+strip = true
+incremental = false
+
+[profile.release-small]
+inherits = "release"
+opt-level = "z"
+codegen-units = 1
+lto = "fat"
+panic = "abort"
+strip = true

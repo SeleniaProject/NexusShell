@@ -7,41 +7,110 @@ license = "Apache-2.0"
 repository = "https://github.com/SeleniaProject/NexusShell"
 
 [features]
+# Default now empty to allow true minimal build without `anyhow`.
 default = []
 # JIT feature disabled to avoid C/C++ dependencies
-# jit = ["cranelift-codegen", "cranelift-frontend"] 
+ # jit = ["cranelift-codegen", "cranelift-frontend"] 
 object-pipe = []
+async = []
+benchmark = []
+# Optional PowerShell compatibility layer (pure Rust, can be disabled for size)
+power_shell = []
+monitoring = []
+advanced_scheduler = []
+security_auditor = []
+system_optimizer = []
+performance_profiler = []
+documentation_system = []
+internationalization = []
+test_framework = []
+powershell_compat = []
+logging = ["dep:tracing-subscriber", "dep:tracing-appender"]                # basic logging (human readable)
+minimal-logging = []                               # tiny logger (no subscriber) for busybox_min
+logging-json = ["logging", "tracing-subscriber/json"]  # opt-in JSON formatter (exclude from busybox_min)
+metrics = []
+# Optional updater (HTTP client) and crypto verification gating
+updates = ["dep:ureq"]
+crypto-ed25519 = ["dep:ed25519-dalek"]
+
+# New granular size-control features
+system-info = ["dep:sysinfo", "dep:num_cpus", "dep:dirs", "dep:whoami", "dep:hostname"]
+heavy-time = ["dep:chrono"]            # advanced time/date formatting; omit for size
+error-rich = ["dep:anyhow"]            # richer context (can be disabled to rely on thiserror only)
+parallel = ["dep:rayon"]               # parallel processing utilities
+advanced-regex = ["dep:regex", "dep:fancy-regex", "dep:aho-corasick"]
+debug_exec = []
+
+# Convenience rollups (keep existing + add new)
+full = [
+    "monitoring",
+    "advanced_scheduler",
+    "security_auditor",
+    "system_optimizer",
+    "performance_profiler",
+    "documentation_system",
+    "internationalization",
+    "test_framework",
+    "powershell_compat",
+    "logging-json",
+    "metrics",
+    "system-info",
+    "heavy-time",
+    "parallel",
+    "advanced-regex"
+]
+
+# Minimal footprint for BusyBox style build (enable only what strictly needed)
+busybox_min = [
+    "powershell_compat",
+    # "error-rich",  # Removed error-rich from busybox_min
+]
+
+## (legacy duplicate full/busybox_min removed)
 
 [dependencies]
-# Minimal pure Rust dependencies only
+# Minimal pure Rust dependencies only; many now optional behind fine-grained features
 
-# Error handling - minimal
+# Async dependencies for I/O optimization
+futures = "0.3"
 thiserror = { version = "1.0", default-features = false }
-anyhow = { version = "1.0", default-features = false }
+anyhow = { version = "1.0", default-features = false, optional = true }
 
 # Basic serialization with derive macros
 serde = { version = "1.0", default-features = false, features = ["std", "derive"] }
 serde_json = { version = "1.0", default-features = false, features = ["std"] }
 
+# Structured logging system
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "env-filter", "fmt", "time", "chrono", "registry", "ansi"], optional = true }
+tracing-appender = { version = "0.2", default-features = false, optional = true }
+
+# System information
+whoami = { version = "1.4", default-features = false, optional = true }
+num_cpus = { version = "1.16", default-features = false, optional = true }
+dirs = { version = "5.0", default-features = false, optional = true }
+
 # Async runtime for integration tests
 tokio = { version = "1.0", features = ["full"] }
 uuid = { version = "1.6", default-features = false, features = ["v4", "std"] }
-chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "serde"], optional = true }
 
 # Local crates
 nxsh_parser = { path = "../nxsh_parser" }
 nxsh_hal = { path = "../nxsh_hal" }
+regex = { version = "1", default-features = false, features = ["std"] }
 
 # Additional dependencies
-tracing = { version = "0.1", default-features = false, features = ["std"] }
 is-terminal = { version = "0.4", default-features = false }
 tempfile = { version = "3.8", default-features = false }
-hostname = { version = "0.3", default-features = false }
-sysinfo = { version = "0.30", default-features = false }
+hostname = { version = "0.3", default-features = false, optional = true }
+sysinfo = { version = "0.30", default-features = false, optional = true }
+atty = "0.2.14"
 
 # Platform-specific dependencies
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.27", default-features = false, features = ["signal", "process"] }
+libc = { version = "0.2", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52", features = [
@@ -50,32 +119,22 @@ windows-sys = { version = "0.52", features = [
 ] }
 
 # Pure Rust cryptography
-blake3 = { version = "1.5", default-features = false, features = ["pure"] }
+sha2 = { version = "0.10", default-features = false, features = ["std"] }
 rand = { version = "0.8", default-features = false, features = ["std", "std_rng"] }
+base16ct = { version = "0.2", default-features = false, features = ["std"] }
 base64 = { version = "0.21", default-features = false, features = ["std"] }
+ureq = { version = "2.9", default-features = false, optional = true }
+ed25519-dalek = { version = "2", default-features = false, features = ["alloc", "pkcs8"], optional = true }
+
+# Optional heavy crates for advanced capabilities
+regex = { version = "1", default-features = false, features = ["std"], optional = true }
+fancy-regex = { version = "0.13", default-features = false, optional = true }
+aho-corasick = { version = "1", default-features = false, optional = true }
+rayon = { version = "1.10", optional = true }
+wait-timeout = { version = "0.2", default-features = false }
 
 # Time utilities - minimal
 time = { version = "0.3", default-features = false, features = ["std"] }
-
-# Logging - pure Rust
-tracing = { version = "0.1", default-features = false, features = ["std"] }
-
-# Terminal detection - pure Rust
-is-terminal = "0.4"  # Replacement for atty
-
-# Temporary files for subshell execution
-tempfile = "3.8"
-
-# System information - pure Rust
-sysinfo = { version = "0.30", default-features = false }
-hostname = "0.3"
-
-# Collections - using standard library instead of dashmap
-# Standard library HashMap, BTreeMap, etc. will be used
-
-# HAL and parser dependencies
-nxsh_hal = { path = "../nxsh_hal" }
-nxsh_parser = { path = "../nxsh_parser" }
 
 [[example]]
 name = "mir_test"
@@ -89,21 +148,26 @@ path = "../../examples/i18n_test.rs"
 name = "crash_handler_test"
 path = "../../examples/crash_handler_test.rs"
 
-[[example]]
-name = "plugin_runtime_test"
-path = "src/plugin_runtime_test.rs"
-
-# Unix system calls
-nix = "0.27"
-
 [dev-dependencies]
 tempfile = "3.8"
 proptest = "1.4"
-criterion = "0.5"
+criterion = { version = "0.5", features = ["html_reports"] }
 tracing-test = "0.2"
 tokio-test = "0.4"
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
 anyhow = "1.0"
 env_logger = "0.11"
 semver = "1.0"
-sha2 = "0.10" 
+sha2 = "0.10"
+
+[[bench]]
+name = "nxsh_performance"
+harness = false
+
+[[bench]]
+name = "startup"
+harness = false
+
+[[bench]]
+name = "io_performance"
+harness = false

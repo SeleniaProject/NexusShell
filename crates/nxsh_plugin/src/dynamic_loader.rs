@@ -592,7 +592,7 @@ impl DynamicPluginLoader {
             });
         }
 
-        // Extract metadata (simplified for now)
+        // Extract metadata with comprehensive WASM analysis
         let metadata = self.extract_plugin_metadata(&file_content, path).await?;
 
         Ok(DiscoveredPlugin {
@@ -625,29 +625,303 @@ impl DynamicPluginLoader {
             max_nexus_version: None,
         };
 
-        // Try to parse WebAssembly format and extract custom sections
+    async fn extract_plugin_metadata(&self, content: &[u8], path: &Path) -> Result<PluginMetadata> {
+        // Complete metadata extraction from WebAssembly custom sections with fallback strategies
+        let default_name = path.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let mut metadata = PluginMetadata {
+            name: default_name.clone(),
+            version: "0.1.0".to_string(),
+            description: "WebAssembly plugin".to_string(),
+            author: "Unknown".to_string(),
+            license: "Unknown".to_string(),
+            homepage: None,
+            repository: None,
+            keywords: vec![],
+            categories: vec![],
+            dependencies: HashMap::new(),
+            capabilities: vec![],
+            min_nexus_version: "0.1.0".to_string(),
+            max_nexus_version: None,
+        };
+
+        // Primary strategy: Parse WebAssembly custom sections
         if let Ok(wasm_metadata) = self.parse_wasm_metadata(content) {
-            if let Some(name) = wasm_metadata.get("name") {
+            self.apply_wasm_metadata(&mut metadata, &wasm_metadata);
+        }
+
+        // Secondary strategy: Check for embedded JSON metadata
+        if let Ok(json_metadata) = self.extract_embedded_json_metadata(content) {
+            self.apply_json_metadata(&mut metadata, &json_metadata);
+        }
+
+        // Tertiary strategy: Infer from file name and directory structure
+        self.apply_path_based_metadata(&mut metadata, path);
+
+        // Validate and normalize metadata
+        self.validate_and_normalize_metadata(&mut metadata)?;
+
+        Ok(metadata)
+    }
+
+    /// Apply WebAssembly custom section metadata to plugin metadata
+    fn apply_wasm_metadata(&self, metadata: &mut PluginMetadata, wasm_metadata: &HashMap<String, String>) {
+        if let Some(name) = wasm_metadata.get("name") {
+            if !name.is_empty() {
                 metadata.name = name.clone();
             }
-            if let Some(version) = wasm_metadata.get("version") {
+        }
+        if let Some(version) = wasm_metadata.get("version") {
+            if !version.is_empty() {
                 metadata.version = version.clone();
             }
-            if let Some(description) = wasm_metadata.get("description") {
-                metadata.description = description.clone();
+        }
+        if let Some(description) = wasm_metadata.get("description") {
+            metadata.description = description.clone();
+        }
+        if let Some(author) = wasm_metadata.get("author") {
+            metadata.author = author.clone();
+        }
+        if let Some(license) = wasm_metadata.get("license") {
+            metadata.license = license.clone();
+        }
+        if let Some(homepage) = wasm_metadata.get("homepage") {
+            metadata.homepage = Some(homepage.clone());
+        }
+        if let Some(repository) = wasm_metadata.get("repository") {
+            metadata.repository = Some(repository.clone());
+        }
+        if let Some(keywords) = wasm_metadata.get("keywords") {
+            metadata.keywords = keywords.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+        if let Some(categories) = wasm_metadata.get("categories") {
+            metadata.categories = categories.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+        if let Some(capabilities) = wasm_metadata.get("capabilities") {
+            metadata.capabilities = capabilities.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+        if let Some(min_version) = wasm_metadata.get("min_nexus_version") {
+            metadata.min_nexus_version = min_version.clone();
+        }
+        if let Some(max_version) = wasm_metadata.get("max_nexus_version") {
+            metadata.max_nexus_version = Some(max_version.clone());
+        }
+    }
+
+    /// Extract embedded JSON metadata from WASM file
+    fn extract_embedded_json_metadata(&self, content: &[u8]) -> Result<HashMap<String, serde_json::Value>> {
+        // Look for JSON metadata in various common patterns
+        let patterns = [
+            b"\"nexus_plugin\":",
+            b"\"plugin_metadata\":",
+            b"\"wasm_metadata\":",
+        ];
+
+        for pattern in &patterns {
+            if let Some(start) = self.find_bytes(content, pattern) {
+                if let Ok(json_str) = self.extract_json_from_position(content, start) {
+                    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                        if let Some(obj) = json_value.as_object() {
+                            let mut metadata = HashMap::new();
+                            for (key, value) in obj {
+                                if let Some(str_value) = value.as_str() {
+                                    metadata.insert(key.clone(), value.clone());
+                                }
+                            }
+                            return Ok(metadata);
+                        }
+                    }
+                }
             }
-            if let Some(author) = wasm_metadata.get("author") {
-                metadata.author = author.clone();
+        }
+
+        Err(anyhow::anyhow!("No embedded JSON metadata found"))
+    }
+
+    /// Apply JSON metadata to plugin metadata
+    fn apply_json_metadata(&self, metadata: &mut PluginMetadata, json_metadata: &HashMap<String, serde_json::Value>) {
+        for (key, value) in json_metadata {
+            match (key.as_str(), value.as_str()) {
+                ("name", Some(name)) if !name.is_empty() => metadata.name = name.to_string(),
+                ("version", Some(version)) if !version.is_empty() => metadata.version = version.to_string(),
+                ("description", Some(desc)) => metadata.description = desc.to_string(),
+                ("author", Some(author)) => metadata.author = author.to_string(),
+                ("license", Some(license)) => metadata.license = license.to_string(),
+                ("homepage", Some(homepage)) => metadata.homepage = Some(homepage.to_string()),
+                ("repository", Some(repo)) => metadata.repository = Some(repo.to_string()),
+                ("min_nexus_version", Some(min_ver)) => metadata.min_nexus_version = min_ver.to_string(),
+                ("max_nexus_version", Some(max_ver)) => metadata.max_nexus_version = Some(max_ver.to_string()),
+                _ => {}
             }
-            if let Some(license) = wasm_metadata.get("license") {
-                metadata.license = license.clone();
+        }
+
+        // Handle array fields
+        if let Some(keywords) = json_metadata.get("keywords").and_then(|v| v.as_array()) {
+            metadata.keywords = keywords.iter()
+                .filter_map(|v| v.as_str())
+                .map(|s| s.to_string())
+                .collect();
+        }
+        if let Some(categories) = json_metadata.get("categories").and_then(|v| v.as_array()) {
+            metadata.categories = categories.iter()
+                .filter_map(|v| v.as_str())
+                .map(|s| s.to_string())
+                .collect();
+        }
+        if let Some(capabilities) = json_metadata.get("capabilities").and_then(|v| v.as_array()) {
+            metadata.capabilities = capabilities.iter()
+                .filter_map(|v| v.as_str())
+                .map(|s| s.to_string())
+                .collect();
+        }
+    }
+
+    /// Apply path-based inference to metadata
+    fn apply_path_based_metadata(&self, metadata: &mut PluginMetadata, path: &Path) {
+        // Infer category from directory structure
+        if let Some(parent) = path.parent() {
+            if let Some(dir_name) = parent.file_name().and_then(|s| s.to_str()) {
+                match dir_name {
+                    "system" | "core" => metadata.categories.push("system".to_string()),
+                    "utility" | "utils" => metadata.categories.push("utility".to_string()),
+                    "network" | "net" => metadata.categories.push("network".to_string()),
+                    "security" | "sec" => metadata.categories.push("security".to_string()),
+                    "development" | "dev" => metadata.categories.push("development".to_string()),
+                    _ => {}
+                }
             }
-            if let Some(homepage) = wasm_metadata.get("homepage") {
-                metadata.homepage = Some(homepage.clone());
+        }
+
+        // Infer capabilities from file name
+        let filename = metadata.name.to_lowercase();
+        if filename.contains("compress") || filename.contains("zip") {
+            metadata.capabilities.push("compression".to_string());
+        }
+        if filename.contains("crypt") || filename.contains("hash") {
+            metadata.capabilities.push("cryptography".to_string());
+        }
+        if filename.contains("network") || filename.contains("http") {
+            metadata.capabilities.push("network".to_string());
+        }
+        if filename.contains("fs") || filename.contains("file") {
+            metadata.capabilities.push("filesystem".to_string());
+        }
+    }
+
+    /// Validate and normalize metadata
+    fn validate_and_normalize_metadata(&self, metadata: &mut PluginMetadata) -> Result<()> {
+        // Validate version format
+        if let Err(_) = Version::parse(&metadata.version) {
+            metadata.version = "0.1.0".to_string();
+        }
+
+        // Validate min_nexus_version
+        if let Err(_) = Version::parse(&metadata.min_nexus_version) {
+            metadata.min_nexus_version = "0.1.0".to_string();
+        }
+
+        // Validate max_nexus_version if present
+        if let Some(max_ver) = &metadata.max_nexus_version {
+            if let Err(_) = Version::parse(max_ver) {
+                metadata.max_nexus_version = None;
             }
-            if let Some(repository) = wasm_metadata.get("repository") {
-                metadata.repository = Some(repository.clone());
+        }
+
+        // Deduplicate and normalize arrays
+        metadata.keywords.sort();
+        metadata.keywords.dedup();
+        metadata.categories.sort();
+        metadata.categories.dedup();
+        metadata.capabilities.sort();
+        metadata.capabilities.dedup();
+
+        // Truncate overly long fields
+        if metadata.description.len() > 1000 {
+            metadata.description.truncate(997);
+            metadata.description.push_str("...");
+        }
+
+        Ok(())
+    }
+
+    /// Find byte pattern in content
+    fn find_bytes(&self, content: &[u8], pattern: &[u8]) -> Option<usize> {
+        content.windows(pattern.len())
+            .position(|window| window == pattern)
+    }
+
+    /// Extract JSON string from position
+    fn extract_json_from_position(&self, content: &[u8], start: usize) -> Result<String> {
+        // Find the start of JSON object/array
+        let mut json_start = start;
+        while json_start < content.len() && content[json_start] != b'{' && content[json_start] != b'[' {
+            json_start += 1;
+        }
+
+        if json_start >= content.len() {
+            return Err(anyhow::anyhow!("JSON start not found"));
+        }
+
+        // Find matching closing brace/bracket
+        let opening_char = content[json_start];
+        let closing_char = if opening_char == b'{' { b'}' } else { b']' };
+        
+        let mut depth = 0;
+        let mut json_end = json_start;
+        let mut in_string = false;
+        let mut escape_next = false;
+
+        for i in json_start..content.len() {
+            let byte = content[i];
+            
+            if escape_next {
+                escape_next = false;
+                continue;
             }
+            
+            if in_string {
+                if byte == b'\\' {
+                    escape_next = true;
+                } else if byte == b'"' {
+                    in_string = false;
+                }
+                continue;
+            }
+            
+            match byte {
+                b'"' => in_string = true,
+                b if b == opening_char => depth += 1,
+                b if b == closing_char => {
+                    depth -= 1;
+                    if depth == 0 {
+                        json_end = i;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if depth != 0 {
+            return Err(anyhow::anyhow!("Unmatched JSON braces"));
+        }
+
+        let json_bytes = &content[json_start..=json_end];
+        String::from_utf8(json_bytes.to_vec())
+            .map_err(|e| anyhow::anyhow!("Invalid UTF-8 in JSON: {}", e))
+    }
         }
 
         // Try to extract from embedded JSON manifest
@@ -695,61 +969,279 @@ impl DynamicPluginLoader {
         Ok(metadata)
     }
 
-    /// Parse LEB128 encoded integer (simplified version)
+    /// Parse LEB128 encoded integer (complete implementation with error handling)
     fn parse_leb128(&self, data: &[u8]) -> Result<(usize, usize)> {
-        let mut result = 0;
+        if data.is_empty() {
+            return Err(anyhow::anyhow!("Empty LEB128 data"));
+        }
+
+        let mut result: u64 = 0;
         let mut shift = 0;
         let mut bytes_read = 0;
+        const MAX_BYTES: usize = 10; // Max bytes for 64-bit LEB128
 
-        for &byte in data.iter().take(5) { // Max 5 bytes for 32-bit LEB128
-            bytes_read += 1;
-            result |= ((byte & 0x7F) as usize) << shift;
-            
-            if byte & 0x80 == 0 {
-                return Ok((result, bytes_read));
+        for (i, &byte) in data.iter().enumerate() {
+            if i >= MAX_BYTES {
+                return Err(anyhow::anyhow!("LEB128 value too large (> {} bytes)", MAX_BYTES));
             }
-            
+
+            bytes_read += 1;
+            let low_bits = (byte & 0x7F) as u64;
+
+            // Check for overflow before shifting
+            if shift >= 64 || (shift == 63 && low_bits > 1) {
+                return Err(anyhow::anyhow!("LEB128 value overflow"));
+            }
+
+            result |= low_bits << shift;
+
+            // Check if this is the last byte
+            if byte & 0x80 == 0 {
+                // Validate result fits in usize
+                if result > usize::MAX as u64 {
+                    return Err(anyhow::anyhow!("LEB128 value too large for platform"));
+                }
+                return Ok((result as usize, bytes_read));
+            }
+
             shift += 7;
         }
 
-        Err(anyhow::anyhow!("Invalid LEB128 encoding"))
+        Err(anyhow::anyhow!("Incomplete LEB128 encoding"))
     }
 
-    /// Parse custom section content for metadata
+    /// Parse custom section content for metadata with comprehensive format support
     fn parse_custom_section(&self, data: &[u8]) -> Result<HashMap<String, String>> {
         let mut metadata = HashMap::new();
 
-        // Parse section name
         if data.is_empty() {
             return Ok(metadata);
         }
 
-        let name_len = data[0] as usize;
-        if data.len() < 1 + name_len {
+        // Parse section name length (LEB128 encoded)
+        let (name_len, name_len_bytes) = self.parse_leb128(data)?;
+        let name_start = name_len_bytes;
+        
+        if data.len() < name_start + name_len {
             return Ok(metadata);
         }
 
-        let section_name = String::from_utf8_lossy(&data[1..1 + name_len]);
+        let section_name = String::from_utf8_lossy(&data[name_start..name_start + name_len]);
+        let payload_start = name_start + name_len;
         
-        // Look for "nexus-plugin" custom section
-        if section_name == "nexus-plugin" {
-            let payload = &data[1 + name_len..];
-            
-            // Try to parse as JSON
-            if let Ok(json_str) = std::str::from_utf8(payload) {
-                if let Ok(json_data) = serde_json::from_str::<serde_json::Value>(json_str) {
-                    if let Some(obj) = json_data.as_object() {
-                        for (key, value) in obj {
-                            if let Some(str_value) = value.as_str() {
-                                metadata.insert(key.clone(), str_value.to_string());
-                            }
-                        }
-                    }
+        // Handle different metadata section formats
+        match section_name.as_ref() {
+            "nexus-plugin" | "plugin-metadata" | "wasm-metadata" => {
+                self.parse_json_metadata_payload(&data[payload_start..], &mut metadata)?;
+            }
+            "name" => {
+                if let Ok(name) = std::str::from_utf8(&data[payload_start..]) {
+                    metadata.insert("name".to_string(), name.trim().to_string());
+                }
+            }
+            "producers" => {
+                self.parse_producers_section(&data[payload_start..], &mut metadata)?;
+            }
+            section if section.starts_with("nexus.") => {
+                let key = &section[6..]; // Remove "nexus." prefix
+                if let Ok(value) = std::str::from_utf8(&data[payload_start..]) {
+                    metadata.insert(key.to_string(), value.trim().to_string());
+                }
+            }
+            _ => {
+                // Try to parse as generic key-value if section name looks like metadata
+                if section_name.contains("meta") || section_name.contains("info") {
+                    self.parse_generic_metadata_payload(&data[payload_start..], &mut metadata)?;
                 }
             }
         }
 
         Ok(metadata)
+    }
+
+    /// Parse JSON metadata payload
+    fn parse_json_metadata_payload(&self, payload: &[u8], metadata: &mut HashMap<String, String>) -> Result<()> {
+        if let Ok(json_str) = std::str::from_utf8(payload) {
+            // Try parsing as JSON object
+            if let Ok(json_data) = serde_json::from_str::<serde_json::Value>(json_str) {
+                self.extract_metadata_from_json(&json_data, metadata);
+                return Ok(());
+            }
+            
+            // Try parsing as TOML
+            if let Ok(toml_data) = toml::from_str::<toml::Value>(json_str) {
+                self.extract_metadata_from_toml(&toml_data, metadata);
+                return Ok(());
+            }
+            
+            // Try parsing as key=value pairs
+            self.parse_key_value_format(json_str, metadata);
+        }
+        
+        Ok(())
+    }
+
+    /// Parse WebAssembly producers section
+    fn parse_producers_section(&self, payload: &[u8], metadata: &mut HashMap<String, String>) -> Result<()> {
+        // Producers section format: field_count followed by field entries
+        if payload.len() < 1 {
+            return Ok(());
+        }
+
+        let (field_count, mut offset) = self.parse_leb128(payload)?;
+        
+        for _ in 0..field_count {
+            if offset >= payload.len() {
+                break;
+            }
+            
+            // Parse field name
+            let (field_name_len, name_len_bytes) = self.parse_leb128(&payload[offset..])?;
+            offset += name_len_bytes;
+            
+            if offset + field_name_len > payload.len() {
+                break;
+            }
+            
+            let field_name = String::from_utf8_lossy(&payload[offset..offset + field_name_len]);
+            offset += field_name_len;
+            
+            // Parse value count
+            if offset >= payload.len() {
+                break;
+            }
+            
+            let (value_count, value_count_bytes) = self.parse_leb128(&payload[offset..])?;
+            offset += value_count_bytes;
+            
+            let mut values = Vec::new();
+            for _ in 0..value_count {
+                if offset >= payload.len() {
+                    break;
+                }
+                
+                // Parse value name length and name
+                let (name_len, name_len_bytes) = self.parse_leb128(&payload[offset..])?;
+                offset += name_len_bytes;
+                
+                if offset + name_len > payload.len() {
+                    break;
+                }
+                
+                let name = String::from_utf8_lossy(&payload[offset..offset + name_len]);
+                offset += name_len;
+                
+                // Parse version length and version
+                if offset >= payload.len() {
+                    break;
+                }
+                
+                let (version_len, version_len_bytes) = self.parse_leb128(&payload[offset..])?;
+                offset += version_len_bytes;
+                
+                if offset + version_len > payload.len() {
+                    break;
+                }
+                
+                let version = String::from_utf8_lossy(&payload[offset..offset + version_len]);
+                offset += version_len;
+                
+                values.push(format!("{} {}", name, version));
+            }
+            
+            if !values.is_empty() {
+                metadata.insert(format!("producer_{}", field_name), values.join(", "));
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// Parse generic metadata payload as key-value pairs
+    fn parse_generic_metadata_payload(&self, payload: &[u8], metadata: &mut HashMap<String, String>) -> Result<()> {
+        if let Ok(text) = std::str::from_utf8(payload) {
+            self.parse_key_value_format(text, metadata);
+        }
+        Ok(())
+    }
+
+    /// Parse key=value format text
+    fn parse_key_value_format(&self, text: &str, metadata: &mut HashMap<String, String>) {
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+                continue;
+            }
+            
+            if let Some((key, value)) = line.split_once('=') {
+                let key = key.trim().to_string();
+                let value = value.trim().trim_matches('"').trim_matches('\'').to_string();
+                if !key.is_empty() && !value.is_empty() {
+                    metadata.insert(key, value);
+                }
+            }
+        }
+    }
+
+    /// Extract metadata from JSON value
+    fn extract_metadata_from_json(&self, json: &serde_json::Value, metadata: &mut HashMap<String, String>) {
+        if let Some(obj) = json.as_object() {
+            for (key, value) in obj {
+                match value {
+                    serde_json::Value::String(s) => {
+                        metadata.insert(key.clone(), s.clone());
+                    }
+                    serde_json::Value::Number(n) => {
+                        metadata.insert(key.clone(), n.to_string());
+                    }
+                    serde_json::Value::Bool(b) => {
+                        metadata.insert(key.clone(), b.to_string());
+                    }
+                    serde_json::Value::Array(arr) => {
+                        let str_values: Vec<String> = arr.iter()
+                            .filter_map(|v| v.as_str())
+                            .map(|s| s.to_string())
+                            .collect();
+                        if !str_values.is_empty() {
+                            metadata.insert(key.clone(), str_values.join(", "));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// Extract metadata from TOML value
+    fn extract_metadata_from_toml(&self, toml_value: &toml::Value, metadata: &mut HashMap<String, String>) {
+        if let Some(table) = toml_value.as_table() {
+            for (key, value) in table {
+                match value {
+                    toml::Value::String(s) => {
+                        metadata.insert(key.clone(), s.clone());
+                    }
+                    toml::Value::Integer(i) => {
+                        metadata.insert(key.clone(), i.to_string());
+                    }
+                    toml::Value::Float(f) => {
+                        metadata.insert(key.clone(), f.to_string());
+                    }
+                    toml::Value::Boolean(b) => {
+                        metadata.insert(key.clone(), b.to_string());
+                    }
+                    toml::Value::Array(arr) => {
+                        let str_values: Vec<String> = arr.iter()
+                            .filter_map(|v| v.as_str())
+                            .map(|s| s.to_string())
+                            .collect();
+                        if !str_values.is_empty() {
+                            metadata.insert(key.clone(), str_values.join(", "));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
 
     /// Extract JSON manifest embedded in the binary

@@ -42,12 +42,16 @@ use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read};
 use std::path::Path;
 use std::collections::VecDeque;
+#[cfg(feature = "advanced-regex")]
 use regex::{Regex, RegexBuilder};
+#[cfg(feature = "advanced-regex")]
 use fancy_regex::Regex as FancyRegex;
+#[cfg(feature = "advanced-regex")]
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use walkdir::{WalkDir, DirEntry};
 use globset::Glob;
 use ansi_term::Colour;
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 #[derive(Debug, Clone)]
@@ -151,9 +155,13 @@ impl Default for GrepOptions {
 
 #[derive(Debug)]
 pub struct GrepMatcher {
+    #[cfg(feature = "advanced-regex")]
     regex: Option<Regex>,
+    #[cfg(feature = "advanced-regex")]
     fancy_regex: Option<FancyRegex>,
+    #[cfg(feature = "advanced-regex")]
     aho_corasick: Option<AhoCorasick>,
+    // For non-advanced builds we re-use this as a list of plain substring patterns
     fixed_patterns: Vec<String>,
     options: GrepOptions,
 }
@@ -208,7 +216,7 @@ pub fn grep_cli(args: &[String]) -> Result<()> {
     
     // Search files
     let mut total_matches = 0;
-    let mut files_with_matches = 0;
+    let mut _files_with_matches = 0;
     let mut exit_code = 1; // Default to "no matches found"
     
     if options.recursive && files_to_search.len() == 1 && files_to_search[0] != "-" {
@@ -223,7 +231,7 @@ pub fn grep_cli(args: &[String]) -> Result<()> {
             }
             
             if result.match_count > 0 {
-                files_with_matches += 1;
+                _files_with_matches += 1;
                 total_matches += result.match_count;
                 exit_code = 0;
             }
@@ -243,7 +251,7 @@ pub fn grep_cli(args: &[String]) -> Result<()> {
             }
             
             if result.match_count > 0 {
-                files_with_matches += 1;
+                _files_with_matches += 1;
                 total_matches += result.match_count;
                 exit_code = 0;
             }
@@ -263,7 +271,7 @@ pub fn grep_cli(args: &[String]) -> Result<()> {
     if options.files_with_matches || options.files_without_match {
         // Already handled in print_file_results
     } else if options.count_only && files_to_search.len() == 1 && files_to_search[0] == "-" {
-        println!("{}", total_matches);
+        println!("{total_matches}");
     }
     
     std::process::exit(exit_code);
@@ -481,83 +489,48 @@ fn load_patterns_from_file(filename: &str) -> Result<Vec<String>> {
 }
 
 fn create_matcher(patterns: Vec<String>, options: &GrepOptions) -> Result<GrepMatcher> {
+    // Fixed strings path works in both modes.
     if options.fixed_strings {
-        // Use Aho-Corasick for fixed string matching
-        let mut builder = AhoCorasickBuilder::new();
-        builder.ascii_case_insensitive(options.ignore_case);
-        
-        let ac = builder.build(&patterns)
-            .map_err(|e| anyhow!("grep: failed to build fixed string matcher: {}", e))?;
-        
-        Ok(GrepMatcher {
-            regex: None,
-            fancy_regex: None,
-            aho_corasick: Some(ac),
-            fixed_patterns: patterns,
-            options: options.clone(),
-        })
-    } else if options.perl_regexp {
-        // Use fancy-regex for Perl-compatible regex
-        let pattern = if patterns.len() == 1 {
-            patterns[0].clone()
-        } else {
-            format!("({})", patterns.join("|"))
-        };
-        
-        let pattern = if options.word_regexp {
-            format!(r"\b({})\b", pattern)
-        } else if options.line_regexp {
-            format!("^({})$", pattern)
-        } else {
-            pattern
-        };
-        
-        let regex = FancyRegex::new(&pattern)
-            .map_err(|e| anyhow!("grep: invalid regex pattern: {}", e))?;
-        
-        Ok(GrepMatcher {
-            regex: None,
-            fancy_regex: Some(regex),
-            aho_corasick: None,
-            fixed_patterns: Vec::new(),
-            options: options.clone(),
-        })
-    } else {
-        // Use standard regex for basic/extended regex
-        let pattern = if patterns.len() == 1 {
-            patterns[0].clone()
-        } else {
-            format!("({})", patterns.join("|"))
-        };
-        
-        let pattern = if options.word_regexp {
-            format!(r"\b({})\b", pattern)
-        } else if options.line_regexp {
-            format!("^({})$", pattern)
-        } else {
-            pattern
-        };
-        
+        #[cfg(feature = "advanced-regex")]
+        {
+            let mut builder = AhoCorasickBuilder::new();
+            builder.ascii_case_insensitive(options.ignore_case);
+            let ac = builder.build(&patterns)
+                .map_err(|e| anyhow!("grep: failed to build fixed string matcher: {}", e))?;
+            return Ok(GrepMatcher { regex: None, fancy_regex: None, aho_corasick: Some(ac), fixed_patterns: patterns, options: options.clone() });
+        }
+        #[cfg(not(feature = "advanced-regex"))]
+        {
+            return Ok(GrepMatcher { fixed_patterns: patterns, options: options.clone() });
+        }
+    }
+
+    #[cfg(feature = "advanced-regex")]
+    {
+        if options.perl_regexp {
+            // fancy-regex path
+            let pattern = if patterns.len() == 1 { patterns[0].clone() } else { format!("({})", patterns.join("|")) };
+            let pattern = if options.word_regexp { format!(r"\b({pattern})\b") } else if options.line_regexp { format!("^({pattern})$") } else { pattern };
+            let regex = FancyRegex::new(&pattern)
+                .map_err(|e| anyhow!("grep: invalid regex pattern: {}", e))?;
+            return Ok(GrepMatcher { regex: None, fancy_regex: Some(regex), aho_corasick: None, fixed_patterns: Vec::new(), options: options.clone() });
+        }
+        // basic / extended regex (rust regex crate)
+        let pattern = if patterns.len() == 1 { patterns[0].clone() } else { format!("({})", patterns.join("|")) };
+        let pattern = if options.word_regexp { format!(r"\b({pattern})\b") } else if options.line_regexp { format!("^({pattern})$") } else { pattern };
         let mut builder = RegexBuilder::new(&pattern);
         builder.case_insensitive(options.ignore_case);
-        
-        if options.extended_regexp {
-            // Extended regex is default in Rust regex crate
-        } else if options.basic_regexp {
-            // Convert basic regex to extended regex
-            // This is a simplified conversion - full BRE support would be more complex
+        let regex = builder.build().map_err(|e| anyhow!("grep: invalid regex pattern: {}", e))?;
+        return Ok(GrepMatcher { regex: Some(regex), fancy_regex: None, aho_corasick: None, fixed_patterns: Vec::new(), options: options.clone() });
+    }
+
+    #[cfg(not(feature = "advanced-regex"))]
+    {
+        if options.perl_regexp || options.extended_regexp || options.basic_regexp {
+            // Fallback: treat all patterns as literal substrings (no regex engine available)
+            return Ok(GrepMatcher { fixed_patterns: patterns, options: options.clone() });
         }
-        
-        let regex = builder.build()
-            .map_err(|e| anyhow!("grep: invalid regex pattern: {}", e))?;
-        
-        Ok(GrepMatcher {
-            regex: Some(regex),
-            fancy_regex: None,
-            aho_corasick: None,
-            fixed_patterns: Vec::new(),
-            options: options.clone(),
-        })
+        Ok(GrepMatcher { fixed_patterns: patterns, options: options.clone() })
     }
 }
 
@@ -576,15 +549,14 @@ fn expand_file_list(files: &[String], options: &GrepOptions) -> Result<Vec<Strin
                 for entry in walker {
                     match entry {
                         Ok(entry) => {
-                            if entry.file_type().is_file() {
-                                if should_include_file(&entry, options) {
+                            if entry.file_type().is_file()
+                                && should_include_file(&entry, options) {
                                     expanded.push(entry.path().to_string_lossy().to_string());
                                 }
-                            }
                         }
                         Err(e) => {
                             if !options.no_messages {
-                                eprintln!("grep: {}", e);
+                                eprintln!("grep: {e}");
                             }
                         }
                     }
@@ -717,7 +689,7 @@ fn search_reader<R: BufRead>(
     let mut context_buffer: VecDeque<(usize, usize, String)> = VecDeque::new();
     let mut matches_found = 0;
     
-    let line_separator = if options.null_data { b'\0' } else { b'\n' };
+    let _line_separator = if options.null_data { b'\0' } else { b'\n' };
     
     for line_result in reader.lines() {
         let line = match line_result {
@@ -771,29 +743,60 @@ fn search_reader<R: BufRead>(
 }
 
 fn find_matches_in_line(line: &str, matcher: &GrepMatcher) -> Vec<(usize, usize)> {
-    let mut matches = Vec::new();
-    
-    if let Some(ref ac) = matcher.aho_corasick {
-        for mat in ac.find_iter(line) {
-            matches.push((mat.start(), mat.end()));
-        }
-    } else if let Some(ref regex) = matcher.regex {
-        for mat in regex.find_iter(line) {
-            matches.push((mat.start(), mat.end()));
-        }
-    } else if let Some(ref fancy_regex) = matcher.fancy_regex {
-        let mut start = 0;
-        while start < line.len() {
-            if let Ok(Some(mat)) = fancy_regex.find(&line[start..]) {
-                matches.push((mat.start() + start, mat.end() + start));
-                start = (mat.end() + start).max(start + 1);
-            } else {
-                break;
+    #[cfg(feature = "advanced-regex")]
+    {
+        let mut matches = Vec::new();
+        if let Some(ref ac) = matcher.aho_corasick {
+            for mat in ac.find_iter(line) { matches.push((mat.start(), mat.end())); }
+        } else if let Some(ref regex) = matcher.regex {
+            for mat in regex.find_iter(line) { matches.push((mat.start(), mat.end())); }
+        } else if matcher.fancy_regex.is_some() {
+            let mut start = 0;
+            let fancy_regex = matcher.fancy_regex.as_ref().unwrap();
+            while start < line.len() {
+                if let Ok(Some(mat)) = fancy_regex.find(&line[start..]) {
+                    matches.push((mat.start() + start, mat.end() + start));
+                    start = (mat.end() + start).max(start + 1);
+                } else { break; }
+            }
+        } else if !matcher.fixed_patterns.is_empty() { // literal fallback path
+            for pat in &matcher.fixed_patterns {
+                if matcher.options.ignore_case {
+                    if line.to_lowercase().contains(&pat.to_lowercase()) {
+                        if let Some(pos) = line.to_lowercase().find(&pat.to_lowercase()) { matches.push((pos, pos + pat.len())); }
+                    }
+                } else if let Some(pos) = line.find(pat) { matches.push((pos, pos + pat.len())); }
             }
         }
+        return matches;
     }
-    
-    matches
+    #[cfg(not(feature = "advanced-regex"))]
+    {
+        let mut matches = Vec::new();
+        for pat in &matcher.fixed_patterns {
+            if matcher.options.ignore_case {
+                let line_lower = line.to_lowercase();
+                let pat_lower = pat.to_lowercase();
+                let mut offset = 0;
+                let mut search_slice = line_lower.as_str();
+                while let Some(pos) = search_slice.find(&pat_lower) {
+                    matches.push((offset + pos, offset + pos + pat.len()));
+                    let next = pos + 1; // allow overlapping
+                    offset += next;
+                    if next >= search_slice.len() { break; }
+                    search_slice = &search_slice[next..];
+                }
+            } else {
+                let mut start_pos = 0;
+                while let Some(pos) = line[start_pos..].find(pat) {
+                    let abs = start_pos + pos;
+                    matches.push((abs, abs + pat.len()));
+                    start_pos = abs + 1; // overlapping support
+                }
+            }
+        }
+        return matches;
+    }
 }
 
 fn search_recursive(dir: &str, matcher: &GrepMatcher, options: &GrepOptions) -> Result<Vec<FileResult>> {
@@ -813,16 +816,27 @@ fn search_recursive(dir: &str, matcher: &GrepMatcher, options: &GrepOptions) -> 
     
     // Use parallel processing for large file sets
     if files.len() > 10 {
-        Ok(files
-            .par_iter()
-            .map(|filename| search_file(filename, matcher, options))
-            .collect::<Result<Vec<_>, _>>()?)
-    } else {
-        files
-            .iter()
-            .map(|filename| search_file(filename, matcher, options))
-            .collect()
+        #[cfg(feature = "parallel")]
+        {
+            return Ok(files
+                .par_iter()
+                .map(|filename| search_file(filename, matcher, options))
+                .collect::<Result<Vec<_>, _>>()?);
+        }
+        // Fallback sequential when parallel disabled
+        #[cfg(not(feature = "parallel"))]
+        {
+            return files
+                .iter()
+                .map(|filename| search_file(filename, matcher, options))
+                .collect();
+        }
     }
+    // Small set or already handled
+    files
+        .iter()
+        .map(|filename| search_file(filename, matcher, options))
+        .collect()
 }
 
 fn is_binary_file(filename: &str) -> Result<bool> {
@@ -894,7 +908,7 @@ fn print_file_results(
     }
     
     // Print matches with context
-    for (i, match_result) in result.matches.iter().enumerate() {
+    for match_result in result.matches.iter() {
         let mut output = String::new();
         
         // Add filename
@@ -931,7 +945,7 @@ fn print_file_results(
                 if use_color {
                     println!("{}{}", output, Colour::Red.bold().paint(match_text));
                 } else {
-                    println!("{}{}", output, match_text);
+                    println!("{output}{match_text}");
                 }
             }
         } else {
@@ -942,7 +956,7 @@ fn print_file_results(
                 match_result.line.clone()
             };
             
-            println!("{}{}", output, highlighted_line);
+            println!("{output}{highlighted_line}");
         }
     }
     

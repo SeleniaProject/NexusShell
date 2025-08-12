@@ -821,7 +821,7 @@ impl<'a> Tokenizer<'a> {
 
     /// Check if the current token matches the given kind
     pub fn matches(&self, kind: &TokenKind) -> bool {
-        self.current_token.as_ref().map_or(false, |t| std::mem::discriminant(&t.kind) == std::mem::discriminant(kind))
+        self.current_token.as_ref().is_some_and(|t| std::mem::discriminant(&t.kind) == std::mem::discriminant(kind))
     }
 
     /// Consume the current token if it matches the given kind
@@ -879,27 +879,27 @@ impl<'a> Tokenizer<'a> {
 impl fmt::Display for TokenKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TokenKind::Word(s) => write!(f, "Word({})", s),
-            TokenKind::String(s) => write!(f, "String(\"{}\")", s),
-            TokenKind::Number(n) => write!(f, "Number({})", n),
-            TokenKind::Float(s) => write!(f, "Float({})", s),
-            TokenKind::Variable(s) => write!(f, "Variable({})", s),
-            TokenKind::VariableBrace(s) => write!(f, "VariableBrace({})", s),
-            TokenKind::CommandSubstitution(s) => write!(f, "CommandSubstitution({})", s),
-            TokenKind::Comment(s) => write!(f, "Comment({})", s),
-            TokenKind::HeredocDelimiter(s) => write!(f, "HeredocDelimiter({})", s),
-            TokenKind::HeredocContent(s) => write!(f, "HeredocContent({})", s),
-            TokenKind::GlobClass(s) => write!(f, "GlobClass({})", s),
-            TokenKind::BraceExpansion(s) => write!(f, "BraceExpansion({})", s),
-            TokenKind::TildeExpansion(s) => write!(f, "TildeExpansion({})", s),
-            TokenKind::RelativePath(s) => write!(f, "RelativePath({})", s),
-            TokenKind::AbsolutePath(s) => write!(f, "AbsolutePath({})", s),
-            TokenKind::ProcessSubstitutionIn(s) => write!(f, "ProcessSubstitutionIn({})", s),
-            TokenKind::ProcessSubstitutionOut(s) => write!(f, "ProcessSubstitutionOut({})", s),
-            TokenKind::RedirectFd(n) => write!(f, "RedirectFd({})", n),
-            TokenKind::RedirectFdAppend(n) => write!(f, "RedirectFdAppend({})", n),
-            TokenKind::ParamPositional(n) => write!(f, "ParamPositional({})", n),
-            _ => write!(f, "{:?}", self),
+            TokenKind::Word(s) => write!(f, "Word({s})"),
+            TokenKind::String(s) => write!(f, "String(\"{s}\")"),
+            TokenKind::Number(n) => write!(f, "Number({n})"),
+            TokenKind::Float(s) => write!(f, "Float({s})"),
+            TokenKind::Variable(s) => write!(f, "Variable({s})"),
+            TokenKind::VariableBrace(s) => write!(f, "VariableBrace({s})"),
+            TokenKind::CommandSubstitution(s) => write!(f, "CommandSubstitution({s})"),
+            TokenKind::Comment(s) => write!(f, "Comment({s})"),
+            TokenKind::HeredocDelimiter(s) => write!(f, "HeredocDelimiter({s})"),
+            TokenKind::HeredocContent(s) => write!(f, "HeredocContent({s})"),
+            TokenKind::GlobClass(s) => write!(f, "GlobClass({s})"),
+            TokenKind::BraceExpansion(s) => write!(f, "BraceExpansion({s})"),
+            TokenKind::TildeExpansion(s) => write!(f, "TildeExpansion({s})"),
+            TokenKind::RelativePath(s) => write!(f, "RelativePath({s})"),
+            TokenKind::AbsolutePath(s) => write!(f, "AbsolutePath({s})"),
+            TokenKind::ProcessSubstitutionIn(s) => write!(f, "ProcessSubstitutionIn({s})"),
+            TokenKind::ProcessSubstitutionOut(s) => write!(f, "ProcessSubstitutionOut({s})"),
+            TokenKind::RedirectFd(n) => write!(f, "RedirectFd({n})"),
+            TokenKind::RedirectFdAppend(n) => write!(f, "RedirectFdAppend({n})"),
+            TokenKind::ParamPositional(n) => write!(f, "ParamPositional({n})"),
+            _ => write!(f, "{self:?}"),
         }
     }
 }

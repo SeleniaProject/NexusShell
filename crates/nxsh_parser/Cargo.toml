@@ -3,6 +3,10 @@ name = "nxsh_parser"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+debug_parse = []
+
 [dependencies]
 anyhow = "1"
 pest = "2"

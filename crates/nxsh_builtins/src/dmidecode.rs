@@ -4,11 +4,11 @@
 
 use anyhow::Result;
 
-pub async fn dmidecode_cli(args: &[String]) -> Result<()> {
+pub async fn dmidecode_cli(_args: &[String]) -> Result<()> {
     #[cfg(not(unix))]
     {
         println!("dmidecode: unsupported on this platform");
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(unix)]
@@ -17,7 +17,7 @@ pub async fn dmidecode_cli(args: &[String]) -> Result<()> {
             println!("dmidecode: external 'dmidecode' not found. Install it first.");
             return Ok(());
         }
-        let status = Command::new("dmidecode").args(args).status()?;
+    let status = Command::new("dmidecode").args(_args).status()?;
         if !status.success() {
             return Err(anyhow!("dmidecode: command exited with status {}", status));
         }

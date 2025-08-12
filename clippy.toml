@@ -1,1 +1,3 @@
-deny-warnings = true 
+# Clippy configuration for NexusShell
+# Note: deny-warnings is deprecated, use warn instead for development
+# deny-warnings = true 

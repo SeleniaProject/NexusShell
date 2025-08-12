@@ -4,11 +4,11 @@
 
 use anyhow::Result;
 
-pub async fn lspci_cli(args: &[String]) -> Result<()> {
+pub async fn lspci_cli(_args: &[String]) -> Result<()> {
     #[cfg(not(unix))]
     {
         println!("lspci: unsupported on this platform");
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(unix)]
@@ -17,7 +17,7 @@ pub async fn lspci_cli(args: &[String]) -> Result<()> {
             println!("lspci: external 'lspci' not found. Install pciutils.");
             return Ok(());
         }
-        let status = Command::new("lspci").args(args).status()?;
+    let status = Command::new("lspci").args(_args).status()?;
         if !status.success() {
             return Err(anyhow!("lspci: command exited with status {}", status));
         }

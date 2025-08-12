@@ -1,0 +1,40 @@
+{
+  "name": "nxsh-minimalist",
+  "version": "1.0.0",
+  "author": "NexusShell Team",
+  "description": "Clean minimalist monochrome theme",
+  "colors": {
+    "primary": "#333333",
+    "secondary": "#666666",
+    "accent": "#999999",
+    "background": "#ffffff",
+    "foreground": "#1a1a1a",
+    "error": "#cc0000",
+    "warning": "#ff8800",
+    "success": "#008800",
+    "info": "#0066cc",
+    "muted": "#999999",
+    "highlight": "#cccccc",
+    "border": "#e0e0e0"
+  },
+  "styles": {
+    "prompt": {
+      "foreground": "Blue",
+      "bold": true
+    },
+    "command": {
+      "foreground": "White"
+    },
+    "error": {
+      "foreground": "Red",
+      "bold": true
+    },
+    "warning": {
+      "foreground": "Yellow"
+    },
+    "success": {
+      "foreground": "Green",
+      "bold": true
+    }
+  }
+}

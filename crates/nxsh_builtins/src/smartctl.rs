@@ -15,6 +15,7 @@
 //! * On non-Unix systems the command is currently unsupported.
 
 use anyhow::{anyhow, Result};
+#[cfg(unix)] use std::process::Command;
 
 pub async fn smartctl_cli(args: &[String]) -> Result<()> {
     if args.is_empty() {
@@ -22,36 +23,14 @@ pub async fn smartctl_cli(args: &[String]) -> Result<()> {
     }
 
     #[cfg(not(unix))]
-    {
-        println!("smartctl: unsupported on this platform");
-        return Ok(());
-    }
-
-    #[cfg(unix)]
-    {
-        if which::which("smartctl").is_err() {
-            println!("smartctl: external 'smartctl' command not found. Install smartmontools.");
-            return Ok(());
-        }
-
+    { println!("smartctl: unsupported on this platform"); return Ok(()); }
+    #[cfg(unix)] {
+        if which::which("smartctl").is_err() { println!("smartctl: external 'smartctl' command not found. Install smartmontools."); return Ok(()); }
         let mut cmd = Command::new("smartctl");
-        if args[0].starts_with('-') {
-            // user passed flags before device
-            for a in args {
-                cmd.arg(a);
-            }
-        } else {
-            // default: full report (-a)
-            cmd.arg("-a");
-            for a in args {
-                cmd.arg(a);
-            }
-        }
-
+        if args[0].starts_with('-') { for a in args { cmd.arg(a); } }
+        else { cmd.arg("-a"); for a in args { cmd.arg(a); } }
         let status = cmd.status()?;
-        if !status.success() {
-            return Err(anyhow!("smartctl: external command exited with status {}", status));
-        }
+        if !status.success() { return Err(anyhow!("smartctl: external command exited with status {}", status)); }
+        Ok(())
     }
-    Ok(())
 } 

@@ -20,7 +20,12 @@
 
 use anyhow::{anyhow, Result, Context};
 use chrono::{DateTime, Utc, TimeZone, Duration as ChronoDuration, Datelike};
+#[cfg(feature = "i18n")]
 use chrono_tz::{Tz, UTC};
+#[cfg(not(feature = "i18n"))]
+use chrono::Utc as UTC;
+#[cfg(not(feature = "i18n"))]
+type Tz = chrono::Utc; // Minimal: single timezone
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, BTreeMap},
@@ -35,7 +40,9 @@ use tokio::{
     time::{interval, Duration},
 };
 use regex::Regex;
-use crate::common::i18n::I18n;
+use crate::common::i18n::I18n; // stub when i18n disabled
+use crate::t;
+use nxsh_core::nxsh_log_info;
 
 // Configuration constants
 const DEFAULT_JOB_STORAGE_PATH: &str = ".nxsh/at_jobs";
@@ -118,6 +125,39 @@ impl Default for ResourceUsage {
             network_rx: 0,
             network_tx: 0,
         }
+    }
+}
+
+#[cfg(feature = "system-info")]
+async fn monitor_process_usage_at(pid: u32, acc: std::sync::Arc<std::sync::Mutex<ResourceUsage>>) {
+    use sysinfo::{SystemExt, ProcessExt, NetworksExt, NetworkExt, PidExt};
+    use tokio::time::{sleep, Duration as TokioDuration};
+    let mut sys = sysinfo::System::new();
+    let start = std::time::Instant::now();
+    let mut peak_mem: u64 = 0;
+    let mut rx0: u64 = 0;
+    let mut tx0: u64 = 0;
+    sys.refresh_networks();
+    for (_name, data) in sys.networks() { rx0 += data.total_received(); tx0 += data.total_transmitted(); }
+    loop {
+        sys.refresh_processes();
+        if let Some(p) = sys.process(sysinfo::Pid::from(pid as usize)) {
+            let mem = p.memory();
+            if mem > peak_mem { peak_mem = mem; }
+        } else {
+            break;
+        }
+        sleep(TokioDuration::from_millis(200)).await;
+    }
+    sys.refresh_networks();
+    let mut rx1: u64 = 0;
+    let mut tx1: u64 = 0;
+    for (_name, data) in sys.networks() { rx1 += data.total_received(); tx1 += data.total_transmitted(); }
+    if let Ok(mut g) = acc.lock() {
+        g.cpu_time = start.elapsed();
+        g.memory_peak = peak_mem * 1024; // KiB -> bytes
+        g.network_rx = rx1.saturating_sub(rx0);
+        g.network_tx = tx1.saturating_sub(tx0);
     }
 }
 
@@ -439,7 +479,7 @@ impl TimeParser {
         let mut target_date = now.date_naive() + ChronoDuration::days(1);
         
         while target_date.weekday() != target_weekday {
-            target_date = target_date + ChronoDuration::days(1);
+            target_date += ChronoDuration::days(1);
         }
 
         let formatted_input = format!("{} {}", time_str, target_date.format("%Y-%m-%d"));
@@ -499,8 +539,11 @@ impl AtScheduler {
         async_fs::create_dir_all(&config.log_path).await?;
 
         let (event_sender, _) = broadcast::channel(1000);
-        let current_locale = i18n.current_locale();
-        let timezone = config.timezone.parse::<Tz>().unwrap_or(Tz::UTC);
+    let current_locale = i18n.current_locale();
+    #[cfg(feature = "i18n")]
+    let timezone = config.timezone.parse::<Tz>().unwrap_or(UTC);
+    #[cfg(not(feature = "i18n"))]
+    let timezone = UTC; // Single timezone in stub
         let time_parser = TimeParser::new(timezone, &current_locale);
 
         let scheduler = Self {
@@ -526,7 +569,7 @@ impl AtScheduler {
     pub async fn schedule_job(&self, command: String, time_spec: &str, options: JobOptions) -> Result<String> {
         // Parse time specification
         let scheduled_time = self.time_parser.parse_time(time_spec)
-            .with_context(|| format!("Failed to parse time specification: {}", time_spec))?;
+            .with_context(|| format!("Failed to parse time specification: {time_spec}"))?;
 
         // Validate scheduled time is in the future
         if scheduled_time <= Utc::now() {
@@ -577,7 +620,7 @@ impl AtScheduler {
         let _ = self.event_sender.send(AtEvent::JobScheduled(job_id.clone()));
 
         // Log scheduling
-        self.log_event(&format!("Job {} scheduled for {}", job_id, scheduled_time)).await?;
+        self.log_event(&format!("Job {job_id} scheduled for {scheduled_time}")).await?;
 
         Ok(job_id)
     }
@@ -587,8 +630,8 @@ impl AtScheduler {
         let mut result = Vec::new();
 
         for job in jobs.values() {
-            let queue_match = queue.map_or(true, |q| job.queue == q);
-            let user_match = user.map_or(true, |u| job.user == u);
+            let queue_match = queue.is_none_or(|q| job.queue == q);
+            let user_match = user.is_none_or(|u| job.user == u);
             
             if queue_match && user_match {
                 result.push(job.clone());
@@ -616,7 +659,7 @@ impl AtScheduler {
         }
 
         // Remove from disk
-        let job_file = self.config.storage_path.join(format!("{}.json", job_id));
+        let job_file = self.config.storage_path.join(format!("{job_id}.json"));
         if job_file.exists() {
             async_fs::remove_file(job_file).await?;
         }
@@ -625,7 +668,7 @@ impl AtScheduler {
         let _ = self.event_sender.send(AtEvent::JobCancelled(job_id.to_string()));
 
         // Log removal
-        self.log_event(&format!("Job {} removed", job_id)).await?;
+        self.log_event(&format!("Job {job_id} removed")).await?;
 
         Ok(())
     }
@@ -655,7 +698,7 @@ impl AtScheduler {
                 {
                     let mut jobs_guard = jobs.write().unwrap();
                     let jobs_clone = jobs_guard.clone(); // Clone for dependency check
-                    for (job_id, job) in jobs_guard.iter_mut() {
+                    for (_job_id, job) in jobs_guard.iter_mut() {
                         if job.status == JobStatus::Scheduled && job.scheduled_time <= now {
                             // Check dependencies
                             if Self::check_job_dependencies(job, &jobs_clone) {
@@ -729,15 +772,33 @@ impl AtScheduler {
             std::env::set_var(key, value);
         }
 
-        // Execute command
+        // Execute command (spawn to obtain PID for resource monitoring)
         let mut cmd = AsyncCommand::new("sh");
         cmd.arg("-c")
            .arg(&job.command)
            .stdout(Stdio::piped())
            .stderr(Stdio::piped());
 
-        let output = cmd.output().await?;
+        let mut child = cmd.spawn()?;
+        let pid_for_monitor = child.id().unwrap_or(0);
+        let monitor_handle = crate::common::resource_monitor::spawn_basic_monitor(pid_for_monitor);
+
+        let output = child.wait_with_output().await?;
         let end_time = Utc::now();
+
+        let monitored_usage = {
+            use tokio::time::timeout;
+            if let Ok(Ok(b)) = timeout(std::time::Duration::from_secs(1), monitor_handle).await {
+                ResourceUsage {
+                    cpu_time: b.cpu_time,
+                    memory_peak: b.memory_peak_bytes,
+                    disk_read: 0,
+                    disk_write: 0,
+                    network_rx: b.network_rx,
+                    network_tx: b.network_tx,
+                }
+            } else { ResourceUsage::default() }
+        };
 
         let execution = JobExecution {
             start_time,
@@ -745,7 +806,7 @@ impl AtScheduler {
             exit_code: output.status.code(),
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
             stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            resource_usage: ResourceUsage::default(), // TODO: Implement resource monitoring
+            resource_usage: monitored_usage,
         };
 
         // Handle output redirection
@@ -779,9 +840,32 @@ impl AtScheduler {
     }
 
     async fn send_notification(job: &AtJob, execution: &JobExecution, config: &AtConfig) -> Result<()> {
-        // Email notification
-        if config.mail_enabled {
-            // TODO: Implement email sending
+        // Email notification (Unix: sendmail; otherwise log-only)
+        if config.mail_enabled && (job.mail_on_completion || job.mail_on_error) {
+            #[cfg(unix)]
+            {
+                use tokio::process::Command as AsyncCommand;
+                let subject = format!("[at] {} {}", job.id, if execution.exit_code == Some(0) { "OK" } else { "FAIL" });
+                let body = format!(
+                    "job: {}\ncmd: {}\nexit: {:?}\nstart: {}\nend: {}\nstdout:\n{}\n\nstderr:\n{}\n",
+                    job.id, job.command, execution.exit_code, execution.start_time, execution.end_time.unwrap_or_default(), execution.stdout, execution.stderr
+                );
+                if let Some(addr) = &config.mail_to {
+                    let mut proc = AsyncCommand::new("/usr/sbin/sendmail");
+                    proc.arg("-t");
+                    if let Ok(mut child) = proc.stdin(std::process::Stdio::piped()).spawn() {
+                        use tokio::io::AsyncWriteExt;
+                        if let Some(stdin) = child.stdin.as_mut() {
+                            let _ = stdin.write_all(format!("To: {}\nSubject: {}\n\n{}", addr, subject, body).as_bytes()).await;
+                        }
+                        let _ = child.wait().await;
+                    }
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                nxsh_log_info!("at email notify: would send email");
+            }
         }
 
         // Webhook notification
@@ -795,9 +879,18 @@ impl AtScheduler {
                 "end_time": execution.end_time,
                 "stdout": execution.stdout,
                 "stderr": execution.stderr
-            });
-
-            // TODO: Implement webhook sending
+            }).to_string();
+            #[cfg(feature = "updates")]
+            {
+                let _ = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(15)).build()
+                    .post(webhook_url)
+                    .set("Content-Type", "application/json")
+                    .send_string(&payload);
+            }
+            #[cfg(not(feature = "updates"))]
+            {
+                nxsh_log_info!("at webhook notify: would POST to {}", webhook_url);
+            }
         }
 
         Ok(())
@@ -855,7 +948,7 @@ impl AtScheduler {
     async fn log_event(&self, message: &str) -> Result<()> {
         let log_file = self.config.log_path.join("at.log");
         let timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
-        let log_entry = format!("[{}] {}\n", timestamp, message);
+        let log_entry = format!("[{timestamp}] {message}\n");
         
         let mut file = async_fs::OpenOptions::new()
             .create(true)
@@ -1068,7 +1161,7 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
         if jobs.is_empty() {
             println!("No jobs scheduled");
         } else {
-            println!("{:<12} {:<20} {:<10} {:<8} {}", "Job ID", "Scheduled Time", "Status", "Queue", "Command");
+            println!("{:<12} {:<20} {:<10} {:<8} Command", "Job ID", "Scheduled Time", "Status", "Queue");
             println!("{}", "-".repeat(80));
             
             for job in jobs {
@@ -1091,8 +1184,8 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
     if !remove_jobs.is_empty() {
         for job_id in remove_jobs {
             match scheduler.remove_job(&job_id).await {
-                Ok(()) => println!("Job {} removed", job_id),
-                Err(e) => eprintln!("Failed to remove job {}: {}", job_id, e),
+                Ok(()) => println!("Job {job_id} removed"),
+                Err(e) => eprintln!("Failed to remove job {job_id}: {e}"),
             }
         }
         return Ok(());
@@ -1138,7 +1231,7 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
             println!("job {} at {}", job_id, job.scheduled_time.format("%a %b %e %T %Y"));
         }
         Err(e) => {
-            eprintln!("Failed to schedule job: {}", e);
+            eprintln!("Failed to schedule job: {e}");
             std::process::exit(1);
         }
     }

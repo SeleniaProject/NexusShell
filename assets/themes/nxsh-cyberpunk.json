@@ -1,0 +1,40 @@
+{
+  "name": "nxsh-cyberpunk",
+  "version": "1.0.0",
+  "author": "NexusShell Team",
+  "description": "Futuristic neon cyberpunk theme",
+  "colors": {
+    "primary": "#ff2a6d",
+    "secondary": "#6930c3",
+    "accent": "#01fbfe",
+    "background": "#0c0c0c",
+    "foreground": "#e6e6e6",
+    "error": "#ff2a6d",
+    "warning": "#ffaa00",
+    "success": "#00ff9f",
+    "info": "#01fbfe",
+    "muted": "#6930c3",
+    "highlight": "#ffc600",
+    "border": "#1a1a1a"
+  },
+  "styles": {
+    "prompt": {
+      "foreground": "Blue",
+      "bold": true
+    },
+    "command": {
+      "foreground": "White"
+    },
+    "error": {
+      "foreground": "Red",
+      "bold": true
+    },
+    "warning": {
+      "foreground": "Yellow"
+    },
+    "success": {
+      "foreground": "Green",
+      "bold": true
+    }
+  }
+}

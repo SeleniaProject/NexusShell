@@ -21,19 +21,19 @@ pub fn yes_cli(args: &[String]) -> Result<()> {
     let mut writer = BufWriter::new(stdout.lock());
 
     loop {
-        writeln!(writer, "{}", output_string)?;
+        writeln!(writer, "{output_string}")?;
         writer.flush()?;
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn test_yes_default() {
         // Note: This test would run indefinitely, so we can't actually test the full functionality
         // In a real test environment, we would need to use timeouts or signal handling
-        assert!(true); // Placeholder test
+    // Removed redundant assert!(true)
     }
 } 

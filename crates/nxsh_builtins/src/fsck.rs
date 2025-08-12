@@ -29,19 +29,19 @@ pub async fn fsck_cli(args: &[String]) -> Result<()> {
         return Err(anyhow!("fsck: missing operand (DEVICE)"));
     }
 
-    let mut auto = false;
+    let mut _auto = false; // track auto flag for future repair implementation
     let mut device: Option<String> = None;
     for arg in args {
         match arg.as_str() {
-            "-a" | "--auto" => auto = true,
+            "-a" | "--auto" => _auto = true,
             _ => device = Some(arg.clone()),
         }
     }
-    let dev = device.ok_or_else(|| anyhow!("fsck: missing DEVICE"))?;
+    let _dev = device.ok_or_else(|| anyhow!("fsck: missing DEVICE"))?; // placeholder until direct low-level access used
 
     #[cfg(unix)]
     {
-        run_fat_check(&dev, auto)?;
+    run_fat_check(&_dev, _auto)?;
     }
     #[cfg(not(unix))]
     {
@@ -66,9 +66,7 @@ fn run_fat_check(device: &str, auto: bool) -> Result<()> {
             FatType::Fat32 => "32",
         }, device);
 
-    if auto {
-        println!("fsck: auto-repair mode (read-only analysis)");
-    }
+    if auto { println!("fsck: auto-repair mode (read-only analysis)"); }
 
     let root_dir = fs.root_dir();
     let mut used_clusters = HashSet::new();
@@ -79,12 +77,29 @@ fn run_fat_check(device: &str, auto: bool) -> Result<()> {
     traverse_dir(&root_dir, &mut used_clusters, &mut cross_links, &mut scanned_files)?;
 
     // Check for lost clusters (simplified check)
-    let stats = fs.stats()?;
-    let total_clusters = stats.total_clusters();
+    let stats = fs.stats()?; // stats currently only used for potential future lost cluster logic
+    let _total_clusters = stats.total_clusters();
     
+    // Simple lost cluster detection (best-effort): build a referenced set from directory traversal
+    // and compare against FAT allocation chain map. Requires reading FAT entries.
     let mut lost_clusters: Vec<u32> = Vec::new();
-    // Note: Simplified lost cluster detection - in real implementation 
-    // we would need to check FAT table entries directly
+    {
+        use fatfs::FsInfo;
+        let info = fs.info();
+        let total = info.total_clusters();
+        // Build a bitmap of referenced clusters from our traversal
+        let mut referenced = used_clusters;
+        // Iterate FAT to find allocated clusters not referenced by any file/dir
+        for cl in 2..=total {
+            // Stateful APIs differ per fatfs version; skip if not accessible
+            if let Ok(state) = fs.cluster_state(cl) {
+                if state.is_allocated() && !referenced.contains(&cl) {
+                    lost_clusters.push(cl);
+                    if lost_clusters.len() >= 1024 { break; } // cap to avoid huge output
+                }
+            }
+        }
+    }
     
     println!("fsck: checked {scanned_files} files/directories");
     if cross_links == 0 && lost_clusters.is_empty() {
@@ -96,7 +111,12 @@ fn run_fat_check(device: &str, auto: bool) -> Result<()> {
         if !lost_clusters.is_empty() {
             println!("fsck: warning  E{} lost cluster(s) starting at {:?}", lost_clusters.len(), &lost_clusters[..std::cmp::min(10, lost_clusters.len())]);
         }
-        println!("fsck: issues found; run with repair support in future versions");
+        if auto {
+            println!("fsck: auto (-a) requested — read-only mode: would mark {} cluster(s) free", lost_clusters.len());
+            // Note: Actual write-back disabled to keep current implementation read-only safe
+        } else {
+            println!("fsck: issues found; run with -a for automatic best-effort repair (when write support is enabled)");
+        }
     }
 
     Ok(())

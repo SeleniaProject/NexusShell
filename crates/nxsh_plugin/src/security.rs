@@ -3,22 +3,158 @@
 //! This module provides a comprehensive security framework with capability-based
 //! access control, sandboxing, and policy enforcement for WASI plugins.
 
-use anyhow::{Result, Context};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::Arc,
 };
 use tokio::sync::RwLock;
 
 use crate::{PluginMetadata, PluginError, PluginResult};
 
+/// Security context for WASM plugin execution
+#[derive(Debug, Clone)]
+pub struct SecurityContext {
+    /// Allowed host functions
+    pub allowed_functions: HashSet<String>,
+    /// Resource limits
+    pub max_memory: usize,
+    /// Maximum execution time in milliseconds
+    pub max_execution_time: u64,
+    /// Network access policy
+    pub network_access: NetworkPolicy,
+    /// File system access policy
+    pub filesystem_access: FilesystemPolicy,
+}
+
+/// Network access policy
+#[derive(Debug, Clone)]
+pub enum NetworkPolicy {
+    /// No network access allowed
+    None,
+    /// Limited access to specific hosts
+    Limited(HashSet<String>),
+    /// Full network access
+    Full,
+}
+
+/// Filesystem access policy
+#[derive(Debug, Clone)]
+pub enum FilesystemPolicy {
+    /// No filesystem access
+    None,
+    /// Read-only access to specific paths
+    ReadOnly(HashSet<String>),
+    /// Full filesystem access
+    Full,
+}
+
+impl Default for SecurityContext {
+    fn default() -> Self {
+        Self {
+            allowed_functions: HashSet::new(),
+            max_memory: 16 * 1024 * 1024, // 16MB
+            max_execution_time: 5000, // 5 seconds
+            network_access: NetworkPolicy::None,
+            filesystem_access: FilesystemPolicy::None,
+        }
+    }
+}
+
+impl SecurityContext {
+    /// Create a new security context with default settings
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create a restrictive security context
+    pub fn restrictive() -> Self {
+        Self {
+            allowed_functions: HashSet::new(),
+            max_memory: 1024 * 1024, // 1MB
+            max_execution_time: 1000, // 1 second
+            network_access: NetworkPolicy::None,
+            filesystem_access: FilesystemPolicy::None,
+        }
+    }
+
+    /// Create a new restrictive security context (alias for backward compatibility)
+    pub fn new_restricted() -> Self {
+        Self::restrictive()
+    }
+
+    /// Create a permissive security context for trusted plugins
+    pub fn permissive() -> Self {
+        let mut allowed_functions = HashSet::new();
+        allowed_functions.insert("print".to_string());
+        allowed_functions.insert("log".to_string());
+        allowed_functions.insert("get_env".to_string());
+
+        Self {
+            allowed_functions,
+            max_memory: 64 * 1024 * 1024, // 64MB
+            max_execution_time: 30000, // 30 seconds
+            network_access: NetworkPolicy::Limited(HashSet::new()),
+            filesystem_access: FilesystemPolicy::ReadOnly(HashSet::new()),
+        }
+    }
+
+    /// Check if a function call is allowed
+    pub fn is_function_allowed(&self, function_name: &str) -> bool {
+        self.allowed_functions.contains(function_name)
+    }
+
+    /// Allow a specific function
+    pub fn allow_function(&mut self, function_name: String) {
+        self.allowed_functions.insert(function_name);
+    }
+
+    /// Check network access policy
+    pub fn check_network_access(&self, host: &str) -> Result<()> {
+        match &self.network_access {
+            NetworkPolicy::None => Err(anyhow!("Network access denied")),
+            NetworkPolicy::Limited(allowed_hosts) => {
+                if allowed_hosts.contains(host) {
+                    Ok(())
+                } else {
+                    Err(anyhow!("Access to host '{}' denied", host))
+                }
+            }
+            NetworkPolicy::Full => Ok(()),
+        }
+    }
+
+    /// Check filesystem access policy
+    pub fn check_filesystem_access(&self, path: &str, write: bool) -> Result<()> {
+        match &self.filesystem_access {
+            FilesystemPolicy::None => Err(anyhow!("Filesystem access denied")),
+            FilesystemPolicy::ReadOnly(allowed_paths) => {
+                if write {
+                    Err(anyhow!("Write access denied"))
+                } else if allowed_paths.is_empty() || allowed_paths.iter().any(|p| path.starts_with(p)) {
+                    Ok(())
+                } else {
+                    Err(anyhow!("Access to path '{}' denied", path))
+                }
+            }
+            FilesystemPolicy::Full => Ok(()),
+        }
+    }
+}
+
 /// Capability-based security manager
 pub struct CapabilityManager {
     policies: Arc<RwLock<HashMap<String, SecurityPolicy>>>,
     capabilities: Arc<RwLock<CapabilityRegistry>>,
     default_policy: SecurityPolicy,
+}
+
+impl Default for CapabilityManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CapabilityManager {
@@ -172,7 +308,7 @@ impl CapabilityManager {
             // Check if capability exists
             if !capabilities.has_capability(capability_name) {
                 return Err(PluginError::ValidationFailed(
-                    format!("Unknown capability: {}", capability_name)
+                    format!("Unknown capability: {capability_name}")
                 ));
             }
 
@@ -180,7 +316,7 @@ impl CapabilityManager {
             let policy = self.get_policy_for_plugin(metadata).await;
             if !policy.allows_capability(capability_name) {
                 return Err(PluginError::CapabilityDenied(
-                    format!("Capability {} denied by policy", capability_name)
+                    format!("Capability {capability_name} denied by policy")
                 ));
             }
 
@@ -188,7 +324,7 @@ impl CapabilityManager {
             if let Some(capability) = capabilities.get_capability(capability_name) {
                 if !policy.allows_risk_level(capability.risk_level) {
                     return Err(PluginError::CapabilityDenied(
-                        format!("Capability {} risk level too high", capability_name)
+                        format!("Capability {capability_name} risk level too high")
                     ));
                 }
             }
@@ -202,7 +338,7 @@ impl CapabilityManager {
     pub async fn check_capability_permission(&self, plugin_id: &str, function: &str) -> PluginResult<()> {
         // In a real implementation, this would check function-specific permissions
         // For now, allow all executions for loaded plugins
-        log::debug!("Checking execution permission for {}::{}", plugin_id, function);
+        log::debug!("Checking execution permission for {plugin_id}::{function}");
         Ok(())
     }
 
@@ -233,7 +369,7 @@ impl CapabilityManager {
 
     /// Create a sandbox context for a plugin
     pub async fn create_sandbox_context(&self, plugin_id: &str, metadata: &PluginMetadata) -> Result<SandboxContext> {
-        log::debug!("Creating sandbox context for plugin: {}", plugin_id);
+        log::debug!("Creating sandbox context for plugin: {plugin_id}");
 
         let policy = self.get_policy_for_plugin(metadata).await;
         let capabilities = self.capabilities.read().await;
@@ -408,6 +544,12 @@ pub struct CapabilityRegistry {
     capabilities: HashMap<String, Capability>,
 }
 
+impl Default for CapabilityRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CapabilityRegistry {
     /// Create a new capability registry
     pub fn new() -> Self {
@@ -531,6 +673,7 @@ pub struct SecurityStatistics {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     #[tokio::test]
     async fn test_capability_manager_creation() {
@@ -613,12 +756,18 @@ mod tests {
             description: "Test plugin".to_string(),
             author: "trusted".to_string(),
             license: "MIT".to_string(),
+            homepage: None,
+            repository: None,
+            keywords: vec![],
+            categories: vec![],
+            dependencies: HashMap::new(),
             capabilities: vec!["system.time".to_string()],
             exports: vec![],
-            dependencies: vec![],
+            min_nexus_version: "0.1.0".to_string(),
+            max_nexus_version: None,
         };
 
-        assert!(manager.validate_plugin(&valid_metadata).await.is_ok());
+        assert!(manager.validate_plugin_security(&valid_metadata).await.is_ok());
 
         let invalid_metadata = PluginMetadata {
             name: "test-plugin".to_string(),
@@ -626,11 +775,17 @@ mod tests {
             description: "Test plugin".to_string(),
             author: "untrusted".to_string(),
             license: "MIT".to_string(),
+            homepage: None,
+            repository: None,
+            keywords: vec![],
+            categories: vec![],
+            dependencies: HashMap::new(),
             capabilities: vec!["unknown.capability".to_string()],
             exports: vec![],
-            dependencies: vec![],
+            min_nexus_version: "0.1.0".to_string(),
+            max_nexus_version: None,
         };
 
-        assert!(manager.validate_plugin(&invalid_metadata).await.is_err());
+        assert!(manager.validate_plugin_security(&invalid_metadata).await.is_err());
     }
 } 

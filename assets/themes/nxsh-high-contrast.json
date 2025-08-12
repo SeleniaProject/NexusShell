@@ -1,0 +1,40 @@
+{
+  "name": "nxsh-high-contrast",
+  "version": "1.0.0",
+  "author": "NexusShell Team",
+  "description": "High contrast theme for accessibility",
+  "colors": {
+    "primary": "#ffffff",
+    "secondary": "#cccccc",
+    "accent": "#ffff00",
+    "background": "#000000",
+    "foreground": "#ffffff",
+    "error": "#ff0000",
+    "warning": "#ffff00",
+    "success": "#00ff00",
+    "info": "#00ffff",
+    "muted": "#cccccc",
+    "highlight": "#ffff00",
+    "border": "#ffffff"
+  },
+  "styles": {
+    "prompt": {
+      "foreground": "Blue",
+      "bold": true
+    },
+    "command": {
+      "foreground": "White"
+    },
+    "error": {
+      "foreground": "Red",
+      "bold": true
+    },
+    "warning": {
+      "foreground": "Yellow"
+    },
+    "success": {
+      "foreground": "Green",
+      "bold": true
+    }
+  }
+}

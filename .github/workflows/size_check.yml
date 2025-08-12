@@ -1,0 +1,105 @@
+# NexusShell: BusyBox binary size check and delta gate
+# - Runs on PRs: build busybox-min for base and head, compute size delta, fail if increase >= threshold
+# - Runs on pushes to main: build and report size (no delta gate)
+
+name: Binary Size (busybox-min)
+
+on:
+  pull_request:
+    branches: [ "**" ]
+  push:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Threshold for size increase on PRs (percent). Example: 5 means +5% or more will fail.
+  NXSH_SIZE_DELTA_FAIL_PCT: "5"
+  # Maximum absolute size gate (bytes). BusyBox policy targets < 1.5 MiB.
+  NXSH_SIZE_MAX: "1572864"
+
+jobs:
+  size-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Prepare base worktree (PR only)
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --prune --depth=1 origin ${{ github.event.pull_request.base.sha }}
+          git worktree add ../nxsh_base ${{ github.event.pull_request.base.sha }}
+
+      - name: Build base busybox-min (PR only)
+        if: github.event_name == 'pull_request'
+        working-directory: ../nxsh_base
+        run: |
+          cargo build -p nxsh_cli --no-default-features --features busybox-min --profile release-small
+
+      - name: Report base size (PR only)
+        if: github.event_name == 'pull_request'
+        working-directory: ../nxsh_base
+        run: |
+          bash scripts/size_report.sh
+          cp size_report.json $GITHUB_WORKSPACE/base_size.json
+
+      - name: Build head busybox-min
+        run: |
+          cargo build -p nxsh_cli --no-default-features --features busybox-min --profile release-small
+
+      - name: Report head size
+        run: |
+          bash scripts/size_report.sh
+          cp size_report.json head_size.json
+
+      - name: Compute delta and gate (PR only)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_bytes=$(jq -r '.size_bytes' "$GITHUB_WORKSPACE/base_size.json")
+          head_bytes=$(jq -r '.size_bytes' head_size.json)
+          delta=$(( head_bytes - base_bytes ))
+          if [ "$base_bytes" -gt 0 ]; then
+            delta_pct=$(awk -v d="$delta" -v b="$base_bytes" 'BEGIN{ printf "%.3f", (d/b)*100.0 }')
+          else
+            delta_pct="0.000"
+          fi
+          echo "Base bytes: $base_bytes" >> $GITHUB_STEP_SUMMARY
+          echo "Head bytes: $head_bytes" >> $GITHUB_STEP_SUMMARY
+          echo "Delta bytes: $delta" >> $GITHUB_STEP_SUMMARY
+          echo "Delta %: $delta_pct" >> $GITHUB_STEP_SUMMARY
+          thr="${NXSH_SIZE_DELTA_FAIL_PCT:-5}"
+          awk -v pct="$delta_pct" -v thr="$thr" 'BEGIN{ if (pct+0 >= thr+0) exit 1; else exit 0 }'
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: busybox-size-${{ github.run_id }}
+          path: |
+            head_size.json
+            base_size.json
+          if-no-files-found: ignore
+
+

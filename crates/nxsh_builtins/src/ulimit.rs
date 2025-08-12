@@ -6,16 +6,16 @@
 //! When setting, `N` may be `unlimited`.
 //! On Windows this builtin only prints an unsupported message.
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 
 #[cfg(unix)]
 use nix::sys::resource::{getrlimit, setrlimit, Resource};
 
-pub fn ulimit_cli(args: &[String]) -> Result<()> {
+pub fn ulimit_cli(_args: &[String]) -> Result<()> {
     #[cfg(windows)]
     {
         println!("ulimit: not supported on Windows");
-        return Ok(());
+        Ok(())
     }
     #[cfg(unix)]
     {

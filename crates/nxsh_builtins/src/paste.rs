@@ -74,7 +74,7 @@ fn process_paste(readers: &mut [Box<dyn BufRead>], delim: char) -> Result<()> {
         }
         if eof_count == readers.len() { break; }
         for (i, buf) in buffers.iter().enumerate() {
-            if i != 0 { write!(handle, "{}", delim)?; }
+            if i != 0 { write!(handle, "{delim}")?; }
             handle.write_all(buf.as_bytes())?;
         }
         handle.write_all(b"\n")?;
@@ -83,8 +83,8 @@ fn process_paste(readers: &mut [Box<dyn BufRead>], delim: char) -> Result<()> {
 }
 
 fn unescape(s: &str) -> Result<String> {
-    if s.starts_with('\\') {
-        Ok(match &s[1..] {
+    if let Some(rest) = s.strip_prefix('\\') {
+        Ok(match rest {
             "t" => "\t".to_string(),
             "n" => "\n".to_string(),
             "r" => "\r".to_string(),

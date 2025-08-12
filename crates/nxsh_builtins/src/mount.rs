@@ -11,7 +11,7 @@ pub async fn mount_cli(args: &[String]) -> Result<()> {
     #[cfg(windows)]
     {
         println!("mount: not supported on Windows");
-        return Ok(());
+        return Ok(()); // early return windows
     }
     #[cfg(unix)]
     {
@@ -26,8 +26,10 @@ pub async fn mount_cli(args: &[String]) -> Result<()> {
         if res != 0 {
             return Err(anyhow!("mount: failed (errno {})", std::io::Error::last_os_error()));
         }
+        return Ok(()); // early return unix
     }
-    Ok(())
+    #[allow(unreachable_code)]
+    Ok(()) // both cfg branches return; keep for completeness without warning
 }
 
 #[cfg(test)]

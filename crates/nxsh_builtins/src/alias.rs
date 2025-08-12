@@ -90,7 +90,7 @@ impl AliasCommand {
             if !self.is_valid_alias_name(name) {
                 return Err(ShellError::new(
                     nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument),
-                    format!("alias: `{}': invalid alias name", name)
+                    format!("alias: `{name}': invalid alias name")
                 ));
             }
 
@@ -98,7 +98,7 @@ impl AliasCommand {
             if self.would_create_cycle(name, value, ctx) {
                 return Err(ShellError::new(
                     nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument),
-                    format!("alias: `{}': would create a cycle", name)
+                    format!("alias: `{name}': would create a cycle")
                 ));
             }
 
@@ -107,7 +107,7 @@ impl AliasCommand {
         } else {
             return Err(ShellError::new(
                 nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument),
-                format!("alias: invalid assignment: {}", assignment)
+                format!("alias: invalid assignment: {assignment}")
             ));
         }
 
@@ -117,13 +117,13 @@ impl AliasCommand {
     /// Print a specific alias
     fn print_alias(&self, name: &str, ctx: &mut ShellContext) -> ShellResult<()> {
         if let Some(value) = ctx.aliases.read().unwrap().get(name) {
-            let output = format!("alias {}='{}'\n", name, self.escape_value(&value));
+            let output = format!("alias {}='{}'\n", name, self.escape_value(value));
             ctx.stdout.write(output.as_bytes())
-                .map_err(|e| ShellError::new(nxsh_core::error::ErrorKind::IoError(nxsh_core::error::IoErrorKind::FileWriteError), format!("Failed to write output: {}", e)))?;
+                .map_err(|e| ShellError::new(nxsh_core::error::ErrorKind::IoError(nxsh_core::error::IoErrorKind::FileWriteError), format!("Failed to write output: {e}")))?;
         } else {
             return Err(ShellError::new(
                 nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::VariableNotFound),
-                format!("alias: {}: not found", name)
+                format!("alias: {name}: not found")
             ));
         }
 
@@ -152,7 +152,7 @@ impl AliasCommand {
 
         if !output.is_empty() {
             ctx.stdout.write(output.as_bytes())
-                .map_err(|e| ShellError::new(nxsh_core::error::ErrorKind::IoError(nxsh_core::error::IoErrorKind::FileWriteError), format!("Failed to write output: {}", e)))?;
+                .map_err(|e| ShellError::new(nxsh_core::error::ErrorKind::IoError(nxsh_core::error::IoErrorKind::FileWriteError), format!("Failed to write output: {e}")))?;
         }
 
         Ok(())
@@ -250,5 +250,15 @@ impl AliasCommand {
 impl Default for AliasCommand {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// CLI wrapper function for alias command
+pub fn alias_cli(args: &[String]) -> anyhow::Result<()> {
+    let mut ctx = nxsh_core::context::ShellContext::new();
+    let command = AliasCommand::new();
+    match command.execute(&mut ctx, args) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(anyhow::anyhow!("alias command failed: {}", e)),
     }
 }

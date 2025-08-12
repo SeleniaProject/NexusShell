@@ -15,7 +15,9 @@ use walkdir::WalkDir;
 
 use crate::{
     native_runtime::NativePluginRuntime,
-    PluginConfig, PluginError, PluginResult, PluginMetadata, PluginEvent,
+    // runtime::WasiPluginRuntime,
+    // component::ComponentRegistry,
+    PluginConfig, PluginMetadata, PluginEvent,
     PluginEventHandler,
 };
 
@@ -26,7 +28,15 @@ pub struct PluginManager {
     plugin_registry: HashMap<String, PluginRegistryEntry>,
     dependency_graph: DependencyGraph,
     event_handlers: Vec<Box<dyn PluginEventHandler>>,
-    runtime: Option<NativePluginRuntime>,
+    native_runtime: Option<NativePluginRuntime>,
+    // wasi_runtime: Option<WasiPluginRuntime>,  // Stage 2: WASI support (C-free for now)
+    // component_registry: ComponentRegistry,    // Stage 2: Component registry (C-free for now)
+}
+
+impl Default for PluginManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PluginManager {
@@ -38,7 +48,9 @@ impl PluginManager {
             plugin_registry: HashMap::new(),
             dependency_graph: DependencyGraph::new(),
             event_handlers: Vec::new(),
-            runtime: None,
+            native_runtime: None,
+            // wasi_runtime: None,                  // Stage 2: WASI support (C-free for now)
+            // component_registry: ComponentRegistry::new(),  // Stage 2: Component registry (C-free for now)
         }
     }
 
@@ -50,13 +62,35 @@ impl PluginManager {
             plugin_registry: HashMap::new(),
             dependency_graph: DependencyGraph::new(),
             event_handlers: Vec::new(),
-            runtime: None,
+            native_runtime: None,
+            // wasi_runtime: None,                  // Stage 2: WASI support (C-free for now)
+            // component_registry: ComponentRegistry::new(),  // Stage 2: Component registry (C-free for now)
         }
     }
 
-    /// Set the runtime for the manager
-    pub fn set_runtime(&mut self, runtime: NativePluginRuntime) {
-        self.runtime = Some(runtime);
+    /// Set the native runtime for the manager
+    pub fn set_native_runtime(&mut self, runtime: NativePluginRuntime) {
+        self.native_runtime = Some(runtime);
+    }
+
+    // /// Set the WASI runtime for the manager (Stage 2)
+    // pub fn set_wasi_runtime(&mut self, runtime: WasiPluginRuntime) {
+    //     self.wasi_runtime = Some(runtime);
+    // }
+
+    /// Initialize native runtime only (Stage 1)
+    pub async fn initialize_runtimes(&mut self) -> Result<()> {
+        // Initialize native runtime
+        let native_runtime = NativePluginRuntime::new()?;
+        self.set_native_runtime(native_runtime);
+
+        // // Initialize WASI runtime (Stage 2 - C-free for now)
+        // let wasi_runtime = WasiPluginRuntime::new().await
+        //     .context("Failed to initialize WASI runtime")?;
+        // self.set_wasi_runtime(wasi_runtime);
+
+        log::info!("Native plugin runtime initialized successfully");
+        Ok(())
     }
 
     /// Load configuration
@@ -154,7 +188,7 @@ impl PluginManager {
 
         let plugin_id = entry.id.clone();
         self.plugin_registry.insert(entry.id.clone(), entry);
-        log::debug!("Registered plugin: {}", plugin_id);
+        log::debug!("Registered plugin: {plugin_id}");
 
         Ok(())
     }
@@ -199,7 +233,7 @@ impl PluginManager {
         // Validate dependencies
         for (dep_name, version_req) in &metadata.dependencies {
             VersionReq::parse(version_req)
-                .context(format!("Invalid dependency '{}' version requirement: {}", dep_name, version_req))?;
+                .context(format!("Invalid dependency '{dep_name}' version requirement: {version_req}"))?;
         }
 
         Ok(())
@@ -214,16 +248,16 @@ impl PluginManager {
         let mut id = base_id.clone();
         while self.plugin_registry.contains_key(&id) {
             counter += 1;
-            id = format!("{}-{}", base_id, counter);
+            id = format!("{base_id}-{counter}");
         }
         
         id
     }
 
-    /// Load a plugin from file
-    pub async fn load_plugin<P: AsRef<Path>>(&self, path: P) -> Result<String> {
+    /// Load a plugin from file (Stage 1: Native only)
+    pub async fn load_plugin<P: AsRef<Path>>(&mut self, path: P) -> Result<String> {
         let path = path.as_ref();
-        log::info!("Loading plugin from: {}", path.display());
+        log::info!("Loading native plugin from: {}", path.display());
 
         // Extract metadata
         let metadata = self.extract_plugin_metadata(path).await?;
@@ -237,29 +271,64 @@ impl PluginManager {
         // Resolve dependencies
         self.resolve_dependencies(&metadata).await?;
 
-        // Load using runtime
-        if let Some(runtime) = &self.runtime {
-            runtime.load_plugin(path, plugin_id.clone()).await
-                .context("Failed to load plugin in runtime")?;
-        }
+        // For now, only support native plugins (Stage 1)
+        let file_extension = path.extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("");
+
+        let plugin_type = match file_extension.to_lowercase().as_str() {
+            "so" | "dll" | "dylib" => {
+                // Load native plugin
+                if let Some(runtime) = &self.native_runtime {
+                    runtime.load_plugin(path, plugin_id.clone()).await
+                        .context("Failed to load native plugin")?;
+                } else {
+                    return Err(anyhow::anyhow!("Native runtime not available for native plugin"));
+                }
+                PluginType::Native
+            }
+            // "wasm" => {
+            //     // Stage 2: WASI plugin support (C-free for now)
+            //     return Err(anyhow::anyhow!("WASM plugins not yet supported in C-free mode"));
+            // }
+            _ => {
+                // Default to native plugin for unknown extensions
+                if let Some(runtime) = &self.native_runtime {
+                    runtime.load_plugin(path, plugin_id.clone()).await
+                        .context("Failed to load native plugin")?;
+                } else {
+                    return Err(anyhow::anyhow!("Native runtime not available"));
+                }
+                PluginType::Native
+            }
+        };
+
+        // Record loaded plugin info
+        let plugin_info = LoadedPluginInfo {
+            id: plugin_id.clone(),
+            metadata: metadata.clone(),
+            plugin_type,
+            load_time: SystemTime::now(),
+            execution_count: 0,
+        };
+        self.loaded_plugins.insert(plugin_id.clone(), plugin_info);
 
         // Emit event
         self.emit_event(PluginEvent::Loaded {
             plugin_id: plugin_id.clone(),
-            metadata,
+            metadata: Box::new(metadata),
         }).await;
 
         Ok(plugin_id)
     }
 
-    /// Unload a plugin
-    pub async fn unload_plugin(&self, plugin_id: &str) -> Result<()> {
-        log::info!("Unloading plugin: {}", plugin_id);
+    /// Unload a plugin (Stage 1: Native only)
+    pub async fn unload_plugin(&mut self, plugin_id: &str) -> Result<()> {
+        log::info!("Unloading plugin: {plugin_id}");
 
         // Check if plugin is loaded
-        if !self.loaded_plugins.contains_key(plugin_id) {
-            return Err(anyhow::anyhow!("Plugin not loaded: {}", plugin_id));
-        }
+        let plugin_info = self.loaded_plugins.get(plugin_id)
+            .ok_or_else(|| anyhow::anyhow!("Plugin not loaded: {}", plugin_id))?;
 
         // Check for dependents
         let dependents = self.dependency_graph.get_dependents(plugin_id);
@@ -270,11 +339,22 @@ impl PluginManager {
             ));
         }
 
-        // Unload using runtime
-        if let Some(runtime) = &self.runtime {
-            runtime.unload_plugin(plugin_id).await
-                .context("Failed to unload plugin from runtime")?;
+        // Unload from appropriate runtime based on plugin type (Stage 1: Native only)
+        match plugin_info.plugin_type {
+            PluginType::Native => {
+                if let Some(runtime) = &self.native_runtime {
+                    runtime.unload_plugin(plugin_id).await
+                        .context("Failed to unload native plugin from runtime")?;
+                }
+            }
+            // PluginType::Wasi => {
+            //     // Stage 2: WASI support (C-free for now)
+            //     return Err(anyhow::anyhow!("WASI plugin unloading not yet supported"));
+            // }
         }
+
+        // Remove from loaded plugins
+        self.loaded_plugins.remove(plugin_id);
 
         // Emit event
         self.emit_event(PluginEvent::Unloaded {
@@ -285,7 +365,7 @@ impl PluginManager {
     }
 
     /// Unload all plugins
-    pub async fn unload_all_plugins(&self) -> Result<()> {
+    pub async fn unload_all_plugins(&mut self) -> Result<()> {
         log::info!("Unloading all plugins");
 
         // Get plugins in dependency order (reverse topological sort)
@@ -293,7 +373,7 @@ impl PluginManager {
         
         for plugin_id in unload_order {
             if let Err(e) = self.unload_plugin(&plugin_id).await {
-                log::error!("Failed to unload plugin {}: {}", plugin_id, e);
+                log::error!("Failed to unload plugin {plugin_id}: {e}");
             }
         }
 
@@ -308,7 +388,7 @@ impl PluginManager {
             let version_req = self.parse_dependency(version_req_str)?;
             
             // Find compatible plugin
-            let compatible_plugin = self.find_compatible_plugin(&dep_name, &version_req)?;
+            let compatible_plugin = self.find_compatible_plugin(dep_name, &version_req)?;
             
             // Ensure dependency is loaded
             if !self.loaded_plugins.contains_key(&compatible_plugin) {
@@ -364,20 +444,28 @@ impl PluginManager {
     }
 
     /// Add an event handler
-    pub fn add_event_handler(&mut self, _handler: Box<dyn PluginEventHandler>) {
-        // TODO: Implement event handler storage with proper async trait support
-        log::warn!("Event handler registration not yet implemented");
+    pub fn add_event_handler(&mut self, handler: Box<dyn PluginEventHandler>) {
+        // Store handler for later emission
+        self.event_handlers.push(handler);
+        log::debug!("Plugin event handler registered (total: {})", self.event_handlers.len());
     }
 
     /// Emit a plugin event
-    async fn emit_event(&self, _event: PluginEvent) {
-        // TODO: Implement event emission with proper async trait support
-        log::debug!("Event emission not yet implemented");
+    async fn emit_event(&self, event: PluginEvent) {
+        // Dispatch to all registered handlers concurrently; failures are logged and ignored
+        use futures::future::join_all;
+        let futures_iter = self.event_handlers.iter().map(|h| h.handle_event(event.clone()));
+        let results = join_all(futures_iter).await;
+        for res in results {
+            if let Err(e) = res {
+                log::warn!("Plugin event handler error: {e}");
+            }
+        }
     }
 
     /// Update a plugin
     pub async fn update_plugin(&mut self, plugin_id: &str, new_path: &Path) -> Result<()> {
-        log::info!("Updating plugin: {}", plugin_id);
+        log::info!("Updating plugin: {plugin_id}");
 
         // Get current metadata
         let old_metadata = self.get_plugin_metadata(plugin_id)
@@ -436,8 +524,16 @@ impl PluginManager {
 struct LoadedPluginInfo {
     id: String,
     metadata: PluginMetadata,
+    plugin_type: PluginType,
     load_time: SystemTime,
     execution_count: u64,
+}
+
+/// Plugin type enumeration
+#[derive(Debug, Clone, PartialEq)]
+pub enum PluginType {
+    Native,
+    // Wasi,  // Stage 2: WASI support (C-free for now)
 }
 
 /// Plugin registry entry
@@ -467,6 +563,12 @@ pub struct DependencyGraph {
     dependents: HashMap<String, HashSet<String>>,   // plugin_id -> dependents
 }
 
+impl Default for DependencyGraph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DependencyGraph {
     /// Create a new dependency graph
     pub fn new() -> Self {
@@ -480,12 +582,12 @@ impl DependencyGraph {
     pub fn add_dependency(&mut self, plugin_id: &str, dependency_id: &str) {
         self.dependencies
             .entry(plugin_id.to_string())
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert(dependency_id.to_string());
 
         self.dependents
             .entry(dependency_id.to_string())
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert(plugin_id.to_string());
     }
 
@@ -558,11 +660,10 @@ impl DependencyGraph {
         let mut rec_stack = HashSet::new();
 
         for plugin_id in self.dependencies.keys() {
-            if !visited.contains(plugin_id) {
-                if self.has_cycle(plugin_id, &mut visited, &mut rec_stack) {
+            if !visited.contains(plugin_id)
+                && self.has_cycle(plugin_id, &mut visited, &mut rec_stack) {
                     return true;
                 }
-            }
         }
 
         false

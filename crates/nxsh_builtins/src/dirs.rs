@@ -25,7 +25,7 @@ pub fn popd() -> Option<PathBuf> {
 
 /// Entry function for `dirs` builtin.
 pub fn dirs_cli(args: &[String]) -> Result<()> {
-    if args.get(0).map(|s| s.as_str()) == Some("-c") {
+    if args.first().map(|s| s.as_str()) == Some("-c") {
         // Clear stack except current dir.
         let cwd = env::current_dir()?;
         let mut stack = DIR_STACK.lock().unwrap();

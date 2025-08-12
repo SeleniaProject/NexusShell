@@ -1,0 +1,40 @@
+{
+  "name": "nxsh-light-default",
+  "version": "1.0.0", 
+  "author": "NexusShell Team",
+  "description": "Default light theme with clean aesthetics",
+  "colors": {
+    "primary": "#1e40af",
+    "secondary": "#64748b",
+    "accent": "#f59e0b",
+    "background": "#ffffff",
+    "foreground": "#1f2937",
+    "error": "#dc2626",
+    "warning": "#d97706",
+    "success": "#16a34a",
+    "info": "#1e40af",
+    "muted": "#64748b",
+    "highlight": "#fbbf24",
+    "border": "#e5e7eb"
+  },
+  "styles": {
+    "prompt": {
+      "foreground": "Blue",
+      "bold": true
+    },
+    "command": {
+      "foreground": "Black"
+    },
+    "error": {
+      "foreground": "Red",
+      "bold": true
+    },
+    "warning": {
+      "foreground": "Yellow"
+    },
+    "success": {
+      "foreground": "Green",
+      "bold": true
+    }
+  }
+}

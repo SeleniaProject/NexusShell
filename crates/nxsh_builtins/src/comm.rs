@@ -44,13 +44,13 @@ fn comm_streams<R1: BufRead, R2: BufRead>(mut r1: R1, mut r2: R2) -> Result<()> 
 
     while !(eof1 && eof2) {
         if eof2 {
-            write!(out, "{}\n", l1.trim_end())?;
+            writeln!(out, "{}", l1.trim_end())?;
             l1.clear();
             eof1 = r1.read_line(&mut l1)? == 0;
             continue;
         }
         if eof1 {
-            write!(out, "\t{}\n", l2.trim_end())?;
+            writeln!(out, "\t{}", l2.trim_end())?;
             l2.clear();
             eof2 = r2.read_line(&mut l2)? == 0;
             continue;
@@ -64,12 +64,12 @@ fn comm_streams<R1: BufRead, R2: BufRead>(mut r1: R1, mut r2: R2) -> Result<()> 
                 eof2 = r2.read_line(&mut l2)? == 0;
             }
             Ordering::Less => {
-                write!(out, "{}\n", l1.trim_end())?;
+                writeln!(out, "{}", l1.trim_end())?;
                 l1.clear();
                 eof1 = r1.read_line(&mut l1)? == 0;
             }
             Ordering::Greater => {
-                write!(out, "\t{}\n", l2.trim_end())?;
+                writeln!(out, "\t{}", l2.trim_end())?;
                 l2.clear();
                 eof2 = r2.read_line(&mut l2)? == 0;
             }

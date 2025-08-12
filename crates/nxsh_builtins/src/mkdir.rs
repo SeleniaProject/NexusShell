@@ -16,6 +16,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct MkdirOptions {
     pub directories: Vec<String>,
     pub mode: Option<u32>,
@@ -24,17 +25,6 @@ pub struct MkdirOptions {
     pub context: Option<String>,
 }
 
-impl Default for MkdirOptions {
-    fn default() -> Self {
-        Self {
-            directories: Vec::new(),
-            mode: None,
-            parents: false,
-            verbose: false,
-            context: None,
-        }
-    }
-}
 
 pub fn mkdir_cli(args: &[String]) -> Result<()> {
     let options = parse_mkdir_args(args)?;
@@ -47,7 +37,7 @@ pub fn mkdir_cli(args: &[String]) -> Result<()> {
         let path = PathBuf::from(directory);
         
         if let Err(e) = create_directory(&path, &options) {
-            eprintln!("mkdir: {}", e);
+            eprintln!("mkdir: {e}");
             // Continue with other directories instead of exiting
         }
     }
@@ -194,7 +184,7 @@ fn apply_symbolic_clause(mut mode: u32, clause: &str) -> Result<u32> {
     // Parse permissions (r, w, x, X, s, t)
     let mut perm_mask = 0u32;
     
-    while let Some(ch) = chars.next() {
+    for ch in chars {
         match ch {
             'r' => perm_mask |= 0o444,
             'w' => perm_mask |= 0o222,
@@ -304,10 +294,10 @@ fn create_directory_with_parents(path: &Path, options: &MkdirOptions) -> Result<
     Ok(())
 }
 
-fn set_directory_permissions(path: &Path, mode: u32) -> Result<()> {
+fn set_directory_permissions(_path: &Path, _mode: u32) -> Result<()> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
+        #[cfg(unix)] use std::os::unix::fs::PermissionsExt;
         let permissions = std::fs::Permissions::from_mode(mode);
         fs::set_permissions(path, permissions)
             .map_err(|e| anyhow!("cannot set permissions for '{}': {}", path.display(), e))?;
@@ -319,7 +309,7 @@ fn set_directory_permissions(path: &Path, mode: u32) -> Result<()> {
     Ok(())
 }
 
-fn set_selinux_context(path: &Path, context: &str) -> Result<()> {
+fn set_selinux_context(_path: &Path, _context: &str) -> Result<()> {
     // SELinux context setting would require platform-specific code
     // For now, we'll just print a warning that it's not implemented
     eprintln!("mkdir: warning: SELinux context setting not implemented on this platform");
@@ -353,8 +343,9 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
-    use std::os::unix::fs::PermissionsExt;
+    
+    #[cfg(unix)]
+    #[cfg(unix)] use std::os::unix::fs::PermissionsExt;
     
     #[test]
     fn test_parse_args() {
@@ -416,3 +407,5 @@ mod tests {
         assert_eq!(mode, 0o777);
     }
 } 
+
+

@@ -1,0 +1,40 @@
+{
+  "name": "nxsh-monokai",
+  "version": "1.0.0",
+  "author": "NexusShell Team",
+  "description": "Inspired by the popular Monokai theme",
+  "colors": {
+    "primary": "#f92672",
+    "secondary": "#75715e",
+    "accent": "#fd971f",
+    "background": "#272822",
+    "foreground": "#f8f8f2",
+    "error": "#f92672",
+    "warning": "#fd971f",
+    "success": "#a6e22e",
+    "info": "#66d9ef",
+    "muted": "#75715e",
+    "highlight": "#fd971f",
+    "border": "#49483e"
+  },
+  "styles": {
+    "prompt": {
+      "foreground": "Magenta",
+      "bold": true
+    },
+    "command": {
+      "foreground": "White"
+    },
+    "error": {
+      "foreground": "Red",
+      "bold": true
+    },
+    "warning": {
+      "foreground": "Yellow"
+    },
+    "success": {
+      "foreground": "Green",
+      "bold": true
+    }
+  }
+}

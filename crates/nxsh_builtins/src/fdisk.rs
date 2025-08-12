@@ -11,12 +11,7 @@
 //! Platform support: Unix-like systems only. On other platforms the command
 //! prints an informative message and exits successfully.
 
-use anyhow::{Result, anyhow};
-use std::path::PathBuf;
-use std::fs::File;
-use std::io::{Seek, SeekFrom};
-use sysinfo::System;
-use mbrman::MBR;
+use anyhow::Result;
 
 #[cfg(unix)]
 pub async fn fdisk_cli(args: &[String]) -> Result<()> {
@@ -50,7 +45,7 @@ fn list_block_devices() -> Result<()> {
 }
 
 #[cfg(unix)]
-fn print_partition_table(dev: &PathBuf) -> Result<()> {
+fn print_partition_table(dev: &Path) -> Result<()> {
     let mut file = File::open(dev)?;
     let size_bytes = file.seek(SeekFrom::End(0))?;
     file.seek(SeekFrom::Start(0))?;

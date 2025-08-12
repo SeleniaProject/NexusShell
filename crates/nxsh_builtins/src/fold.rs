@@ -11,7 +11,7 @@
 
 use anyhow::{anyhow, Result};
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 
 pub fn fold_cli(args: &[String]) -> Result<()> {
@@ -81,7 +81,7 @@ mod tests {
     fn fold_basic() {
         let input = "abcdefghijklmnopqrstuvwxyz\n";
         let mut reader = BufReader::new(Cursor::new(input));
-        let mut out = Vec::new();
+        let out: Vec<u8> = Vec::new();
         {
             let mut line = String::new();
             reader.read_line(&mut line).unwrap();

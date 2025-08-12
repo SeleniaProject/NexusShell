@@ -61,13 +61,13 @@ fn format_stream(path: &str, width: usize) -> Result<()> {
         for word in paragraph.split_whitespace() {
             let wlen = word.chars().count();
             if line_len == 0 {
-                write!(out, "{}", word)?;
+                write!(out, "{word}")?;
                 line_len = wlen;
             } else if line_len + 1 + wlen <= width {
-                write!(out, " {}", word)?;
+                write!(out, " {word}")?;
                 line_len += 1 + wlen;
             } else {
-                write!(out, "\n{}", word)?;
+                write!(out, "\n{word}")?;
                 line_len = wlen;
             }
         }
@@ -79,12 +79,12 @@ fn format_stream(path: &str, width: usize) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn wrap_width() {
         let text = "word1 word2 word3";
-        let mut buf: Vec<u8> = Vec::new();
+        let buf: Vec<u8> = Vec::new();
         {
             let _ = buf; // compile test only
         }

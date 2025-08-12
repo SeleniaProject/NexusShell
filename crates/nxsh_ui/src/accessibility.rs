@@ -6,14 +6,11 @@ use std::{
 };
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
-use ratatui::{
-    style::{Color, Style},
-    text::{Span, Line},
-    widgets::Widget,
-};
 use log::{info, warn, error, debug};
 
 use crate::themes::RgbColor;
+
+// (Removed duplicate minimal types; canonical definitions are below in this file.)
 
 /// Accessibility manager for NexusShell UI
 pub struct AccessibilityManager {
@@ -41,6 +38,12 @@ impl AccessibilityManager {
     /// Initialize the accessibility system
     pub async fn initialize(&mut self) -> Result<()> {
         info!("Initializing accessibility system");
+        
+        // Check for TTY blind mode environment variable
+        if std::env::var("NXSH_TTY_NOCOLOR").is_ok() {
+            info!("NXSH_TTY_NOCOLOR detected, enabling TTY blind mode");
+            self.enable_blind_mode().await?;
+        }
         
         // Detect system accessibility settings
         self.detect_system_settings().await?;
@@ -143,9 +146,10 @@ impl AccessibilityManager {
         }
         
         // Position information if enabled
-        if settings.announce_position && element.position.is_some() {
-            let pos = element.position.unwrap();
-            description.push(format!("at position {} of {}", pos.current, pos.total));
+        if settings.announce_position {
+            if let Some(pos) = element.position {
+                description.push(format!("at position {} of {}", pos.current, pos.total));
+            }
         }
         
         // Additional context
@@ -162,15 +166,16 @@ impl AccessibilityManager {
         let contrast_settings = self.contrast_settings.read().await;
         let visual_settings = self.visual_indicators.read().await;
         
-        let base_style = self.get_base_style_for_type(style_type);
+        let base_style = self.get_base_style_for_type(style_type.clone());
         let adjusted_colors = self.adjust_colors_for_accessibility(base_style, &profile, &contrast_settings).await;
+        let adjusted_clone = adjusted_colors.clone();
         
         AccessibleText {
             content: text.to_string(),
             style: adjusted_colors,
-            semantic_type: style_type,
+            semantic_type: style_type.clone(),
             screen_reader_text: self.generate_screen_reader_text(text, style_type).await,
-            high_contrast_alternative: self.create_high_contrast_style(adjusted_colors).await,
+            high_contrast_alternative: self.create_high_contrast_style(adjusted_clone).await,
         }
     }
     
@@ -208,6 +213,28 @@ impl AccessibilityManager {
         
         info!("TTY blind mode disabled");
         Ok(())
+    }
+    
+    /// Check if TTY blind mode is currently enabled
+    pub async fn is_blind_mode_enabled(&self) -> bool {
+        let settings = self.screen_reader_settings.read().await;
+        settings.blind_mode_enabled
+    }
+    
+    /// Check if colors are disabled (either by blind mode or environment variable)
+    pub async fn are_colors_disabled(&self) -> bool {
+        // Check environment variables first
+        if std::env::var("NXSH_TTY_NOCOLOR").is_ok() {
+            return true;
+        }
+        
+        if std::env::var("NO_COLOR").is_ok() && !std::env::var("NO_COLOR").unwrap_or_default().is_empty() {
+            return true;
+        }
+        
+        // Check visual indicator settings
+        let visual_settings = self.visual_indicators.read().await;
+        !visual_settings.use_colors
     }
     
     /// Get keyboard navigation hints for current context

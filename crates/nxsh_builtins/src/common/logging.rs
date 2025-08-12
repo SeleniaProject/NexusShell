@@ -11,18 +11,31 @@
 //! - Memory-efficient buffering
 //! - Cross-platform file handling
 
+#[cfg(feature = "logging")]
 use anyhow::{anyhow, Result, Context};
+#[cfg(not(feature = "logging"))]
+use anyhow::Result;
+#[cfg(feature = "logging")]
 use once_cell::sync::OnceCell;
 use tracing::{debug, error, info, warn, Level};
+#[cfg(feature = "logging")]
 use tracing_subscriber::{fmt::{self, format::FmtSpan}, EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
+#[cfg(feature = "logging")]
 use tracing_appender::{rolling, non_blocking};
+#[cfg(feature = "logging")]
+use serde::{Deserialize, Serialize};
+#[cfg(not(feature = "logging"))]
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+#[cfg(feature = "logging")]
 use std::sync::{Arc, Mutex};
+#[cfg(feature = "logging")]
 use std::time::SystemTime;
+#[cfg(feature = "logging")]
 use chrono::{DateTime, Utc};
 
+#[cfg(feature = "logging")]
 static LOGGER_INSTANCE: OnceCell<LoggerInstance> = OnceCell::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,6 +101,7 @@ impl Default for LoggingConfig {
     }
 }
 
+#[cfg(feature = "logging")]
 #[derive(Debug)]
 struct LoggerInstance {
     config: LoggingConfig,
@@ -96,7 +110,7 @@ struct LoggerInstance {
 }
 
 #[derive(Debug, Default)]
-struct LogStats {
+pub(crate) struct LogStats {
     total_logs: u64,
     error_count: u64,
     warn_count: u64,
@@ -106,7 +120,8 @@ struct LogStats {
     bytes_written: u64,
 }
 
-/// Structured log entry for JSON output
+/// Structured log entry for JSON output (only when logging feature enabled)
+#[cfg(feature = "logging")]
 #[derive(Debug, Serialize)]
 pub struct LogEntry {
     pub timestamp: DateTime<Utc>,
@@ -118,6 +133,7 @@ pub struct LogEntry {
     pub process_info: ProcessInfo,
 }
 
+#[cfg(feature = "logging")]
 #[derive(Debug, Serialize)]
 pub struct SpanInfo {
     pub name: String,
@@ -126,6 +142,7 @@ pub struct SpanInfo {
     pub fields: HashMap<String, serde_json::Value>,
 }
 
+#[cfg(feature = "logging")]
 #[derive(Debug, Serialize)]
 pub struct ProcessInfo {
     pub pid: u32,
@@ -135,6 +152,7 @@ pub struct ProcessInfo {
 }
 
 /// Initialize the advanced logging system with configuration
+#[cfg(feature = "logging")]
 pub fn init_advanced(config: LoggingConfig) -> Result<()> {
     LOGGER_INSTANCE.get_or_try_init(|| -> Result<LoggerInstance> {
         setup_tracing_subscriber(&config)?;
@@ -152,16 +170,20 @@ pub fn init_advanced(config: LoggingConfig) -> Result<()> {
 
 /// Initialize global logger with optional level filter (legacy compatibility)
 pub fn init(level: Option<Level>) {
+    #[cfg(feature = "logging")]
     let config = LoggingConfig {
         level: level.map(|l| l.to_string()).unwrap_or_else(|| {
             std::env::var("NXSH_LOG").unwrap_or_else(|_| "info".to_string())
         }),
         ..Default::default()
     };
-    
+    #[cfg(feature = "logging")]
     let _ = init_advanced(config);
+    #[cfg(not(feature = "logging"))]
+    let _ = level; // no-op
 }
 
+#[cfg(feature = "logging")]
 fn setup_tracing_subscriber(config: &LoggingConfig) -> Result<()> {
     let filter = EnvFilter::try_new(&config.level)
         .or_else(|_| EnvFilter::try_new("info"))
@@ -185,6 +207,7 @@ fn setup_tracing_subscriber(config: &LoggingConfig) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "logging")]
 fn setup_stdout_logging(config: &LoggingConfig, filter: EnvFilter) -> Result<()> {
     match config.format {
         LogFormat::Json => {
@@ -215,6 +238,7 @@ fn setup_stdout_logging(config: &LoggingConfig, filter: EnvFilter) -> Result<()>
     Ok(())
 }
 
+#[cfg(feature = "logging")]
 fn setup_stderr_logging(config: &LoggingConfig, filter: EnvFilter) -> Result<()> {
     match config.format {
         LogFormat::Json => {
@@ -245,6 +269,7 @@ fn setup_stderr_logging(config: &LoggingConfig, filter: EnvFilter) -> Result<()>
     Ok(())
 }
 
+#[cfg(feature = "logging")]
 fn setup_file_logging(config: &LoggingConfig, filter: EnvFilter, path: &Path) -> Result<()> {
     // Create directory if it doesn't exist
     if let Some(parent) = path.parent() {
@@ -318,6 +343,7 @@ fn setup_file_logging(config: &LoggingConfig, filter: EnvFilter, path: &Path) ->
     Ok(())
 }
 
+#[cfg(feature = "logging")]
 fn setup_multiple_logging(_config: &LoggingConfig, _filter: EnvFilter, _outputs: &[LogOutput]) -> Result<()> {
     // Complex multi-output setup would require custom layer implementation
     // For now, default to stderr
@@ -325,6 +351,7 @@ fn setup_multiple_logging(_config: &LoggingConfig, _filter: EnvFilter, _outputs:
 }
 
 /// Create a structured log entry
+#[cfg(feature = "logging")]
 pub fn create_log_entry(level: Level, message: &str, fields: HashMap<String, serde_json::Value>) -> LogEntry {
     LogEntry {
         timestamp: Utc::now(),
@@ -352,6 +379,7 @@ pub fn info_i18n(msg_ja: &str, msg_en: &str) {
 }
 
 /// Log with structured data
+#[cfg(feature = "logging")]
 pub fn log_structured(level: Level, message: &str, fields: HashMap<String, serde_json::Value>) {
     let entry = create_log_entry(level, message, fields);
     
@@ -380,7 +408,8 @@ pub fn log_structured(level: Level, message: &str, fields: HashMap<String, serde
 }
 
 /// Get logging statistics
-pub fn get_stats() -> Option<LogStats> {
+#[cfg(feature = "logging")]
+pub(crate) fn get_stats() -> Option<LogStats> {
     LOGGER_INSTANCE.get()?.log_stats.lock().ok().map(|stats| LogStats {
         total_logs: stats.total_logs,
         error_count: stats.error_count,
@@ -399,7 +428,7 @@ fn is_lang_ja() -> bool {
         .unwrap_or(false)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "logging"))]
 mod tests {
     use super::*;
 

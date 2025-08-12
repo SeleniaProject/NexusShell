@@ -60,7 +60,7 @@ impl Builtin for HistoryCommand {
                 arg if arg.starts_with('-') => {
                     return Err(ShellError::new(
                         ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
-                        format!("history: unknown option '{}'", arg)
+                        format!("history: unknown option '{arg}'")
                     ));
                 }
                 _ => {
@@ -118,14 +118,14 @@ impl HistoryCommand {
             }
 
             ctx.stdout.write(output.as_bytes())
-                .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::FileWriteError), format!("Failed to write output: {}", e)))?;
+                .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::FileWriteError), format!("Failed to write output: {e}")))?;
 
             Ok(ExecutionResult::success(0))
         } else {
-            return Err(ShellError::new(
+            Err(ShellError::new(
                 ErrorKind::InternalError(InternalErrorKind::LockError),
                 "Failed to lock history"
-            ));
+            ))
         }
     }
 
@@ -152,7 +152,7 @@ EXAMPLES:
 "#;
 
         ctx.stdout.write(help_text.as_bytes())
-            .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::FileWriteError), format!("Failed to write help: {}", e)))?;
+            .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::FileWriteError), format!("Failed to write help: {e}")))?;
 
         Ok(ExecutionResult::success(0))
     }
@@ -187,17 +187,17 @@ EXAMPLES:
             if index >= history.len() {
                 return Err(ShellError::new(
                     ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
-                    format!("history: offset {} out of range", offset)
+                    format!("history: offset {offset} out of range")
                 ));
             }
 
             history.remove(index);
             Ok(ExecutionResult::success(0))
         } else {
-            return Err(ShellError::new(
+            Err(ShellError::new(
                 ErrorKind::InternalError(InternalErrorKind::LockError),
                 "Failed to lock history for deletion"
-            ));
+            ))
         }
     }
 }

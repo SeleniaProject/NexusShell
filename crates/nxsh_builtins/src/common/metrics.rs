@@ -13,34 +13,20 @@
 //! - Alert threshold monitoring
 
 use anyhow::{anyhow, Result, Context};
+// Import lightweight logging facade macros from core crate (they no-op under minimal-logging)
+use nxsh_core::{nxsh_log_info};
 #[cfg(feature = "metrics")]
-use metrics::{counter, gauge, histogram};
+use metrics::{counter, histogram};
 #[cfg(feature = "metrics")]
 use metrics_exporter_prometheus::PrometheusBuilder;
 
-// Mock implementations when metrics feature is not enabled  
-#[cfg(not(feature = "metrics"))]
-macro_rules! counter {
-    ($name:expr) => { /* no-op */ };
-    ($name:expr, $value:expr) => { /* no-op */ };
-}
-
-#[cfg(not(feature = "metrics"))]
-macro_rules! gauge {
-    ($name:expr) => { /* no-op */ };
-    ($name:expr, $value:expr) => { /* no-op */ };
-}
-
-#[cfg(not(feature = "metrics"))]
-macro_rules! histogram {
-    ($name:expr) => { /* no-op */ };
-    ($name:expr, $value:expr) => { /* no-op */ };
-}
+// When metrics feature disabled we simply do nothing (gated blocks below)
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use std::thread;
+#[cfg(feature = "async-runtime")]
 use tokio::time::interval;
 use chrono::{DateTime, Utc};
 use once_cell::sync::OnceCell;
@@ -134,7 +120,7 @@ pub fn init_metrics(config: MetricsConfig) -> Result<()> {
     #[cfg(feature = "metrics")]
     {
         let builder = PrometheusBuilder::new();
-        let handle = builder
+    let _handle = builder
             .install()
             .context("Failed to install Prometheus metrics exporter")?;
     }
@@ -155,98 +141,101 @@ pub fn init_metrics(config: MetricsConfig) -> Result<()> {
     // Start background collection thread
     start_metrics_collection_thread(config);
 
-    tracing::info!("Metrics collection system initialized successfully");
+    nxsh_log_info!("Metrics collection system initialized successfully");
     Ok(())
 }
 
 fn register_core_metrics() {
     #[cfg(feature = "metrics")]
     {
-        // Job metrics - Initialize with zero values to register them
-        counter!("nxsh_jobs_total");
-        counter!("nxsh_jobs_completed");
-        counter!("nxsh_jobs_failed");
-        gauge!("nxsh_jobs_active");
-        histogram!("nxsh_job_duration_ms");
-
-        // System metrics
-        gauge!("nxsh_memory_usage_bytes");
-        gauge!("nxsh_cpu_usage_percent");
-        gauge!("nxsh_uptime_seconds");
-        gauge!("nxsh_process_count");
-        gauge!("nxsh_thread_count");
-
-        // Command metrics
-        counter!("nxsh_commands_total");
-        histogram!("nxsh_command_duration_ms");
-        counter!("nxsh_command_errors_total");
-
-        // Performance metrics
-        histogram!("nxsh_startup_time_ms");
-        histogram!("nxsh_completion_time_ms");
-        histogram!("nxsh_parse_time_ms");
+    // (Optional) could use describe_* macros here; leaving empty to avoid unnecessary registrations.
     }
 }
 
+#[cfg(feature = "async-runtime")]
 fn start_metrics_collection_thread(config: MetricsConfig) {
     thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            let mut interval = interval(Duration::from_millis(config.collection_interval_ms));
-            
+        #[cfg(feature = "async-runtime")]
+        {
+            use once_cell::sync::Lazy;
+            static METRICS_RT: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
+                tokio::runtime::Builder::new_current_thread().enable_all().build().expect("metrics runtime")
+            });
+            METRICS_RT.block_on(async {
+                let mut interval = interval(Duration::from_millis(config.collection_interval_ms));
+                loop {
+                    interval.tick().await;
+                    collect_system_metrics();
+                    update_prometheus_metrics();
+                }
+            });
+        }
+        #[cfg(not(feature = "async-runtime"))]
+        {
+            // Fallback: simple blocking loop using std sleep
             loop {
-                interval.tick().await;
+                std::thread::sleep(Duration::from_millis(config.collection_interval_ms));
                 collect_system_metrics();
                 update_prometheus_metrics();
             }
-        });
+        }
+    });
+}
+
+#[cfg(not(feature = "async-runtime"))]
+fn start_metrics_collection_thread(config: MetricsConfig) {
+    thread::spawn(move || {
+        let interval = Duration::from_millis(config.collection_interval_ms.max(100));
+        loop {
+            std::thread::sleep(interval);
+            collect_system_metrics();
+            update_prometheus_metrics();
+        }
     });
 }
 
 fn collect_system_metrics() {
-    use sysinfo::{System, SystemExt, ProcessExt};
-    
-    let mut sys = System::new_all();
-    sys.refresh_all();
-    
-    let memory_usage = sys.used_memory() * 1024; // Convert to bytes
-    let cpu_usage = 0.0f64; // CPU usage measurement needs to be handled differently
-    let process_count = sys.processes().len() as u32;
-    
-    if let Some(collector) = METRICS_INSTANCE.get() {
-        if let Ok(mut stats) = collector.system_stats.lock() {
-            stats.memory_usage_bytes = memory_usage;
-            stats.cpu_usage_percent = cpu_usage;
-            stats.uptime_seconds = collector.start_time.elapsed().as_secs();
-            stats.process_count = process_count;
-            // Note: Thread count is harder to get accurately across platforms
-            stats.thread_count = 1; // Placeholder
+    #[cfg(feature = "system-info")]
+    {
+        use sysinfo::{System, SystemExt};
+        let mut sys = System::new_all();
+        sys.refresh_all();
+        let memory_usage = sys.used_memory() * 1024;
+        let cpu_usage = 0.0f64;
+        let process_count = sys.processes().len() as u32;
+        if let Some(collector) = METRICS_INSTANCE.get() {
+            if let Ok(mut stats) = collector.system_stats.lock() {
+                stats.memory_usage_bytes = memory_usage;
+                stats.cpu_usage_percent = cpu_usage;
+                stats.uptime_seconds = collector.start_time.elapsed().as_secs();
+                stats.process_count = process_count;
+                stats.thread_count = 1;
+            }
+        }
+    }
+    #[cfg(not(feature = "system-info"))]
+    {
+        if let Some(collector) = METRICS_INSTANCE.get() {
+            if let Ok(mut stats) = collector.system_stats.lock() {
+                stats.uptime_seconds = collector.start_time.elapsed().as_secs();
+            }
         }
     }
 }
 
 fn update_prometheus_metrics() {
     if let Some(collector) = METRICS_INSTANCE.get() {
-        // Update job metrics
-        if let Ok(job_stats) = collector.job_stats.read() {
-            gauge!("nxsh_jobs_active", job_stats.active_jobs as f64);
-        }
-        
-        // Update system metrics
-        if let Ok(system_stats) = collector.system_stats.lock() {
-            gauge!("nxsh_memory_usage_bytes", system_stats.memory_usage_bytes as f64);
-            gauge!("nxsh_cpu_usage_percent", system_stats.cpu_usage_percent);
-            gauge!("nxsh_uptime_seconds", system_stats.uptime_seconds as f64);
-            gauge!("nxsh_process_count", system_stats.process_count as f64);
-            gauge!("nxsh_thread_count", system_stats.thread_count as f64);
-        }
+        if let Ok(_job_stats) = collector.job_stats.read() { /* metrics disabled placeholder */ }
+        if let Ok(_system_stats) = collector.system_stats.lock() { /* metrics disabled placeholder */ }
     }
 }
 
 /// Record a job start
 pub fn record_job_start() {
-    counter!("nxsh_jobs_total");
-    // counter increment is handled by the counter macro
+    #[cfg(feature = "metrics")]
+    {
+        counter!("nxsh_jobs_total").increment(1);
+    }
     
     if let Some(collector) = METRICS_INSTANCE.get() {
         if let Ok(mut stats) = collector.job_stats.write() {
@@ -258,16 +247,11 @@ pub fn record_job_start() {
 
 /// Record a job completion
 pub fn record_job_completion(duration: Duration, success: bool) {
-    let duration_ms = duration.as_millis() as f64;
+    let _duration_ms = duration.as_millis() as f64;
     #[cfg(feature = "metrics")]
     {
-        histogram!("nxsh_job_duration_ms");
-        
-        if success {
-            counter!("nxsh_jobs_completed");
-        } else {
-            counter!("nxsh_jobs_failed");
-        }
+        histogram!("nxsh_job_duration_ms").record(_duration_ms);
+        if success { counter!("nxsh_jobs_completed").increment(1); } else { counter!("nxsh_jobs_failed").increment(1); }
     }
     
     if let Some(collector) = METRICS_INSTANCE.get() {
@@ -295,12 +279,9 @@ pub fn record_command_execution(command: &str, duration: Duration, success: bool
     
     #[cfg(feature = "metrics")]
     {
-        counter!("nxsh_commands_total");
-        histogram!("nxsh_command_duration_ms");
-        
-        if !success {
-            counter!("nxsh_command_errors_total");
-        }
+        counter!("nxsh_commands_total").increment(1);
+        histogram!("nxsh_command_duration_ms").record(_duration_ms);
+        if !success { counter!("nxsh_command_errors_total").increment(1); }
     }
     
     if let Some(collector) = METRICS_INSTANCE.get() {
@@ -322,7 +303,7 @@ pub fn record_command_execution(command: &str, duration: Duration, success: bool
 pub fn record_startup_time(_duration: Duration) {
     #[cfg(feature = "metrics")]
     {
-        histogram!("nxsh_startup_time_ms");
+        histogram!("nxsh_startup_time_ms").record(_duration.as_millis() as f64);
     }
 }
 
@@ -330,7 +311,7 @@ pub fn record_startup_time(_duration: Duration) {
 pub fn record_completion_time(_duration: Duration) {
     #[cfg(feature = "metrics")]
     {
-        histogram!("nxsh_completion_time_ms");
+        histogram!("nxsh_completion_time_ms").record(_duration.as_millis() as f64);
     }
 }
 
@@ -338,7 +319,7 @@ pub fn record_completion_time(_duration: Duration) {
 pub fn record_parse_time(_duration: Duration) {
     #[cfg(feature = "metrics")]
     {
-        histogram!("nxsh_parse_time_ms");
+        histogram!("nxsh_parse_time_ms").record(_duration.as_millis() as f64);
     }
 }
 
