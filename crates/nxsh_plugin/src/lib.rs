@@ -452,6 +452,8 @@ pub mod security_integration {
     
     impl IntegratedSecurityManager {
         pub async fn new() -> Result<Self> {
+            // Attempt key rotation before initializing signature verifier (best-effort)
+            let _ = crate::keys::rotate_trusted_keys_if_requested();
             let mut signature_verifier = SignatureVerifier::new()?;
             signature_verifier.initialize().await?;
             

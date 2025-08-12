@@ -253,7 +253,9 @@
 ## 9. セキュリティ / アップデート / 署名
  - [x] Capabilities Manifest (`cap.toml`) 必須化検証 (CI ルール) ← 実装
    - `nxsh_plugin::manager::validate_plugin_metadata` で `NXSH_CAP_MANIFEST_REQUIRED=1` 有効時に `metadata.capabilities` 未指定をエラーに。
-- [ ] Ed25519 + TUF メタデータ: プラグイン鍵ローテーション手順自動化
+ - [x] Ed25519 + TUF メタデータ: プラグイン鍵ローテーション手順自動化 ← 実装
+   - `nxsh_plugin::keys::rotate_trusted_keys_if_requested()` を追加。`NXSH_ROTATE_KEYS=1` と新鍵 `NXSH_NEW_OFFICIAL_PUBKEY`/`NXSH_NEW_COMMUNITY_PUBKEY` 指定で `~/.nxsh/keys/*.pub` を原子的に更新、タイムスタンプ付きバックアップ作成。
+   - セキュリティ初期化時（`IntegratedSecurityManager::new`）にベストエフォートでローテーションを適用。
 - [ ] ヒストリ暗号化 (Argon2id + AES-GCM) 実装検証テスト (復号/改ざん検出試験)
 - [ ] アップデータ: 差分パッチ署名検証 (updater.rs 実装と SPEC 整合)
 - [ ] 公開鍵 (official/community) 埋め込み後のキー管理プロセス設計

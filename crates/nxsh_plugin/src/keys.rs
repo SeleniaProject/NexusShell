@@ -66,4 +66,47 @@ pub fn is_valid_ed25519_pubkey_b64(key_b64: &str) -> bool {
     decoded.len() == 32
 }
 
+/// Rotate trusted keys by environment-supplied new keys; returns (old_official, old_community).
+/// When NXSH_ROTATE_KEYS=1 and NXSH_NEW_OFFICIAL_PUBKEY/NXSH_NEW_COMMUNITY_PUBKEY are provided,
+/// this function writes new keys to ~/.nxsh/keys/*.pub atomically, keeping a timestamped backup.
+pub fn rotate_trusted_keys_if_requested() -> std::io::Result<(Option<String>, Option<String>)> {
+    if std::env::var("NXSH_ROTATE_KEYS").map(|v| v=="1" || v.eq_ignore_ascii_case("true")).unwrap_or(false) {
+        let new_off = std::env::var("NXSH_NEW_OFFICIAL_PUBKEY").ok();
+        let new_com = std::env::var("NXSH_NEW_COMMUNITY_PUBKEY").ok();
+        if new_off.is_none() && new_com.is_none() { return Ok((None, None)); }
+
+        let home = dirs::home_dir().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "no home dir"))?;
+        let keys_dir = home.join(".nxsh").join("keys");
+        let _ = std::fs::create_dir_all(&keys_dir);
+
+        let mut old_off: Option<String> = None;
+        let mut old_com: Option<String> = None;
+
+        fn backup_and_write(path: &std::path::Path, new_val: &str) -> std::io::Result<Option<String>> {
+            let old = std::fs::read_to_string(path).ok().map(|s| s.trim().to_string());
+            if let Some(ref o) = old { if o == new_val { return Ok(old); } }
+            if path.exists() {
+                let ts = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
+                let bak = path.with_extension(format!("pub.bak.{}", ts));
+                let _ = std::fs::copy(path, &bak);
+            }
+            let tmp = path.with_extension("pub.tmp");
+            std::fs::write(&tmp, new_val.as_bytes())?;
+            std::fs::rename(&tmp, path)?;
+            Ok(old)
+        }
+
+        if let Some(val) = new_off {
+            let p = keys_dir.join("official_ed25519.pub");
+            old_off = backup_and_write(&p, val.trim())?;
+        }
+        if let Some(val) = new_com {
+            let p = keys_dir.join("community_ed25519.pub");
+            old_com = backup_and_write(&p, val.trim())?;
+        }
+        return Ok((old_off, old_com));
+    }
+    Ok((None, None))
+}
+
 
