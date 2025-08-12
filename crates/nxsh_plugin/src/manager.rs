@@ -220,7 +220,7 @@ impl PluginManager {
     }
 
     /// Validate plugin metadata
-    fn validate_plugin_metadata(&self, metadata: &PluginMetadata) -> Result<()> {
+    pub fn validate_plugin_metadata(&self, metadata: &PluginMetadata) -> Result<()> {
         // Validate version format
         Version::parse(&metadata.version)
             .context("Invalid plugin version format")?;

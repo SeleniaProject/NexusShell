@@ -1,4 +1,4 @@
-use nxsh_plugin::manager::PluginManager;
+use nxsh_plugin::PluginManager;
 use nxsh_plugin::manager::PluginMetadata;
 
 #[test]
