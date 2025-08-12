@@ -1,0 +1,72 @@
+name: Performance and Size Gates
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  startup_hyperfine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Build release binary
+        run: cargo build --release -p nxsh_cli
+      - name: Install hyperfine
+        run: cargo install hyperfine --locked
+      - name: Measure startup with hyperfine
+        run: |
+          ./target/release/nxsh -c "exit 0" || true
+          hyperfine --warmup 3 --runs 30 --export-json startup.json './target/release/nxsh -c "exit 0"'
+      - name: Check startup budget (<= 5ms)
+        run: python3 scripts/check_startup_budget.py --file startup.json --budget-ms 5 --enforce 0
+      - name: Upload startup result
+        uses: actions/upload-artifact@v4
+        with:
+          name: hyperfine-startup
+          path: startup.json
+
+  completion_bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Run completion latency benchmarks (<1ms asserts)
+        run: cargo bench -p nxsh_hal --bench hal_performance -- --quiet || (echo 'Bench failed' && exit 1)
+
+  size_gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Build release
+        run: cargo build --release -p nxsh_cli
+      - name: Install cargo-bloat (report only)
+        run: cargo install cargo-bloat --locked || true
+      - name: Cargo bloat report
+        run: |
+          cargo bloat -p nxsh_cli --release --crates || true
+      - name: Enforce binary size budget (<= 9437184 bytes)
+        run: |
+          BIN=target/release/nxsh
+          if [ ! -f "$BIN" ]; then echo "Binary not found: $BIN"; exit 1; fi
+          SIZE=$(stat -c%s "$BIN")
+          echo "nxsh size: $SIZE bytes"
+          MAX=$((9*1024*1024))
+          if [ "$SIZE" -gt "$MAX" ]; then echo "Size gate failed: $SIZE > $MAX"; exit 1; fi
+          echo "Size gate OK"
+

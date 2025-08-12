@@ -280,12 +280,15 @@
 - [ ] コマンド別多言語エイリアス マッピングテーブル設計 (例: 日本語/中国語/ロシア語)
 
 ## 11. 性能 / ベンチマーク
- - [ ] 起動時間 ≤5ms 測定 CI 自動化 (hyperfine 連続計測 + 再現性)
-- [ ] 補完レイテンシ <1ms 計測インフラ
+ - [x] 起動時間 ≤5ms 測定 CI 自動化 (hyperfine 連続計測 + 再現性) ← 実装
+   - CI 追加: `.github/workflows/performance.yml` に hyperfine 測定と JSON 出力、`scripts/check_startup_budget.py` でしきい値検証を実施。
+ - [x] 補完レイテンシ <1ms 計測インフラ ← 実装
+   - CI で `cargo bench -p nxsh_hal --bench hal_performance` を実行し、<1ms アサートで自動ゲート。
 - [ ] `grep -r TODO .` ripgrep 同等性能 ベンチ (SPEC / QA_PREVIEW 参照)
 - [ ] `ls -R /usr` Bash 比 10x 測定スクリプト & 阈値ゲート
 - [ ] JIT 有効時 2x 速度向上 (criterion ベンチ) — PGO/LTO プロファイル生成
-- [ ] バイナリサイズ閾値 (≤9 MiB Release) CI `cargo bloat` チェック導入
+ - [x] バイナリサイズ閾値 (≤9 MiB Release) CI `cargo bloat` チェック導入 ← 実装
+   - リリースビルドのバイナリサイズを 9 MiB 以下に強制（同ワークフロー）。`cargo bloat` は参考出力。
 	- [ ] バイナリサイズ差分 CI レポート (size_report.ps1 の delta JSON 利用)
 
 ### 観測性 / Logging / Metrics (新規セクション)
