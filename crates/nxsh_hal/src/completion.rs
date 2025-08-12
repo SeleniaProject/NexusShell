@@ -5,6 +5,7 @@ use std::{
     path::Path,
 };
 use anyhow::Result;
+use std::cmp::min;
 
 /// High-performance completion system with caching
 #[derive(Debug)]
@@ -152,6 +153,13 @@ impl CompletionEngine {
         Ok(completions)
     }
 
+    /// Truncate a long string for display safely
+    fn truncate_display(&self, s: &str, max_len: usize) -> String {
+        if s.len() <= max_len { return s.to_string(); }
+        let keep = max_len.saturating_sub(3);
+        format!("{}...", &s[..keep])
+    }
+
     fn complete_path_commands(&self, input: &str) -> Result<Vec<Completion>> {
         let mut completions = Vec::new();
         
@@ -265,8 +273,58 @@ impl CompletionEngine {
     }
 
     fn complete_aliases(&self, input: &str) -> Result<Vec<Completion>> {
-        // Placeholder for alias completion - would integrate with shell's alias system
-        Ok(Vec::new())
+        // Integrate with shell alias system via environment snapshot for HAL context.
+        // Aliases are exposed to subprocesses as NXSH_ALIAS_*=name=value pairs optionally,
+        // and also used by interactive UI. Here we support both sources:
+        // 1) Environment variables NXSH_ALIAS_* (cheap, no cross-crate deps)
+        // 2) Fallback: parse common alias export file if configured (NXSH_ALIAS_FILE)
+
+        let mut completions: Vec<Completion> = Vec::new();
+        let needle = input.trim();
+
+        // Source 1: Environment variables
+        for (key, value) in std::env::vars() {
+            if let Some(rest) = key.strip_prefix("NXSH_ALIAS_") {
+                // Expected form: NXSH_ALIAS_<NAME>=<value>
+                let alias_name = rest.to_lowercase();
+                if alias_name.starts_with(needle) {
+                    completions.push(Completion {
+                        text: alias_name.clone(),
+                        display: format!("{} -> {}", alias_name, self.truncate_display(&value, 40)),
+                        completion_type: CompletionType::Alias,
+                        description: Some("Alias".to_string()),
+                        score: self.calculate_score(needle, &alias_name),
+                    });
+                }
+            }
+        }
+
+        // Source 2: Optional alias file (line format: name=value)
+        if let Ok(path) = std::env::var("NXSH_ALIAS_FILE") {
+            if let Ok(content) = std::fs::read_to_string(path) {
+                for line in content.lines() {
+                    if let Some((name, val)) = line.split_once('=') {
+                        let name = name.trim();
+                        if !name.is_empty() && name.starts_with(needle) {
+                            completions.push(Completion {
+                                text: name.to_string(),
+                                display: format!("{} -> {}", name, self.truncate_display(val.trim(), 40)),
+                                completion_type: CompletionType::Alias,
+                                description: Some("Alias (file)".to_string()),
+                                score: self.calculate_score(needle, name),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sort by score descending
+        completions.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        // Respect max_results
+        completions.truncate(self.config.max_results);
+
+        Ok(completions)
     }
 
     fn complete_history(&self, input: &str) -> Result<Vec<Completion>> {

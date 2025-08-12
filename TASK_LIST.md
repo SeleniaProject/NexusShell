@@ -243,7 +243,9 @@
 ## 8. HAL / ネットワーク / プラットフォーム
  - [x] (nxsh_hal/src/network_broken.rs:901) macOS Routing table 実装 ← 実装
  - [x] (nxsh_hal/src/network_broken.rs:907) Windows Routing table 実装 ← 実装
-- [ ] (nxsh_hal/src/completion.rs:268) エイリアス補完 Shell alias システム統合
+ - [x] (nxsh_hal/src/completion.rs:268) エイリアス補完 Shell alias システム統合 ← 実装
+   - HAL補完で `NXSH_ALIAS_*` 環境変数および `NXSH_ALIAS_FILE`（name=value 行）からエイリアス候補を生成。
+   - スコアリング/最大件数制御に連携、UI/コアと独立しても機能。
 - [ ] (nxsh_hal/src/process.rs:433) placeholder 安全実装コメント → 実コードの安全保証ドキュメント化
 
 ## 9. セキュリティ / アップデート / 署名
