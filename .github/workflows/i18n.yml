@@ -1,0 +1,29 @@
+name: I18n PO/MO Pipeline
+
+on:
+  push:
+    paths:
+      - 'i18n/**'
+      - '.github/workflows/i18n.yml'
+      - 'scripts/compile_po_to_mo.sh'
+  pull_request:
+    paths:
+      - 'i18n/**'
+      - '.github/workflows/i18n.yml'
+      - 'scripts/compile_po_to_mo.sh'
+
+jobs:
+  build_mo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install gettext
+        run: sudo apt-get update && sudo apt-get install -y gettext
+      - name: Compile .po to .mo
+        run: bash scripts/compile_po_to_mo.sh
+      - name: Upload .mo artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: i18n-mo-files
+          path: i18n/mo/**/LC_MESSAGES/*.mo
+

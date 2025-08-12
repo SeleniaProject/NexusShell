@@ -275,7 +275,10 @@
   - 生成スクリプト: `scripts/gen_cve_workflow.rs` で `workflows/cve_hotfix/<CVE-ID>.md` を作成。
 
 ## 10. 国際化 / ローカライズ
- - [ ] `.po`/`.mo` 生成パイプライン (gettext 互換) 実装
+ - [x] `.po`/`.mo` 生成パイプライン (gettext 互換) 実装 ← 実装
+   - ディレクトリ構成: `i18n/po/<locale>/messages.po` → `i18n/mo/<locale>/LC_MESSAGES/messages.mo`
+   - スクリプト: `scripts/compile_po_to_mo.sh`（`msgfmt` 前提）
+   - CI: `.github/workflows/i18n.yml` で自動コンパイルとアーティファクト収集
  - [x] `unic-langid` による数値/日付/サイズローカライズ出力 ユニットテスト追加 ← 実装
    - `nxsh_builtins::common::locale_format` を追加（数値/小数/日付/サイズのローカライズ整形）。
    - 依存追加: `num-format`（軽量桁区切り）。`unic-langid` は既存 optional を利用。

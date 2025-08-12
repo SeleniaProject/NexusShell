@@ -1,0 +1,6 @@
+msgid "hello"
+msgstr "こんにちは"
+
+msgid "goodbye"
+msgstr "さようなら"
+
