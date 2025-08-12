@@ -8,6 +8,7 @@
 pub mod app;
 pub mod cui_app;
 pub mod startup_profiler; // Startup measurement utilities
+pub mod status_line; // Status line metrics (CPU/MEM/Net/Battery)
 pub mod enhanced_ui;
 pub mod line_editor;
 pub mod prompt;

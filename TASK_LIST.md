@@ -93,7 +93,10 @@
   - `crates/nxsh_ui/src/startup_profiler.rs` 新規。`NXSH_MEASURE_STARTUP=1` または `--measure-startup` で有効化。
   - CLI開始→CUI初期化→初回フレーム→初回プロンプト各マイルストーンでタイムスタンプを収集し、16ms 判定を出力。
   - `lib.rs`/`cui_app.rs`/`nxsh_cli/src/main.rs` にフックを追加。ビルド/テスト緑。
-- [ ] ステータスライン: CPU/MEM/Net/Battery 指標計測 実装と 100ms 更新調整 (高負荷時退避)
+- [x] ステータスライン: CPU/MEM/Net/Battery 指標計測 実装と 100ms 更新調整 (高負荷時退避) ← 実装済
+  - `crates/nxsh_ui/src/status_line.rs` 追加。CPU/MEMは常時、Netはfeature `net-metrics`、Batteryはfeature `battery-metrics` で有効化。
+  - 100ms周期、CPU>85%で250ms/CPU>95%で500msへ自動バックオフ。`NXSH_STATUSLINE_DISABLE=1` で無効化。
+  - `cui_app.rs` よりプロンプト直後に1行描画（カラーは `tui::supports_color()` 検知）。
 - [ ] リアルタイム構文解析 / 補完: 仕様とコード差分レビュー (現行実装の網羅性)
 - [ ] アクセシビリティ: スクリーンリーダー用 OSC 9; メタデータ埋め込み実装確認
 - [x] テーマ 20 種公式パッケージ化 (JSON/YAML) & バリデーションスキーマ ← 2025-01-26 完了

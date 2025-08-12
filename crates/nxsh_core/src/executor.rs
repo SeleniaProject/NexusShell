@@ -540,7 +540,13 @@ impl Executor {
 
         // Return the original result or convert timeout detected late
         match result {
-            Ok(r) => Ok(r),
+            Ok(r) => {
+                if context.is_timed_out() {
+                    Ok(ExecutionResult::failure(124).with_error(b"nxsh: execution timed out".to_vec()))
+                } else {
+                    Ok(r)
+                }
+            },
             Err(e) => {
                 if context.is_timed_out() {
                     Ok(ExecutionResult::failure(124).with_error(b"nxsh: execution timed out".to_vec()))

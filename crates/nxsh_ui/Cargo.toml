@@ -55,6 +55,9 @@ unicode-segmentation = "1.10"
 [features]
 default = ["async"]
 async = ["tokio"]
+# Optional metrics feature gates
+net-metrics = []
+battery-metrics = []
 
 [[example]]
 name = "theme_system_test"

@@ -33,6 +33,7 @@ use crate::{
     line_editor::NexusLineEditor,
     completion::NexusCompleter,
     ui_ux::{UIUXSystem, PromptContext},
+    status_line::{StatusMetricsCollector, format_status_line},
     startup_profiler,
 };
 use nxsh_core::{context::ShellContext, executor::Executor};
@@ -104,6 +105,8 @@ pub struct CUIApp {
 
     /// Advanced UI/UX system (themes, interactive steps, prompt rendering)
     uiux_system: UIUXSystem,
+    /// Status line metrics collector
+    status_collector: Option<Arc<StatusMetricsCollector>>,
 
     /// Last exit code from executed command (for prompt display)
     last_exit_code: i32,
@@ -231,6 +234,7 @@ impl CUIApp {
             command_history: Vec::new(),
             history_position: 0,
             uiux_system: UIUXSystem::new(),
+            status_collector: None,
             last_exit_code: 0,
             guide_session: None,
             cached_git_branch: None,
@@ -332,6 +336,7 @@ impl CUIApp {
             command_history: Vec::new(),
             history_position: 0,
             uiux_system: UIUXSystem::new(),
+            status_collector: None,
             last_exit_code: 0,
             guide_session: None,
             cached_git_branch: None,
@@ -398,6 +403,11 @@ impl CUIApp {
         // Main application loop
         // System info for memory tracking
         let mut sys = System::new();
+        // Start status line collector lazily (respect env opt-out)
+        if std::env::var("NXSH_STATUSLINE_DISABLE").ok().as_deref() != Some("1") {
+            self.status_collector = Some(StatusMetricsCollector::start());
+        }
+
         let pid_u32 = std::process::id();
         let pid = Pid::from_u32(pid_u32);
         while !self.should_quit {
@@ -405,6 +415,14 @@ impl CUIApp {
             self.display_prompt()?;
             if startup_profiler::is_enabled() {
                 startup_profiler::mark_first_prompt_flushed(Instant::now());
+            }
+
+            // Render a status line below prompt if enabled
+            if let Some(ref c) = self.status_collector {
+                let snap = c.get();
+                let colored = crate::tui::supports_color();
+                let line = format_status_line(&snap, colored);
+                println!("\r{}", line);
             }
             
             // Measure input latency
