@@ -358,7 +358,8 @@
 - [ ] オブジェクトパイプライン: by-ref 並列 (`||>`) 並列度 / backpressure 実装確認
   - [x] まずは基礎のパイプラインUT追加（map/filterの通過確認: `crates/nxsh_core/tests/object_pipeline_parallel_tests.rs`）
 - [ ] ヒストリ暗号化 (鍵導出 / AES-GCM) 実装コード有無調査
-- [ ] プラグイン Capabilities Manifest 強制検証 (ロード拒否ケース)
+- [x] プラグイン Capabilities Manifest 強制検証 (ロード拒否ケース)
+  - `crates/nxsh_plugin/tests/capabilities_manifest_tests.rs` 追加（`NXSH_CAP_MANIFEST_REQUIRED=1` で capabilities 未指定を拒否、指定時は許可）。
 - [ ] ログ: JSON / human-readable 2 モード切替単体テスト
   - [x] `logstats` の `--json`/`--pretty`/`--prom` 各モードの基本UTを追加（`crates/nxsh_builtins/tests/log_mode_tests.rs`）
 - [ ] メトリクス一覧 (nxsh_* ) 実装 vs DESIGN.md 差分
