@@ -283,7 +283,10 @@
    - `nxsh_builtins::common::locale_format` を追加（数値/小数/日付/サイズのローカライズ整形）。
    - 依存追加: `num-format`（軽量桁区切り）。`unic-langid` は既存 optional を利用。
    - テスト: `crates/nxsh_builtins/tests/locale_format_tests.rs` を追加。
-- [ ] コマンド別多言語エイリアス マッピングテーブル設計 (例: 日本語/中国語/ロシア語)
+ - [x] コマンド別多言語エイリアス マッピングテーブル設計 (例: 日本語/中国語/ロシア語) ← 実装
+   - ローダ: `nxsh_core::locale_alias` を追加。ロケール検出（`LC_ALL`/`LANG`）→ `~/.nxsh/aliases/<locale>.toml` → 環境指定 → ビルトインの優先順で `ShellContext` に `set_alias` 注入。
+   - ビルトイン定義: `assets/aliases/ja-JP.toml`/`zh-CN.toml`/`ru-RU.toml` を同梱。
+   - `ShellContext::new()` で自動適用。テストは全緑維持。
 
 ## 11. 性能 / ベンチマーク
  - [x] 起動時間 ≤5ms 測定 CI 自動化 (hyperfine 連続計測 + 再現性) ← 実装

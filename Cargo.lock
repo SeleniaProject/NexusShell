@@ -2999,6 +2999,7 @@ dependencies = [
  "time",
  "tokio",
  "tokio-test",
+ "toml",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",

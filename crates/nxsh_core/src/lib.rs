@@ -68,6 +68,7 @@ pub mod startup; // Startup time optimization system
 pub mod memory;
 pub mod io_optimization;
 pub mod shell;
+pub mod locale_alias;
 #[cfg(feature = "security_auditor")] pub mod security_auditor; // Security audit and compliance system - Phase 4
 #[cfg(feature = "system_optimizer")] pub mod system_optimizer; // Advanced system optimization and tuning - Phase 4
 #[cfg(feature = "performance_profiler")] pub mod performance_profiler; // Performance profiling and benchmarking - Phase 4

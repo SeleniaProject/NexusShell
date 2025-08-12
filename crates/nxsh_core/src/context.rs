@@ -141,7 +141,7 @@ fn detect_login_shell() -> bool {
     // SHLVL-based exit handled at the top
 
     // If environment looks like an initial login (LOGNAME/HOME/SHELL present) and not nested, assume login shell
-    if shlvl_snapshot.unwrap_or(1) <= 1 && logname_present && home_present && shell_present { return true; }
+    if logname_present && home_present && shell_present { return shlvl_snapshot.unwrap_or(1) <= 1; }
 
     // argv[0] checks handled above
 
@@ -588,6 +588,9 @@ impl ShellContext {
             temp_id_counter: Arc::new(Mutex::new(0)),
             macro_system: Arc::new(RwLock::new(crate::macros::MacroSystem::new())),
         };
+
+        // Apply locale-based aliases if available
+        crate::locale_alias::apply_locale_aliases(&ctx);
 
         // Optional: Enable PowerShell-compatible aliases from env flag
         // Controlled via NXSH_ENABLE_PS_ALIASES=1 (CLI sets this if --enable-ps-aliases and not disabled)

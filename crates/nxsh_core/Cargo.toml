@@ -99,6 +99,7 @@ chrono = { version = "0.4", default-features = false, features = ["std", "serde"
 nxsh_parser = { path = "../nxsh_parser" }
 nxsh_hal = { path = "../nxsh_hal" }
 regex = { version = "1", default-features = false, features = ["std"] }
+toml = { version = "0.8", default-features = false, features = ["parse"] }
 
 # Additional dependencies
 is-terminal = { version = "0.4", default-features = false }
