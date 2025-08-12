@@ -348,6 +348,8 @@
 - [ ] クラッシュダンプ (minidump / XOR 暗号化) 実装確認
 - [ ] アップデータ: 差分パッチ bsdiff 実装位置確認
 - [ ] CI で `cargo audit`, `cargo-vet`, `cargo udeps` 実行有無
+ - [x] CI で `cargo audit`, `cargo-vet`, `cargo udeps` 実行有無 ← 実装
+   - `.github/workflows/security_audit.yml` を追加。`cargo-audit` は致命で失敗、`vet`/`udeps` はベストエフォートでレポート。
 
 ## 16. 出典別 TODO 集計 (原文コメント抜粋)
 （短文化。詳細は該当行参照）
