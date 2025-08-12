@@ -173,14 +173,15 @@ fn detect_login_shell() -> bool {
     #[cfg(not(windows))]
     let logonserver_nonempty = false;
 
-    // Explicit LOGIN env implies login shell (override SHLVL)
+    // Strong invariant: clearly nested shells are never login shells
+    // This invariant has priority over all other heuristics
+    if let Some(level) = shlvl_snapshot { if level >= 2 { return false; } }
+
+    // Explicit LOGIN env implies login shell (only when not clearly nested)
     if login_env.is_some() { return true; }
 
-    // SSH session implies login shell (override SHLVL)
+    // SSH session implies login shell (only when not clearly nested)
     if ssh_client_present || ssh_conn_present || ssh_tty_present { return true; }
-
-    // Strong invariant: clearly nested shells are never login shells
-    if let Some(level) = shlvl_snapshot { if level >= 2 { return false; } }
 
     // If environment looks like an initial login (basic user/home/shell hints) and not nested
     // treat as login shell. This ensures SHLVL=1 with typical login env is detected.

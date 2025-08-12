@@ -1,4 +1,5 @@
 use proptest::prelude::*;
+use proptest::string::string_regex;
 use nxsh_parser::Parser;
 
 fn roundtrip(input: &str) -> bool {
@@ -14,8 +15,7 @@ fn roundtrip(input: &str) -> bool {
 
 proptest! {
     #[test]
-    fn prop_ast_roundtrip_random_ascii(s in ".{0,256}") {
-        prop_assume!(!s.contains("\0"));
+    fn prop_ast_roundtrip_random_unicode_no_nul(s in string_regex(r"(?s)[^\x00]{0,256}").unwrap()) {
         let _ = roundtrip(&s);
     }
 }

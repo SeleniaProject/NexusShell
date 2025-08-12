@@ -488,7 +488,7 @@ impl UIUXSystem {
         Ok(completions)
     }
 
-    fn validate_command(&self, command: &str) -> ValidationResult {
+    pub fn validate_command(&self, command: &str) -> ValidationResult {
         // Basic command validation
         if command.trim().is_empty() {
             return ValidationResult::Empty;
@@ -592,7 +592,7 @@ impl UIUXSystem {
         "NexusShell Help\n\nAvailable commands:\n- Use 'help <command>' for specific help\n- Use Tab for auto-completion\n- Use Ctrl+C to cancel operations".to_string()
     }
 
-    fn get_command_steps(&self, command: &str) -> Result<Vec<InteractiveStep>> {
+    pub fn get_command_steps(&self, command: &str) -> Result<Vec<InteractiveStep>> {
         // Provide different placeholder steps depending on command to activate code paths
         let steps = match command {
             "grep" => vec![
