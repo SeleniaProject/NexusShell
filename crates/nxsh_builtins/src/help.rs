@@ -131,14 +131,17 @@ fn initialize_help_map() -> HashMap<String, CommandHelp> {
         name: "logstats".to_string(),
         summary: "Display logging statistics and rates".to_string(),
         description: "Display metrics from the structured logging subsystem. Supports plain text and JSON output, and computes rate metrics using a persisted snapshot.".to_string(),
-        usage: "logstats [--json|--pretty]".to_string(),
+        usage: "logstats [--json|--pretty|--prom|--prometheus]".to_string(),
         options: vec![
             OptionHelp { short: None, long: "--json".to_string(), description: "Output metrics as a compact JSON object".to_string(), value_type: None },
             OptionHelp { short: None, long: "--pretty".to_string(), description: "Output metrics as pretty-printed JSON".to_string(), value_type: None },
+            OptionHelp { short: None, long: "--prom".to_string(), description: "Output metrics in Prometheus text format".to_string(), value_type: None },
+            OptionHelp { short: None, long: "--prometheus".to_string(), description: "Alias of --prom".to_string(), value_type: None },
         ],
         examples: vec![
             ExampleHelp { command: "logstats".to_string(), description: "Print metrics as key:value lines".to_string() },
             ExampleHelp { command: "logstats --json".to_string(), description: "Print metrics as JSON (machine-readable)".to_string() },
+            ExampleHelp { command: "logstats --prom".to_string(), description: "Expose metrics in Prometheus text format".to_string() },
         ],
         see_also: vec!["update".to_string()],
     });

@@ -99,6 +99,8 @@ fn get_parent_pid() -> u32 {
 fn detect_login_shell() -> bool {
     // Take a snapshot of relevant environment to reduce race impact in parallel tests
     let shlvl_snapshot = std::env::var("SHLVL").ok().and_then(|s| s.parse::<i32>().ok());
+    // Strong invariant: clearly nested shells are never login shells
+    if let Some(level) = shlvl_snapshot { if level >= 2 { return false; } }
     let login_env = std::env::var("LOGIN").ok();
     let logname_present = std::env::var("LOGNAME").is_ok();
     let home_present = std::env::var("HOME").is_ok();
@@ -116,13 +118,13 @@ fn detect_login_shell() -> bool {
     #[cfg(not(windows))]
     let logonserver_nonempty = false;
 
-    // Highest priority: explicit login environments should force true
-    if login_env.is_some() {
+    // Explicit LOGIN env implies login shell only when not clearly nested
+    if login_env.is_some() && shlvl_snapshot.unwrap_or(1) <= 1 {
         return true;
     }
 
-    // SSH session implies login shell regardless of SHLVL
-    if ssh_client_present || ssh_conn_present || ssh_tty_present {
+    // SSH session implies login shell only when not clearly nested
+    if (ssh_client_present || ssh_conn_present || ssh_tty_present) && shlvl_snapshot.unwrap_or(1) <= 1 {
         return true;
     }
 
@@ -139,8 +141,7 @@ fn detect_login_shell() -> bool {
         }
     }
 
-    // SHLVL-based early exit for clearly nested shells (apply after argv[0] check)
-    if let Some(level) = shlvl_snapshot { if level >= 2 { return false; } }
+    // SHLVL-based exit handled at the top
 
     // If environment looks like an initial login (LOGNAME/HOME/SHELL present) and not nested, assume login shell
     if shlvl_snapshot.unwrap_or(1) <= 1 && logname_present && home_present && shell_present { return true; }
@@ -189,6 +190,11 @@ fn detect_login_shell() -> bool {
     }
 
     // Method 9 removed: handled at top to override SHLVL when SSH session
+
+    // Final guard: if current SHLVL indicates nesting, never treat as login
+    if std::env::var("SHLVL").ok().and_then(|s| s.parse::<i32>().ok()).map(|l| l >= 2).unwrap_or(false) {
+        return false;
+    }
 
     // Default: not a login shell
     false

@@ -277,7 +277,9 @@
 - [x] write_errors カウンタ追加 ← 2025-08-10
 - [x] nxsh_cli Cargo.toml logging feature alias 追加 (cfg 警告解消) ← 2025-08-11
 - [x] logstats builtin JSON 出力（`--json`/`--pretty`、BusyBox/stub 構成でも整形式 JSONを出力）
-- [ ] メトリクスを Prometheus 互換テキストでダンプするオプション
+ - [x] メトリクスを Prometheus 互換テキストでダンプするオプション ← 実装
+   - `logstats --prom|--prometheus` を追加。`nxsh_log_*` プレフィックス、HELP/TYPE行を含むテキスト出力。
+   - stub 構成では可用性のみを gauge で出力（`nxsh_log_available 0`）。
 - [x] logging 機能最小化: busybox-min で file ロギング完全無効 (環境変数で完全無効化を実装)
 
 ## 12. テスト / QA

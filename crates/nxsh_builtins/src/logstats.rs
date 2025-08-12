@@ -7,7 +7,7 @@ use std::{fs, path::PathBuf};
 use serde::{Serialize, Deserialize};
 
 #[derive(Copy, Clone, PartialEq, Eq)]
-enum OutputMode { Plain, JsonCompact, JsonPretty }
+enum OutputMode { Plain, JsonCompact, JsonPretty, Prometheus }
 
 pub fn logstats_cli(args: &[String]) -> Result<()> {
     let mut mode = OutputMode::Plain;
@@ -15,6 +15,7 @@ pub fn logstats_cli(args: &[String]) -> Result<()> {
         match a.as_str() {
             "--json" => mode = OutputMode::JsonCompact,
             "--pretty" => mode = OutputMode::JsonPretty,
+            "--prom" | "--prometheus" => mode = OutputMode::Prometheus,
             "-h" | "--help" => { print_help(); return Ok(()); }
             _ => {}
         }
@@ -63,6 +64,7 @@ pub fn logstats_cli(args: &[String]) -> Result<()> {
         OutputMode::Plain => { for (k, v) in map { println!("{k}: {v}"); } }
         OutputMode::JsonCompact => { println!("{}", serde_json::to_string(&map).unwrap_or_else(|_| "{}".to_string())); }
         OutputMode::JsonPretty => { println!("{}", serde_json::to_string_pretty(&map).unwrap_or_else(|_| "{}".to_string())); }
+        OutputMode::Prometheus => { render_prometheus(&map); }
     }
 
     Ok(())
@@ -75,6 +77,7 @@ fn print_help() {
          Options:\n\
            --json      Output metrics as compact JSON object\n\
            --pretty    Output metrics as pretty-printed JSON\n\
+           --prom, --prometheus  Output metrics in Prometheus text exposition format\n\
            -h, --help  Show this help and exit\n\n\
          Notes:\n\
            Rates (rotations_per_sec, write_errors_per_sec, bytes_per_sec, messages_per_sec)\n\
@@ -140,6 +143,58 @@ fn persist_snapshot(path: PathBuf, snap: &StatsSnapshot) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(snap)?;
     fs::write(path, bytes)?;
     Ok(())
+}
+
+/// Render Prometheus text exposition format for the collected map
+fn render_prometheus(map: &BTreeMap<String, u64>) {
+    // Prefix all metrics with nxsh_log_
+    for (k, v) in map.iter() {
+        let metric = format!("nxsh_log_{}", sanitize_metric_name(k));
+        if let Some((mtype, help)) = metric_meta(k) {
+            println!("# HELP {} {}", metric, help);
+            println!("# TYPE {} {}", metric, mtype);
+        } else {
+            // Default to gauge if unknown
+            println!("# TYPE {} gauge", metric);
+        }
+        println!("{} {}", metric, v);
+    }
+}
+
+fn sanitize_metric_name(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for ch in name.chars() {
+        match ch {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | ':' => out.push(ch),
+            _ => out.push('_'),
+        }
+    }
+    // Ensure name does not start with a digit
+    if out.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+        format!("m_{}", out)
+    } else {
+        out
+    }
+}
+
+fn metric_meta(key: &str) -> Option<(&'static str, &'static str)> {
+    match key {
+        "current_file_size" => Some(("gauge", "Current size of active log file in bytes")),
+        "rotations_performed" => Some(("counter", "Total number of log rotations performed")),
+        "write_errors" => Some(("counter", "Total number of logging write errors")),
+        "total_bytes_logged" => Some(("counter", "Total bytes written to logs")),
+        "messages_logged" => Some(("counter", "Total messages logged")),
+        "errors_logged" => Some(("counter", "Total error-level messages logged")),
+        "warnings_logged" => Some(("counter", "Total warning-level messages logged")),
+        "info_logged" => Some(("counter", "Total info-level messages logged")),
+        "debug_logged" => Some(("counter", "Total debug-level messages logged")),
+        "trace_logged" => Some(("counter", "Total trace-level messages logged")),
+        "rotations_per_sec" => Some(("gauge", "Estimated log rotations per second")),
+        "write_errors_per_sec" => Some(("gauge", "Estimated logging write errors per second")),
+        "bytes_per_sec" => Some(("gauge", "Estimated logging throughput in bytes per second")),
+        "messages_per_sec" => Some(("gauge", "Estimated messages per second")),
+        _ => None,
+    }
 }
 
 // Expose a programmatic collection path for tests and internal callers

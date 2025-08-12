@@ -15,6 +15,13 @@ pub fn logstats_cli(args: &[String]) -> Result<()> {
         match a.as_str() {
             "--json" => mode = OutputMode::JsonCompact,
             "--pretty" => mode = OutputMode::JsonPretty,
+            "--prom" | "--prometheus" => {
+                // In stub mode, emit minimal Prometheus exposition stating disabled
+                println!("# HELP nxsh_log_available Logging subsystem availability");
+                println!("# TYPE nxsh_log_available gauge");
+                println!("nxsh_log_available 0");
+                return Ok(());
+            }
             "-h" | "--help" => {
                 print_help();
                 return Ok(());
@@ -48,8 +55,9 @@ fn print_help() {
         "Usage: logstats [OPTIONS]\n\n\
          Display logging subsystem statistics (unavailable in this build).\n\n\
          Options:\n\
-           --json      Output placeholder as compact JSON\n\
-           --pretty    Output placeholder as pretty-printed JSON\n\
+            --json      Output placeholder as compact JSON\n\
+            --pretty    Output placeholder as pretty-printed JSON\n\
+            --prom, --prometheus  Output minimal Prometheus metrics (availability only)\n\
            -h, --help  Show this help and exit"
     );
 }
