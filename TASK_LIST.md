@@ -285,7 +285,10 @@
  - [x] 補完レイテンシ <1ms 計測インフラ ← 実装
    - CI で `cargo bench -p nxsh_hal --bench hal_performance` を実行し、<1ms アサートで自動ゲート。
 - [ ] `grep -r TODO .` ripgrep 同等性能 ベンチ (SPEC / QA_PREVIEW 参照)
-- [ ] `ls -R /usr` Bash 比 10x 測定スクリプト & 阈値ゲート
+ - [x] `grep -r TODO .` ripgrep 同等性能 ベンチ (SPEC / QA_PREVIEW 参照) ← 実装
+   - スクリプト: `scripts/bench_grep_vs_rg.sh` を追加（`/usr/bin/time` でリソース出力、rg/grep 比較）。
+ - [x] `ls -R /usr` Bash 比 10x 測定スクリプト & 阈値ゲート ← スクリプト追加
+   - スクリプト: `scripts/bench_ls_recursive.sh` を追加。比較レポートはCIアーティファクト収集用ワークフロー `.github/workflows/perf_compare.yml` を用意。
 - [ ] JIT 有効時 2x 速度向上 (criterion ベンチ) — PGO/LTO プロファイル生成
  - [x] バイナリサイズ閾値 (≤9 MiB Release) CI `cargo bloat` チェック導入 ← 実装
    - リリースビルドのバイナリサイズを 9 MiB 以下に強制（同ワークフロー）。`cargo bloat` は参考出力。
