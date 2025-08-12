@@ -1,0 +1,43 @@
+name: Size Delta Report
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  size-delta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Build and generate size report
+        run: bash scripts/size_report.sh
+      - name: Compare with previous size_report_local.json if present
+        run: |
+          echo "Generating delta..."
+          CURRENT=size_report.json
+          if [ -f size_report_local.json ]; then
+            echo "Previous report found: size_report_local.json"
+            python3 - <<'PY'
+import json
+from pathlib import Path
+cur = json.loads(Path('size_report.json').read_text())
+prev = json.loads(Path('size_report_local.json').read_text())
+delta = cur['size_bytes'] - prev['size_bytes']
+print(f"Delta bytes: {delta}")
+PY
+          else
+            echo "No previous local report; skipping delta"
+          fi
+      - name: Upload size report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: size-report
+          path: size_report.json
+

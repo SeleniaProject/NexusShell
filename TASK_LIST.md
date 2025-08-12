@@ -301,7 +301,8 @@
 - [ ] JIT 有効時 2x 速度向上 (criterion ベンチ) — PGO/LTO プロファイル生成
  - [x] バイナリサイズ閾値 (≤9 MiB Release) CI `cargo bloat` チェック導入 ← 実装
    - リリースビルドのバイナリサイズを 9 MiB 以下に強制（同ワークフロー）。`cargo bloat` は参考出力。
-	- [ ] バイナリサイズ差分 CI レポート (size_report.ps1 の delta JSON 利用)
+	- [x] バイナリサイズ差分 CI レポート (size_report.ps1 の delta JSON 利用) ← 実装
+  	- `.github/workflows/size_delta.yml` を追加。`scripts/size_report.sh` 実行結果と `size_report_local.json` があれば delta を算出しログ出力、レポートをアーティファクト化。
 
 ### 観測性 / Logging / Metrics (新規セクション)
 - [x] CombinedWriter 導入 (console + file + stats 集計) ← 2025-08-10
