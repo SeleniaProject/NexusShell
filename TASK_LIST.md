@@ -352,6 +352,7 @@
 ## 15. 未確認 / 要検証 (仕様と実装の整合チェック)
 - [ ] 仕様で「完全実装済み」記載機能の統合テスト実測 (例: パイプ演算子 3 種 / 変数展開 / プロセス置換 / 算術展開)
 - [ ] オブジェクトパイプライン: by-ref 並列 (`||>`) 並列度 / backpressure 実装確認
+  - [x] まずは基礎のパイプラインUT追加（map/filterの通過確認: `crates/nxsh_core/tests/object_pipeline_parallel_tests.rs`）
 - [ ] ヒストリ暗号化 (鍵導出 / AES-GCM) 実装コード有無調査
 - [ ] プラグイン Capabilities Manifest 強制検証 (ロード拒否ケース)
 - [ ] ログ: JSON / human-readable 2 モード切替単体テスト
