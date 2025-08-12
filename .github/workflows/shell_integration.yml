@@ -1,0 +1,45 @@
+name: Shell Integration (BATS / Pester)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  bats_ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Install bats
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats
+      - name: Build nxsh
+        run: cargo build --release -p nxsh_cli
+      - name: Run BATS tests
+        run: bats tests/integration/bats
+
+  pester_windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Build nxsh
+        shell: powershell
+        run: cargo build --release -p nxsh_cli
+      - name: Install Pester
+        shell: powershell
+        run: Install-Module Pester -Force -Scope CurrentUser -SkipPublisherCheck
+      - name: Run Pester tests
+        shell: powershell
+        run: |
+          Import-Module Pester
+          Invoke-Pester -Path tests/integration/pester -CI -EnableExit
+

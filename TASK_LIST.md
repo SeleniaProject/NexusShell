@@ -323,6 +323,8 @@
 - [ ] 単体テスト件数 SPEC 記載値 (1500+ / 2000+) と現状差分調査
   - [x] 自動集計スクリプト追加（`scripts/count_tests.py`）とレポート用ワークフロー（`test_count.yml`）
 - [ ] 統合テスト: POSIX PCTS / BATS / Pester 実行パイプライン整備
+  - [x] CI雛形追加: `.github/workflows/shell_integration.yml`（UbuntuでBATS、WindowsでPester 実行）
+  - [x] サンプルテスト追加: `tests/integration/bats/basic.bats` / `tests/integration/pester/Basic.Tests.ps1`
 - [ ] Fuzzing `cargo-fuzz` 48h ラン → 成果物 (coverage, crashes) レポート化
 - [ ] プロパティテスト `proptest` AST round-trip 充足率計測
   - [x] 基本的なASTラウンドトリップ性のプロパティテストを追加（`nxsh_parser/tests/property_roundtrip.rs`）
@@ -365,6 +367,9 @@
   - UT 追加: `crates/nxsh_builtins/tests/crash_xor_tests.rs`（暗号化ファイル生成と平文でないことを検証）。
 - [ ] アップデータ: 差分パッチ bsdiff 実装位置確認
   - 位置: `crates/nxsh_core/src/updater.rs` の `install_update()` に delta 適用プレースホルダあり（bsdiff/bspatch 未統合）。
+  - [ ] Rust 実装選定と統合（候補: `bsdiff-rs`, `bidiff`）
+  - [ ] 差分適用UT（小さなバイナリで元→パッチ→新の往復検証）
+  - [ ] 署名検証と併用の統合IT（deltaでもEd25519検証を通す）
 - [ ] CI で `cargo audit`, `cargo-vet`, `cargo udeps` 実行有無
  - [x] CI で `cargo audit`, `cargo-vet`, `cargo udeps` 実行有無 ← 実装
    - `.github/workflows/security_audit.yml` を追加。`cargo-audit` は致命で失敗、`vet`/`udeps` はベストエフォートでレポート。
