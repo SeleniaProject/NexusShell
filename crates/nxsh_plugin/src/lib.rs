@@ -47,6 +47,7 @@ use crate::component::ComponentRegistry;
 #[cfg(feature = "wasi-runtime")]
 use crate::resource_table::ResourceTable;
 pub use crate::manager::PluginManager;
+pub use crate::manager::PluginMetadata;
 pub use crate::signature::PluginSignature;
 
 // #[cfg(test)]

@@ -1,5 +1,4 @@
-use nxsh_plugin::PluginManager;
-use nxsh_plugin::manager::PluginMetadata;
+use nxsh_plugin::{PluginManager, PluginMetadata};
 
 #[test]
 fn rejects_when_capabilities_required_and_missing() {
