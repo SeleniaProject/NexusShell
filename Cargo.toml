@@ -51,3 +51,10 @@ codegen-units = 1
 lto = "fat"
 panic = "abort"
 strip = true
+
+# Profile Guided Optimization build profile
+[profile.release-pgo]
+inherits = "release"
+# Keep LTO fat, but allow PGO instrumentation/usage via RUSTFLAGS
+debug = false
+incremental = false

@@ -299,6 +299,11 @@
  - [x] `ls -R /usr` Bash 比 10x 測定スクリプト & 阈値ゲート ← スクリプト追加
    - スクリプト: `scripts/bench_ls_recursive.sh` を追加。比較レポートはCIアーティファクト収集用ワークフロー `.github/workflows/perf_compare.yml` を用意。
 - [ ] JIT 有効時 2x 速度向上 (criterion ベンチ) — PGO/LTO プロファイル生成
+  - [x] PGO 用ビルドプロファイル定義（`[profile.release-pgo]` 追加）
+  - [x] CI: PGO ワークフロー追加（`.github/workflows/pgo.yml`、instrument→train→merge→use）
+  - [x] JIT/MIR 切替の実行戦略制御（`NXSH_JIT`/`NXSH_EXEC_STRATEGY`）
+  - [x] ベンチ: `jit_vs_interp` 追加（AST vs MIR/JIT 比較）
+  - [ ] 2x 加速の達成確認（Criterion 結果で閾値評価・ゲート化）
  - [x] バイナリサイズ閾値 (≤9 MiB Release) CI `cargo bloat` チェック導入 ← 実装
    - リリースビルドのバイナリサイズを 9 MiB 以下に強制（同ワークフロー）。`cargo bloat` は参考出力。
 	- [x] バイナリサイズ差分 CI レポート (size_report.ps1 の delta JSON 利用) ← 実装
@@ -330,7 +335,8 @@
 - [ ] 音声入出力インタフェース PoC (VAD / STT API 選定)
 
 ## 14. その他プレースホルダー / コメント改善
-- [ ] UI: app.rs (複数箇所:186,477,500,507) placeholder ロジック本実装
+- [x] UI: app.rs (複数箇所:186,477,500,507) placeholder ロジック本実装
+  - `App::run()` を `CUIApp::run()` へ委譲し、実運用パス（プロンプト/入力/補完/実行/メトリクス/ステータスライン）に接続
 - [ ] UI: ui_ux.rs:582 コマンド別 placeholder ステップ → 実行パス網羅テスト
 - [ ] UI: enhanced_ui_tests.rs:13 test_placeholder → 実質的テストへ昇格
 - [ ] Parser: 条件付き構築での body placeholder 二重格納 回避

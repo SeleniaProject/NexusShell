@@ -1,0 +1,56 @@
+name: PGO Build (JIT 2x Benchmark)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  pgo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          profile: minimal
+          components: clippy, rustfmt
+      - name: Install llvm-profdata/llvm-profgen
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm
+      - name: Build with instrumentation
+        env:
+          RUSTFLAGS: -Cprofile-generate=./pgo-prof
+          CARGO_PROFILE_RELEASE_LTO: fat
+        run: |
+          cargo build --release -p nxsh_cli
+      - name: Train instrumentation with benches
+        run: |
+          # Run targeted benches that exercise hot paths
+          cargo bench -p nxsh_core --bench startup -- --warm-up-time 1 --measurement-time 3 || true
+          cargo bench -p nxsh_core --bench nxsh_performance -- --warm-up-time 1 --measurement-time 3 || true
+      - name: Merge profiles
+        run: |
+          llvm-profdata merge -o pgo.profdata ./pgo-prof
+      - name: Build with PGO
+        env:
+          RUSTFLAGS: -Cprofile-use=./pgo.profdata -Clto=fat
+        run: |
+          cargo build --profile release-pgo -p nxsh_cli
+      - name: Run criterion comparison (JIT=on vs off)
+        env:
+          NXSH_JIT: "1"
+        run: |
+          cargo bench -p nxsh_core --bench nxsh_performance -- --save-baseline jit_on || true
+          unset NXSH_JIT
+          cargo bench -p nxsh_core --bench nxsh_performance -- --save-baseline jit_off || true
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pgo-artifacts
+          path: |
+            target/release/*
+            target/release-pgo/*
+            pgo.profdata
+

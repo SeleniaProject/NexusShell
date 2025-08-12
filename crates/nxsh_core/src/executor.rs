@@ -480,7 +480,18 @@ impl Executor {
         eprintln!("DEBUG: About to register all builtins");
         executor.register_all_builtins();
         eprintln!("DEBUG: Executor created with {} builtins", executor.builtins.len());
-        
+        // Select execution strategy by environment configuration
+        // NXSH_EXEC_STRATEGY=ast|mir (default: ast). NXSH_JIT=1 implies mir.
+        if let Ok(strategy_env) = std::env::var("NXSH_EXEC_STRATEGY") {
+            match strategy_env.to_ascii_lowercase().as_str() {
+                "mir" | "jit" => executor.strategy = ExecutionStrategy::MirEngine,
+                "ast" | "interp" | "interpreter" => executor.strategy = ExecutionStrategy::DirectInterpreter,
+                _ => {}
+            }
+        } else if std::env::var("NXSH_JIT").map(|v| v=="1" || v.eq_ignore_ascii_case("true")).unwrap_or(false) {
+            executor.strategy = ExecutionStrategy::MirEngine;
+        }
+
         executor
     }
     

@@ -172,39 +172,15 @@ impl App {
     
     /// Main application run loop
     /// 
-    /// This is the primary entry point for the application, implementing
-    /// a simple CUI interaction loop with proper error handling and
-    /// graceful shutdown capabilities.
+    /// Delegates to the comprehensive CUI implementation in `CUIApp` to
+    /// provide the full interactive experience (prompt, input handling,
+    /// completion, execution, metrics, status line, accessibility, etc.).
     pub async fn run(&mut self) -> Result<()> {
-        // Display welcome message
+        // Ensure welcome banner appears once via wrapper for consistency
         self.display_welcome_message()?;
-        
-        // For now, just show a simple prompt and exit
-        // In a complete implementation, this would include the full interaction loop
-        println!("NexusShell CUI is ready. Type 'exit' to quit.");
-        
-        // Simple input loop placeholder
-        loop {
-            let prompt = self.prompt_formatter.generate_prompt().await?;
-            print!("{prompt}");
-            io::stdout().flush()?;
-            
-            let mut input = String::new();
-            if io::stdin().read_line(&mut input)? == 0 {
-                break; // EOF
-            }
-            
-            let command = input.trim();
-            if command == "exit" || command == "quit" {
-                break;
-            }
-            
-            if !command.is_empty() {
-                println!("Command received: {command}");
-                self.metrics.commands_executed += 1;
-            }
-        }
-        
+        // Hand off control to the full CUI runtime
+        self.cui_app.run().await?;
+        // Display final shutdown message for a consistent session footer
         self.display_shutdown_message()?;
         Ok(())
     }
