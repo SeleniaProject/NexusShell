@@ -341,7 +341,9 @@
 - [x] UI: app.rs (複数箇所:186,477,500,507) placeholder ロジック本実装
   - `App::run()` を `CUIApp::run()` へ委譲し、実運用パス（プロンプト/入力/補完/実行/メトリクス/ステータスライン）に接続
 - [ ] UI: ui_ux.rs:582 コマンド別 placeholder ステップ → 実行パス網羅テスト
-- [ ] UI: enhanced_ui_tests.rs:13 test_placeholder → 実質的テストへ昇格
+- [x] UI: enhanced_ui_tests.rs:13 test_placeholder → 実質的テストへ昇格
+  - `crates/nxsh_ui/tests/enhanced_ui_tests.rs` を実テスト化（プロンプトとバリデーション検証）。
+  - `crates/nxsh_ui/tests/ui_steps_tests.rs` 追加（コマンド別ステップ基本検証）。
 - [ ] Parser: 条件付き構築での body placeholder 二重格納 回避
 - [ ] network_tools.rs: HTTP クライアント選定 (ureq vs reqwest vs hyper) 比較ドキュメント
   - [x] 比較ドキュメント追加: `docs/NETWORK_CLIENT_COMPARISON.md`
@@ -358,8 +360,11 @@
 - [ ] ログ: JSON / human-readable 2 モード切替単体テスト
   - [x] `logstats` の `--json`/`--pretty`/`--prom` 各モードの基本UTを追加（`crates/nxsh_builtins/tests/log_mode_tests.rs`）
 - [ ] メトリクス一覧 (nxsh_* ) 実装 vs DESIGN.md 差分
-- [ ] クラッシュダンプ (minidump / XOR 暗号化) 実装確認
+- [x] クラッシュダンプ (minidump / XOR 暗号化) 実装確認
+  - `nxsh_builtins::common::crash_diagnosis` に `crypto` 無効時の XOR 方式難読化を実装（`NXSH_CRASH_XOR_KEY`）。
+  - UT 追加: `crates/nxsh_builtins/tests/crash_xor_tests.rs`（暗号化ファイル生成と平文でないことを検証）。
 - [ ] アップデータ: 差分パッチ bsdiff 実装位置確認
+  - 位置: `crates/nxsh_core/src/updater.rs` の `install_update()` に delta 適用プレースホルダあり（bsdiff/bspatch 未統合）。
 - [ ] CI で `cargo audit`, `cargo-vet`, `cargo udeps` 実行有無
  - [x] CI で `cargo audit`, `cargo-vet`, `cargo udeps` 実行有無 ← 実装
    - `.github/workflows/security_audit.yml` を追加。`cargo-audit` は致命で失敗、`vet`/`udeps` はベストエフォートでレポート。

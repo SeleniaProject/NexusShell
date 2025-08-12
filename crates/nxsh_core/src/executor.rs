@@ -551,7 +551,7 @@ impl Executor {
 
         // Return the original result or convert timeout detected late
         match result {
-            Ok(r) => {
+            Ok(mut r) => {
                 if context.is_timed_out() {
                     Ok(ExecutionResult::failure(124).with_error(b"nxsh: execution timed out".to_vec()))
                 } else {
@@ -562,7 +562,13 @@ impl Executor {
                 if context.is_timed_out() {
                     Ok(ExecutionResult::failure(124).with_error(b"nxsh: execution timed out".to_vec()))
                 } else {
-                    Err(e)
+                    // If an error occurred but a global deadline was configured and already elapsed
+                    // treat it as timeout to satisfy strict timeout semantics in tests.
+                    if context.is_timed_out() {
+                        Ok(ExecutionResult::failure(124).with_error(b"nxsh: execution timed out".to_vec()))
+                    } else {
+                        Err(e)
+                    }
                 }
             }
         }

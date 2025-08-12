@@ -399,8 +399,30 @@ fn encrypt_crash_report(data: &str, config: &CrashDiagnosisConfig) -> Result<Vec
 
 #[cfg(not(feature = "crypto"))]
 fn encrypt_crash_report(data: &str, _config: &CrashDiagnosisConfig) -> Result<Vec<u8>> {
-    // 暗号化機能無効時: 平文を書き出し (サイズ最小化優先)。
-    Ok(data.as_bytes().to_vec())
+    // Lightweight XOR-based obfuscation used when strong crypto feature is disabled.
+    // This is NOT cryptographically secure; it only prevents casual inspection.
+    // A stronger scheme (AEAD) is available behind the `crypto` feature.
+    let key_env = std::env::var("NXSH_CRASH_XOR_KEY").unwrap_or_else(|_| {
+        // Default key string (must be stable across runs to allow offline analysis by the user)
+        "nxsh_crash_default_xor_key".to_string()
+    });
+    let key_bytes = key_env.as_bytes();
+    if key_bytes.is_empty() {
+        return Ok(data.as_bytes().to_vec());
+    }
+    let mut out = Vec::with_capacity(data.len() + 1);
+    for (i, &b) in data.as_bytes().iter().enumerate() {
+        let k = key_bytes[i % key_bytes.len()];
+        // Add a simple position-dependent diffusion
+        let rot = ((i as u8) & 0x0F) ^ 0x5A;
+        out.push(b ^ k ^ rot);
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+pub(crate) fn save_crash_report_for_test(report: &CrashReport, config: &CrashDiagnosisConfig) -> Result<()> {
+    save_crash_report(report, config)
 }
 
 fn cleanup_old_crash_dumps(config: &CrashDiagnosisConfig) -> Result<()> {

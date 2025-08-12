@@ -1,17 +1,24 @@
-// These tests are temporarily disabled as they reference old TUI components
-// that have been migrated to CUI. The tests need to be rewritten for the new CUI interface.
+use nxsh_ui::ui_ux::{UIUXSystem, PromptContext, ValidationResult};
 
-/*
-All test content has been commented out during TUI → CUI migration.
-Tests will be reactivated and updated for CUI compatibility in Phase 2.
-*/
+#[test]
+fn prompt_includes_user_host_and_path() {
+    let ui = UIUXSystem::new();
+    let ctx = PromptContext {
+        username: "user".into(),
+        hostname: "host".into(),
+        current_path: "/home/user/project".into(),
+        git_branch: Some("main".into()),
+        last_exit_code: 0,
+        is_admin: false,
+    };
+    let prompt = ui.render_prompt(&ctx);
+    assert!(prompt.contains("user"));
+    assert!(prompt.contains("host"));
+}
 
-// Empty test module to prevent compilation issues
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_placeholder() {
-        // This test ensures the module compiles during TUI → CUI migration
-        assert!(true);
-    }
+#[test]
+fn validation_empty_and_known_command() {
+    let ui = UIUXSystem::new();
+    assert!(matches!(ui.validate_command(""), ValidationResult::Empty));
+    assert!(matches!(ui.validate_command("echo hi"), ValidationResult::Valid));
 }
