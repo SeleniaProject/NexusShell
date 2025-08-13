@@ -171,10 +171,103 @@ fn print_current_user_info(user_only: bool, group_only: bool, all_groups: bool, 
     Ok(())
 }
 
-fn print_user_info(_user: &str, _user_only: bool, _group_only: bool, _all_groups: bool, _use_name: bool, _use_real: bool, _zero_delimited: bool) -> Result<()> {
-    // For specified user, we'll need to look up user database
-    // This is a simplified implementation
-    Err(anyhow!("id: looking up user information not implemented yet"))
+#[cfg(unix)]
+fn print_user_info(user: &str, user_only: bool, group_only: bool, all_groups: bool, use_name: bool, _use_real: bool, zero_delimited: bool) -> Result<()> {
+    use std::ffi::CString;
+    use libc::{getpwnam, getgrgid, gid_t, c_char};
+
+    let cuser = CString::new(user).map_err(|_| anyhow!("id: invalid user name"))?;
+    let pwd = unsafe { getpwnam(cuser.as_ptr()) };
+    if pwd.is_null() { return Err(anyhow!(format!("id: '{}' not found", user))); }
+    unsafe {
+        let uid: u32 = (*pwd).pw_uid;
+        let gid: u32 = (*pwd).pw_gid;
+
+        if user_only {
+            if use_name {
+                let name = get_user_name(uid).unwrap_or_else(|| uid.to_string());
+                print!("{name}");
+            } else {
+                print!("{}", uid);
+            }
+            if zero_delimited { print!("\0"); } else { println!(); }
+            return Ok(());
+        }
+
+        if group_only {
+            if use_name {
+                let name = get_group_name(gid).unwrap_or_else(|| gid.to_string());
+                print!("{name}");
+            } else {
+                print!("{}", gid);
+            }
+            if zero_delimited { print!("\0"); } else { println!(); }
+            return Ok(());
+        }
+
+        if all_groups {
+            let groups = get_groups_for_user(&cuser, gid);
+            for (i, g) in groups.iter().enumerate() {
+                if i > 0 { if zero_delimited { print!("\0"); } else { print!(" "); } }
+                if use_name {
+                    let name = get_group_name(*g).unwrap_or_else(|| g.to_string());
+                    print!("{name}");
+                } else {
+                    print!("{}", g);
+                }
+            }
+            if zero_delimited { print!("\0"); } else { println!(); }
+            return Ok(());
+        }
+
+        let uid_name = get_user_name(uid).unwrap_or_default();
+        let gid_name = get_group_name(gid).unwrap_or_default();
+        let uid_str = if use_name && !uid_name.is_empty() { uid_name } else { uid.to_string() };
+        let gid_str = if use_name && !gid_name.is_empty() { gid_name } else { gid.to_string() };
+
+        print!("uid={} gid={}", uid_str, gid_str);
+
+        let groups = get_groups_for_user(&cuser, gid);
+        if !groups.is_empty() {
+            print!(" groups=");
+            for (i, g) in groups.iter().enumerate() {
+                if i > 0 { print!(","); }
+                if use_name {
+                    let name = get_group_name(*g).unwrap_or_else(|| g.to_string());
+                    print!("{name}");
+                } else {
+                    print!("{}", g);
+                }
+            }
+        }
+        if zero_delimited { print!("\0"); } else { println!(); }
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn print_user_info(user: &str, _user_only: bool, _group_only: bool, _all_groups: bool, _use_name: bool, _use_real: bool, _zero_delimited: bool) -> Result<()> {
+    Err(anyhow!(format!("id: user lookup not implemented on Windows for '{}'", user)))
+}
+
+#[cfg(unix)]
+fn get_groups_for_user(user: &std::ffi::CString, primary_gid: u32) -> Vec<u32> {
+    use libc::{getgrouplist, gid_t};
+    let mut ngroups: i32 = 0;
+    unsafe {
+        // First call to get required size
+        let mut dummy: gid_t = 0;
+        let mut size = 0;
+        getgrouplist(user.as_ptr(), primary_gid as gid_t, &mut dummy as *mut gid_t, &mut size as *mut i32);
+        if size <= 0 { return vec![primary_gid]; }
+        let mut buf: Vec<gid_t> = vec![0; size as usize];
+        let mut n = size;
+        if getgrouplist(user.as_ptr(), primary_gid as gid_t, buf.as_mut_ptr(), &mut n as *mut i32) < 0 {
+            return vec![primary_gid];
+        }
+        buf.truncate(n as usize);
+        buf.into_iter().map(|g| g as u32).collect()
+    }
 }
 
 #[cfg(unix)]
