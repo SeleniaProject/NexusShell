@@ -2,12 +2,13 @@
 //! Supports a subset of Bash `command` options:
 //!   -v name … print the location/type of each name (concise)
 //!   -V name … verbose output describing how each name would be interpreted
-//!   Without -v/-V and with a command, this builtin simply executes the
-//!   external command, bypassing shell aliases (not yet implemented, placeholder).
+//!   Without -v/-V and with a command, this builtin executes the external
+//!   command, bypassing shell aliases and functions.
 
 use anyhow::{anyhow, Result};
 use std::{env, path::{Path, PathBuf}};
 use nxsh_core::context::ShellContext;
+use std::process::Command as PCommand;
 
 pub const BUILTIN_NAMES: &[&str] = &[
     // Shell built-ins and flow control
@@ -58,9 +59,7 @@ pub const BUILTIN_NAMES: &[&str] = &[
 
 /// Entry function.
 pub fn command_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
-    if args.is_empty() {
-        return Err(anyhow!("command: missing arguments"));
-    }
+    if args.is_empty() { return Err(anyhow!("command: missing arguments")); }
 
     let mut verbose = false;
     let mut list_only = false;
@@ -75,10 +74,14 @@ pub fn command_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
         } else if arg.starts_with('-') {
             return Err(anyhow!("command: unsupported option '{}'.", arg));
         } else {
-            // First non-option -> treat as command names list
+            // First non-option
             let mut names = vec![arg.clone()];
             names.extend(iter.cloned());
-            return handle_query(names, ctx, list_only, verbose);
+            if list_only {
+                return handle_query(names, ctx, list_only, verbose);
+            } else {
+                return execute_direct(&names);
+            }
         }
     }
     Ok(())
@@ -117,6 +120,19 @@ fn handle_query(names: Vec<String>, ctx: &ShellContext, list_only: bool, verbose
                 }
             }
         }
+    }
+    Ok(())
+}
+
+fn execute_direct(words: &[String]) -> Result<()> {
+    if words.is_empty() { return Ok(()); }
+    let cmd = &words[0];
+    let args = &words[1..];
+    // Direct PATH lookup
+    let path = lookup_path(cmd).unwrap_or_else(|| PathBuf::from(cmd));
+    let status = PCommand::new(path).args(args).status()?;
+    if !status.success() {
+        return Err(anyhow!("command: '{}' exited with status {}", cmd, status.code().unwrap_or(-1)));
     }
     Ok(())
 }

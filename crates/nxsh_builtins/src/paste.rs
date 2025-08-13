@@ -5,7 +5,7 @@
 //!   • FILE of "-" means STDIN
 //!   • Lines from each file are joined with DELIM (default TAB) pair-wise.
 //!   • If files have different lengths, missing fields are treated as empty.
-//!   • Serial (-s) mode is not implemented in this minimal version.
+//!   • Serial (-s) mode is supported: files are concatenated one by one, joining lines with DELIM.
 //!
 //! This implementation aims for practical daily use without covering every GNU paste option.
 
@@ -20,6 +20,7 @@ pub fn paste_cli(args: &[String]) -> Result<()> {
     }
     let mut idx = 0;
     let mut delim = '\t';
+    let mut serial = false;
     while idx < args.len() {
         match args[idx].as_str() {
             "-d" => {
@@ -30,6 +31,7 @@ pub fn paste_cli(args: &[String]) -> Result<()> {
                 delim = d.chars().next().unwrap();
                 idx += 1;
             }
+            "-s" => { serial = true; idx += 1; }
             "--" => { idx += 1; break; }
             _ => break,
         }
@@ -39,18 +41,21 @@ pub fn paste_cli(args: &[String]) -> Result<()> {
         return Err(anyhow!("paste: missing file operands"));
     }
 
-    // Open files/stdin
-    let mut readers: Vec<Box<dyn BufRead>> = Vec::new();
-    for p in &args[idx..] {
-        if p == "-" {
-            readers.push(Box::new(BufReader::new(io::stdin())));
-        } else {
-            let f = File::open(Path::new(p))?;
-            readers.push(Box::new(BufReader::new(f)));
+    if serial {
+        process_paste_serial(&args[idx..], delim)?;
+    } else {
+        // Open files/stdin
+        let mut readers: Vec<Box<dyn BufRead>> = Vec::new();
+        for p in &args[idx..] {
+            if p == "-" {
+                readers.push(Box::new(BufReader::new(io::stdin())));
+            } else {
+                let f = File::open(Path::new(p))?;
+                readers.push(Box::new(BufReader::new(f)));
+            }
         }
+        process_paste(&mut readers, delim)?;
     }
-
-    process_paste(&mut readers, delim)?;
     Ok(())
 }
 
@@ -78,6 +83,28 @@ fn process_paste(readers: &mut [Box<dyn BufRead>], delim: char) -> Result<()> {
             handle.write_all(buf.as_bytes())?;
         }
         handle.write_all(b"\n")?;
+    }
+    Ok(())
+}
+
+fn process_paste_serial(paths: &[String], delim: char) -> Result<()> {
+    let stdout = io::stdout();
+    let mut handle = stdout.lock();
+    for (fi, p) in paths.iter().enumerate() {
+        let mut rdr: Box<dyn BufRead> = if p == "-" { Box::new(BufReader::new(io::stdin())) } else { Box::new(BufReader::new(File::open(Path::new(p))?)) };
+        let mut buf = String::new();
+        let mut first_line = true;
+        loop {
+            buf.clear();
+            let n = rdr.read_line(&mut buf)?;
+            if n == 0 { break; }
+            if buf.ends_with('\n') { buf.pop(); }
+            if buf.ends_with('\r') { buf.pop(); }
+            if !first_line { write!(handle, "{delim}")?; }
+            handle.write_all(buf.as_bytes())?;
+            first_line = false;
+        }
+        if fi + 1 < paths.len() { handle.write_all(b"\n")?; }
     }
     Ok(())
 }

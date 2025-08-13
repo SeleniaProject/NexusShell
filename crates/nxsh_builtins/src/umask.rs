@@ -6,12 +6,12 @@
 //!
 //! On Unix uses `libc::umask`. On Windows prints unsupported message.
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 
 #[cfg(unix)]
 use nix::sys::stat::{umask, Mode};
 
-pub fn umask_cli(_args: &[String]) -> Result<()> {
+pub fn umask_cli(args: &[String]) -> Result<()> {
     #[cfg(windows)]
     {
         println!("umask: not supported on Windows");
@@ -27,16 +27,33 @@ pub fn umask_cli(_args: &[String]) -> Result<()> {
             return Ok(());
         }
         if args[0] == "-S" {
-            // symbolic representation not implemented yet
+            // Print symbolic permissions allowed (complement of mask)
             let current = umask(Mode::empty());
             umask(current);
-            println!("current mask {:04o}", current.bits());
+            let sym = symbolic_from_mask(current.bits());
+            println!("{}", sym);
             return Ok(());
         }
         let new_mask = u32::from_str_radix(&args[0], 8).map_err(|_| anyhow!("umask: invalid mode"))?;
         let _prev = umask(Mode::from_bits_truncate(new_mask));
         Ok(())
     }
+}
+
+#[cfg(unix)]
+fn symbolic_from_mask(mask_bits: u32) -> String {
+    // Allowed permissions = 0777 & !mask
+    let allowed = 0o777 & (!mask_bits);
+    let u = (allowed >> 6) & 0o7;
+    let g = (allowed >> 3) & 0o7;
+    let o = allowed & 0o7;
+    fn to_rwx(bits: u32) -> String {
+        let r = if bits & 0b100 != 0 { 'r' } else { '-' };
+        let w = if bits & 0b010 != 0 { 'w' } else { '-' };
+        let x = if bits & 0b001 != 0 { 'x' } else { '-' };
+        format!("{}{}{}", r,w,x)
+    }
+    format!("u={},g={},o={}", to_rwx(u), to_rwx(g), to_rwx(o))
 }
 
 #[cfg(test)]
