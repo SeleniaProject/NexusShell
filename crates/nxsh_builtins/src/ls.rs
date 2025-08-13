@@ -29,7 +29,6 @@
 use anyhow::{Result, anyhow};
 use std::fs::{self, Metadata};
 #[cfg(unix)]
-#[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -158,110 +157,18 @@ fn get_group_name(gid: u32) -> String {
     name
 }
 
-/// Resolve user name from UID using multiple methods for maximum compatibility
-/// Note: We intentionally avoid libc bindings to keep a pure-Rust dependency profile.
+/// Resolve user name from UID using pure Rust `uzers` on Unix
 #[cfg(unix)]
-// Cross-platform resolution helpers appended for non-unix targets
-#[cfg(not(unix))]
 fn resolve_user_name(uid: u32) -> Option<String> {
-    use std::fs::File;
-    use std::io::{BufRead, BufReader};
-    
-    // Method 1: Try reading /etc/passwd directly (fastest)
-    if let Ok(file) = File::open("/etc/passwd") {
-        let reader = BufReader::new(file);
-        for line in reader.lines().flatten() {
-            let parts: Vec<&str> = line.split(':').collect();
-            if parts.len() >= 3 {
-                if let Ok(file_uid) = parts[2].parse::<u32>() {
-                    if file_uid == uid {
-                        return Some(parts[0].to_string());
-                    }
-                }
-            }
-        }
-    }
-    
-    // Method 3: Try getent command (handles NSS/LDAP users)
-    if let Ok(output) = std::process::Command::new("getent")
-        .args(&["passwd", &uid.to_string()])
-        .output()
-    {
-        if output.status.success() {
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            let parts: Vec<&str> = output_str.trim().split(':').collect();
-            if !parts.is_empty() {
-                return Some(parts[0].to_string());
-            }
-        }
-    }
-    
-    // Method 4: Try id command as final fallback
-    if let Ok(output) = std::process::Command::new("id")
-        .args(&["-nu", &uid.to_string()])
-        .output()
-    {
-        if output.status.success() {
-            let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !name.is_empty() && name != uid.to_string() {
-                return Some(name);
-            }
-        }
-    }
-    
-    None
+    let cache = uzers::UsersCache::new();
+    cache.get_user_by_uid(uid).map(|u| u.name().to_string_lossy().to_string())
 }
 
-/// Resolve group name from GID using multiple methods for maximum compatibility
+/// Resolve group name from GID using pure Rust `uzers` on Unix
 #[cfg(unix)]
-#[cfg(not(unix))]
 fn resolve_group_name(gid: u32) -> Option<String> {
-    use std::fs::File;
-    use std::io::{BufRead, BufReader};
-    
-    // Method 1: Try reading /etc/group directly (fastest)
-    if let Ok(file) = File::open("/etc/group") {
-        let reader = BufReader::new(file);
-        for line in reader.lines().flatten() {
-            let parts: Vec<&str> = line.split(':').collect();
-            if parts.len() >= 3 {
-                if let Ok(file_gid) = parts[2].parse::<u32>() {
-                    if file_gid == gid {
-                        return Some(parts[0].to_string());
-                    }
-                }
-            }
-        }
-    }
-    
-    // Method 3: Try getent command (handles NSS/LDAP groups)
-    if let Ok(output) = std::process::Command::new("getent")
-        .args(&["group", &gid.to_string()])
-        .output()
-    {
-        if output.status.success() {
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            let parts: Vec<&str> = output_str.trim().split(':').collect();
-            if !parts.is_empty() {
-                return Some(parts[0].to_string());
-            }
-        }
-    }
-    
-    // Method 4: Try id command as final fallback
-    if let Ok(output) = std::process::Command::new("id")
-        .args(&["-ng", &gid.to_string()])
-        .output()
-    {
-        if output.status.success() {
-            let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !name.is_empty() && name != gid.to_string() {
-                return Some(name);
-            }
-        }
-    }
-    
-    None
+    let cache = uzers::UsersCache::new();
+    cache.get_group_by_gid(gid).map(|g| g.name().to_string_lossy().to_string())
 }
 
 /// Windows fallback implementations
@@ -747,13 +654,13 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
         
         if !options.long_no_owner && !options.numeric_ids {
             let uid = get_uid(&entry.metadata);
-            let user_name = resolve_user_name(uid).unwrap_or_else(|| uid.to_string());
+            let user_name = get_user_name(uid);
             max_user = max_user.max(user_name.len());
         }
         
         if !options.long_no_group && !options.no_group && !options.numeric_ids {
             let gid = get_gid(&entry.metadata);
-            let group_name = resolve_group_name(gid).unwrap_or_else(|| gid.to_string());
+            let group_name = get_group_name(gid);
             max_group = max_group.max(group_name.len());
         }
     }
@@ -796,13 +703,13 @@ fn print_long_entry(
     
     // Owner
     if !options.long_no_owner {
-        let owner = if options.numeric_ids { get_uid(&entry.metadata).to_string() } else { resolve_user_name(get_uid(&entry.metadata)).unwrap_or_else(|| get_uid(&entry.metadata).to_string()) };
+        let owner = if options.numeric_ids { get_uid(&entry.metadata).to_string() } else { get_user_name(get_uid(&entry.metadata)) };
         line.push_str(&format!(" {owner:max_user$}"));
     }
     
     // Group
     if !options.long_no_group && !options.no_group {
-        let group = if options.numeric_ids { get_gid(&entry.metadata).to_string() } else { resolve_group_name(get_gid(&entry.metadata)).unwrap_or_else(|| get_gid(&entry.metadata).to_string()) };
+        let group = if options.numeric_ids { get_gid(&entry.metadata).to_string() } else { get_group_name(get_gid(&entry.metadata)) };
         line.push_str(&format!(" {group:max_group$}"));
     }
     
