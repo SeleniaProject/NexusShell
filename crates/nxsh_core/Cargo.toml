@@ -32,6 +32,8 @@ metrics = []
 # Optional updater (HTTP client) and crypto verification gating
 updates = ["dep:ureq"]
 crypto-ed25519 = ["dep:ed25519-dalek"]
+# Enable BSPATCH delta application (pure Rust bzip2 decoder)
+delta-bspatch = ["dep:bzip2-rs"]
 
 # New granular size-control features
 system-info = ["dep:sysinfo", "dep:num_cpus", "dep:dirs", "dep:whoami", "dep:hostname"]
@@ -102,11 +104,9 @@ regex = { version = "1", default-features = false, features = ["std"] }
 toml = { version = "0.8", default-features = false, features = ["parse"] }
 
 # Additional dependencies
-is-terminal = { version = "0.4", default-features = false }
 tempfile = { version = "3.8", default-features = false }
 hostname = { version = "0.3", default-features = false, optional = true }
 sysinfo = { version = "0.30", default-features = false, optional = true }
-atty = "0.2.14"
 
 # Platform-specific dependencies
 [target.'cfg(unix)'.dependencies]
@@ -130,7 +130,9 @@ ed25519-dalek = { version = "2", default-features = false, features = ["alloc", 
 hex = { version = "0.4", default-features = false, features = ["std"] }
 pem = { version = "3", default-features = false }
 # Pure Rust binary diff/patch (to be integrated for delta updates)
-bidiff = { version = "0.5", optional = true }
+bidiff = { version = "1.0", optional = true }
+# Pure Rust bzip2 decoder used for BSPATCH delta application
+bzip2-rs = { version = "0.1", default-features = false, optional = true }
 
 # Optional heavy crates for advanced capabilities
 regex = { version = "1", default-features = false, features = ["std"], optional = true }
