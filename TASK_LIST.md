@@ -348,11 +348,15 @@
 ## 14. その他プレースホルダー / コメント改善
 - [x] UI: app.rs (複数箇所:186,477,500,507) placeholder ロジック本実装
   - `App::run()` を `CUIApp::run()` へ委譲し、実運用パス（プロンプト/入力/補完/実行/メトリクス/ステータスライン）に接続
-- [ ] UI: ui_ux.rs:582 コマンド別 placeholder ステップ → 実行パス網羅テスト
+- [x] UI: ui_ux.rs:582 コマンド別 placeholder ステップ → 実行パス網羅テスト
+  - `InteractiveSession` に step-flow API を追加（current_step/set_param/can_advance/advance/is_complete/try_complete）
+  - テスト追加: `crates/nxsh_ui/tests/ui_ux_steps_tests.rs`（`cp`/`grep` フロー基本検証）
 - [x] UI: enhanced_ui_tests.rs:13 test_placeholder → 実質的テストへ昇格
   - `crates/nxsh_ui/tests/enhanced_ui_tests.rs` を実テスト化（プロンプトとバリデーション検証）。
   - `crates/nxsh_ui/tests/ui_steps_tests.rs` 追加（コマンド別ステップ基本検証）。
-- [ ] Parser: 条件付き構築での body placeholder 二重格納 回避
+- [x] Parser: 条件付き構築での body placeholder 二重格納 回避
+  - `normalize_block()` を導入し `if/elif/else`、`for/while`、`case`、`match`、`closure` のボディ取り込みに適用
+  - テスト追加: `crates/nxsh_parser/tests/placeholder_body_normalize.rs`（正規化スモーク）
 - [ ] network_tools.rs: HTTP クライアント選定 (ureq vs reqwest vs hyper) 比較ドキュメント
   - [x] 比較ドキュメント追加: `docs/NETWORK_CLIENT_COMPARISON.md`
 - [ ] crash_handler.rs: 取得すべき統計情報一覧仕様化
