@@ -60,12 +60,8 @@ pub fn logstats_cli(args: &[String]) -> Result<()> {
         let _ = persist_snapshot(snapshot_path, &new_snap);
     }
 
-    match mode {
-        OutputMode::Plain => { for (k, v) in map { println!("{k}: {v}"); } }
-        OutputMode::JsonCompact => { println!("{}", serde_json::to_string(&map).unwrap_or_else(|_| "{}".to_string())); }
-        OutputMode::JsonPretty => { println!("{}", serde_json::to_string_pretty(&map).unwrap_or_else(|_| "{}".to_string())); }
-        OutputMode::Prometheus => { render_prometheus(&map); }
-    }
+    let out = render_output_string(&map, mode);
+    print!("{}", out);
 
     Ok(())
 }
@@ -146,19 +142,44 @@ fn persist_snapshot(path: PathBuf, snap: &StatsSnapshot) -> Result<()> {
 }
 
 /// Render Prometheus text exposition format for the collected map
-fn render_prometheus(map: &BTreeMap<String, u64>) {
-    // Prefix all metrics with nxsh_log_
+fn render_prometheus_to_string(map: &BTreeMap<String, u64>) -> String {
+    let mut out = String::new();
     for (k, v) in map.iter() {
         let metric = format!("nxsh_log_{}", sanitize_metric_name(k));
         if let Some((mtype, help)) = metric_meta(k) {
-            println!("# HELP {} {}", metric, help);
-            println!("# TYPE {} {}", metric, mtype);
+            out.push_str(&format!("# HELP {} {}\n", metric, help));
+            out.push_str(&format!("# TYPE {} {}\n", metric, mtype));
         } else {
-            // Default to gauge if unknown
-            println!("# TYPE {} gauge", metric);
+            out.push_str(&format!("# TYPE {} gauge\n", metric));
         }
-        println!("{} {}", metric, v);
+        out.push_str(&format!("{} {}\n", metric, v));
     }
+    out
+}
+
+fn render_output_string(map: &BTreeMap<String, u64>, mode: OutputMode) -> String {
+    match mode {
+        OutputMode::Plain => {
+            let mut s = String::new();
+            for (k, v) in map { s.push_str(&format!("{k}: {v}\n")); }
+            s
+        }
+        OutputMode::JsonCompact => serde_json::to_string(map).unwrap_or_else(|_| "{}".to_string()),
+        OutputMode::JsonPretty => serde_json::to_string_pretty(map).unwrap_or_else(|_| "{}".to_string()),
+        OutputMode::Prometheus => render_prometheus_to_string(map),
+    }
+}
+
+/// Programmatic API for tests to render a map in a specific mode.
+#[allow(dead_code)]
+pub fn render_logstats_for_mode(mode: &str, map: &BTreeMap<String, u64>) -> String {
+    let mode = match mode {
+        "json" => OutputMode::JsonCompact,
+        "pretty" => OutputMode::JsonPretty,
+        "prom" | "prometheus" => OutputMode::Prometheus,
+        _ => OutputMode::Plain,
+    };
+    render_output_string(map, mode)
 }
 
 fn sanitize_metric_name(name: &str) -> String {
