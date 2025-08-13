@@ -36,6 +36,7 @@ use crate::{
     status_line::{StatusMetricsCollector, format_status_line},
     startup_profiler,
 };
+use crate::config::UiConfig as UIConfig;
 use nxsh_core::{context::ShellContext, executor::Executor};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -244,6 +245,17 @@ impl CUIApp {
             rec_writer: None,
             rec_start_instant: None,
         })
+    }
+
+    /// Apply UI-only configuration to the running CUI application.
+    /// This updates the persistent configuration through the manager and
+    /// applies immediate effects when appropriate (e.g., theme-related toggles).
+    pub fn apply_ui_config(&mut self, ui: UIConfig) -> Result<()> {
+        // Update configuration manager state
+        let mut cfg = self.config_manager.config().clone();
+        cfg.ui = ui;
+        self.config_manager.update_config(cfg)?;
+        Ok(())
     }
 
     /// Create a new CUI application instance

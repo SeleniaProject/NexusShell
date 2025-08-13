@@ -29,6 +29,7 @@ use crate::{
     enhanced_ui::CuiFormatter,
     prompt::PromptFormatter,
 };
+use crate::config::{UiConfig as UIConfig, ConfigManager, NexusConfig};
 
 /// Application performance specifications from SPEC.md
 const MAX_STARTUP_TIME_MS: u64 = 5;
@@ -111,6 +112,14 @@ impl App {
             startup_time,
             metrics,
         })
+    }
+    
+    /// Apply UI configuration at runtime by updating the underlying
+    /// configuration manager. This keeps `run_cui_with_config()` thin.
+    pub async fn apply_ui_config(&mut self, ui_config: UIConfig) -> anyhow::Result<()> {
+        // Delegate to underlying CUIApp where the configuration manager lives.
+        self.cui_app.apply_ui_config(ui_config)?;
+        Ok(())
     }
 
     /// Create a new NexusShell application instance

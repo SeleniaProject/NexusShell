@@ -112,7 +112,11 @@ pub async fn run_cui_with_timing(start_time: std::time::Instant) -> anyhow::Resu
 
 /// Run CUI with custom configuration and full functionality
 pub async fn run_cui_with_config(_config: UIConfig) -> anyhow::Result<()> {
-    let mut app = App::new()?; // TODO: apply _config when configuration wiring implemented
+    // Create application and apply provided UI configuration before running.
+    let mut app = App::new()?;
+    // Bridge UI-only configuration into the running app. This uses a dedicated
+    // proxy on App that forwards to the internal configuration manager.
+    app.apply_ui_config(_config)?;
     app.run().await
 }
 

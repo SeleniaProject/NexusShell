@@ -17,6 +17,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tracing::{error, info};
+use chrono::{Timelike, Datelike};
 
 /// スケジューラー設定
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -872,9 +873,58 @@ impl AdvancedJobScheduler {
     }
 
     /// Static helper that computes next run time from a cron expression.
-    async fn parse_cron_expression_static(_cron_expression: &str) -> Result<SystemTime> {
-        // Simplified placeholder: real implementation would compute from cron string.
-        Ok(SystemTime::now() + Duration::from_secs(3600)) // 1 hour later
+    ///
+    /// Supported minimal subset (standard 5-field cron):
+    /// - "* * * * *" → next minute boundary
+    /// - "*/N * * * *" → next multiple-of-N minute boundary (1<=N<=59)
+    /// - "M * * * *" (0..59) → next occurrence of minute M
+    /// Fallback: 1 hour later if parsing fails.
+    async fn parse_cron_expression_static(cron_expression: &str) -> Result<SystemTime> {
+        // Very small, self-contained parser to avoid external deps.
+        let now = chrono::Utc::now();
+        let parts: Vec<&str> = cron_expression.split_whitespace().collect();
+        if parts.len() < 5 { return Ok(SystemTime::now() + Duration::from_secs(3600)); }
+        let min = parts[0];
+        // Helper to convert chrono to SystemTime
+        fn to_system_time(dt: chrono::DateTime<chrono::Utc>) -> SystemTime {
+            SystemTime::UNIX_EPOCH + Duration::from_secs(dt.timestamp() as u64)
+        }
+        // Case 1: every minute
+        if min == "*" {
+            let next = (now + chrono::Duration::minutes(1))
+                .with_second(0).unwrap()
+                .with_nanosecond(0).unwrap();
+            return Ok(to_system_time(next));
+        }
+        // Case 2: step minutes */N
+        if let Some(step_str) = min.strip_prefix("*/") {
+            if let Ok(step) = step_str.parse::<u32>() {
+                if step >= 1 && step <= 59 {
+                    let current_min = now.minute();
+                    let mut next_min = ((current_min / step) + 1) * step;
+                    let mut next = now.with_second(0).unwrap().with_nanosecond(0).unwrap();
+                    if next_min >= 60 {
+                        next = next + chrono::Duration::hours(1);
+                        next_min = 0;
+                    }
+                    next = next.with_minute(next_min).unwrap();
+                    return Ok(to_system_time(next));
+                }
+            }
+        }
+        // Case 3: fixed minute M
+        if let Ok(target_min) = min.parse::<u32>() {
+            if target_min < 60 {
+                let mut next = now.with_second(0).unwrap().with_nanosecond(0).unwrap();
+                if now.minute() >= target_min {
+                    next = next + chrono::Duration::hours(1);
+                }
+                next = next.with_minute(target_min).unwrap();
+                return Ok(to_system_time(next));
+            }
+        }
+        // Fallback
+        Ok(SystemTime::now() + Duration::from_secs(3600))
     }
 }
 
