@@ -1,10 +1,9 @@
 use anyhow::{anyhow, Result};
 use std::process::Command;
 use which::which;
-use nxsh_core::advanced_scheduler::AdvancedScheduler;
-use nxsh_core::compat::Result as CoreResult;
-use std::sync::Arc;
+use nxsh_core::advanced_scheduler::{AdvancedJobScheduler, SchedulerConfig};
 use tokio::runtime::Runtime;
+use once_cell::sync::OnceCell;
 
 /// Entry point for the `schedule` builtin
 pub fn schedule_cli(args: &[String]) -> Result<()> {
@@ -37,21 +36,49 @@ pub fn schedule_cli(args: &[String]) -> Result<()> {
 
     match args[0].as_str() {
         "-l" | "--list" => {
-            println!("schedule: No scheduled tasks found");
+            let (rt, sched) = ensure_scheduler()?;
+            let jobs = rt.block_on(async { sched.list_jobs().await });
+            if jobs.is_empty() {
+                println!("No scheduled tasks");
+            } else {
+                for job in jobs {
+                    let (when, kind) = match job.schedule {
+                        nxsh_core::advanced_scheduler::JobSchedule::Once { run_at } => (run_at, "once"),
+                        nxsh_core::advanced_scheduler::JobSchedule::Recurring { next_run, .. } => (next_run, "cron"),
+                        nxsh_core::advanced_scheduler::JobSchedule::Interval { next_run, .. } => (next_run, "interval"),
+                        nxsh_core::advanced_scheduler::JobSchedule::EventBased { .. } => (std::time::SystemTime::UNIX_EPOCH, "event"),
+                    };
+                    let ts = match when.duration_since(std::time::SystemTime::UNIX_EPOCH) { Ok(d) => d.as_secs(), Err(_) => 0 };
+                    println!("{:<14} {:<6} {:<8} {}", job.id, kind, ts, job.command);
+                }
+            }
         }
         "-d" | "--delete" => {
             if args.len() < 2 {
                 eprintln!("schedule: missing task ID for delete");
                 std::process::exit(1);
             }
-            println!("schedule: Task deletion not implemented internally");
+            let job_id = &args[1];
+            let (rt, sched) = ensure_scheduler()?;
+            let ok = rt.block_on(async { sched.cancel_job(job_id).await })?;
+            if ok { println!("Deleted {job_id}"); } else { eprintln!("schedule: job not found: {job_id}"); std::process::exit(1); }
+        }
+        "--stats" => {
+            let (rt, sched) = ensure_scheduler()?;
+            let s = rt.block_on(async { sched.get_statistics().await });
+            println!("Total Jobs: {}", s.total_jobs);
+            println!("Running: {}", s.running_jobs);
+            println!("Queued: {}", s.queued_jobs);
+            println!("Success Rate: {:.1}%", s.success_rate);
+            println!("Avg Exec Time (ms): {:.1}", s.avg_execution_time_ms);
         }
         "-h" | "--help" => {
             println!("schedule: Simple task scheduler");
             println!("Usage: schedule [OPTIONS] TIME COMMAND");
             println!("Options:");
-            println!("  -l, --list     List scheduled tasks");
-            println!("  -d, --delete   Delete scheduled task");
+            println!("  -l, --list       List scheduled tasks");
+            println!("  -d, --delete ID  Delete scheduled task");
+            println!("      --stats      Show scheduler statistics");
             println!("  -h, --help     Show this help");
         }
         _ => {
@@ -65,11 +92,9 @@ pub fn schedule_cli(args: &[String]) -> Result<()> {
             let command = args[1..].join(" ");
             // Use core scheduler for cron-like expressions; for absolute times fall back to external 'at'
             if is_cron_like(time_spec) {
-                let rt = Runtime::new().map_err(|e| anyhow!("schedule: failed to init runtime: {e}"))?;
-                let sched = AdvancedScheduler::new();
-                let job_id = rt.block_on(async {
-                    sched.schedule_cron(command.clone(), time_spec.clone()).await
-                }).map_err(|e| anyhow!("schedule: failed to schedule: {e}"))?;
+                let (rt, sched) = ensure_scheduler()?;
+                let job_id = rt.block_on(async { sched.schedule_cron(command.clone(), time_spec.clone()).await })
+                    .map_err(|e| anyhow!("schedule: failed to schedule: {e}"))?;
                 println!("schedule: scheduled as {job_id}");
                 return Ok(());
             } else {
@@ -94,4 +119,18 @@ fn is_cron_like(spec: &str) -> bool {
     // Simple heuristic: cron has 5 space-separated fields, allow 6th for seconds in future
     let parts = spec.split_whitespace().count();
     parts >= 5 && parts <= 6
+}
+
+// Global scheduler bootstrap (lazily started)
+static RUNTIME: OnceCell<Runtime> = OnceCell::new();
+static SCHEDULER: OnceCell<AdvancedJobScheduler> = OnceCell::new();
+
+fn ensure_scheduler() -> Result<(&'static Runtime, &'static AdvancedJobScheduler)> {
+    let rt = RUNTIME.get_or_try_init(|| Runtime::new().map_err(|e| anyhow!("schedule: runtime init failed: {e}")))?;
+    if SCHEDULER.get().is_none() {
+        let mut sched = AdvancedJobScheduler::new(SchedulerConfig::default());
+        rt.block_on(async { sched.start().await }).map_err(|e| anyhow!("schedule: failed to start scheduler: {e}"))?;
+        SCHEDULER.set(sched).map_err(|_| anyhow!("schedule: failed to set scheduler"))?;
+    }
+    Ok((RUNTIME.get().unwrap(), SCHEDULER.get().unwrap()))
 }
