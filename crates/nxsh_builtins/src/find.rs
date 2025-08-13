@@ -624,15 +624,64 @@ fn process_entry(
     }
     stats.bytes_processed.fetch_add(metadata.len(), Ordering::Relaxed);
     
-    // Evaluate all expressions
-    for expr in &options.expressions {
-        if evaluate_expression(expr, path, &metadata, options)? {
-            execute_action(expr, path, &metadata, options)?;
+    // Evaluate expression tree (single root) when available; fallback to legacy vector behavior
+    if options.expressions.len() == 1 {
+        if evaluate_and_execute(&options.expressions[0], path, &metadata, options)? {
             stats.matches_found.fetch_add(1, Ordering::Relaxed);
+        }
+    } else {
+        for expr in &options.expressions {
+            if evaluate_expression(expr, path, &metadata, options)? {
+                execute_action(expr, path, &metadata, options)?;
+                stats.matches_found.fetch_add(1, Ordering::Relaxed);
+            }
         }
     }
     
     Ok(())
+}
+
+fn evaluate_and_execute(
+    expr: &Expression,
+    path: &Path,
+    metadata: &Metadata,
+    options: &FindOptions,
+) -> Result<bool> {
+    match expr {
+        Expression::Not(inner) => Ok(!evaluate_and_execute(inner, path, metadata, options)?),
+        Expression::And(left, right) => {
+            if evaluate_and_execute(left, path, metadata, options)? {
+                evaluate_and_execute(right, path, metadata, options)
+            } else {
+                Ok(false)
+            }
+        }
+        Expression::Or(left, right) => {
+            if evaluate_and_execute(left, path, metadata, options)? {
+                Ok(true)
+            } else {
+                evaluate_and_execute(right, path, metadata, options)
+            }
+        }
+        Expression::Grouping(inner) => evaluate_and_execute(inner, path, metadata, options),
+        // Actions: execute and return true to indicate a match occurred
+        Expression::Print
+        | Expression::Print0
+        | Expression::Printf(_)
+        | Expression::Ls
+        | Expression::Fls(_)
+        | Expression::Exec(_)
+        | Expression::ExecDir(_)
+        | Expression::Ok(_)
+        | Expression::OkDir(_)
+        | Expression::Delete
+        | Expression::Quit
+        | Expression::Prune => {
+            execute_action(expr, path, metadata, options)?;
+            Ok(true)
+        }
+        _ => evaluate_expression(expr, path, metadata, options),
+    }
 }
 
 fn evaluate_expression(
@@ -1204,8 +1253,10 @@ fn parse_find_args(args: &[String]) -> Result<FindOptions> {
         options.paths.push(".".to_string());
     }
     
-    // Parse options and expressions
+    // Parse options and boolean expression
     options.expressions.clear();
+
+    // First pass: scan and apply non-boolean options; stop before expression parsing markers if needed
     while i < args.len() {
         match args[i].as_str() {
             "-maxdepth" => {
@@ -1240,228 +1291,22 @@ fn parse_find_args(args: &[String]) -> Result<FindOptions> {
             "-stats" => {
                 options.print_stats = true;
             }
-            "-print0" => {
-                options.expressions.push(Expression::Print0);
-            }
-            "-print" => {
-                options.expressions.push(Expression::Print);
-            }
-            "-ls" => {
-                options.expressions.push(Expression::Ls);
-            }
-            "-delete" => {
-                options.expressions.push(Expression::Delete);
-            }
-            "-name" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: -name requires an argument"));
-                }
-                options.expressions.push(Expression::Name(args[i].clone()));
-            }
-            "-iname" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: -iname requires an argument"));
-                }
-                options.expressions.push(Expression::IName(args[i].clone()));
-            }
-            "-path" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: -path requires an argument"));
-                }
-                options.expressions.push(Expression::Path(args[i].clone()));
-            }
-            "-ipath" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: -ipath requires an argument"));
-                }
-                options.expressions.push(Expression::IPath(args[i].clone()));
-            }
-            "-regex" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: -regex requires an argument"));
-                }
-                options.expressions.push(Expression::Regex(args[i].clone()));
-            }
-            "-iregex" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: -iregex requires an argument"));
-                }
-                options.expressions.push(Expression::IRegex(args[i].clone()));
-            }
-            "-type" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: -type requires an argument"));
-                }
-                let file_type = match args[i].as_str() {
-                    "f" => FileType::Regular,
-                    "d" => FileType::Directory,
-                    "l" => FileType::SymbolicLink,
-                    "b" => FileType::BlockDevice,
-                    "c" => FileType::CharacterDevice,
-                    "p" => FileType::NamedPipe,
-                    "s" => FileType::Socket,
-                    _ => return Err(anyhow!("find: invalid file type '{}'", args[i])),
-                };
-                options.expressions.push(Expression::Type(file_type));
-            }
-            "-size" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: -size requires an argument"));
-                }
-                let size_test = parse_size_test(&args[i])?;
-                options.expressions.push(Expression::Size(size_test));
-            }
-            "-empty" => {
-                options.expressions.push(Expression::Empty);
-            }
-            "-executable" => {
-                options.expressions.push(Expression::Executable);
-            }
-            "-readable" => {
-                options.expressions.push(Expression::Readable);
-            }
-            "-writable" => {
-                options.expressions.push(Expression::Writable);
-            }
-            "-perm" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: -perm requires an argument"));
-                }
-                let perm_test = parse_perm_test(&args[i])?;
-                options.expressions.push(Expression::Perm(perm_test));
-            }
-            "-user" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: -user requires an argument"));
-                }
-                options.expressions.push(Expression::User(args[i].clone()));
-            }
-            "-group" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: -group requires an argument"));
-                }
-                options.expressions.push(Expression::Group(args[i].clone()));
-            }
-            "-uid" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: -uid requires an argument"));
-                }
-                options.expressions.push(Expression::Uid(args[i].parse()?));
-            }
-            "-gid" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: -gid requires an argument"));
-                }
-                options.expressions.push(Expression::Gid(args[i].parse()?));
-            }
-            "-newer" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: -newer requires an argument"));
-                }
-                options.expressions.push(Expression::Newer(args[i].clone()));
-            }
-            "-mtime" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: -mtime requires an argument"));
-                }
-                let num_test = parse_num_test(&args[i])?;
-                options.expressions.push(Expression::Mtime(num_test));
-            }
-            "-atime" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: -atime requires an argument"));
-                }
-                let num_test = parse_num_test(&args[i])?;
-                options.expressions.push(Expression::Atime(num_test));
-            }
-            "-ctime" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: -ctime requires an argument"));
-                }
-                let num_test = parse_num_test(&args[i])?;
-                options.expressions.push(Expression::Ctime(num_test));
-            }
-            "-inum" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: -inum requires an argument"));
-                }
-                options.expressions.push(Expression::Inum(args[i].parse()?));
-            }
-            "-exec" => {
-                let mut command = Vec::new();
-                i += 1;
-                while i < args.len() && args[i] != ";" {
-                    command.push(args[i].clone());
-                    i += 1;
-                }
-                if i >= args.len() || args[i] != ";" {
-                    return Err(anyhow!("find: -exec requires ';' terminator"));
-                }
-                options.expressions.push(Expression::Exec(command));
-            }
-            "-execdir" => {
-                let mut command = Vec::new();
-                i += 1;
-                while i < args.len() && args[i] != ";" {
-                    command.push(args[i].clone());
-                    i += 1;
-                }
-                if i >= args.len() || args[i] != ";" {
-                    return Err(anyhow!("find: -execdir requires ';' terminator"));
-                }
-                options.expressions.push(Expression::ExecDir(command));
-            }
-            "-printf" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: -printf requires an argument"));
-                }
-                options.expressions.push(Expression::Printf(args[i].clone()));
-            }
-            "-quit" => {
-                options.expressions.push(Expression::Quit);
-            }
-            "-prune" => {
-                options.expressions.push(Expression::Prune);
-            }
-            "!" | "-not" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(anyhow!("find: ! requires an expression"));
-                }
-                // This is a simplified implementation - would need proper expression parsing
-                return Err(anyhow!("find: complex expressions not yet implemented"));
-            }
-            _ => {
-                return Err(anyhow!("find: unknown option '{}'", args[i]));
-            }
+            // Reached potential start of boolean expression / primary
+            _ => { break; }
         }
         i += 1;
     }
-    
-    // If no expressions were specified, default to -print
+
+    // Parse boolean expression from remaining args
+    if i < args.len() {
+        let (expr, consumed) = parse_expr_or(args, i)?;
+        options.expressions.push(expr);
+        i = consumed;
+    }
+
     if options.expressions.is_empty() {
         options.expressions.push(Expression::Print);
     }
-    
     Ok(options)
 }
 
@@ -1523,6 +1368,159 @@ fn parse_perm_test(s: &str) -> Result<PermTest> {
     } else {
         Ok(PermTest::Exact(u32::from_str_radix(s, 8)?))
     }
+}
+
+// Boolean expression parser (OR -> AND -> NOT -> Primary)
+fn parse_expr_or(args: &[String], mut i: usize) -> Result<(Expression, usize)> {
+    let (mut left, mut idx) = parse_expr_and(args, i)?;
+    while idx < args.len() {
+        match args[idx].as_str() {
+            "-o" | "-or" => {
+                idx += 1;
+                let (right, next) = parse_expr_and(args, idx)?;
+                left = Expression::Or(Box::new(left), Box::new(right));
+                idx = next;
+            }
+            _ => break,
+        }
+    }
+    Ok((left, idx))
+}
+
+fn parse_expr_and(args: &[String], mut i: usize) -> Result<(Expression, usize)> {
+    let (mut left, mut idx) = parse_expr_not(args, i)?;
+    loop {
+        if idx >= args.len() { break; }
+        match args[idx].as_str() {
+            "-a" | "-and" => {
+                idx += 1;
+                let (right, next) = parse_expr_not(args, idx)?;
+                left = Expression::And(Box::new(left), Box::new(right));
+                idx = next;
+            }
+            ")" | "-o" | "-or" => break,
+            // Implicit AND when the next token starts a primary or '('
+            tok if is_primary_start(tok) || tok == "(" || tok == "!" || tok == "-not" => {
+                let (right, next) = parse_expr_not(args, idx)?;
+                left = Expression::And(Box::new(left), Box::new(right));
+                idx = next;
+            }
+            _ => break,
+        }
+    }
+    Ok((left, idx))
+}
+
+fn parse_expr_not(args: &[String], mut i: usize) -> Result<(Expression, usize)> {
+    let mut negate = false;
+    while i < args.len() {
+        match args[i].as_str() {
+            "!" | "-not" => { negate = !negate; i += 1; }
+            _ => break,
+        }
+    }
+    let (mut expr, idx) = parse_primary_expr(args, i)?;
+    if negate { expr = Expression::Not(Box::new(expr)); }
+    Ok((expr, idx))
+}
+
+fn parse_primary_expr(args: &[String], i: usize) -> Result<(Expression, usize)> {
+    if i >= args.len() { return Err(anyhow!("find: missing expression")); }
+    match args[i].as_str() {
+        "(" => {
+            let (expr, mut idx) = parse_expr_or(args, i + 1)?;
+            if idx >= args.len() || args[idx].as_str() != ")" { return Err(anyhow!("find: missing ')'")); }
+            idx += 1;
+            Ok((Expression::Grouping(Box::new(expr)), idx))
+        }
+        "-print" => Ok((Expression::Print, i + 1)),
+        "-print0" => Ok((Expression::Print0, i + 1)),
+        "-ls" => Ok((Expression::Ls, i + 1)),
+        "-delete" => Ok((Expression::Delete, i + 1)),
+        "-printf" => {
+            let idx = i + 1;
+            if idx >= args.len() { return Err(anyhow!("find: -printf requires an argument")); }
+            Ok((Expression::Printf(args[idx].clone()), idx + 1))
+        }
+        "-name" => {
+            let idx = i + 1; if idx >= args.len() { return Err(anyhow!("find: -name requires an argument")); }
+            Ok((Expression::Name(args[idx].clone()), idx + 1))
+        }
+        "-iname" => {
+            let idx = i + 1; if idx >= args.len() { return Err(anyhow!("find: -iname requires an argument")); }
+            Ok((Expression::IName(args[idx].clone()), idx + 1))
+        }
+        "-path" => { let idx=i+1; if idx>=args.len(){return Err(anyhow!("find: -path requires an argument"));} Ok((Expression::Path(args[idx].clone()), idx+1)) }
+        "-ipath" => { let idx=i+1; if idx>=args.len(){return Err(anyhow!("find: -ipath requires an argument"));} Ok((Expression::IPath(args[idx].clone()), idx+1)) }
+        "-regex" => { let idx=i+1; if idx>=args.len(){return Err(anyhow!("find: -regex requires an argument"));} Ok((Expression::Regex(args[idx].clone()), idx+1)) }
+        "-iregex" => { let idx=i+1; if idx>=args.len(){return Err(anyhow!("find: -iregex requires an argument"));} Ok((Expression::IRegex(args[idx].clone()), idx+1)) }
+        "-type" => {
+            let idx = i + 1; if idx >= args.len() { return Err(anyhow!("find: -type requires an argument")); }
+            let file_type = match args[idx].as_str() {
+                "f" => FileType::Regular,
+                "d" => FileType::Directory,
+                "l" => FileType::SymbolicLink,
+                "b" => FileType::BlockDevice,
+                "c" => FileType::CharacterDevice,
+                "p" => FileType::NamedPipe,
+                "s" => FileType::Socket,
+                _ => return Err(anyhow!("find: invalid file type '{}'", args[idx])),
+            };
+            Ok((Expression::Type(file_type), idx + 1))
+        }
+        "-size" => {
+            let idx = i + 1; if idx >= args.len() { return Err(anyhow!("find: -size requires an argument")); }
+            Ok((Expression::Size(parse_size_test(&args[idx])?), idx + 1))
+        }
+        "-empty" => Ok((Expression::Empty, i + 1)),
+        "-executable" => Ok((Expression::Executable, i + 1)),
+        "-readable" => Ok((Expression::Readable, i + 1)),
+        "-writable" => Ok((Expression::Writable, i + 1)),
+        "-perm" => { let idx=i+1; if idx>=args.len(){return Err(anyhow!("find: -perm requires an argument"));} Ok((Expression::Perm(parse_perm_test(&args[idx])?), idx+1)) }
+        "-user" => { let idx=i+1; if idx>=args.len(){return Err(anyhow!("find: -user requires an argument"));} Ok((Expression::User(args[idx].clone()), idx+1)) }
+        "-group" => { let idx=i+1; if idx>=args.len(){return Err(anyhow!("find: -group requires an argument"));} Ok((Expression::Group(args[idx].clone()), idx+1)) }
+        "-uid" => { let idx=i+1; if idx>=args.len(){return Err(anyhow!("find: -uid requires an argument"));} Ok((Expression::Uid(args[idx].parse()?), idx+1)) }
+        "-gid" => { let idx=i+1; if idx>=args.len(){return Err(anyhow!("find: -gid requires an argument"));} Ok((Expression::Gid(args[idx].parse()?), idx+1)) }
+        "-newer" => { let idx=i+1; if idx>=args.len(){return Err(anyhow!("find: -newer requires an argument"));} Ok((Expression::Newer(args[idx].clone()), idx+1)) }
+        "-mtime" => { let idx=i+1; if idx>=args.len(){return Err(anyhow!("find: -mtime requires an argument"));} Ok((Expression::Mtime(parse_num_test(&args[idx])?), idx+1)) }
+        "-atime" => { let idx=i+1; if idx>=args.len(){return Err(anyhow!("find: -atime requires an argument"));} Ok((Expression::Atime(parse_num_test(&args[idx])?), idx+1)) }
+        "-ctime" => { let idx=i+1; if idx>=args.len(){return Err(anyhow!("find: -ctime requires an argument"));} Ok((Expression::Ctime(parse_num_test(&args[idx])?), idx+1)) }
+        "-inum" => { let idx=i+1; if idx>=args.len(){return Err(anyhow!("find: -inum requires an argument"));} Ok((Expression::Inum(args[idx].parse()?), idx+1)) }
+        "-exec" => {
+            let mut idx = i + 1; let mut command = Vec::new();
+            while idx < args.len() && args[idx] != ";" { command.push(args[idx].clone()); idx += 1; }
+            if idx >= args.len() || args[idx] != ";" { return Err(anyhow!("find: -exec requires ';' terminator")); }
+            Ok((Expression::Exec(command), idx + 1))
+        }
+        "-execdir" => {
+            let mut idx = i + 1; let mut command = Vec::new();
+            while idx < args.len() && args[idx] != ";" { command.push(args[idx].clone()); idx += 1; }
+            if idx >= args.len() || args[idx] != ";" { return Err(anyhow!("find: -execdir requires ';' terminator")); }
+            Ok((Expression::ExecDir(command), idx + 1))
+        }
+        "-ok" => {
+            let mut idx = i + 1; let mut command = Vec::new();
+            while idx < args.len() && args[idx] != ";" { command.push(args[idx].clone()); idx += 1; }
+            if idx >= args.len() || args[idx] != ";" { return Err(anyhow!("find: -ok requires ';' terminator")); }
+            Ok((Expression::Ok(command), idx + 1))
+        }
+        "-okdir" => {
+            let mut idx = i + 1; let mut command = Vec::new();
+            while idx < args.len() && args[idx] != ";" { command.push(args[idx].clone()); idx += 1; }
+            if idx >= args.len() || args[idx] != ";" { return Err(anyhow!("find: -okdir requires ';' terminator")); }
+            Ok((Expression::OkDir(command), idx + 1))
+        }
+        ")" | "-o" | "-or" | "-a" | "-and" => Err(anyhow!("find: unexpected operator")),
+        other => Err(anyhow!(format!("find: unknown primary '{}'", other))),
+    }
+}
+
+fn is_primary_start(tok: &str) -> bool {
+    matches!(tok,
+        "-print"|"-print0"|"-printf"|"-ls"|"-delete"|
+        "-name"|"-iname"|"-path"|"-ipath"|"-regex"|"-iregex"|"-type"|"-size"|"-empty"|
+        "-executable"|"-readable"|"-writable"|"-perm"|"-user"|"-group"|"-uid"|"-gid"|"-newer"|
+        "-mtime"|"-atime"|"-ctime"|"-inum"|"-exec"|"-execdir"|"-ok"|"-okdir")
 }
 
 #[cfg(test)]
