@@ -129,6 +129,8 @@ ureq = { version = "2.9", default-features = false, optional = true }
 ed25519-dalek = { version = "2", default-features = false, features = ["alloc", "pkcs8"], optional = true }
 hex = { version = "0.4", default-features = false, features = ["std"] }
 pem = { version = "3", default-features = false }
+# Pure Rust binary diff/patch (to be integrated for delta updates)
+bidiff = { version = "0.5", optional = true }
 
 # Optional heavy crates for advanced capabilities
 regex = { version = "1", default-features = false, features = ["std"], optional = true }
