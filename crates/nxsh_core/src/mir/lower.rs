@@ -20,7 +20,7 @@ impl Lowerer {
         let mut prog = MirProgram::new();
         let mut func = MirFunction::new("main".to_string(), Vec::new());
         let entry = func.entry_block;
-        self.lower_node(ast, &mut func, entry);
+        self.lower_node_prog(ast, &mut prog, &mut func, entry);
         if let Some(b) = func.get_block_mut(entry) {
             if !matches!(b.instructions.last(), Some(MirInstruction::Return { .. })) {
                 b.instructions.push(MirInstruction::Return { value: Some(MirValue::Null) });
@@ -30,12 +30,12 @@ impl Lowerer {
         prog
     }
 
-    fn lower_node(&mut self, node: &AstNode, func: &mut MirFunction, current_block: u32) -> Option<MirRegister> {
+    fn lower_node_prog(&mut self, node: &AstNode, prog: &mut MirProgram, func: &mut MirFunction, current_block: u32) -> Option<MirRegister> {
         match node {
             AstNode::Program(stmts) | AstNode::StatementList(stmts) => {
                 let mut last_reg: Option<MirRegister> = None;
                 for s in stmts {
-                    if let Some(r) = self.lower_node(s, func, current_block) {
+                    if let Some(r) = self.lower_node_prog(s, prog, func, current_block) {
                         last_reg = Some(r);
                     }
                     // 途中で明示的 Return/ClosureReturn が出たら以降は無視 (既にブロック末端確定)
@@ -53,20 +53,27 @@ impl Lowerer {
                 }
                 None
             }
-            AstNode::Function { name, .. } | AstNode::FunctionDeclaration { name, .. } => {
-                // TODO: 別関数として登録する仕組み
-                let body_reg = self.fresh_reg();
-                if let Some(block) = func.get_block_mut(current_block) {
-                    block.instructions.push(MirInstruction::LoadImmediate { dest: body_reg.clone(), value: MirValue::String(format!("fn:{}", name)) });
-                    block.instructions.push(MirInstruction::DefineFunction { name: (*name).to_string(), function: MirValue::Register(body_reg) });
+            AstNode::Function { name, params, body, .. } | AstNode::FunctionDeclaration { name, params, body, .. } => {
+                // 別関数として MirProgram に登録し、本体を独立に lowering する
+                let param_names: Vec<String> = params.iter().map(|p| p.name.to_string()).collect();
+                let mut f = MirFunction::new((*name).to_string(), param_names);
+                let entry_block = f.entry_block;
+                // ネスト関数は独立した Lowerer で環境をリセットして lower する
+                let mut nested = Lowerer::new();
+                nested.lower_node_prog(&body, prog, &mut f, entry_block);
+                if let Some(bblk) = f.get_block_mut(entry_block) {
+                    if !matches!(bblk.instructions.last(), Some(MirInstruction::Return { .. }) | Some(MirInstruction::ClosureReturn { .. })) {
+                        bblk.instructions.push(MirInstruction::Return { value: Some(MirValue::Null) });
+                    }
                 }
+                prog.add_function(f);
                 None
             }
             AstNode::FunctionCall { name, args, .. } => {
                 // Callee を lower。Word で var_env に登録済みなら closure 変数呼び出し、それ以外の Word は通常関数。
-                let func_reg = self.lower_node(name, func, current_block);
+                let func_reg = self.lower_node_prog(name, prog, func, current_block);
                 let mut arg_vals = Vec::new();
-                for a in args { if let Some(r) = self.lower_node(a, func, current_block) { arg_vals.push(MirValue::Register(r)); } }
+                for a in args { if let Some(r) = self.lower_node_prog(a, prog, func, current_block) { arg_vals.push(MirValue::Register(r)); } }
                 let dest = self.fresh_reg();
                 if let Some(block) = func.get_block_mut(current_block) {
                     match &**name {
@@ -110,9 +117,9 @@ impl Lowerer {
                 Some(r)
             }
             AstNode::Try { body, catch_clauses, finally_clause } => {
-                self.lower_node(body, func, current_block);
-                for clause in catch_clauses { self.lower_node(&clause.body, func, current_block); }
-                if let Some(fin) = finally_clause { self.lower_node(fin, func, current_block); }
+                self.lower_node_prog(body, prog, func, current_block);
+                for clause in catch_clauses { self.lower_node_prog(&clause.body, prog, func, current_block); }
+                if let Some(fin) = finally_clause { self.lower_node_prog(fin, prog, func, current_block); }
                 None
             }
             AstNode::Closure { body, captures, params, .. } => {
@@ -139,7 +146,7 @@ impl Lowerer {
                     capture_regs.push(new_reg);
                 }
                 // body lowering（クロージャ内であることを示すフラグのもとで）
-                self.lower_node(body, func, body_block);
+                self.lower_node_prog(body, prog, func, body_block);
                 if let Some(bblk) = func.get_block_mut(body_block) {
                     if !matches!(bblk.instructions.last(), Some(MirInstruction::Return { .. }) | Some(MirInstruction::ClosureReturn { .. })) {
                         bblk.instructions.push(MirInstruction::Return { value: Some(MirValue::Null) });
@@ -160,7 +167,7 @@ impl Lowerer {
             }
             AstNode::VariableAssignment { name, value, .. } => {
                 // 代入値を lower し、環境へ登録 (値がレジスタならキャプチャ対象として利用可能)
-                if let Some(r) = self.lower_node(value, func, current_block) { self.var_env.insert(name.to_string(), r.clone()); Some(r) } else { None }
+                if let Some(r) = self.lower_node_prog(value, prog, func, current_block) { self.var_env.insert(name.to_string(), r.clone()); Some(r) } else { None }
             }
             AstNode::MacroInvocation { name, .. } => {
                 let reg = self.fresh_reg();
@@ -181,7 +188,7 @@ impl Lowerer {
             }
             AstNode::Return(expr) => {
                 // 先に式を lower (これで current_block へ追加) し終えてから、再度 block を取り直す
-                let val = if let Some(e) = expr { self.lower_node(e, func, current_block).map(MirValue::Register).unwrap_or(MirValue::Null) } else { MirValue::Null };
+                let val = if let Some(e) = expr { self.lower_node_prog(e, prog, func, current_block).map(MirValue::Register).unwrap_or(MirValue::Null) } else { MirValue::Null };
                 if let Some(block) = func.get_block_mut(current_block) {
                     block.instructions.push(MirInstruction::Return { value: Some(val) });
                 }
@@ -190,7 +197,7 @@ impl Lowerer {
             AstNode::BinaryExpression { left, operator, right } => {
                 use BinaryOperator::*;
                 // Lower left-hand side first
-                let lreg = self.lower_node(left, func, current_block);
+                let lreg = self.lower_node_prog(left, prog, func, current_block);
                 let dest = self.fresh_reg();
                 match operator {
                     LogicalAnd | LogicalOr => {
@@ -209,7 +216,7 @@ impl Lowerer {
 
                             // Record length before lowering RHS
                             let pre_len = func.get_block(current_block).map(|b| b.instructions.len()).unwrap_or(0);
-                            let rreg = self.lower_node(right, func, current_block);
+                            let rreg = self.lower_node_prog(right, prog, func, current_block);
                             // Ensure RHS final value is written into dest to be consumed after short-circuit gate
                             if let Some(rr) = rreg.clone() {
                                 if let Some(block) = func.get_block_mut(current_block) {
@@ -222,7 +229,8 @@ impl Lowerer {
                             if let Some(block) = func.get_block_mut(current_block) {
                                 if let Some(entry) = block.instructions.get_mut(and_idx) {
                                     match entry {
-                                        MirInstruction::AndSC { skip, .. } | MirInstruction::OrSC { skip, .. } => { *skip = rhs_count; },
+                                        MirInstruction::AndSC { skip, right, .. } => { *skip = rhs_count; if let Some(rr) = rreg { *right = MirValue::Register(rr); } },
+                                        MirInstruction::OrSC { skip, right, .. } => { *skip = rhs_count; if let Some(rr) = rreg { *right = MirValue::Register(rr); } },
                                         _ => {}
                                     }
                                 }
@@ -233,7 +241,7 @@ impl Lowerer {
                         }
                     }
                     _ => {
-                        let rreg = self.lower_node(right, func, current_block);
+                        let rreg = self.lower_node_prog(right, prog, func, current_block);
                         if let (Some(lr), Some(rr)) = (lreg.clone(), rreg.clone()) {
                             if let Some(block) = func.get_block_mut(current_block) {
                                 let ins = match operator {
@@ -268,7 +276,7 @@ impl Lowerer {
                 Some(dest)
             }
             AstNode::Match { expr, arms, .. } => {
-                if let Some(val_reg) = self.lower_node(expr, func, current_block) {
+                if let Some(val_reg) = self.lower_node_prog(expr, prog, func, current_block) {
                     let mut arm_pairs = Vec::new();
                     for (i, arm) in arms.iter().enumerate() { if let nxsh_parser::ast::Pattern::Literal(lit) = arm.pattern { arm_pairs.push((MirValue::String(lit.to_string()), i as u32 + 100)); } }
                     if let Some(block) = func.get_block_mut(current_block) {
