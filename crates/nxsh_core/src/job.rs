@@ -683,15 +683,69 @@ impl JobManager {
         
         #[cfg(windows)]
         {
-            // Windows implementation using Win32 API for job objects and process management
             use std::process::Command;
-            
+            use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+            use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Thread32First, Thread32Next, THREADENTRY32, TH32CS_SNAPTHREAD};
+            use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, SuspendThread, THREAD_SUSPEND_RESUME};
+
+            // Helper: suspend all threads of the process identified by pid
+            unsafe fn suspend_process_threads(pid: u32) -> Result<(), String> {
+                let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+                if snapshot == INVALID_HANDLE_VALUE {
+                    return Err("CreateToolhelp32Snapshot failed".to_string());
+                }
+                let mut entry: THREADENTRY32 = std::mem::zeroed();
+                entry.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
+                if Thread32First(snapshot, &mut entry) == 0 {
+                    CloseHandle(snapshot);
+                    return Err("Thread32First failed".to_string());
+                }
+                loop {
+                    if entry.th32OwnerProcessID == pid {
+                        let hthread = OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID);
+                        if hthread != 0 {
+                            let _ = SuspendThread(hthread);
+                            CloseHandle(hthread);
+                        }
+                    }
+                    if Thread32Next(snapshot, &mut entry) == 0 { break; }
+                }
+                CloseHandle(snapshot);
+                Ok(())
+            }
+
+            // Helper: resume all threads of the process identified by pid
+            unsafe fn resume_process_threads(pid: u32) -> Result<(), String> {
+                let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+                if snapshot == INVALID_HANDLE_VALUE {
+                    return Err("CreateToolhelp32Snapshot failed".to_string());
+                }
+                let mut entry: THREADENTRY32 = std::mem::zeroed();
+                entry.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
+                if Thread32First(snapshot, &mut entry) == 0 {
+                    CloseHandle(snapshot);
+                    return Err("Thread32First failed".to_string());
+                }
+                loop {
+                    if entry.th32OwnerProcessID == pid {
+                        let hthread = OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID);
+                        if hthread != 0 {
+                            let _ = ResumeThread(hthread);
+                            CloseHandle(hthread);
+                        }
+                    }
+                    if Thread32Next(snapshot, &mut entry) == 0 { break; }
+                }
+                CloseHandle(snapshot);
+                Ok(())
+            }
+
             match signal {
                 JobSignal::Terminate | JobSignal::Kill => {
-                    // Use taskkill for termination on Windows
-                    let kill_command = if signal == JobSignal::Kill { "/F" } else { "/T" };
-                    let _ = Command::new("taskkill")
-                        .args(&[kill_command, "/PID", &pgid.to_string()])
+                    // Use taskkill for termination on Windows (works across consoles)
+                    let kill_flag = if signal == JobSignal::Kill { "/F" } else { "/T" };
+                    Command::new("taskkill")
+                        .args(&[kill_flag, "/PID", &pgid.to_string()])
                         .output()
                         .map_err(|e| ShellError::new(
                             ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
@@ -699,19 +753,20 @@ impl JobManager {
                         ))?;
                 }
                 JobSignal::Stop => {
-                    // Windows doesn't have SIGSTOP equivalent, but we can suspend the process
-                    // This is a simplified implementation - real implementation would use Win32 API
-                    return Err(ShellError::new(
-                        ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                        "Process suspension not implemented on Windows".to_string()
-                    ));
+                    // Suspend all threads of the target process (best-effort)
+                    unsafe { suspend_process_threads(pgid) }
+                        .map_err(|e| ShellError::new(
+                            ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
+                            format!("Failed to suspend process {}: {}", pgid, e)
+                        ))?;
                 }
                 JobSignal::Continue => {
-                    // Windows doesn't have SIGCONT equivalent
-                    return Err(ShellError::new(
-                        ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                        "Process continuation not implemented on Windows".to_string()
-                    ));
+                    // Resume all threads of the target process (best-effort)
+                    unsafe { resume_process_threads(pgid) }
+                        .map_err(|e| ShellError::new(
+                            ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
+                            format!("Failed to resume process {}: {}", pgid, e)
+                        ))?;
                 }
                 _ => {
                     return Err(ShellError::new(
