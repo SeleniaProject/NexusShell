@@ -34,7 +34,7 @@
 
 ## 5. Builtins（未実装/部分実装）
 - [x] `crates/nxsh_builtins/src/ls.rs`: user/group 参照の pure Rust 代替（libc 非依存化）
- - [ ] `crates/nxsh_builtins/src/cron.rs`: システムリソース監視の実装（CPU/Mem/IO/Load の収集としきい値評価）
+- [x] `crates/nxsh_builtins/src/cron.rs`: システムリソース監視の実装（CPU/Mem/IO/Load の収集としきい値評価）
 - [x] `crates/nxsh_builtins/src/find.rs`: 並列探索の導入と複雑式の評価（式パーサ実装/エラー解消）
 - [x] `crates/nxsh_builtins/src/command.rs`: `command` によるエイリアス回避実行の完全実装（外部コマンドへ直接ディスパッチ）
 - [x] `crates/nxsh_builtins/src/cat.rs`: URL 入力の対応（HTTP/HTTPS 読み取り）
@@ -52,7 +52,7 @@
 - [x] `crates/nxsh_builtins/src/wc.rs`: 追加フラグ群の対応
  - [ ] `crates/nxsh_builtins/src/zstd_complete.rs`: 圧縮機能の実装（Pure Rust 圧縮ライブラリ統合）
  - [x] `crates/nxsh_builtins/src/export.rs`: 関数エクスポート（`-f`）
-- [ ] `crates/nxsh_builtins/src/schedule.rs`: 内部スケジューラ（ジョブ登録/削除）
+- [x] `crates/nxsh_builtins/src/schedule.rs`: 内部スケジューラ（ジョブ登録/削除）
  - [x] `crates/nxsh_builtins/src/kill.rs`: ジョブ ID 指定の kill（ジョブテーブル連携強化）
 - [ ] `crates/nxsh_builtins/src/fsck.rs`: 修復モード/デバイス処理（安全な書き戻し戦略・入出力）
 - [ ] `crates/nxsh_builtins/src/timedatectl.rs`: ドリフト計算/統計/イベント送出の実装（監視ループの実体化）

@@ -266,3 +266,10 @@ schedule-delegating-at = schedule: 絶対時刻は外部 'at' があれば委譲
 # cron デーモン
 cron-daemon-started = Cron デーモンを開始しました
 cron-daemon-stopped = Cron デーモンを停止しました
+cron.log.cancelled_running_job = 実行中のジョブをキャンセルしました: { $job_id }
+cron.log.added_job = ジョブを追加しました: { $job_id } ({ $name })
+cron.log.removed_job = ジョブを削除しました: { $job_id } ({ $name })
+cron.log.modified_job = ジョブを更新しました: { $job_id } ({ $name })
+cron.log.enabled_job = ジョブを有効化しました: { $job_id } ({ $name })
+cron.log.disabled_job = ジョブを無効化しました: { $job_id } ({ $name })
+cron.log.manual_executed = 手動実行を開始しました: { $job_id } ({ $name })

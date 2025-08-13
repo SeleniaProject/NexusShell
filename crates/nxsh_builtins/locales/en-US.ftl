@@ -266,3 +266,10 @@ schedule-delegating-at = schedule: delegating absolute time to external 'at' if 
 # cron daemon
 cron-daemon-started = Cron daemon started
 cron-daemon-stopped = Cron daemon stopped
+cron.log.cancelled_running_job = Cancelled running job: { $job_id }
+cron.log.added_job = Added cron job: { $job_id } ({ $name })
+cron.log.removed_job = Removed cron job: { $job_id } ({ $name })
+cron.log.modified_job = Modified cron job: { $job_id } ({ $name })
+cron.log.enabled_job = Enabled cron job: { $job_id } ({ $name })
+cron.log.disabled_job = Disabled cron job: { $job_id } ({ $name })
+cron.log.manual_executed = Manually executed job: { $job_id } ({ $name })

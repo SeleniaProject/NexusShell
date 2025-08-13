@@ -427,7 +427,7 @@ impl CronDaemon {
             let mut running_jobs = self.running_jobs.write().unwrap();
             for (job_id, handle) in running_jobs.drain() {
                 handle.abort();
-                self.log_event(&format!("Cancelled running job: {}", job_id)).await?;
+                self.log_event(&t!("cron.log.cancelled_running_job", "job_id" => job_id.as_str())).await?;
             }
         }
 
@@ -477,7 +477,7 @@ impl CronDaemon {
         }
 
         let _ = self.event_sender.send(CronEvent::JobAdded(job.id.clone()));
-        self.log_event(&format!("Added cron job: {} ({})", job.id, job.name)).await?;
+        self.log_event(&t!("cron.log.added_job", "job_id" => job.id.as_str(), "name" => job.name.as_str())).await?;
 
         Ok(job.id)
     }
@@ -516,7 +516,7 @@ impl CronDaemon {
         }
 
         let _ = self.event_sender.send(CronEvent::JobRemoved(job_id.to_string()));
-        self.log_event(&format!("Removed cron job: {} ({})", job_id, job.name)).await?;
+        self.log_event(&t!("cron.log.removed_job", "job_id" => job_id, "name" => job.name.as_str())).await?;
 
         Ok(())
     }
@@ -582,7 +582,7 @@ impl CronDaemon {
         }
 
         let _ = self.event_sender.send(CronEvent::JobModified(job_id.to_string()));
-        self.log_event(&format!("Modified cron job: {} ({})", job_id, job.name)).await?;
+        self.log_event(&t!("cron.log.modified_job", "job_id" => job_id, "name" => job.name.as_str())).await?;
 
         Ok(())
     }
@@ -643,7 +643,7 @@ impl CronDaemon {
             }
 
             self.save_job(job).await?;
-            self.log_event(&format!("Enabled cron job: {} ({})", job_id, job.name)).await?;
+            self.log_event(&t!("cron.log.enabled_job", "job_id" => job_id, "name" => job.name.as_str())).await?;
             Ok(())
         } else {
             Err(anyhow!("Job not found: {}", job_id))
@@ -677,7 +677,7 @@ impl CronDaemon {
             }
 
             self.save_job(job).await?;
-            self.log_event(&format!("Disabled cron job: {} ({})", job_id, job.name)).await?;
+            self.log_event(&t!("cron.log.disabled_job", "job_id" => job_id, "name" => job.name.as_str())).await?;
             Ok(())
         } else {
             Err(anyhow!("Job not found: {}", job_id))
@@ -736,7 +736,7 @@ impl CronDaemon {
         }
 
         let _ = self.event_sender.send(CronEvent::JobStarted(job_id.to_string()));
-        self.log_event(&format!("Manually executed job: {} ({})", job_id, job.name)).await?;
+        self.log_event(&t!("cron.log.manual_executed", "job_id" => job_id, "name" => job.name.as_str())).await?;
 
         Ok(execution_id)
     }
