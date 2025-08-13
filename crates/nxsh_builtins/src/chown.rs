@@ -44,19 +44,19 @@ pub fn chown_cli(args: &[String]) -> Result<()> {
             return Err(anyhow!("chown: '{}' does not exist", file));
         }
         
-        // Cross-platform ownership change is not straightforward in pure Rust
-        // On Windows, this operation typically requires specific Windows APIs
-        // For now, we'll provide a warning that this operation is not supported
         #[cfg(windows)]
         {
             eprintln!("chown: ownership change not supported on Windows - operation skipped for '{file}'");
         }
-        
+
         #[cfg(unix)]
         {
-            // Use nix crate for Unix-specific operations if available
-            // This is a safer alternative to raw libc calls
-            eprintln!("chown: Unix ownership operations not implemented in pure Rust fallback for '{}'", file);
+            use nix::unistd::chown as nix_chown;
+            use nix::unistd::{Gid, Uid};
+            let uid_opt = Some(Uid::from_raw(_uid));
+            let gid_opt = if _gid >= 0 { Some(Gid::from_raw(_gid as u32)) } else { None };
+            nix_chown(path, uid_opt, gid_opt)
+                .map_err(|e| anyhow!(format!("chown: failed on '{}': {}", file, e)))?;
         }
     }
     Ok(())

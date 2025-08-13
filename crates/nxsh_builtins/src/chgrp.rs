@@ -46,9 +46,11 @@ pub fn chgrp_cli(args: &[String]) -> Result<()> {
         
         #[cfg(unix)]
         {
-            // Use nix crate for Unix-specific operations if available
-            // This is a safer alternative to raw libc calls
-            eprintln!("chgrp: Unix group operations not implemented in pure Rust fallback for '{}'", file);
+            use nix::unistd::chown as nix_chown;
+            use nix::unistd::{Gid};
+            let gid = Gid::from_raw(_gid as u32);
+            // chgrp leaves uid unchanged, pass None for uid
+            nix_chown(path, None, Some(gid)).map_err(|e| anyhow!(format!("chgrp: failed on '{}': {}", file, e)))?;
         }
     }
 
