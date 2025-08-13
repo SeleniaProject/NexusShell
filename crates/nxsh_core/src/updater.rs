@@ -21,7 +21,7 @@ use tracing::{info, warn, error, debug};
 use crate::compat::{Result, Context};
 use sha2::{Sha256, Digest};
 use base64::Engine;
-use std::io::{Read, Write};
+// Note: bring IO traits locally only when needed to avoid unused warnings
 
 fn home_dir_fallback() -> Option<std::path::PathBuf> {
     if let Ok(h) = std::env::var("HOME") { return Some(std::path::PathBuf::from(h)); }
@@ -440,8 +440,25 @@ impl UpdateSystem {
             // Download update
             let download_path = self.download_update(update_info, use_delta).await?;
 
-            // Verify download
-            self.verify_update(&download_path, update_info).await?;
+            // Verify TUF-like metadata from server-provided manifest
+            self.verify_tuf_like_metadata(update_info)?;
+
+            // Verify download (select checksum based on method)
+            let expected_checksum: String = if use_delta {
+                update_info
+                    .delta_checksum
+                    .clone()
+                    .ok_or_else(|| crate::anyhow!("missing delta checksum in update info"))?
+            } else {
+                update_info.checksum.clone()
+            };
+            self.verify_update(
+                &download_path,
+                &expected_checksum,
+                &update_info.signature,
+                &update_info.key_fingerprint,
+            )
+            .await?;
 
             // Apply update
             self.install_update(&download_path, method).await?;
@@ -611,7 +628,13 @@ impl UpdateSystem {
     }
 
     /// Verify update integrity and authenticity
-    async fn verify_update(&self, file_path: &Path, update_info: &UpdateInfo) -> Result<()> {
+    async fn verify_update(
+        &self,
+        file_path: &Path,
+        expected_checksum_hex: &str,
+        signature_b64: &str,
+        key_fingerprint: &str,
+    ) -> Result<()> {
         info!(path = ?file_path, "Verifying update");
 
         // Verify checksum
@@ -623,16 +646,20 @@ impl UpdateSystem {
     let calculated_hash = hasher.finalize();
     let calculated_hex = format!("{:x}", calculated_hash);
 
-        if !update_info.checksum.is_empty() {
-            if update_info.checksum.to_ascii_lowercase() != calculated_hex {
-                return Err(crate::anyhow!("checksum mismatch: expected {}, got {}", update_info.checksum, calculated_hex));
+        if !expected_checksum_hex.is_empty() {
+            if expected_checksum_hex.to_ascii_lowercase() != calculated_hex {
+                return Err(crate::anyhow!(
+                    "checksum mismatch: expected {}, got {}",
+                    expected_checksum_hex,
+                    calculated_hex
+                ));
             }
         }
 
         // Verify signature if enabled
         if self.config.verify_signatures {
-            self.verify_signature(&file_data, &update_info.signature, &update_info.key_fingerprint)?;
-            self.verify_tuf_like_metadata(update_info)?;
+            self.verify_signature(&file_data, signature_b64, key_fingerprint)?;
+            // TUF-like metadata verification depends on UpdateInfo; skipped here since only file is available
         }
 
         info!("Update verification completed successfully");
@@ -653,17 +680,28 @@ impl UpdateSystem {
         #[cfg(feature = "crypto-ed25519")]
         {
             use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+            use ed25519_dalek::pkcs8::DecodePublicKey;
             let pk_material = keys.public_keys.get(key_name)
                 .ok_or_else(|| crate::anyhow!("No public key material for {key_name}"))?;
-            let verifying_key = match VerifyingKey::from_public_key_pem(pk_material) {
-                Ok(vk) => vk,
-                Err(_) => {
+            let verifying_key = {
+                // Try PEM first if it looks like PEM
+                if pk_material.contains("-----BEGIN") {
+                    let pem = pem::parse(pk_material.as_bytes())
+                        .map_err(|e| crate::anyhow!("invalid PEM public key: {e}"))?;
+                    VerifyingKey::from_public_key_der(&pem.contents())
+                        .map_err(|e| crate::anyhow!("invalid DER public key in PEM: {e}"))?
+                } else {
+                    // Otherwise treat as base64. If 32 bytes, interpret as raw key; otherwise try DER.
                     let raw = base64::engine::general_purpose::STANDARD
                         .decode(pk_material.as_bytes())
                         .map_err(|e| crate::anyhow!("invalid base64 public key: {e}"))?;
-                    if raw.len() != 32 { return Err(crate::anyhow!("invalid raw public key length: {}", raw.len())); }
-                    VerifyingKey::from_bytes(raw.as_slice().try_into().unwrap())
-                        .map_err(|e| crate::anyhow!("invalid ed25519 public key: {e}"))?
+                    if raw.len() == 32 {
+                        VerifyingKey::from_bytes(raw.as_slice().try_into().unwrap())
+                            .map_err(|e| crate::anyhow!("invalid ed25519 public key (raw 32 bytes): {e}"))?
+                    } else {
+                        VerifyingKey::from_public_key_der(&raw)
+                            .map_err(|e| crate::anyhow!("invalid DER public key (base64): {e}"))?
+                    }
                 }
             };
             let sig_bytes = base64::engine::general_purpose::STANDARD
@@ -733,18 +771,16 @@ impl UpdateSystem {
 
         match method {
             UpdateMethod::Full => {
-                // Install full binary update
-                // Placeholder: In production, this would replace the current binary
-                info!("Installing full binary update (placeholder)");
-            },
+                info!("Installing full binary update");
+                self.apply_full_update(update_path)?;
+            }
             UpdateMethod::Delta => {
-                // Apply delta patch using bsdiff/bspatch compatible format (placeholder integration)
                 info!("Applying delta patch via bspatch-compatible routine");
                 self.apply_delta_patch(update_path)?;
-            },
+            }
             UpdateMethod::Rollback => {
                 return Err(crate::anyhow!("Rollback should not be handled in install_update"));
-            },
+            }
         }
 
         // Update progress
@@ -758,48 +794,214 @@ impl UpdateSystem {
         Ok(())
     }
 
-    /// Apply a delta patch to the current binary using a bspatch-compatible algorithm.
+    /// Apply a delta patch (BSDIFF40) to the current binary using a bspatch-compatible algorithm.
     /// The delta file is expected to be generated by a standard bsdiff implementation.
     fn apply_delta_patch(&self, delta_path: &Path) -> Result<()> {
-        // Locate current binary and target path
-        let current_exe = std::env::current_exe().map_err(|e| crate::anyhow!("failed to locate current exe: {e}"))?;
+        // Locate current binary and read old bytes
+        let current_exe = std::env::current_exe()
+            .map_err(|e| crate::anyhow!("failed to locate current exe: {e}"))?;
         let old_bytes = fs::read(&current_exe)?;
-        let delta_bytes = fs::read(delta_path)?;
 
-        // Apply patch in memory (placeholder wired for future bspatch integration)
-        // For now, treat delta as full file if it starts without BSPATCH magic; else error.
-        let new_bytes = if delta_bytes.starts_with(b"BSDIFF40") {
-            // TODO: integrate pure-Rust bspatch (no C deps). For now, reject with clear message.
-            return Err(crate::anyhow!("delta patching not yet integrated: BSPATCH required"));
-        } else {
-            // Fallback: assume server provided a full file in delta slot (for testing)
-            delta_bytes
-        };
+        // Read delta file into memory
+        let delta = fs::read(delta_path)?;
 
-        // Write to a temporary file in the same directory for atomic replace
-        let dir = current_exe.parent().ok_or_else(|| crate::anyhow!("current exe has no parent directory"))?;
-        let tmp_path = dir.join("nxsh_new.tmp");
-        fs::write(&tmp_path, &new_bytes)?;
+        // Use fallback if not BSDIFF40: treat as full file
+        if !delta.starts_with(b"BSDIFF40") {
+            return self.apply_full_bytes(&current_exe, &delta);
+        }
 
-        // On Windows, replacing a running executable is restricted.
-        // Strategy: write side-by-side new file; actual swap is performed on next restart.
-        // We record the path for the launcher to pick up.
+        // Guard for feature availability
+        #[cfg(not(feature = "delta-bspatch"))]
+        {
+            return Err(crate::anyhow!(
+                "delta-bspatch feature disabled: rebuild with 'delta-bspatch' feature to enable bspatch"
+            ));
+        }
+
+        #[cfg(feature = "delta-bspatch")]
+        {
+            use std::io::{Cursor, Read};
+            use bzip2_rs::DecoderReader;
+
+            // Helper: decode signed 64-bit number in BSDIFF offtin format
+            fn offtin(buf: [u8; 8]) -> i64 {
+                let mut y: i64 = ((buf[7] & 0x7f) as i64);
+                for i in (0..7).rev() {
+                    y = (y << 8) + (buf[i] as i64);
+                }
+                if (buf[7] & 0x80) != 0 { -y } else { y }
+            }
+
+            if delta.len() < 32 {
+                return Err(crate::anyhow!("invalid BSDIFF40 patch: too short"));
+            }
+
+            let ctrl_len = offtin(delta[8..16].try_into().unwrap());
+            let diff_len = offtin(delta[16..24].try_into().unwrap());
+            let new_size = offtin(delta[24..32].try_into().unwrap());
+
+            if ctrl_len < 0 || diff_len < 0 || new_size < 0 {
+                return Err(crate::anyhow!("invalid BSDIFF40 header: negative lengths"));
+            }
+
+            let ctrl_len_usize = ctrl_len as usize;
+            let diff_len_usize = diff_len as usize;
+            let new_size_usize = new_size as usize;
+
+            if delta.len() < 32 + ctrl_len_usize + diff_len_usize {
+                return Err(crate::anyhow!("invalid BSDIFF40 patch: truncated blocks"));
+            }
+
+            let ctrl_off = 32;
+            let diff_off = 32 + ctrl_len_usize;
+            let extra_off = 32 + ctrl_len_usize + diff_len_usize;
+
+            let ctrl_slice = &delta[ctrl_off..diff_off];
+            let diff_slice = &delta[diff_off..extra_off];
+            let extra_slice = &delta[extra_off..];
+
+            let mut ctrl = DecoderReader::new(Cursor::new(ctrl_slice));
+            let mut diff = DecoderReader::new(Cursor::new(diff_slice));
+            let mut extra = DecoderReader::new(Cursor::new(extra_slice));
+
+            // Allocate output buffer
+            let mut new_bytes = vec![0u8; new_size_usize];
+            let mut new_pos: usize = 0;
+            let mut old_pos: i64 = 0;
+
+            // Helper to read an offtin i64 from a reader
+            fn read_offtin<R: Read>(r: &mut R) -> Result<i64> {
+                let mut b = [0u8; 8];
+                r.read_exact(&mut b).map_err(|e| crate::anyhow!("failed to read control block: {}", e))?;
+                Ok(offtin(b))
+            }
+
+            while (new_pos as i64) < new_size {
+                let x = read_offtin(&mut ctrl)?;
+                let y = read_offtin(&mut ctrl)?;
+                let z = read_offtin(&mut ctrl)?;
+
+                if x < 0 || y < 0 {
+                    return Err(crate::anyhow!("invalid control tuple: negative x or y"));
+                }
+
+                let x_usize = x as usize;
+                let y_usize = y as usize;
+
+                // Bounds checks
+                if new_pos + x_usize > new_size_usize {
+                    return Err(crate::anyhow!("patch would write beyond new size (diff phase)"));
+                }
+                if old_pos < 0 || (old_pos as usize) > old_bytes.len() {
+                    return Err(crate::anyhow!("old position out of range"));
+                }
+                if (old_pos as usize) + x_usize > old_bytes.len() {
+                    return Err(crate::anyhow!("patch would read beyond old size (diff phase)"));
+                }
+
+                // Read x bytes from diff and add to old
+                let mut processed: usize = 0;
+                while processed < x_usize {
+                    let chunk = (x_usize - processed).min(64 * 1024);
+                    let mut buf = vec![0u8; chunk];
+                    diff.read_exact(&mut buf)
+                        .map_err(|e| crate::anyhow!("failed to read diff block: {}", e))?;
+                    let old_slice = &old_bytes[(old_pos as usize) + processed..(old_pos as usize) + processed + chunk];
+                    for i in 0..chunk {
+                        new_bytes[new_pos + processed + i] = buf[i].wrapping_add(old_slice[i]);
+                    }
+                    processed += chunk;
+                }
+
+                new_pos += x_usize;
+                old_pos += x;
+
+                // Bounds check for extra copy
+                if new_pos + y_usize > new_size_usize {
+                    return Err(crate::anyhow!("patch would write beyond new size (extra phase)"));
+                }
+
+                // Read y bytes from extra
+                let mut processed_extra: usize = 0;
+                while processed_extra < y_usize {
+                    let chunk = (y_usize - processed_extra).min(64 * 1024);
+                    let mut buf = vec![0u8; chunk];
+                    extra.read_exact(&mut buf)
+                        .map_err(|e| crate::anyhow!("failed to read extra block: {}", e))?;
+                    new_bytes[new_pos..new_pos + chunk].copy_from_slice(&buf);
+                    new_pos += chunk;
+                    processed_extra += chunk;
+                }
+
+                // Adjust old_pos by z
+                old_pos += z;
+                if old_pos < 0 || old_pos as usize > old_bytes.len() {
+                    return Err(crate::anyhow!("old position moved out of range after z adjustment"));
+                }
+            }
+
+            if new_pos != new_size_usize {
+                return Err(crate::anyhow!("patch application finished with size mismatch"));
+            }
+
+            // Persist resulting bytes
+            return self.apply_full_bytes(&current_exe, &new_bytes);
+        }
+    }
+
+    /// Apply a full binary update from a file path.
+    fn apply_full_update(&self, full_path: &Path) -> Result<()> {
+        let current_exe = std::env::current_exe()
+            .map_err(|e| crate::anyhow!("failed to locate current exe: {e}"))?;
+        let bytes = fs::read(full_path)?;
+        self.apply_full_bytes(&current_exe, &bytes)
+    }
+
+    /// Write new binary bytes next to the current executable and finalize installation.
+    fn apply_full_bytes(&self, current_exe: &Path, new_bytes: &[u8]) -> Result<()> {
+        let dir = current_exe
+            .parent()
+            .ok_or_else(|| crate::anyhow!("current exe has no parent directory"))?;
+        let ts = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let tmp_path = dir.join(format!("nxsh_new_{}.tmp", ts));
+        fs::write(&tmp_path, new_bytes)?;
+
+        // On Unix, attempt atomic replacement; on Windows, use marker for next restart
+        #[cfg(unix)]
+        {
+            if let Err(e) = std::fs::rename(&tmp_path, current_exe) {
+                warn!(error = %e, "Atomic replace failed; falling back to marker file for next restart");
         let marker = dir.join("nxsh_update_pending.txt");
         fs::write(&marker, tmp_path.file_name().unwrap().to_string_lossy().as_bytes())?;
+            }
+        }
+        #[cfg(windows)]
+        {
+            let marker = dir.join("nxsh_update_pending.txt");
+            fs::write(&marker, tmp_path.file_name().unwrap().to_string_lossy().as_bytes())?;
+        }
 
-        info!(tmp = ?tmp_path, "Delta patch applied to temporary file; swap pending on restart");
+        info!(tmp = ?tmp_path, "New binary written; update finalized or pending on restart");
         Ok(())
     }
 
     /// Create backup of current installation
     async fn create_backup(&self, update_id: &str) -> Result<PathBuf> {
-        let backup_path = self.config.backup_dir.join(format!("backup_{}.tar.gz", update_id));
+        // Create a binary backup of the current executable with retention policy
+        let current_exe = std::env::current_exe()
+            .map_err(|e| crate::anyhow!("failed to locate current exe: {e}"))?;
+        let backup_path = self
+            .config
+            .backup_dir
+            .join(format!("nxsh-backup-{}.bin", update_id));
         
         info!(path = ?backup_path, "Creating backup");
-        
-        // Placeholder for actual backup creation
-        // In production, this would create a compressed archive of the current installation
-        fs::write(&backup_path, "Placeholder backup data")?;
+        fs::create_dir_all(&self.config.backup_dir)?;
+        fs::copy(&current_exe, &backup_path)
+            .map_err(|e| crate::anyhow!("failed to create backup: {}", e))?;
         
         info!(path = ?backup_path, "Backup created successfully");
         Ok(backup_path)
@@ -808,12 +1010,34 @@ impl UpdateSystem {
     /// Rollback to previous version
     async fn rollback_update(&self, backup_path: &Path) -> Result<()> {
         info!(backup_path = ?backup_path, "Rolling back update");
-        
-        // Placeholder for actual rollback implementation
-        // In production, this would restore from the backup
-        
+        let current_exe = std::env::current_exe()
+            .map_err(|e| crate::anyhow!("failed to locate current exe: {e}"))?;
+        let dir = current_exe
+            .parent()
+            .ok_or_else(|| crate::anyhow!("current exe has no parent directory"))?;
+
+        #[cfg(unix)]
+        {
+            // Try atomic restore
+            let tmp = dir.join("nxsh_rollback.tmp");
+            fs::copy(backup_path, &tmp)
+                .map_err(|e| crate::anyhow!("failed to stage rollback file: {}", e))?;
+            std::fs::rename(&tmp, &current_exe)
+                .map_err(|e| crate::anyhow!("failed to replace current binary: {}", e))?;
         info!("Rollback completed successfully");
-        Ok(())
+            return Ok(());
+        }
+        #[cfg(windows)]
+        {
+            // Stage for next restart
+            let staged = dir.join("nxsh_rollback.tmp");
+            fs::copy(backup_path, &staged)
+                .map_err(|e| crate::anyhow!("failed to stage rollback file: {}", e))?;
+            let marker = dir.join("nxsh_rollback_pending.txt");
+            fs::write(&marker, staged.file_name().unwrap().to_string_lossy().as_bytes())?;
+            info!("Rollback staged; will be applied on next restart");
+            return Ok(());
+        }
     }
 
     /// Cleanup old backups based on retention policy
@@ -959,3 +1183,48 @@ impl UpdateSystem {
         Ok(())
     }
 } 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_verify_update_checksum_only() {
+        // Prepare a temporary file with known contents
+        let dir = TempDir::new().unwrap();
+        let file_path = dir.path().join("update_test.bin");
+        let content = b"NexusShell Update File";
+        std::fs::write(&file_path, content).unwrap();
+
+        // Compute expected SHA-256 in hex
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(content);
+        let expected = format!("{:x}", hasher.finalize());
+
+        // Build update system with signature verification disabled
+        let mut cfg = UpdateConfig::default();
+        cfg.verify_signatures = false;
+        let system = UpdateSystem::new(cfg).unwrap();
+
+        // Should verify successfully with matching checksum
+        futures::executor::block_on(async {
+            system
+                .verify_update(&file_path, &expected, "", "")
+                .await
+                .unwrap();
+        });
+    }
+
+    #[test]
+    fn test_apply_delta_patch_fallback_non_bsdiff40() {
+        // Create a fake delta file that does not start with BSDIFF40 magic
+        let dir = TempDir::new().unwrap();
+        let delta_path = dir.path().join("fake_delta.bin");
+        std::fs::write(&delta_path, b"FULL-BINARY-CONTENT").unwrap();
+
+        let system = UpdateSystem::new(UpdateConfig::default()).unwrap();
+        // Should treat as full file and stage update next to current exe
+        system.apply_delta_patch(&delta_path).unwrap();
+    }
+}
