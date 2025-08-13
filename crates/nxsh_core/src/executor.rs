@@ -2615,6 +2615,7 @@ impl Executor {
         use std::process::{Command, Stdio};
         use std::io::Write;
         use tempfile::NamedTempFile;
+        let start_time = std::time::Instant::now();
         
         // Create temporary script file for subshell execution
         let mut temp_script = NamedTempFile::new()
@@ -2664,14 +2665,15 @@ impl Executor {
                 ErrorKind::IoError(crate::error::IoErrorKind::Other),
                 format!("Failed to wait for subshell: {}", e)
             ))?;
+        let execution_time = start_time.elapsed().as_micros() as u64;
         
         Ok(ExecutionResult {
             exit_code: output.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
             stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            execution_time: 0, // TODO: Measure actual time
+            execution_time,
             strategy: ExecutionStrategy::DirectInterpreter,
-            metrics: ExecutionMetrics::default(),
+            metrics: ExecutionMetrics { execute_time_us: execution_time, ..Default::default() },
         })
     }
 
