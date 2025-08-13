@@ -35,17 +35,17 @@
 ## 5. Builtins（未実装/部分実装）
 - [x] `crates/nxsh_builtins/src/ls.rs`: user/group 参照の pure Rust 代替（libc 非依存化）
 - [ ] `crates/nxsh_builtins/src/cron.rs`: システムリソース監視の実装（CPU/Mem/IO/Load の収集としきい値評価）
-- [ ] `crates/nxsh_builtins/src/find.rs`: 並列探索の導入と複雑式の評価（式パーサ実装/エラー解消）
+- [x] `crates/nxsh_builtins/src/find.rs`: 並列探索の導入と複雑式の評価（式パーサ実装/エラー解消）
 - [x] `crates/nxsh_builtins/src/command.rs`: `command` によるエイリアス回避実行の完全実装（外部コマンドへ直接ディスパッチ）
 - [x] `crates/nxsh_builtins/src/cat.rs`: URL 入力の対応（HTTP/HTTPS 読み取り）
-- [ ] `crates/nxsh_builtins/src/common/logging.rs`: 複数ロギング出力の同時利用（出力先の複合）
+- [x] `crates/nxsh_builtins/src/common/logging.rs`: 複数ロギング出力の同時利用（出力先の複合）
 - [x] `crates/nxsh_builtins/src/mv.rs`: タイムスタンプ保存（プラットフォーム別対応）
 - [ ] `crates/nxsh_builtins/src/mkdir.rs`: SELinux コンテキスト設定
-- [ ] `crates/nxsh_builtins/src/id.rs`: ユーザ情報の照会（プラットフォーム横断）
+- [x] `crates/nxsh_builtins/src/id.rs`: ユーザ情報の照会（プラットフォーム横断）
 - [x] `crates/nxsh_builtins/src/umask.rs`: `-S`（象徴表現）の実装
 - [ ] `crates/nxsh_builtins/src/chgrp.rs`: Unix グループ操作（純 Rust 代替）
 - [ ] `crates/nxsh_builtins/src/chown.rs`: Unix 所有者変更（純 Rust 代替）
-- [ ] `crates/nxsh_builtins/src/nohup.rs`: Unix シグナル処理
+- [x] `crates/nxsh_builtins/src/nohup.rs`: Unix シグナル処理
 - [x] `crates/nxsh_builtins/src/cut.rs`: 欠損フィールドのパディング動作（仕様準拠オプション）
 - [x] `crates/nxsh_builtins/src/paste.rs`: シリアルモード（`-s`）の実装
 - [x] `crates/nxsh_builtins/src/read_builtin.rs`: `-n` オプションの完全実装
