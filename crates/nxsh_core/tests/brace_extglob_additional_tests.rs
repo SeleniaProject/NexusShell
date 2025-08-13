@@ -333,55 +333,26 @@ fn test_complex_glob_patterns() {
 
 #[test]
 fn test_glob_safety_limits() {
-    // Test that glob expansion respects safety limits
-    // Create many files to test limits
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let original_cwd = std::env::current_dir().unwrap();
-    
-    // Create 300 test files (more than the typical limit)
-    for i in 0..300 {
-        let _ = File::create(temp_dir.path().join(format!("file{:03}.txt", i)));
-    }
-    
-    std::env::set_current_dir(temp_dir.path()).unwrap();
-    
-    let result = run_glob_test("*.txt", &[]);
-    
-    let _ = std::env::set_current_dir(&original_cwd);
-    
-    // Should respect the 256 file limit mentioned in the code
-    // Our executor caps directory scan at 2048 entries and returns literal when exceeding result cap.
-    // Accept either a capped match set (<=256) or a literal fallback when too many matches.
+    // Test that glob expansion respects safety limits using the CWD-locked helper
+    let files: Vec<String> = (0..300).map(|i| format!("file{:03}.txt", i)).collect();
+    let file_refs: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
+    let result = run_glob_test("*.txt", &file_refs);
+
+    // Our executor caps directory scan at 2048 entries and may return literal when exceeding result cap.
+    // Accept either a literal fallback or a capped match set (<=256).
     if result.len() == 1 && result[0] == "*.txt" {
         // Literal fallback path observed
     } else {
         assert!(result.len() <= 256, "glob results should respect safety limit of 256 files");
     }
-    
-    if result.len() == 256 {
-        println!("Glob safety limit of 256 files is working correctly");
-    }
+    if result.len() == 256 { println!("Glob safety limit of 256 files is working correctly"); }
 }
 
 #[test]
 fn test_escape_sequence_restoration() {
     // Test that escape sequences are properly restored after expansion
-    let files = &["test{file}.txt", "normal.txt"];
-    
-    // Create actual file with braces in name (if filesystem supports it)
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let original_cwd = std::env::current_dir().unwrap();
-    
-    // Only create the normal file, as braces in filenames may not be supported on all systems
-    File::create(temp_dir.path().join("normal.txt")).expect("Failed to create test file");
-    
-    std::env::set_current_dir(temp_dir.path()).unwrap();
-    
-    // Test that literal braces (escaped) don't get expanded
-    let result = run_glob_test("\\{normal\\}.txt", &[]);
-    
-    std::env::set_current_dir(original_cwd).unwrap();
-    
+    // Use run_glob_test which serializes CWD changes with a global lock
+    let result = run_glob_test("\\{normal\\}.txt", &["normal.txt"]);
     // Should return the literal pattern since the escaped braces don't match any file
     assert_eq!(result, vec!["\\{normal\\}.txt"], "escaped braces should remain literal");
 }

@@ -542,6 +542,74 @@ impl AdvancedJobScheduler {
         
         self.schedule_job(job).await
     }
+
+    /// 間隔実行ジョブをスケジュール（秒間隔）
+    pub async fn schedule_interval(&self, command: String, interval_secs: u64) -> Result<String> {
+        let job_id = format!("int_{}", self.job_counter.fetch_add(1, Ordering::Relaxed));
+        let nr = SystemTime::now() + Duration::from_secs(interval_secs.max(1));
+        let job = ScheduledJob {
+            id: job_id.clone(),
+            name: format!("Interval job: {}", command),
+            command: command.clone(),
+            args: Vec::new(),
+            working_dir: std::env::current_dir().unwrap_or_default().to_string_lossy().to_string(),
+            environment: std::env::vars().collect(),
+            schedule: JobSchedule::Interval { interval_secs, next_run: nr },
+            priority: 5,
+            timeout_secs: self.config.default_timeout_secs,
+            retry_config: RetryConfig::default(),
+            dependencies: Vec::new(),
+            notifications: NotificationConfig::default(),
+            created_at: SystemTime::now(),
+            enabled: true,
+            metadata: HashMap::new(),
+            nice: 0,
+        };
+        self.schedule_job(job).await
+    }
+
+    /// 1回だけ実行するジョブをUNIXエポック秒でスケジュール
+    pub async fn schedule_once_epoch(&self, command: String, epoch_secs: u64) -> Result<String> {
+        let run_at = SystemTime::UNIX_EPOCH + Duration::from_secs(epoch_secs);
+        self.schedule_at(command, run_at).await
+    }
+
+    /// ジョブを有効化（キューへ再投入）
+    pub async fn enable_job(&self, job_id: &str) -> Result<bool> {
+        // Take needed info without holding the write lock across await
+        let (priority, schedule_clone) = {
+            let mut jobs_w = self.jobs.write().await;
+            if let Some(job) = jobs_w.get_mut(job_id) {
+                job.enabled = true;
+                (job.priority, job.schedule.clone())
+            } else {
+                return Ok(false);
+            }
+        };
+        // Compute next run outside the lock
+        let next_run = self.calculate_next_run(&schedule_clone).await?;
+        let mut q = self.queue.write().await;
+        q.push(Reverse(QueuedJob { job_id: job_id.to_string(), scheduled_time: next_run, priority, attempt: 0 }));
+        Ok(true)
+    }
+
+    /// ジョブを無効化（キューから除去）
+    pub async fn disable_job(&self, job_id: &str) -> Result<bool> {
+        let mut jobs_w = self.jobs.write().await;
+        if let Some(job) = jobs_w.get_mut(job_id) {
+            job.enabled = false;
+            drop(jobs_w);
+            // Remove queued entries
+            let mut queue = self.queue.write().await;
+            let mut new_queue = BinaryHeap::new();
+            while let Some(Reverse(job)) = queue.pop() {
+                if job.job_id != job_id { new_queue.push(Reverse(job)); }
+            }
+            *queue = new_queue;
+            return Ok(true);
+        }
+        Ok(false)
+    }
     
     /// ジョブをキャンセル
     pub async fn cancel_job(&self, job_id: &str) -> Result<bool> {

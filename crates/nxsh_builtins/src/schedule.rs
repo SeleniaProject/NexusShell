@@ -79,6 +79,10 @@ pub fn schedule_cli(args: &[String]) -> Result<()> {
             println!("  -l, --list       List scheduled tasks");
             println!("  -d, --delete ID  Delete scheduled task");
             println!("      --stats      Show scheduler statistics");
+            println!("      --enable ID  Enable a disabled job");
+            println!("      --disable ID Disable a job");
+            println!("      --interval SECS CMD  Schedule interval job");
+            println!("      --at EPOCH_SECS CMD  Schedule one-shot job");
             println!("  -h, --help     Show this help");
         }
         _ => {
@@ -91,7 +95,35 @@ pub fn schedule_cli(args: &[String]) -> Result<()> {
             let time_spec = &args[0];
             let command = args[1..].join(" ");
             // Use core scheduler for cron-like expressions; for absolute times fall back to external 'at'
-            if is_cron_like(time_spec) {
+            if time_spec == "--enable" && args.len() >= 2 {
+                let job_id = &args[1];
+                let (rt, sched) = ensure_scheduler()?;
+                let ok = rt.block_on(async { sched.enable_job(job_id).await })?;
+                if ok { println!("Enabled {job_id}"); } else { eprintln!("schedule: job not found: {job_id}"); std::process::exit(1); }
+                return Ok(());
+            } else if time_spec == "--disable" && args.len() >= 2 {
+                let job_id = &args[1];
+                let (rt, sched) = ensure_scheduler()?;
+                let ok = rt.block_on(async { sched.disable_job(job_id).await })?;
+                if ok { println!("Disabled {job_id}"); } else { eprintln!("schedule: job not found: {job_id}"); std::process::exit(1); }
+                return Ok(());
+            } else if time_spec == "--interval" && args.len() >= 3 {
+                let secs: u64 = args[1].parse().map_err(|_| anyhow!("schedule: invalid seconds"))?;
+                let cmd = args[2..].join(" ");
+                let (rt, sched) = ensure_scheduler()?;
+                let job_id = rt.block_on(async { sched.schedule_interval(cmd.clone(), secs).await })
+                    .map_err(|e| anyhow!("schedule: failed to schedule: {e}"))?;
+                println!("schedule: scheduled as {job_id}");
+                return Ok(());
+            } else if time_spec == "--at" && args.len() >= 3 {
+                let epoch: u64 = args[1].parse().map_err(|_| anyhow!("schedule: invalid epoch secs"))?;
+                let cmd = args[2..].join(" ");
+                let (rt, sched) = ensure_scheduler()?;
+                let job_id = rt.block_on(async { sched.schedule_once_epoch(cmd.clone(), epoch).await })
+                    .map_err(|e| anyhow!("schedule: failed to schedule: {e}"))?;
+                println!("schedule: scheduled as {job_id}");
+                return Ok(());
+            } else if is_cron_like(time_spec) {
                 let (rt, sched) = ensure_scheduler()?;
                 let job_id = rt.block_on(async { sched.schedule_cron(command.clone(), time_spec.clone()).await })
                     .map_err(|e| anyhow!("schedule: failed to schedule: {e}"))?;
