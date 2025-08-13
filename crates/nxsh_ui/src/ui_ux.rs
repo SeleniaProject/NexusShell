@@ -933,6 +933,56 @@ impl Clone for InteractiveSession {
     }
 }
 
+impl InteractiveSession {
+    /// Return the current step if any.
+    pub fn current_step(&self) -> Option<&InteractiveStep> {
+        self.steps.get(self.current_step)
+    }
+
+    /// Set a parameter value by name.
+    pub fn set_param(&mut self, name: &str, value: impl Into<String>) -> Result<()> {
+        if !self.steps.iter().any(|s| s.name == name) {
+            return Err(anyhow::anyhow!(format!("Unknown parameter: {name}")));
+        }
+        self.parameters.insert(name.to_string(), value.into());
+        Ok(())
+    }
+
+    /// Check whether all required parameters up to and including the current step are provided.
+    pub fn can_advance(&self) -> bool {
+        self.steps
+            .iter()
+            .take(self.current_step + 1)
+            .all(|s| !s.required || self.parameters.contains_key(&s.name))
+    }
+
+    /// Advance to next step if possible.
+    pub fn advance(&mut self) -> Result<()> {
+        if !self.can_advance() {
+            return Err(anyhow::anyhow!("Cannot advance: missing required parameter(s)"));
+        }
+        if self.current_step + 1 < self.steps.len() {
+            self.current_step += 1;
+        }
+        Ok(())
+    }
+
+    /// Whether all required parameters for all steps are provided.
+    pub fn is_complete(&self) -> bool {
+        self.steps
+            .iter()
+            .all(|s| !s.required || self.parameters.contains_key(&s.name))
+    }
+
+    /// Complete the interactive session by invoking the completion handler.
+    pub fn try_complete(&self) -> Result<String> {
+        if !self.is_complete() {
+            return Err(anyhow::anyhow!("Cannot complete: missing required parameter(s)"));
+        }
+        (self.completion_handler)(&self.parameters)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct InteractiveStep {
     pub name: String,
