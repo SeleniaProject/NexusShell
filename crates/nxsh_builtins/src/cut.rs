@@ -6,7 +6,7 @@
 //! • LIST: comma-separated 1-based field numbers or ranges (e.g. 1,3,5-7)
 //! • DELIM: single-byte delimiter character (default TAB). Escape sequences \t,\n,\r allowed.
 //! • Multibyte UTF-8 input is treated as bytes for delimiter splitting (matches GNU cut behaviour).
-//! • Lines with fewer fields than requested are printed with missing fields skipped (padding not implemented).
+//! • Lines with fewer fields than requestedは、指定フィールドに対して不足分を空として出力する `--pad` をサポート。
 //!
 //! Character (-c) and byte (-b) mode are out of scope for this minimal implementation.
 
@@ -22,6 +22,7 @@ pub fn cut_cli(args: &[String]) -> Result<()> {
     let mut idx = 0;
     let mut fields_spec = None::<String>;
     let mut delim = b'\t'; // default TAB
+    let mut pad_missing = false;
 
     while idx < args.len() {
         match args[idx].as_str() {
@@ -37,6 +38,9 @@ pub fn cut_cli(args: &[String]) -> Result<()> {
                 let bytes = dstr.as_bytes();
                 if bytes.len() != 1 { return Err(anyhow!("cut: delimiter must be a single byte")); }
                 delim = bytes[0];
+            }
+            "--pad" => {
+                pad_missing = true;
             }
             "--" => {
                 idx += 1; // end of options
@@ -55,20 +59,21 @@ pub fn cut_cli(args: &[String]) -> Result<()> {
 
     // Remaining args are files; if none, read stdin
     if idx >= args.len() {
-        process_reader(delim, &ranges, BufReader::new(io::stdin()))?;
+        process_reader(delim, &ranges, pad_missing, BufReader::new(io::stdin()))?;
     } else {
         for p in &args[idx..] {
             let file = File::open(Path::new(p))?;
-            process_reader(delim, &ranges, BufReader::new(file))?;
+            process_reader(delim, &ranges, pad_missing, BufReader::new(file))?;
         }
     }
     Ok(())
 }
 
-fn process_reader<R: BufRead>(delim: u8, ranges: &[(usize, usize)], mut reader: R) -> Result<()> {
+fn process_reader<R: BufRead>(delim: u8, ranges: &[(usize, usize)], pad_missing: bool, mut reader: R) -> Result<()> {
     let stdout = io::stdout();
     let mut handle = stdout.lock();
     let mut buf = Vec::new();
+    let max_selected = ranges.iter().map(|(_, e)| *e).max().unwrap_or(0);
     while reader.read_until(b'\n', &mut buf)? != 0 {
         if let Some(&last) = buf.last() {
             if last == b'\n' { buf.pop(); }
@@ -86,6 +91,16 @@ fn process_reader<R: BufRead>(delim: u8, ranges: &[(usize, usize)], mut reader: 
                 }
                 field_idx += 1;
                 start = i + 1;
+            }
+        }
+        // Pad missing selected fields beyond last present field
+        if pad_missing && field_idx <= max_selected {
+            for idx in field_idx..=max_selected {
+                if ranges.iter().any(|(s, e)| idx >= *s && idx <= *e) {
+                    if !first_output { handle.write_all(&[delim])?; }
+                    // empty field
+                    first_output = false;
+                }
             }
         }
         handle.write_all(b"\n")?;
