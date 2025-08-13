@@ -3,7 +3,7 @@
 //! Provides sophisticated text formatting and display capabilities
 
 use anyhow::Result;
-use ansi_term::Colour;
+use nu_ansi_term::Color as NuColor;
 
 /// Color enumeration for themed display
 #[derive(Debug, Clone, Copy)]
@@ -19,17 +19,17 @@ pub enum Color {
 }
 
 impl Color {
-    /// Convert to ansi_term::Colour
-    pub fn to_ansi_colour(&self) -> Colour {
+    /// Convert to nu_ansi_term::Color
+    pub fn to_ansi_colour(&self) -> NuColor {
         match self {
-            Color::Black => Colour::Black,
-            Color::Red => Colour::Red,
-            Color::Green => Colour::Green,
-            Color::Yellow => Colour::Yellow,
-            Color::Blue => Colour::Blue,
-            Color::Magenta => Colour::Purple,
-            Color::Cyan => Colour::Cyan,
-            Color::White => Colour::White,
+            Color::Black => NuColor::Black,
+            Color::Red => NuColor::Red,
+            Color::Green => NuColor::Green,
+            Color::Yellow => NuColor::Yellow,
+            Color::Blue => NuColor::Blue,
+            Color::Magenta => NuColor::Purple,
+            Color::Cyan => NuColor::Cyan,
+            Color::White => NuColor::White,
         }
     }
 }
@@ -352,12 +352,12 @@ impl CuiFormatter {
     /// Provides user-friendly error formatting with appropriate styling
     /// and helpful context information.
     pub fn format_error(&self, error: &anyhow::Error) -> Result<String> {
-        use ansi_term::Colour::Red;
+        use nu_ansi_term::Color::Red;
         
         let error_message = format!("❌ {error}");
         
         // Apply red color if terminal supports it
-        if atty::is(atty::Stream::Stderr) {
+        if std::io::IsTerminal::is_terminal(&std::io::stderr()) {
             Ok(Red.paint(&error_message).to_string())
         } else {
             Ok(error_message)

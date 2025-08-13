@@ -16,13 +16,13 @@ filetime = "0.2"
 walkdir = "2"
 windows-sys = "0.48"
 rand = "0.8"
-term_size = "0.3"
+terminal_size = "0.3"
 # Monitoring and logging dependencies
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "time", "local-time"] }
 tracing-appender = "0.2"
 metrics = "0.23"
-metrics-exporter-prometheus = "0.15"
+metrics-exporter-prometheus = { version = "0.15", default-features = false }
 sysinfo = "0.30"
 uuid = { version = "1.0", features = ["v4"] }
 # Crash reporting dependencies  

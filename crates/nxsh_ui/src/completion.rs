@@ -733,7 +733,7 @@ impl Completer for NexusCompleter {
 
 /// Completion context information
 #[derive(Debug, Clone)]
-struct CompletionContext {
+pub struct CompletionContext {
     word: String,
     word_prefix: String,
     position: usize,
@@ -744,7 +744,7 @@ struct CompletionContext {
 
 /// Types of completion
 #[derive(Debug, Clone, PartialEq)]
-enum CompletionType {
+pub enum CompletionType {
     Command,
     Filename,
     Variable,
@@ -754,7 +754,7 @@ enum CompletionType {
 
 /// Completion candidate with metadata
 #[derive(Debug, Clone)]
-struct CompletionCandidate {
+pub struct CompletionCandidate {
     text: String,
     display: Option<String>,
     replacement: String,
@@ -764,7 +764,7 @@ struct CompletionCandidate {
 
 /// Types of completion candidates
 #[derive(Debug, Clone, PartialEq)]
-enum CandidateType {
+pub enum CandidateType {
     Command,
     Builtin,
     Alias,

@@ -55,7 +55,8 @@ impl ThemeValidator {
             }
         }
         
-        // Validate colors
+        // Validate colors and collect map for later lookup
+        let mut color_hex_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
         if let Some(colors) = theme.get("colors").and_then(|v| v.as_object()) {
             let required_colors = ["primary", "secondary", "accent", "background", "foreground", "error", "warning", "success", "info"];
             
@@ -64,8 +65,56 @@ impl ThemeValidator {
                     if !Self::is_valid_hex_color(color_value) {
                         result.errors.push(format!("Invalid hex color for '{}': '{}'. Expected format: #RRGGBB", color_name, color_value));
                     }
+                    color_hex_map.insert((*color_name).to_string(), color_value.to_string());
                 } else {
                     result.errors.push(format!("Missing required color: '{}'", color_name));
+                }
+            }
+            // Keep any additional color keys as well if valid
+            for (k, v) in colors.iter() {
+                if let Some(hex) = v.as_str() {
+                    if Self::is_valid_hex_color(hex) {
+                        color_hex_map.entry(k.to_string()).or_insert_with(|| hex.to_string());
+                    }
+                }
+            }
+        }
+
+        // Validate styles reference known color names, and check contrast for common pairs
+        if let Some(styles) = theme.get("styles").and_then(|v| v.as_object()) {
+
+            for (style_name, style_val) in styles {
+                if let Some(style_obj) = style_val.as_object() {
+                    let fg_ref = style_obj.get("foreground").and_then(|v| v.as_str());
+                    let bg_ref = style_obj.get("background").and_then(|v| v.as_str());
+
+                    // Validate references exist (in colors or named palette) or are hex
+                    if let Some(name) = fg_ref {
+                        if !name.is_empty() && Self::resolve_color_ref(name, &color_hex_map).is_none() {
+                            result.errors.push(format!("Style '{}' references unknown foreground color '{}'.", style_name, name));
+                        }
+                    }
+                    if let Some(name) = bg_ref {
+                        if !name.is_empty() && Self::resolve_color_ref(name, &color_hex_map).is_none() {
+                            result.errors.push(format!("Style '{}' references unknown background color '{}'.", style_name, name));
+                        }
+                    }
+
+                    // If both resolvable, compute contrast and warn if < 4.5
+                    if let (Some(fg_name), Some(bg_name)) = (fg_ref, bg_ref) {
+                        if let (Some(fg_hex), Some(bg_hex)) = (
+                            Self::resolve_color_ref(fg_name, &color_hex_map),
+                            Self::resolve_color_ref(bg_name, &color_hex_map),
+                        ) {
+                            let ratio = Self::contrast_ratio_from_hex(&fg_hex, &bg_hex);
+                            if ratio < 4.5 {
+                                result.warnings.push(format!(
+                                    "Style '{}' foreground '{}' on background '{}' has low contrast ({:.2}).",
+                                    style_name, fg_name, bg_name, ratio
+                                ));
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -97,6 +146,47 @@ impl ThemeValidator {
         }
         
         color[1..].chars().all(|c| c.is_ascii_hexdigit())
+    }
+
+    // Resolve a color reference, accepting #RRGGBB, named basic colors, or keys from colors map
+    fn resolve_color_ref(name: &str, color_hex_map: &std::collections::HashMap<String, String>) -> Option<String> {
+        if Self::is_valid_hex_color(name) { return Some(name.to_string()); }
+        if let Some(hex) = color_hex_map.get(name) { return Some(hex.clone()); }
+        // Basic 8-color names mapping
+        match name {
+            "Black" => Some("#000000".to_string()),
+            "Red" => Some("#FF0000".to_string()),
+            "Green" => Some("#00FF00".to_string()),
+            "Yellow" => Some("#FFFF00".to_string()),
+            "Blue" => Some("#0000FF".to_string()),
+            "Magenta" => Some("#FF00FF".to_string()),
+            "Cyan" => Some("#00FFFF".to_string()),
+            "White" => Some("#FFFFFF".to_string()),
+            _ => None,
+        }
+    }
+
+    // Convert #RRGGBB to linearized relative luminance and compute contrast ratio
+    fn contrast_ratio_from_hex(fg: &str, bg: &str) -> f64 {
+        fn hex_to_rgb(c: &str) -> (f64, f64, f64) {
+            let r = u8::from_str_radix(&c[1..3], 16).unwrap_or(0) as f64 / 255.0;
+            let g = u8::from_str_radix(&c[3..5], 16).unwrap_or(0) as f64 / 255.0;
+            let b = u8::from_str_radix(&c[5..7], 16).unwrap_or(0) as f64 / 255.0;
+            (r, g, b)
+        }
+        fn srgb_to_linear(u: f64) -> f64 {
+            if u <= 0.03928 { u / 12.92 } else { ((u + 0.055) / 1.055).powf(2.4) }
+        }
+        fn luminance(r: f64, g: f64, b: f64) -> f64 {
+            let (r, g, b) = (srgb_to_linear(r), srgb_to_linear(g), srgb_to_linear(b));
+            0.2126 * r + 0.7152 * g + 0.0722 * b
+        }
+        let (fr, fg_, fb) = hex_to_rgb(fg);
+        let (br, bg_, bb) = hex_to_rgb(bg);
+        let l1 = luminance(fr, fg_, fb);
+        let l2 = luminance(br, bg_, bb);
+        let (light, dark) = if l1 >= l2 { (l1, l2) } else { (l2, l1) };
+        (light + 0.05) / (dark + 0.05)
     }
     
     /// List all available themes in the themes directory

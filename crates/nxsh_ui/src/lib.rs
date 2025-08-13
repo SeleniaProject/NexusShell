@@ -21,6 +21,7 @@ pub mod theme_validator; // Theme validation and schema support
 pub mod completion;
 pub mod config;
 pub mod accessibility; // Accessibility support for TTY blind mode and color vision
+pub mod ansi_render; // ANSI-to-PNG rendering helpers
 
 // Additional CUI modules for comprehensive functionality
 pub mod simple_cui; // Emergency fallback mode

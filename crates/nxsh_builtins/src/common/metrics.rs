@@ -120,8 +120,8 @@ pub fn init_metrics(config: MetricsConfig) -> Result<()> {
     #[cfg(feature = "metrics")]
     {
         let builder = PrometheusBuilder::new();
-    let _handle = builder
-            .install()
+        let _handle = builder
+            .install_recorder()
             .context("Failed to install Prometheus metrics exporter")?;
     }
 

@@ -5,7 +5,7 @@ use std::{
     path::Path,
 };
 use anyhow::Result;
-use std::cmp::min;
+// removed unused import
 
 /// High-performance completion system with caching
 #[derive(Debug)]
@@ -327,7 +327,7 @@ impl CompletionEngine {
         Ok(completions)
     }
 
-    fn complete_history(&self, input: &str) -> Result<Vec<Completion>> {
+    fn complete_history(&self, _input: &str) -> Result<Vec<Completion>> {
         // Placeholder for history completion - would integrate with shell's history system
         Ok(Vec::new())
     }

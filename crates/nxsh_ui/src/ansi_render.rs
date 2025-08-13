@@ -2,7 +2,7 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
-use ab_glyph::{point, FontRef, PxScale};
+use ab_glyph::{point, FontRef, PxScale, Font, ScaleFont};
 use image::{ImageBuffer, Rgba};
 
 /// Represents a minimal ANSI style for foreground color and bold attribute.
@@ -109,14 +109,15 @@ fn render_segment(
         style.fg
     };
 
-    let v = font.v_metrics(scale);
-    let draw_baseline = baseline_y as f32 + v.ascent;
+    let sf = font.as_scaled(scale);
+    let draw_baseline = baseline_y as f32 + sf.ascent();
 
     for ch in text.chars() {
         if ch == '\r' { continue; }
         if ch == '\n' { break; }
         let gid = font.glyph_id(ch);
-        let glyph = gid.with_scale(scale).with_position(point(x as f32, draw_baseline));
+        let mut glyph = gid.with_scale(scale);
+        glyph.position = point(x as f32, draw_baseline);
         if let Some(outlined) = font.outline_glyph(glyph) {
             outlined.draw(|px, py, coverage| {
                 let xi = px as i32;
@@ -136,7 +137,7 @@ fn render_segment(
                 }
             });
         }
-        let advance = font.h_advance(gid) * scale.x;
+        let advance = sf.h_advance(gid);
         x += advance.ceil() as i32;
     }
     x
@@ -152,8 +153,8 @@ pub fn render_lines_to_image(
     lines: &[String],
 ) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
     let scale = PxScale { x: size, y: size };
-    let v = font.v_metrics(scale);
-    let line_height_px = ((v.ascent - v.descent + v.line_gap) * line_height).ceil() as i32;
+    let sf = font.as_scaled(scale);
+    let line_height_px = ((sf.ascent() - sf.descent() + sf.line_gap()) * line_height).ceil() as i32;
     let char_w = (size * 0.6).ceil() as i32; // rough per-char width estimate
     let width = (cols as i32 * char_w + 32).max(640) as u32;
     let height = ((lines.len() as i32 * line_height_px) + (size as i32) + 24).max(360) as u32;

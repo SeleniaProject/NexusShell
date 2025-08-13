@@ -147,7 +147,7 @@ impl Platform {
                     CAPABILITIES = Some(Capabilities::detect());
                 });
                 
-                CURRENT_PLATFORM.clone().unwrap_or_else(|| {
+                CURRENT_PLATFORM.clone().unwrap_or({
                     // This should never happen after init(), but provide a fallback
                     Platform::Linux // Use a concrete variant as fallback
                 })
@@ -857,6 +857,7 @@ impl Platform {
     }
     
     /// Extract MAC address from interface line
+    #[allow(dead_code)]
     fn extract_mac_from_line(&self, line: &str) -> Option<String> {
         // Look for MAC address pattern (XX:XX:XX:XX:XX:XX)
         let mac_regex = regex::Regex::new(r"([0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2})").ok()?;
@@ -869,6 +870,7 @@ impl Platform {
     }
     
     /// Extract MTU from interface line
+    #[allow(dead_code)]
     fn extract_mtu_from_line(&self, line: &str) -> Option<u32> {
         if let Some(mtu_start) = line.find("mtu ") {
             let mtu_part = &line[mtu_start + 4..];

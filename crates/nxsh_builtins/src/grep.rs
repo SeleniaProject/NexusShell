@@ -50,7 +50,7 @@ use fancy_regex::Regex as FancyRegex;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use walkdir::{WalkDir, DirEntry};
 use globset::Glob;
-use ansi_term::Colour;
+use nu_ansi_term::Color as NuColor;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
@@ -872,7 +872,7 @@ fn should_use_color(options: &GrepOptions) -> bool {
     match options.color {
         ColorMode::Never => false,
         ColorMode::Always => true,
-        ColorMode::Auto => is_terminal::IsTerminal::is_terminal(&std::io::stdout()),
+        ColorMode::Auto => std::io::IsTerminal::is_terminal(&std::io::stdout()),
     }
 }
 
@@ -914,7 +914,7 @@ fn print_file_results(
         // Add filename
         if show_filename {
             if use_color {
-                output.push_str(&Colour::Purple.bold().paint(&result.filename).to_string());
+                output.push_str(&NuColor::Purple.bold().paint(&result.filename).to_string());
             } else {
                 output.push_str(&result.filename);
             }
@@ -924,7 +924,7 @@ fn print_file_results(
         // Add line number
         if options.line_number {
             if use_color {
-                output.push_str(&Colour::Green.bold().paint(match_result.line_number.to_string()).to_string());
+                output.push_str(&NuColor::Green.bold().paint(match_result.line_number.to_string()).to_string());
             } else {
                 output.push_str(&match_result.line_number.to_string());
             }
@@ -943,7 +943,7 @@ fn print_file_results(
             for (start, end) in &match_result.matches {
                 let match_text = &match_result.line[*start..*end];
                 if use_color {
-                    println!("{}{}", output, Colour::Red.bold().paint(match_text));
+                    println!("{}{}", output, NuColor::Red.bold().paint(match_text));
                 } else {
                     println!("{output}{match_text}");
                 }
@@ -977,7 +977,7 @@ fn highlight_matches(line: &str, matches: &[(usize, usize)]) -> String {
         
         // Add highlighted match
         let match_text = &line[start..end];
-        result.push_str(&Colour::Red.bold().paint(match_text).to_string());
+    result.push_str(&NuColor::Red.bold().paint(match_text).to_string());
         
         last_end = end;
     }

@@ -91,6 +91,7 @@ impl FileSystemMonitor {
         Ok(analysis)
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn analyze_recursive(&self, path: &Path, analysis: &mut DirectoryAnalysis, depth: usize) -> Result<()> {
         if depth > 100 {
             return Ok(()); // Prevent infinite recursion

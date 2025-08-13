@@ -19,9 +19,9 @@ const COMMANDS: &[&str] = &[
 fn parse_100_cases() {
     for i in 0..10 {
         for cmd in COMMANDS.iter() {
-            let combined = format!("{} #{}", cmd, i);
+            let combined = format!("{cmd} #{i}");
             if let Err(e) = parse(&combined) {
-                panic!("parser should succeed for '{}': {}", combined, e);
+                panic!("parser should succeed for '{combined}': {e}");
             }
         }
     }

@@ -18,8 +18,8 @@ fn test_simple_command_parsing() {
             match name.as_ref() {
                 AstNode::Word(word) => assert_eq!(*word, "echo"),
                 _ => {
-                    eprintln!("Expected Word for command name, got {:?}", name);
-                    assert!(false, "Expected Word for command name");
+                    eprintln!("Expected Word for command name, got {name:?}");
+                    panic!("Expected Word for command name");
                 }
             }
             assert_eq!(args.len(), 1);
@@ -27,13 +27,13 @@ fn test_simple_command_parsing() {
                 AstNode::Word(word) => assert_eq!(*word, "hello"),
                 _ => {
                     eprintln!("Expected Word for argument, got {:?}", &args[0]);
-                    assert!(false, "Expected Word for argument");
+                    panic!("Expected Word for argument");
                 }
             }
         }
         _ => {
-            eprintln!("Expected Command node, got {:?}", result);
-            assert!(false, "Expected Command node");
+            eprintln!("Expected Command node, got {result:?}");
+            panic!("Expected Command node");
         }
     }
 }
@@ -50,8 +50,8 @@ fn test_command_with_multiple_args() {
             match name.as_ref() {
                 AstNode::Word(word) => assert_eq!(*word, "ls"),
                 _ => {
-                    eprintln!("Expected Word for command name, got {:?}", name);
-                    assert!(false, "Expected Word for command name");
+                    eprintln!("Expected Word for command name, got {name:?}");
+                    panic!("Expected Word for command name");
                 }
             }
             assert_eq!(args.len(), 2);
@@ -59,20 +59,20 @@ fn test_command_with_multiple_args() {
                 AstNode::Word(word) => assert_eq!(*word, "-la"),
                 _ => {
                     eprintln!("Expected Word for first argument, got {:?}", &args[0]);
-                    assert!(false, "Expected Word for first argument");
+                    panic!("Expected Word for first argument");
                 }
             }
             match &args[1] {
                 AstNode::Word(word) => assert_eq!(*word, "/home"),
                 _ => {
                     eprintln!("Expected Word for second argument, got {:?}", &args[1]);
-                    assert!(false, "Expected Word for second argument");
+                    panic!("Expected Word for second argument");
                 }
             }
         }
         _ => {
-            eprintln!("Expected Command node, got {:?}", result);
-            assert!(false, "Expected Command node");
+            eprintln!("Expected Command node, got {result:?}");
+            panic!("Expected Command node");
         }
     }
 }
@@ -93,13 +93,13 @@ fn test_variable_expansion() {
                 }
                 _ => {
                     eprintln!("Expected VariableExpansion for argument, got {:?}", &args[0]);
-                    assert!(false, "Expected VariableExpansion for argument");
+                    panic!("Expected VariableExpansion for argument");
                 }
             }
         }
         _ => {
-            eprintln!("Expected Command node, got {:?}", result);
-            assert!(false, "Expected Command node");
+            eprintln!("Expected Command node, got {result:?}");
+            panic!("Expected Command node");
         }
     }
 }
@@ -143,17 +143,17 @@ fn test_command_substitution() {
             assert_eq!(args.len(), 1);
             match &args[0] {
                 AstNode::CommandSubstitution { is_legacy, .. } => {
-                    assert_eq!(*is_legacy, false);
+                    assert!(!(*is_legacy));
                 }
                 _ => {
                     eprintln!("Expected CommandSubstitution for argument, got {:?}", &args[0]);
-                    assert!(false, "Expected CommandSubstitution for argument");
+                    panic!("Expected CommandSubstitution for argument");
                 }
             }
         }
         _ => {
-            eprintln!("Expected Command node, got {:?}", result);
-            assert!(false, "Expected Command node");
+            eprintln!("Expected Command node, got {result:?}");
+            panic!("Expected Command node");
         }
     }
 }
@@ -170,17 +170,17 @@ fn test_legacy_command_substitution() {
             assert_eq!(args.len(), 1);
             match &args[0] {
                 AstNode::CommandSubstitution { is_legacy, .. } => {
-                    assert_eq!(*is_legacy, true);
+                    assert!(*is_legacy);
                 }
                 _ => {
                     eprintln!("Expected CommandSubstitution for argument, got {:?}", &args[0]);
-                    assert!(false, "Expected CommandSubstitution for argument");
+                    panic!("Expected CommandSubstitution for argument");
                 }
             }
         }
         _ => {
-            eprintln!("Expected Command node, got {:?}", result);
-            assert!(false, "Expected Command node");
+            eprintln!("Expected Command node, got {result:?}");
+            panic!("Expected Command node");
         }
     }
 }
@@ -204,14 +204,14 @@ fn test_simple_pipeline() {
                         AstNode::Word(word) => assert_eq!(*word, "cat"),
                         _ => {
                             eprintln!("Expected Word for first command name, got {:?}", name.as_ref());
-                            assert!(false, "Expected Word for first command name");
+                            panic!("Expected Word for first command name");
                         }
                     }
                     assert_eq!(args.len(), 1);
                 }
                 _ => {
                     eprintln!("Expected Command for first pipeline element, got {:?}", &elements[0]);
-                    assert!(false, "Expected Command for first pipeline element");
+                    panic!("Expected Command for first pipeline element");
                 }
             }
             
@@ -222,20 +222,20 @@ fn test_simple_pipeline() {
                         AstNode::Word(word) => assert_eq!(*word, "grep"),
                         _ => {
                             eprintln!("Expected Word for second command name, got {:?}", name.as_ref());
-                            assert!(false, "Expected Word for second command name");
+                            panic!("Expected Word for second command name");
                         }
                     }
                     assert_eq!(args.len(), 1);
                 }
                 _ => {
                     eprintln!("Expected Command for second pipeline element, got {:?}", &elements[1]);
-                    assert!(false, "Expected Command for second pipeline element");
+                    panic!("Expected Command for second pipeline element");
                 }
             }
         }
         _ => {
-            eprintln!("Expected Pipeline node, got {:?}", result);
-            assert!(false, "Expected Pipeline node");
+            eprintln!("Expected Pipeline node, got {result:?}");
+            panic!("Expected Pipeline node");
         }
     }
 }

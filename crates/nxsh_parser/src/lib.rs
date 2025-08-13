@@ -336,7 +336,7 @@ impl ShellCommandParser {
 
         for inner in pair.into_inner() {
             match inner.as_rule() {
-                Rule::select_kw => { state = SelState::Variable; }
+                Rule::select_kw | Rule::select_statement => { state = SelState::Variable; }
                 Rule::identifier => {
                     if matches!(state, SelState::Variable) {
                         variable = Some(self.leak_string(inner.as_str()));
@@ -515,7 +515,11 @@ impl ShellCommandParser {
                 Rule::assignment => {
                     // identifier '=' assignment_value
                     let mut name: Option<&str> = None; let mut value: Option<&str> = None;
-                    for a in inner_pair.clone().into_inner() { match a.as_rule() { Rule::identifier => if name.is_none() { name = Some(self.leak_string(a.as_str())); } , _ => {} } }
+                    for a in inner_pair.clone().into_inner() {
+                        if a.as_rule() == Rule::identifier && name.is_none() {
+                            name = Some(self.leak_string(a.as_str()));
+                        }
+                    }
                     // Fallback: raw text split
                     if name.is_none() {
                         let text = inner_pair.as_str();
@@ -536,8 +540,8 @@ impl ShellCommandParser {
                     // Remove $ prefix
                     let var_name = if var_text.starts_with("${") && var_text.ends_with("}") {
                         &var_text[2..var_text.len()-1]
-                    } else if var_text.starts_with("$") {
-                        &var_text[1..]
+                    } else if let Some(rest) = var_text.strip_prefix("$") {
+                        rest
                     } else {
                         var_text
                     };
@@ -970,6 +974,9 @@ impl ShellCommandParser {
                     let pattern = self.parse_pattern(inner_pair)?;
                     patterns.push(pattern);
                 }
+                Rule::command_list => {
+                    body = Some(self.normalize_block(self.parse_command_list(inner_pair, input)?));
+                }
                 Rule::program | Rule::inner_program => {
                     body = Some(self.normalize_block(self.build_ast_from_pairs(inner_pair.into_inner(), input)?));
                 }
@@ -1318,10 +1325,8 @@ impl ShellCommandParser {
                         *background = true;
                     }
                     return only;
-                } else if let Some(last) = elements.last_mut() {
-                    if let ast::AstNode::Command { background, .. } = last {
-                        *background = true;
-                    }
+                } else if let Some(ast::AstNode::Command { background, .. }) = elements.last_mut() {
+                    *background = true;
                 }
             }
             _ => {

@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use ansi_term::Colour;
+use nu_ansi_term::Color as NuColor;
 
 /// Main theme configuration for NexusShell
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -593,20 +593,13 @@ pub struct RgbColor {
     pub b: u8,
 }
 
-impl From<RgbColor> for Colour {
+impl From<RgbColor> for NuColor {
     fn from(color: RgbColor) -> Self {
-        Colour::RGB(color.r, color.g, color.b)
+        NuColor::Rgb(color.r, color.g, color.b)
     }
 }
 
-impl From<Colour> for RgbColor {
-    fn from(color: Colour) -> Self {
-        match color {
-            Colour::RGB(r, g, b) => Self { r, g, b },
-            _ => Self { r: 255, g: 255, b: 255 }, // Default to white
-        }
-    }
-}
+// Note: reverse conversion from nu_ansi_term::Color to RgbColor is not used; implement if needed
 
 /// Pure Rust theme configuration for syntax highlighting
 #[derive(Debug, Clone, Serialize, Deserialize)]

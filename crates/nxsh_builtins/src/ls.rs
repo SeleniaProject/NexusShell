@@ -36,7 +36,7 @@ use std::time::SystemTime;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use chrono::{DateTime, Local};
-use ansi_term::{Colour, Style};
+use nu_ansi_term::{Color as NuColor, Style};
 use humansize::{format_size, BINARY};
 
 // Git repository integration
@@ -590,7 +590,7 @@ fn should_use_colors(color_option: &ColorOption) -> bool {
     match color_option {
         ColorOption::Always => true,
         ColorOption::Never => false,
-        ColorOption::Auto => is_terminal::IsTerminal::is_terminal(&std::io::stdout()),
+        ColorOption::Auto => std::io::IsTerminal::is_terminal(&std::io::stdout()),
     }
 }
 
@@ -853,7 +853,9 @@ fn print_short_format(entries: &[FileInfo], options: &LsOptions, use_colors: boo
         }
     } else {
         // Multi-column output
-        let term_width = term_size::dimensions().map(|(w, _)| w).unwrap_or(80);
+        let term_width = terminal_size::terminal_size()
+            .map(|(w, _)| w.0 as usize)
+            .unwrap_or(80);
         print_columns(entries, options, use_colors, term_width)?;
     }
     
@@ -1020,29 +1022,29 @@ fn format_file_name(entry: &FileInfo, use_colors: bool, classify: bool) -> Strin
     let mut style = Style::new();
     
     if entry.metadata.is_dir() {
-        style = style.fg(Colour::Blue).bold();
+        style = style.fg(NuColor::Blue).bold();
     } else if entry.is_symlink {
-        style = style.fg(Colour::Cyan);
+        style = style.fg(NuColor::Cyan);
     } else if is_executable(&entry.metadata) {
-        style = style.fg(Colour::Green);
+        style = style.fg(NuColor::Green);
     } else {
         // Color by extension
         if let Some(ext) = entry.path.extension() {
             match ext.to_string_lossy().to_lowercase().as_str() {
                 "jpg" | "jpeg" | "png" | "gif" | "bmp" | "svg" | "ico" => {
-                    style = style.fg(Colour::Purple);
+                    style = style.fg(NuColor::Purple);
                 }
                 "mp3" | "wav" | "flac" | "ogg" | "m4a" => {
-                    style = style.fg(Colour::Cyan);
+                    style = style.fg(NuColor::Cyan);
                 }
                 "mp4" | "avi" | "mkv" | "mov" | "wmv" | "flv" => {
-                    style = style.fg(Colour::Purple);
+                    style = style.fg(NuColor::Purple);
                 }
                 "zip" | "tar" | "gz" | "bz2" | "xz" | "7z" | "rar" => {
-                    style = style.fg(Colour::Red);
+                    style = style.fg(NuColor::Red);
                 }
                 "txt" | "md" | "rst" | "doc" | "pdf" => {
-                    style = style.fg(Colour::Yellow);
+                    style = style.fg(NuColor::Yellow);
                 }
                 _ => {}
             }
@@ -1066,17 +1068,17 @@ fn format_file_name(entry: &FileInfo, use_colors: bool, classify: bool) -> Strin
         };
         
         let git_color = match git_status {
-            GitStatus::None => Colour::White,
-            GitStatus::Clean => Colour::Green,
-            GitStatus::Untracked => Colour::Red,
-            GitStatus::Modified => Colour::Yellow,
-            GitStatus::Added => Colour::Green,
-            GitStatus::Deleted => Colour::Red,
-            GitStatus::Renamed => Colour::Blue,
-            GitStatus::Copied => Colour::Blue,
-            GitStatus::TypeChange => Colour::Purple,
-            GitStatus::Ignored => Colour::Fixed(8), // Dark gray
-            GitStatus::Conflicted => Colour::Red,
+            GitStatus::None => NuColor::White,
+            GitStatus::Clean => NuColor::Green,
+            GitStatus::Untracked => NuColor::Red,
+            GitStatus::Modified => NuColor::Yellow,
+            GitStatus::Added => NuColor::Green,
+            GitStatus::Deleted => NuColor::Red,
+            GitStatus::Renamed => NuColor::Blue,
+            GitStatus::Copied => NuColor::Blue,
+            GitStatus::TypeChange => NuColor::Purple,
+            GitStatus::Ignored => NuColor::Fixed(8), // Dark gray
+            GitStatus::Conflicted => NuColor::Red,
         };
         
         return format!("{} {}", 

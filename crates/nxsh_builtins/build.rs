@@ -9,7 +9,7 @@ fn main() -> Result<()> {
     let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let src_lib = crate_dir.join("src").join("lib.rs");
     let content = fs::read_to_string(&src_lib)
-        .with_context(|| format!("reading {:?}", src_lib))?;
+        .with_context(|| format!("reading {src_lib:?}"))?;
 
     // Regex to capture match arms like: "alias" => or "cp" => { ... }
     let re = Regex::new(r#"([a-zA-Z0-9_-]+)"\s*=>"#).unwrap();
@@ -34,7 +34,8 @@ fn main() -> Result<()> {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let out_file = out_dir.join("builtins_generated.rs");
 
-    let slice_entries: String = names.iter().map(|n| format!("\"{}\"", n)).collect::<Vec<_>>().join(",");
+    let slice_entries: String = names.iter().map(|n| format!("\"{n}\""))
+        .collect::<Vec<_>>().join(",");
 
     // Generate code: a sorted slice + binary search based lookup + original order list.
     // Note: original order lost by sorting; acceptable for introspection. If needed, keep both.
@@ -51,7 +52,7 @@ pub fn list_builtin_names_generated() -> Vec<&'static str> {{
 }}
 "#);
 
-    fs::write(&out_file, code).with_context(|| format!("writing {:?}", out_file))?;
+    fs::write(&out_file, code).with_context(|| format!("writing {out_file:?}"))?;
 
     // Tell cargo to rerun if source changes.
     println!("cargo:rerun-if-changed={}", src_lib.display());

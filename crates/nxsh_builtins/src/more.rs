@@ -6,7 +6,7 @@ use anyhow::{anyhow, Result};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::Path;
-use term_size;
+use terminal_size;
 use tokio::task;
 
 pub async fn more_cli(args: &[String]) -> Result<()> {
@@ -21,7 +21,7 @@ fn pager(path: std::path::PathBuf) -> Result<()> {
     let mut content = String::new();
     file.read_to_string(&mut content)?;
     let lines: Vec<&str> = content.lines().collect();
-    let height = term_size::dimensions().map(|(_, h)| h - 1).unwrap_or(24);
+    let height = terminal_size::terminal_size().map(|(_, h)| h.0.saturating_sub(1) as usize).unwrap_or(24);
     let mut stdout = io::stdout();
     let mut idx = 0;
     while idx < lines.len() {

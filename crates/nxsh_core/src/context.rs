@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
     io,
 };
-use is_terminal::IsTerminal;
+use std::io::IsTerminal;
 
 /// Template of a generic function before monomorphization
 #[derive(Debug, Clone)]
@@ -173,21 +173,26 @@ fn detect_login_shell() -> bool {
     #[cfg(not(windows))]
     let logonserver_nonempty = false;
 
+    // SSH session implies login shell (take priority even if nested)
+    if ssh_client_present || ssh_conn_present || ssh_tty_present { return true; }
+
     // Strong invariant: clearly nested shells are never login shells
-    // This invariant has priority over all other heuristics
+    // Applies to non-SSH cases. Use both snapshot and live env as fallback.
     if let Some(level) = shlvl_snapshot { if level >= 2 { return false; } }
+    if let Some(level_env) = std::env::var("SHLVL").ok().and_then(|s| s.parse::<i32>().ok()) {
+        if level_env >= 2 { return false; }
+    }
 
     // Explicit LOGIN env implies login shell (only when not clearly nested)
     if login_env.is_some() { return true; }
-
-    // SSH session implies login shell (only when not clearly nested)
-    if ssh_client_present || ssh_conn_present || ssh_tty_present { return true; }
 
     // If environment looks like an initial login (basic user/home/shell hints) and not nested
     // treat as login shell. This ensures SHLVL=1 with typical login env is detected.
     let user_present = std::env::var("USER").is_ok();
     if (logname_present || user_present) && (home_present || shell_present) {
         if shlvl_snapshot.unwrap_or(1) <= 1 { return true; }
+        // If clearly nested (>=2), do not treat as login
+        if shlvl_snapshot.unwrap_or(2) >= 2 { return false; }
     }
 
     // argv[0] / '_' starting with '-' indicates login shell; prioritize over SHLVL heuristic
@@ -198,8 +203,10 @@ fn detect_login_shell() -> bool {
     }
     if let Some(underscore) = underscore_snapshot {
         let looks_like_argv0 = !underscore.contains('/') && !underscore.contains('\\');
-        if looks_like_argv0 && underscore.starts_with('-') && shlvl_snapshot.unwrap_or(1) <= 1 {
-            return true;
+        if looks_like_argv0 && underscore.starts_with('-') {
+            if shlvl_snapshot.unwrap_or(1) <= 1 { return true; }
+            // Nested shells should not be treated as login even with dash prefix
+            if shlvl_snapshot.unwrap_or(2) >= 2 { return false; }
         }
     }
 
@@ -240,7 +247,9 @@ fn detect_login_shell() -> bool {
 
     // Method 7: Full login environment (secondary)
     if logname_present && home_present && shell_present {
-        return shlvl_snapshot.unwrap_or(1) <= 1;
+        // If SHLVL is unknown, treat as 1 (login-ish)
+        let level = shlvl_snapshot.unwrap_or(1);
+        return level <= 1;
     }
 
     // Method 8: Terminal hints (tertiary)
@@ -589,7 +598,7 @@ impl ShellContext {
             init_time: Instant::now(),
             history: Arc::new(Mutex::new(Vec::new())),
             dir_stack: Arc::new(Mutex::new(Vec::new())),
-            interactive: atty::is(atty::Stream::Stdin), // Complete terminal detection
+            interactive: std::io::stdin().is_terminal(), // Complete terminal detection
             login_shell: Self::detect_login_shell(),    // Full login detection
             history_limit: std::env::var("NXSH_HISTORY_LIMIT").ok().and_then(|v| v.parse().ok()).unwrap_or(1000),
             global_deadline: std::env::var("NXSH_TIMEOUT_MS").ok().and_then(|v| v.parse::<u64>().ok()).map(|ms| Instant::now() + Duration::from_millis(ms)),

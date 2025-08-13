@@ -20,10 +20,11 @@ function_kw = @{ "function" ~ !ASCII_ALPHANUMERIC }
 match_kw = @{ "match" ~ !ASCII_ALPHANUMERIC }
 with_kw = @{ "with" ~ !ASCII_ALPHANUMERIC }
 in_kw = @{ "in" ~ !ASCII_ALPHANUMERIC }
+select_kw = @{ "select" ~ !ASCII_ALPHANUMERIC }
 
 // Basic tokens - identifiers must NOT match keywords
 identifier = @{ !KEYWORD ~ (ASCII_ALPHA | "_" | "-" | "/" | ".") ~ (ASCII_ALPHANUMERIC | "_" | "." | "/" | "-")* }
-KEYWORD = { if_kw | then_kw | else_kw | elif_kw | fi_kw | for_kw | while_kw | do_kw | done_kw | case_kw | esac_kw | function_kw | match_kw | with_kw | in_kw }
+KEYWORD = { if_kw | then_kw | else_kw | elif_kw | fi_kw | for_kw | while_kw | do_kw | done_kw | case_kw | esac_kw | function_kw | match_kw | with_kw | in_kw | select_kw }
 
 number = @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
 string_literal = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" | "'" ~ (!"'" ~ ANY)* ~ "'" }
@@ -76,6 +77,7 @@ if_statement = { if_kw ~ test_command ~ then_kw ~ command_list ~ (elif_kw ~ test
 for_statement = { for_kw ~ identifier ~ in_kw ~ word_list? ~ line_terminator? ~ do_kw ~ command_list ~ done_kw }
 while_statement = { while_kw ~ test_command ~ do_kw ~ command_list ~ done_kw }
 case_statement = { case_kw ~ word ~ in_kw ~ case_item* ~ esac_kw }
+select_statement = { select_kw ~ identifier ~ (in_kw ~ word_list)? ~ do_kw ~ command_list ~ done_kw }
 case_item = { pattern ~ ")" ~ command_list ~ ";;" }
 pattern = { word ~ ("|" ~ word)* }
 
@@ -83,7 +85,8 @@ pattern = { word ~ ("|" ~ word)* }
 test_command = { command ~ semicolon? }
 command_list = { (statement ~ line_terminator?)* }
 word_list = { word+ }
-line_terminator = { semicolon | "\n" }
+// Do not consume the first ';' of a ';;' token used by case items
+line_terminator = { (semicolon ~ !semicolon) | "\n" }
 
 // Function definition
 // Function definition (拡張: ジェネリクス + パラメータ)
@@ -118,6 +121,7 @@ statement = {
     for_statement |
     while_statement |
     case_statement |
+    select_statement |
     function_def |
     match_statement |
     command

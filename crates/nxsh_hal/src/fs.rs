@@ -372,6 +372,7 @@ impl FileSystem {
 
     // Platform-optimized copy methods - using safe Rust alternatives instead of C/C++ dependencies
     #[cfg(target_os = "linux")]
+    #[allow(dead_code)]
     fn copy_with_copy_file_range(&self, from: &Path, to: &Path) -> HalResult<u64> {
         // Instead of using unsafe libc syscalls, use safe Rust standard library
         // This provides good performance while maintaining safety
@@ -381,6 +382,7 @@ impl FileSystem {
     }
 
     #[cfg(target_os = "linux")]
+    #[allow(dead_code)]
     fn copy_with_sendfile(&self, from: &Path, to: &Path) -> HalResult<u64> {
         // Instead of using unsafe libc sendfile, use safe Rust standard library
         // This provides good performance while maintaining safety
@@ -390,6 +392,7 @@ impl FileSystem {
     }
 
     #[cfg(target_os = "macos")]
+    #[allow(dead_code)]
     fn copy_with_copyfile(&self, from: &Path, to: &Path) -> HalResult<u64> {
         // Instead of using unsafe C copyfile, use safe Rust standard library
         // This provides good performance while maintaining safety and avoiding C dependencies
@@ -440,24 +443,28 @@ impl FileSystem {
     // These provide fallback functionality when platform-specific optimizations are not available
     
     #[cfg(not(target_os = "linux"))]
+    #[allow(dead_code)]
     fn copy_with_copy_file_range(&self, from: &Path, to: &Path) -> HalResult<u64> {
         // copy_file_range is Linux-specific, fall back to generic implementation
         self.copy_generic(from, to)
     }
 
     #[cfg(not(target_os = "linux"))]
+    #[allow(dead_code)]
     fn copy_with_sendfile(&self, from: &Path, to: &Path) -> HalResult<u64> {
         // sendfile is primarily Linux/Unix specific, fall back to generic implementation
         self.copy_generic(from, to)
     }
 
     #[cfg(not(target_os = "macos"))]
+    #[allow(dead_code)]
     fn copy_with_copyfile(&self, from: &Path, to: &Path) -> HalResult<u64> {
         // copyfile is macOS-specific, fall back to generic implementation
         self.copy_generic(from, to)
     }
 
     #[cfg(not(target_os = "windows"))]
+    #[allow(dead_code)]
     fn copy_with_copyfileex(&self, from: &Path, to: &Path) -> HalResult<u64> {
         // CopyFileEx is Windows-specific, fall back to generic implementation
         self.copy_generic(from, to)

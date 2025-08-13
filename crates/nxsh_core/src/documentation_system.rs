@@ -235,7 +235,7 @@ impl DocumentationSystem {
             OutputFormat::Json => {
                 self.export_json_documentation(output_dir, &mut report)?;
             },
-            OutputFormat::ePub => {
+            OutputFormat::EPub => {
                 self.export_epub_documentation(output_dir, &mut report)?;
             },
         }
@@ -366,7 +366,7 @@ impl DocumentationSystem {
             OutputFormat::Markdown,
             OutputFormat::Pdf,
             OutputFormat::Json,
-            OutputFormat::ePub,
+            OutputFormat::EPub,
         ];
     }
 
@@ -1588,7 +1588,7 @@ pub enum OutputFormat {
     Markdown,
     Pdf,
     Json,
-    ePub,
+    EPub,
 }
 
 // Report structures
@@ -1866,7 +1866,7 @@ mod tests {
             OutputFormat::Markdown,
             OutputFormat::Pdf,
             OutputFormat::Json,
-            OutputFormat::ePub,
+            OutputFormat::EPub,
         ];
         
         assert_eq!(formats.len(), 5);

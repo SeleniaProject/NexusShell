@@ -41,7 +41,7 @@ fn run_less(path_opt: Option<String>) -> Result<()> {
     let lines: Vec<&str> = content.lines().collect();
 
     // If not a TTY, print everything and return (non-interactive environment).
-    if !is_terminal::IsTerminal::is_terminal(&std::io::stdout()) {
+    if !std::io::IsTerminal::is_terminal(&std::io::stdout()) {
         println!("{}", content);
         return Ok(());
     }

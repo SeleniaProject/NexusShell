@@ -325,10 +325,7 @@ pub struct AsyncCommandHandle {
 impl AsyncCommandHandle {
     /// Check if process is still running
     pub fn is_running(&mut self) -> bool {
-        match self.child.try_wait() {
-            Ok(None) => true,
-            _ => false,
-        }
+        matches!(self.child.try_wait(), Ok(None))
     }
 
     /// Wait for process completion

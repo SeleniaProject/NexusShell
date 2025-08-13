@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use ab_glyph::{FontRef, PxScale};
 use image::Rgba;
-use nxsh_ui::ansi_render::{load_font, parse_ansi_segments};
+use nxsh_ui::ansi_render::load_font;
 
 /// Parse a minimal subset of ANSI for colors. This is a lightweight best-effort renderer.
 /// It supports SGR codes for foreground colors (30-37,90-97) and reset (0), bold (1).
@@ -43,6 +43,7 @@ fn color_from_code(code: i32) -> Rgba<u8> {
     }
 }
 
+#[allow(dead_code)]
 fn parse_ansi_segments(line: &str) -> Vec<(AnsiStyle, String)> {
     // Very simple parser: split by ESC[ ... m sequences and apply style.
     let mut segments = Vec::new();

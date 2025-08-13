@@ -12,6 +12,9 @@ ci:
     cargo clippy --workspace --all-targets -- -D warnings
     cargo fmt -- --check
     cargo test --workspace
+    # Validate themes and emit JSON report artifact
+    if (-not (Test-Path reports)) { mkdir reports | Out-Null }
+    cargo run -p nxsh_ui --bin theme_validator_test -- --dir assets/themes --out-format json --out reports/theme_validation.json
 
 bench:
     cargo bench 
@@ -65,6 +68,9 @@ full-ci: ci command-status-check busybox-size-gate
 # Development convenience target for updating all generated files
 update-generated: command-status busybox-size-report
     echo "Updated all generated files: COMMAND_STATUS.md and size reports"
+    # Also refresh theme validation report (Markdown)
+    if (-not (Test-Path reports)) { mkdir reports | Out-Null }
+    cargo run -p nxsh_ui --bin theme_validator_test -- --dir assets/themes --out-format md --out reports/theme_validation.md
 
 # Show project statistics (commands implemented, binary size, dependencies)
 stats:
@@ -78,6 +84,16 @@ stats:
     echo ""
     echo "Dependency Count:"
     cargo tree --workspace | wc -l
+
+# Validate all themes and write a Markdown report
+themes-validate:
+    if (-not (Test-Path reports)) { mkdir reports | Out-Null }
+    cargo run -p nxsh_ui --bin theme_validator_test -- --dir assets/themes --out-format md --out reports/theme_validation.md --strict
+
+# Validate themes and emit JSON summary for CI consumption
+themes-validate-json:
+    if (-not (Test-Path reports)) { mkdir reports | Out-Null }
+    cargo run -p nxsh_ui --bin theme_validator_test -- --dir assets/themes --out-format json --out reports/theme_validation.json
 
 # Render all mockup PNGs from ANSI using nxsh_ui batch tool
 mockups-png:

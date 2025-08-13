@@ -5,6 +5,7 @@ use std::sync::{Arc, RwLock, Mutex};
 use std::time::{Duration, SystemTime};
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct NetworkManager {
     platform: Platform,
     capabilities: Capabilities,
@@ -17,12 +18,14 @@ pub struct NetworkManager {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ConnectionPool {
     connections: HashMap<String, NetworkConnection>,
     pool_config: PoolConfiguration,
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct NetworkConnection {
     id: String,
     target: ConnectionTarget,
@@ -61,6 +64,7 @@ pub enum ConnectionStatus {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct PoolConfiguration {
     max_connections: usize,
     idle_timeout: Duration,
@@ -68,11 +72,13 @@ pub struct PoolConfiguration {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct NetworkPerformanceMonitor {
     measurements: Vec<PerformanceMeasurement>,
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct PerformanceMeasurement {
     target: String,
     timestamp: SystemTime,
@@ -82,11 +88,13 @@ pub struct PerformanceMeasurement {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct NetworkSecurityManager {
     policies: Vec<SecurityPolicy>,
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct SecurityPolicy {
     name: String,
     allowed_hosts: Vec<String>,
@@ -95,6 +103,7 @@ pub struct SecurityPolicy {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct BandwidthMonitor {
     interfaces: HashMap<String, BandwidthUsage>,
 }
@@ -112,6 +121,7 @@ pub struct NetworkInterfaceStats {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct BandwidthUsage {
     interface: String,
     rx_bytes: u64,
@@ -122,11 +132,13 @@ pub struct BandwidthUsage {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DnsCache {
     entries: HashMap<String, DnsCacheEntry>,
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DnsCacheEntry {
     hostname: String,
     ip_address: IpAddr,
@@ -134,6 +146,7 @@ pub struct DnsCacheEntry {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ProxyConfiguration {
     proxy_type: ProxyType,
     host: String,
@@ -498,9 +511,11 @@ impl ProxyConfiguration {
 mod uuid {
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    #[allow(dead_code)]
     pub struct Uuid;
 
     impl Uuid {
+        #[allow(dead_code)]
         pub fn new_v4() -> String {
             let timestamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
