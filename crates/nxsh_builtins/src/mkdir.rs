@@ -294,7 +294,7 @@ fn create_directory_with_parents(path: &Path, options: &MkdirOptions) -> Result<
     Ok(())
 }
 
-fn set_directory_permissions(_path: &Path, _mode: u32) -> Result<()> {
+fn set_directory_permissions(path: &Path, mode: u32) -> Result<()> {
     #[cfg(unix)]
     {
         #[cfg(unix)] use std::os::unix::fs::PermissionsExt;
@@ -309,11 +309,22 @@ fn set_directory_permissions(_path: &Path, _mode: u32) -> Result<()> {
     Ok(())
 }
 
-fn set_selinux_context(_path: &Path, _context: &str) -> Result<()> {
-    // SELinux context setting would require platform-specific code
-    // For now, we'll just print a warning that it's not implemented
-    eprintln!("mkdir: warning: SELinux context setting not implemented on this platform");
-    Ok(())
+fn set_selinux_context(path: &Path, context: &str) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        // Try to set SELinux context via xattr "security.selinux"
+        // This requires appropriate privileges and SELinux enabled.
+        use nix::sys::xattr;
+        let name = "security.selinux";
+        xattr::set(path, name, context.as_bytes(), xattr::XattrFlags::empty())
+            .map_err(|e| anyhow!("mkdir: failed to set SELinux context on '{}': {}", path.display(), e))?;
+        return Ok(());
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        eprintln!("mkdir: warning: SELinux context setting not supported on this platform");
+        Ok(())
+    }
 }
 
 fn print_help() {

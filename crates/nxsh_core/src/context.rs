@@ -173,8 +173,24 @@ fn detect_login_shell() -> bool {
     #[cfg(not(windows))]
     let logonserver_nonempty = false;
 
-    // SSH session implies login shell
+    // SSH session implies login shell (takes precedence over SHLVL)
     if ssh_client_present || ssh_conn_present || ssh_tty_present { return true; }
+
+    // Full login environment and not nested => login shell (prioritize early)
+    if logname_present && home_present && shell_present {
+        if shlvl_snapshot.unwrap_or(1) <= 1 { return true; }
+    }
+
+    // Traditional login shell indicator: argv[0] or '_' starts with '-'
+    if let Some(arg0) = std::env::args_os().next().and_then(|a| a.into_string().ok()) {
+        if arg0.starts_with('-') { return true; }
+    }
+    if let Some(ref underscore) = underscore_snapshot {
+        if underscore.starts_with('-') { return true; }
+    }
+
+    // Strong invariant: clearly nested shells are never login shells
+    if let Some(level) = shlvl_snapshot { if level >= 2 { return false; } }
 
     // Explicit LOGIN env implies login shell
     if login_env.is_some() { return true; }
@@ -185,21 +201,9 @@ fn detect_login_shell() -> bool {
         if shlvl_snapshot.unwrap_or(1) <= 1 { return true; }
     }
 
-    // argv[0] / '_' starting with '-' indicates login shell (traditional)
-    if let Some(arg0) = std::env::args_os().next().and_then(|a| a.into_string().ok()) {
-        if arg0.starts_with('-') && shlvl_snapshot.unwrap_or(1) <= 1 {
-            return true;
-        }
-    }
-    if let Some(underscore) = underscore_snapshot {
-        let looks_like_argv0 = !underscore.contains('/') && !underscore.contains('\\');
-        if looks_like_argv0 && underscore.starts_with('-') {
-            if shlvl_snapshot.unwrap_or(1) <= 1 { return true; }
-        }
-    }
+    // argv[0]/'_' checks handled above
 
-    // Strong invariant: clearly nested shells are never login shells
-    if let Some(level) = shlvl_snapshot { if level >= 2 { return false; } }
+    // Nested-shell guard already handled above
     // Do not re-read SHLVL from live env here to avoid cross-test races; rely on snapshot above
 
     // SHLVL-based exit handled at the top

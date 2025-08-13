@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use anyhow::Result;
 use nxsh_core::{ErrorKind, ShellError};
+use crate::function::{get_function, list_functions};
 
 pub fn export_cli(args: Vec<String>) -> Result<()> {
     if args.contains(&"-h".to_string()) || args.contains(&"--help".to_string()) {
@@ -40,10 +41,8 @@ pub fn export_cli(args: Vec<String>) -> Result<()> {
                 }
 
                 if function_mode {
-                    return Err(ShellError::new(
-                        ErrorKind::InvalidArgument,
-                        "Function export not implemented in NexusShell"
-                    ).into());
+                    // export -f NAME [...]  (mark shell functions for export)
+                    return export_functions(&args[i..]);
                 }
 
                 if name_mode {
@@ -73,7 +72,7 @@ fn print_help() {
     println!("Options:");
     println!("  -p      Display all exported variables in a form that can be reused as input");
     println!("  -n      Remove the export property from named variables");
-    println!("  -f      Names refer to functions (not implemented)");
+    println!("  -f      Names refer to functions (export shell functions)");
     println!("  -h, --help  Show this help message");
     println!();
     println!("Arguments:");
@@ -93,9 +92,13 @@ fn print_all_exported_vars() {
     vars.sort_by(|a, b| a.0.cmp(&b.0));
 
     for (name, value) in vars {
-        // In a real shell, we'd track which variables are exported
-        // For simplicity, we'll show all environment variables
         println!("declare -x {}=\"{}\"", name, escape_value(&value));
+    }
+
+    // Also print exported functions in a POSIX-compatible form
+    // We treat all defined functions as exportable for subshells in this simplified model
+    for fname in list_functions() {
+        println!("declare -fx {}", fname);
     }
 }
 
@@ -149,11 +152,12 @@ fn remove_from_export(name: &str) -> Result<()> {
         ).into());
     }
 
-    // In a real shell, we'd remove from the export list but keep the variable
-    // Since Rust doesn't have this distinction, we'll just print a message
+    // Remove environment variable from exported set
     match env::var(name) {
         Ok(_) => {
-            println!("Removed {} from exports (variable still exists locally)", name);
+            // We cannot truly "unexport" while preserving a local-only var here; emulate by clearing from process env
+            env::remove_var(name);
+            println!("Removed {} from exports", name);
         }
         Err(_) => {
             println!("Variable {} not found", name);
@@ -235,10 +239,8 @@ pub fn unexport_var(name: &str) -> Result<()> {
         ).into());
     }
 
-    // In a real shell implementation, we'd remove from export list
-    // but keep the variable in local scope. Since Rust doesn't have
-    // this distinction, we just acknowledge the request.
     if env::var(name).is_ok() {
+        env::remove_var(name);
         println!("Variable {} is no longer exported", name);
     }
 
@@ -322,4 +324,39 @@ pub fn substitute_variables(input: &str) -> String {
     }
     
     result
+}
+
+// --- Function export support ---
+
+fn export_functions(names: &[String]) -> Result<()> {
+    if names.is_empty() {
+        // Print all exported functions
+        for fname in list_functions() {
+            println!("declare -fx {}", fname);
+        }
+        return Ok(());
+    }
+
+    for name in names {
+        if name.starts_with('-') { break; }
+        if !is_valid_var_name(name) {
+            return Err(ShellError::new(
+                ErrorKind::InvalidArgument,
+                format!("Invalid function name: {}", name)
+            ).into());
+        }
+        match get_function(name) {
+            Some(_func) => {
+                // In Bash, function bodies are exported via FUNCNAME() { ...; }; here we mark by emitting declare -fx
+                println!("declare -fx {}", name);
+            }
+            None => {
+                return Err(ShellError::new(
+                    ErrorKind::InvalidArgument,
+                    format!("Function not found: {}", name)
+                ).into());
+            }
+        }
+    }
+    Ok(())
 }

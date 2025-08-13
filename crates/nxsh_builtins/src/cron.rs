@@ -1054,9 +1054,30 @@ impl CronDaemon {
     }
 
     async fn check_system_resources(config: &CronConfig) -> bool {
-        // TODO: Implement actual system resource checking
-        // For now, always return true
-        true
+        #[cfg(feature = "system-info")]
+        {
+            use sysinfo::{System, SystemExt, CpuExt};
+            let mut sys = System::new();
+            sys.refresh_memory();
+            sys.refresh_cpu();
+            let total = sys.total_memory() as f64;
+            let used = sys.used_memory() as f64;
+            let mem_ratio = if total > 0.0 { used / total } else { 0.0 };
+
+            // Approximate load by average CPU usage across cores
+            let avg_cpu: f64 = sys.cpus().iter().map(|c| c.cpu_usage() as f64).sum::<f64>() / (sys.cpus().len().max(1) as f64);
+            let load = avg_cpu / 100.0 * (sys.cpus().len().max(1) as f64);
+
+            if load > config.system_load_threshold || mem_ratio > config.memory_threshold {
+                return false;
+            }
+            return true;
+        }
+        #[cfg(not(feature = "system-info"))]
+        {
+            let _ = config; // avoid unused warning
+            true
+        }
     }
 
     fn job_matches_filter(&self, job: &CronJob, filter: &JobFilter) -> bool {

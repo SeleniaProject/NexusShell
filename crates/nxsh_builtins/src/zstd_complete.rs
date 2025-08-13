@@ -4,6 +4,8 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use ruzstd::BlockDecodingStrategy;
 use ruzstd::streaming_decoder::StreamingDecoder;
+use which::which;
+use std::process::{Command, Stdio};
 
 #[derive(Debug, Clone)]
 pub struct ZstdOptions {
@@ -163,9 +165,9 @@ fn process_stdio(options: &ZstdOptions) -> Result<()> {
         decompress_stream(&mut reader, &mut writer, options)
             .context("Failed to decompress from stdin")?;
     } else {
-        // For compression, we'd need a Pure Rust compressor
-        // Currently using decompression-only ruzstd
-        return Err(anyhow::anyhow!("Compression not implemented with Pure Rust (decompression only)"));
+        // Try external zstd binary for compression
+        compress_stream_external(&mut reader, &mut writer, options)
+            .context("Failed to compress to stdout via external zstd")?;
     }
 
     writer.flush().context("Failed to flush output")?;
@@ -231,24 +233,24 @@ fn process_single_file(filename: &str, options: &ZstdOptions) -> Result<()> {
     if options.stdout {
         let stdout = io::stdout();
         let mut writer = BufWriter::new(stdout.lock());
-        
         if options.decompress {
             decompress_stream(&mut reader, &mut writer, options)?;
+            writer.flush()?;
         } else {
-            return Err(anyhow::anyhow!("Compression not implemented with Pure Rust (decompression only)"));
+            // Pipe through external zstd
+            compress_stream_external(&mut reader, &mut writer, options)?;
         }
-        writer.flush()?;
     } else if let Some(output_file) = output_filename {
-        let out_file = File::create(&output_file)
-            .with_context(|| format!("Cannot create output file '{}'", output_file))?;
-        let mut writer = BufWriter::new(out_file);
-        
         if options.decompress {
+            let out_file = File::create(&output_file)
+                .with_context(|| format!("Cannot create output file '{}'", output_file))?;
+            let mut writer = BufWriter::new(out_file);
             decompress_stream(&mut reader, &mut writer, options)?;
+            writer.flush()?;
         } else {
-            return Err(anyhow::anyhow!("Compression not implemented with Pure Rust (decompression only)"));
+            // Use external zstd to compress file to output_file
+            compress_file_external(filename, &output_file, options)?;
         }
-        writer.flush()?;
 
         // Remove input file if not keeping it
         if !options.keep {
@@ -306,6 +308,78 @@ fn decompress_stream<R: Read, W: Write>(
         println!("Decompressed {} bytes (est. ratio: {:.1}%)", total_output, ratio);
     }
 
+    Ok(())
+}
+
+/// Compress data stream using external `zstd` binary (best-effort, cross-platform)
+fn compress_stream_external<R: Read, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    options: &ZstdOptions,
+) -> Result<()> {
+    let zstd_path = which("zstd").map_err(|_| anyhow::anyhow!(
+        "Compression requires external 'zstd' binary (not found in PATH)"
+    ))?;
+
+    // Spawn zstd process: read from stdin, write to stdout
+    let mut cmd = Command::new(zstd_path);
+    // Level
+    cmd.arg(format!("-{}", options.level.max(1)));
+    // Quiet/verbose
+    if options.quiet { cmd.arg("-q"); }
+    if options.verbose { cmd.arg("-v"); }
+    // Force
+    if options.force { cmd.arg("-f"); }
+    // Threads
+    if let Some(t) = options.threads { cmd.args(["-T", &t.to_string()]); }
+    // To stdout
+    cmd.arg("-c");
+    cmd.stdin(Stdio::piped()).stdout(Stdio::piped());
+
+    let mut child = cmd.spawn().context("Failed to spawn external zstd")?;
+
+    // Pipe data into child stdin and read from stdout
+    {
+        let mut child_stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("Failed to open zstd stdin"))?;
+        let mut child_stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("Failed to open zstd stdout"))?;
+
+        // Write input in a thread to avoid deadlocks
+        let mut input_buf = Vec::new();
+        reader.read_to_end(&mut input_buf)?;
+        std::thread::spawn(move || {
+            let _ = child_stdin.write_all(&input_buf);
+        });
+
+        let mut buf = [0u8; 64 * 1024];
+        loop {
+            let n = child_stdout.read(&mut buf)?;
+            if n == 0 { break; }
+            writer.write_all(&buf[..n])?;
+        }
+    }
+    let status = child.wait().context("Failed to wait for zstd")?;
+    if !status.success() {
+        return Err(anyhow::anyhow!("external zstd failed with status {:?}", status.code()));
+    }
+    Ok(())
+}
+
+/// Compress a file using external zstd into the specified output file
+fn compress_file_external(input: &str, output: &str, options: &ZstdOptions) -> Result<()> {
+    let zstd_path = which("zstd").map_err(|_| anyhow::anyhow!(
+        "Compression requires external 'zstd' binary (not found in PATH)"
+    ))?;
+    let mut cmd = Command::new(zstd_path);
+    cmd.arg(format!("-{}", options.level.max(1)));
+    if options.quiet { cmd.arg("-q"); }
+    if options.verbose { cmd.arg("-v"); }
+    if options.force { cmd.arg("-f"); }
+    if let Some(t) = options.threads { cmd.args(["-T", &t.to_string()]); }
+    cmd.args(["-o", output, input]);
+    let status = cmd.status().context("Failed to launch external zstd")?;
+    if !status.success() {
+        return Err(anyhow::anyhow!("external zstd failed with status {:?}", status.code()));
+    }
     Ok(())
 }
 

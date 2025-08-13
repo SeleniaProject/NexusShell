@@ -351,6 +351,12 @@ pub fn undefine_function(name: &str) -> bool {
     registry.remove(name).is_some()
 }
 
+/// Get a copy of a function definition if it exists.
+pub fn get_function(name: &str) -> Option<ShellFunction> {
+    let registry = FUNCTION_REGISTRY.lock().unwrap();
+    registry.get(name).cloned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
