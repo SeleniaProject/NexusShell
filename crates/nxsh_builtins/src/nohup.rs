@@ -35,13 +35,31 @@ fn parse_nohup_args(args: &[String]) -> ShellResult<NohupOptions> {
         ));
     }
 
-    let options = NohupOptions {
-        command: args[0].clone(),
-        args: args[1..].to_vec(),
-        output_file: None,
-    };
+    let mut i = 0;
+    let mut output_file: Option<String> = None;
+    let mut cmd: Option<String> = None;
+    let mut cmd_args: Vec<String> = Vec::new();
+    while i < args.len() {
+        match args[i].as_str() {
+            "-o" => {
+                i += 1;
+                if i >= args.len() { return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "nohup: -o requires FILE")); }
+                output_file = Some(args[i].clone());
+            }
+            arg if arg.starts_with('-') => {
+                // Unknown option
+            }
+            _ => {
+                cmd = Some(args[i].clone());
+                cmd_args.extend(args[i+1..].iter().cloned());
+                break;
+            }
+        }
+        i += 1;
+    }
 
-    Ok(options)
+    let command = cmd.ok_or_else(|| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "nohup: missing command"))?;
+    Ok(NohupOptions { command, args: cmd_args, output_file })
 }
 
 fn execute_nohup(options: &NohupOptions) -> ShellResult<ExecutionResult> {
@@ -110,13 +128,22 @@ fn execute_nohup(options: &NohupOptions) -> ShellResult<ExecutionResult> {
         // Windows implementation using job objects or similar
         let mut cmd = Command::new(&options.command);
         cmd.args(&options.args);
-        
-    #[cfg(windows)]
-    {
-        // On Windows, we can't ignore SIGHUP in the same way
-        // but we can use process creation flags
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x00000008); // DETACHED_PROCESS
+
+        // Optional output redirection on Windows: create or append to nohup.out if specified
+        if let Some(of) = options.output_file.as_deref() {
+            use std::fs::OpenOptions;
+            use std::os::windows::io::{AsRawHandle, FromRawHandle};
+            let file = OpenOptions::new().create(true).append(true).open(of)
+                .map_err(|e| ShellError::permission_denied(of))?;
+            let handle = file.as_raw_handle();
+            unsafe {
+                use std::process::Stdio;
+                cmd.stdout(Stdio::from_raw_handle(handle));
+                cmd.stderr(Stdio::from_raw_handle(handle));
+            }
+        }
 
         println!("nohup: starting detached process (Windows)");
 
@@ -130,14 +157,6 @@ fn execute_nohup(options: &NohupOptions) -> ShellResult<ExecutionResult> {
                 format!("nohup: failed to execute '{}': {}", options.command, e),
             )),
         }
-    }
-    }
-    
-    #[cfg(unix)]
-    {
-        // Unix implementation would use signal handling
-        println!("nohup: Unix signal handling not implemented yet");
-        Ok(ExecutionResult::success(0))
     }
 }
 
