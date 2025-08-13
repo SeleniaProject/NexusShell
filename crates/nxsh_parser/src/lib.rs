@@ -155,6 +155,23 @@ impl ShellCommandParser {
         }
     }
 
+    /// Normalize a parsed block body to avoid placeholder/double-wrapping.
+    /// - Collapses Program with 1 element into that element
+    /// - Converts Program with N>=2 elements into StatementList
+    /// - Leaves other nodes untouched
+    fn normalize_block(&self, node: ast::AstNode<'static>) -> ast::AstNode<'static> {
+        match node {
+            ast::AstNode::Program(mut stmts) => {
+                if stmts.len() == 1 {
+                    stmts.remove(0)
+                } else {
+                    ast::AstNode::StatementList(stmts)
+                }
+            }
+            other => other,
+        }
+    }
+
     /// Parse a line (statement with optional operators)
     fn parse_line(&self, pair: Pair<Rule>, input: &str) -> Result<Option<ast::AstNode<'static>>> {
         let mut current_node: Option<ast::AstNode<'static>> = None;
@@ -284,6 +301,9 @@ impl ShellCommandParser {
                 Rule::case_statement => {
                     return self.parse_case_statement(inner_pair, input);
                 }
+                Rule::select_statement => {
+                    return self.parse_select_statement(inner_pair, input);
+                }
                 Rule::function_def => {
                     return self.parse_function_def(inner_pair, input);
                 }
@@ -304,6 +324,69 @@ impl ShellCommandParser {
         }
         
         Err(anyhow::anyhow!("Unable to parse statement"))
+    }
+
+    /// Parse select statement with variable, options, and body
+    fn parse_select_statement(&self, pair: Pair<Rule>, input: &str) -> Result<ast::AstNode<'static>> {
+        let mut variable: Option<&str> = None;
+        let mut options_vec: Vec<ast::AstNode<'static>> = Vec::new();
+        let mut body: Option<ast::AstNode<'static>> = None;
+        enum SelState { Variable, MaybeIn, Options, Body }
+        let mut state = SelState::Variable;
+
+        for inner in pair.into_inner() {
+            match inner.as_rule() {
+                Rule::select_kw => { state = SelState::Variable; }
+                Rule::identifier => {
+                    if matches!(state, SelState::Variable) {
+                        variable = Some(self.leak_string(inner.as_str()));
+                        state = SelState::MaybeIn;
+                    } else {
+                        return Err(anyhow::anyhow!("Unexpected identifier in select statement"));
+                    }
+                }
+                Rule::in_kw => { state = SelState::Options; }
+                Rule::word_list => {
+                    // Collect words as options
+                    for w in inner.into_inner() {
+                        if w.as_rule() == Rule::word {
+                            options_vec.push(ast::AstNode::Word(self.leak_string(w.as_str())));
+                        }
+                    }
+                }
+                Rule::do_kw => { state = SelState::Body; }
+                Rule::command_list => {
+                    if matches!(state, SelState::Body) {
+                        body = Some(self.normalize_block(self.parse_command_list(inner, input)?));
+                    }
+                }
+                Rule::program | Rule::inner_program => {
+                    if matches!(state, SelState::Body) {
+                        body = Some(self.normalize_block(self.build_ast_from_pairs(inner.into_inner(), input)?));
+                    }
+                }
+                Rule::done_kw => { break; }
+                _ => { /* ignore */ }
+            }
+        }
+
+        let variable = variable.ok_or_else(|| anyhow::anyhow!("Select statement missing variable"))?;
+        let body = body.ok_or_else(|| anyhow::anyhow!("Select statement missing body"))?;
+
+        // Build options node if provided
+        let options_node = if options_vec.is_empty() {
+            None
+        } else if options_vec.len() == 1 {
+            Some(Box::new(options_vec.remove(0)))
+        } else {
+            Some(Box::new(ast::AstNode::ArgumentList(options_vec)))
+        };
+
+        Ok(ast::AstNode::Select {
+            variable,
+            options: options_node,
+            body: Box::new(body),
+        })
     }
 
     /// Parse a command (simple command or pipeline)
@@ -603,7 +686,7 @@ impl ShellCommandParser {
                     current_state = IfParseState::ThenBranch;
                 }
                 Rule::command_list => {
-                    let body = self.parse_command_list(inner_pair.clone(), input)?;
+                    let body = self.normalize_block(self.parse_command_list(inner_pair.clone(), input)?);
                     match current_state {
                         IfParseState::ThenBranch => {
                             then_branch = Some(body);
@@ -622,7 +705,7 @@ impl ShellCommandParser {
                     }
                 }
                 Rule::program => {
-                    let body = self.build_ast_from_pairs(inner_pair.clone().into_inner(), input)?;
+                    let body = self.normalize_block(self.build_ast_from_pairs(inner_pair.clone().into_inner(), input)?);
                     match current_state {
                         IfParseState::ThenBranch => {
                             then_branch = Some(body);
@@ -641,7 +724,7 @@ impl ShellCommandParser {
                 }
                 Rule::inner_program => {
                     // Handle inner_program rule as well for nested structures
-                    let body = self.build_ast_from_pairs(inner_pair.clone().into_inner(), input)?;
+                    let body = self.normalize_block(self.build_ast_from_pairs(inner_pair.clone().into_inner(), input)?);
                     match current_state {
                         IfParseState::ThenBranch => {
                             then_branch = Some(body);
@@ -732,12 +815,12 @@ impl ShellCommandParser {
                 }
                 Rule::command_list => {
                     if current_state == ForParseState::Body {
-                        body = Some(self.parse_command_list(inner_pair, input)?);
+                        body = Some(self.normalize_block(self.parse_command_list(inner_pair, input)?));
                     }
                 }
                 Rule::program | Rule::inner_program => {
                     if current_state == ForParseState::Body {
-                        body = Some(self.build_ast_from_pairs(inner_pair.into_inner(), input)?);
+                        body = Some(self.normalize_block(self.build_ast_from_pairs(inner_pair.into_inner(), input)?));
                     }
                 }
                 Rule::done_kw => {
@@ -802,12 +885,12 @@ impl ShellCommandParser {
                 }
                 Rule::command_list => {
                     if current_state == WhileParseState::Body {
-                        body = Some(self.parse_command_list(inner_pair, input)?);
+                        body = Some(self.normalize_block(self.parse_command_list(inner_pair, input)?));
                     }
                 }
                 Rule::program | Rule::inner_program => {
                     if current_state == WhileParseState::Body {
-                        body = Some(self.build_ast_from_pairs(inner_pair.into_inner(), input)?);
+                        body = Some(self.normalize_block(self.build_ast_from_pairs(inner_pair.into_inner(), input)?));
                     }
                 }
                 Rule::done_kw => {
@@ -888,7 +971,7 @@ impl ShellCommandParser {
                     patterns.push(pattern);
                 }
                 Rule::program | Rule::inner_program => {
-                    body = Some(self.build_ast_from_pairs(inner_pair.into_inner(), input)?);
+                    body = Some(self.normalize_block(self.build_ast_from_pairs(inner_pair.into_inner(), input)?));
                 }
                 _ => {
                     // Ignore other tokens like ")" and ";;"
@@ -1062,7 +1145,7 @@ impl ShellCommandParser {
                                 statements.push(self.parse_statement(bg, input)?);
                             }
                             Rule::program | Rule::inner_program => {
-                                statements.push(self.build_ast_from_pairs(bg.into_inner(), input)?);
+                                statements.push(self.normalize_block(self.build_ast_from_pairs(bg.into_inner(), input)?));
                             }
                             _ => {}
                         }
@@ -1203,7 +1286,7 @@ impl ShellCommandParser {
                     pattern = Some(self.parse_pattern(inner_pair)?);
                 }
                 Rule::program | Rule::inner_program => {
-                    body = Some(self.build_ast_from_pairs(inner_pair.into_inner(), input)?);
+                    body = Some(self.normalize_block(self.build_ast_from_pairs(inner_pair.into_inner(), input)?));
                 }
                 _ => {
                     // Handle "=>" separator and potential guard clauses
