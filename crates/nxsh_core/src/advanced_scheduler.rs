@@ -874,56 +874,86 @@ impl AdvancedJobScheduler {
 
     /// Static helper that computes next run time from a cron expression.
     ///
-    /// Supported minimal subset (standard 5-field cron):
-    /// - "* * * * *" → next minute boundary
-    /// - "*/N * * * *" → next multiple-of-N minute boundary (1<=N<=59)
-    /// - "M * * * *" (0..59) → next occurrence of minute M
-    /// Fallback: 1 hour later if parsing fails.
+    /// Full 5-field cron subset with lists, ranges and steps:
+    /// minute hour day month weekday
+    /// - Each field supports: '*' | '*/N' | 'A-B' | 'A-B/N' | 'A,B,C' | single number
+    /// - Weekday: 0-6 (0=Sun)
+    /// Strategy: iterate minute-by-minute up to a reasonable horizon (e.g., 1 year) and pick first match.
     async fn parse_cron_expression_static(cron_expression: &str) -> Result<SystemTime> {
-        // Very small, self-contained parser to avoid external deps.
-        let now = chrono::Utc::now();
+        use chrono::{Datelike, Timelike};
         let parts: Vec<&str> = cron_expression.split_whitespace().collect();
         if parts.len() < 5 { return Ok(SystemTime::now() + Duration::from_secs(3600)); }
-        let min = parts[0];
-        // Helper to convert chrono to SystemTime
-        fn to_system_time(dt: chrono::DateTime<chrono::Utc>) -> SystemTime {
-            SystemTime::UNIX_EPOCH + Duration::from_secs(dt.timestamp() as u64)
-        }
-        // Case 1: every minute
-        if min == "*" {
-            let next = (now + chrono::Duration::minutes(1))
-                .with_second(0).unwrap()
-                .with_nanosecond(0).unwrap();
-            return Ok(to_system_time(next));
-        }
-        // Case 2: step minutes */N
-        if let Some(step_str) = min.strip_prefix("*/") {
-            if let Ok(step) = step_str.parse::<u32>() {
-                if step >= 1 && step <= 59 {
-                    let current_min = now.minute();
-                    let mut next_min = ((current_min / step) + 1) * step;
-                    let mut next = now.with_second(0).unwrap().with_nanosecond(0).unwrap();
-                    if next_min >= 60 {
-                        next = next + chrono::Duration::hours(1);
-                        next_min = 0;
+        let (min_s, hour_s, day_s, month_s, wday_s) = (parts[0], parts[1], parts[2], parts[3], parts[4]);
+
+        // Parser for a field into a matcher closure
+        fn parse_set(spec: &str, min: u32, max: u32) -> Box<dyn Fn(u32) -> bool + Send + Sync> {
+            // '*' catch-all
+            if spec == "*" { return Box::new(|_| true); }
+            // '*/N'
+            if let Some(step_str) = spec.strip_prefix("*/") {
+                if let Ok(step) = step_str.parse::<u32>() { if step >= 1 { return Box::new(move |v| v % step == 0); } }
+            }
+            // lists with possible ranges and steps: A,B,C  A-B  A-B/N
+            let entries: Vec<&str> = spec.split(',').collect();
+            let mut ranges: Vec<(u32,u32,u32)> = Vec::new(); // (start,end,step)
+            for e in entries {
+                if let Some((lhs, rhs)) = e.split_once('/') {
+                    let step = rhs.parse::<u32>().unwrap_or(1).max(1);
+                    if let Some((a_str, b_str)) = lhs.split_once('-') {
+                        if let (Ok(mut a), Ok(mut b)) = (a_str.parse::<u32>(), b_str.parse::<u32>()) {
+                            if a > b { std::mem::swap(&mut a, &mut b); }
+                            a = a.clamp(min, max); b = b.clamp(min, max);
+                            ranges.push((a,b,step));
+                            continue;
+                        }
+                    } else if let Ok(v) = lhs.parse::<u32>() {
+                        let v = v.clamp(min, max);
+                        ranges.push((v,v,step));
+                        continue;
                     }
-                    next = next.with_minute(next_min).unwrap();
-                    return Ok(to_system_time(next));
+                }
+                if let Some((a_str, b_str)) = e.split_once('-') {
+                    if let (Ok(mut a), Ok(mut b)) = (a_str.parse::<u32>(), b_str.parse::<u32>()) {
+                        if a > b { std::mem::swap(&mut a, &mut b); }
+                        a = a.clamp(min, max); b = b.clamp(min, max);
+                        ranges.push((a,b,1));
+                        continue;
+                    }
+                }
+                if let Ok(v) = e.parse::<u32>() {
+                    let v = v.clamp(min, max);
+                    ranges.push((v,v,1));
                 }
             }
-        }
-        // Case 3: fixed minute M
-        if let Ok(target_min) = min.parse::<u32>() {
-            if target_min < 60 {
-                let mut next = now.with_second(0).unwrap().with_nanosecond(0).unwrap();
-                if now.minute() >= target_min {
-                    next = next + chrono::Duration::hours(1);
+            if ranges.is_empty() { return Box::new(|_| false); }
+            Box::new(move |v| {
+                for (a,b,step) in &ranges {
+                    if v < *a || v > *b { continue; }
+                    if ((v - *a) % *step) == 0 { return true; }
                 }
-                next = next.with_minute(target_min).unwrap();
-                return Ok(to_system_time(next));
-            }
+                false
+            })
         }
-        // Fallback
+
+        let match_min = parse_set(min_s, 0, 59);
+        let match_hour = parse_set(hour_s, 0, 23);
+        let match_day = parse_set(day_s, 1, 31);
+        let match_month = parse_set(month_s, 1, 12);
+        let match_wday = parse_set(wday_s, 0, 6);
+
+        let mut t = chrono::Utc::now().with_second(0).unwrap().with_nanosecond(0).unwrap() + chrono::Duration::minutes(1);
+        // Search horizon: one year
+        for _ in 0..(60 * 24 * 366) {
+            let m = t.minute();
+            let h = t.hour();
+            let d = t.day();
+            let mo = t.month();
+            let wd = t.weekday().num_days_from_sunday();
+            if match_min(m) && match_hour(h) && match_day(d) && match_month(mo) && match_wday(wd) {
+                return Ok(SystemTime::UNIX_EPOCH + Duration::from_secs(t.timestamp() as u64));
+            }
+            t = t + chrono::Duration::minutes(1);
+        }
         Ok(SystemTime::now() + Duration::from_secs(3600))
     }
 }

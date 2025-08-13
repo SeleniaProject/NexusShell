@@ -464,9 +464,8 @@ impl App {
     
     /// Get current input from line editor
     async fn get_current_input(&self) -> Result<String> {
-        // This would interface with the line editor to get current input
-        // For now, return empty string as placeholder
-        Ok(String::new())
+        // Read current buffer from underlying line editor via CUI layer
+        self.cui_app.get_current_buffer().await
     }
     
     /// Handle line editor input
@@ -485,18 +484,16 @@ impl App {
         self.metrics.uptime_seconds = self.startup_time.elapsed().as_secs();
         
         // Update memory usage (simplified calculation)
-        #[cfg(unix)]
-        {
-            // On Unix systems, we could use procfs to get actual memory usage
-            // For now, use a placeholder value
-            self.metrics.peak_memory_usage_mib = 12.0; // Within 15MiB limit
-        }
-        
-        #[cfg(windows)]
-        {
-            // On Windows, we could use Windows API to get memory usage
-            // For now, use a placeholder value
-            self.metrics.peak_memory_usage_mib = 12.0; // Within 15MiB limit
+        // Use sysinfo to fetch current process memory and peak
+        let mut sys = sysinfo::System::new();
+        sys.refresh_processes_specifics(sysinfo::ProcessRefreshKind::everything());
+        if let Ok(pid) = sysinfo::get_current_pid() {
+            if let Some(proc_) = sys.process(pid) {
+                let mem_mib = proc_.memory() as f64 / 1024.0; // KiB -> MiB
+                if mem_mib > self.metrics.peak_memory_usage_mib {
+                    self.metrics.peak_memory_usage_mib = mem_mib;
+                }
+            }
         }
         
         Ok(())

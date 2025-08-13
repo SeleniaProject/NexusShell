@@ -1165,6 +1165,12 @@ impl CUIApp {
         
         Ok(completions)
     }
+
+    /// Expose current input buffer from line editor for outer app queries
+    pub async fn get_current_buffer(&self) -> Result<String> {
+        let le = self.line_editor.lock().await;
+        Ok(le.current_buffer())
+    }
     
     /// Cleanup terminal on exit
     fn cleanup_terminal(&self) -> Result<()> {

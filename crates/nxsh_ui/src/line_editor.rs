@@ -64,6 +64,11 @@ impl NexusLineEditor {
         })
     }
 
+    /// Get current editable line buffer without consuming input.
+    /// Note: rustlyine stable API in use does not expose live buffer access in our configuration.
+    /// Return empty string to indicate no pending buffer is available.
+    pub fn current_buffer(&self) -> String { String::new() }
+
     /// Create a new line editor with standard configuration
     pub fn new() -> Result<Self> {
         let config = Config::builder()
