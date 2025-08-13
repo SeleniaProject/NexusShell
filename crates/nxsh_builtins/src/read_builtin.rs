@@ -15,6 +15,7 @@ pub fn read_builtin_cli(args: Vec<String>) -> Result<()> {
     let mut silent = false;
     let mut array_mode = false;
     let mut raw_mode = false;
+    let mut n_chars: Option<usize> = None;
     let mut var_names = Vec::new();
 
     let mut i = 0;
@@ -50,8 +51,7 @@ pub fn read_builtin_cli(args: Vec<String>) -> Result<()> {
             "-n" => {
                 i += 1;
                 if i < args.len() {
-                    // Number of characters to read (not implemented in this basic version)
-                    eprintln!("Warning: -n option not fully implemented");
+                    n_chars = args[i].parse::<usize>().ok();
                 }
             }
             arg if !arg.starts_with('-') => {
@@ -75,9 +75,9 @@ pub fn read_builtin_cli(args: Vec<String>) -> Result<()> {
 
     // Read input
     let input = if let Some(timeout_secs) = timeout {
-        read_with_timeout(timeout_secs, delimiter, silent)?
+        read_with_timeout(timeout_secs, delimiter, silent, n_chars)?
     } else {
-        read_input(delimiter, silent)?
+        read_input(delimiter, silent, n_chars)?
     };
 
     // Process the input based on options
@@ -124,44 +124,34 @@ fn print_help() {
     println!("  read -d ':' fields # Use colon as delimiter");
 }
 
-fn read_input(delimiter: char, silent: bool) -> Result<String> {
+fn read_input(delimiter: char, silent: bool, n_chars: Option<usize>) -> Result<String> {
     let stdin = io::stdin();
     let mut input = String::new();
 
-    if delimiter == '\n' {
-        // Standard line reading
-        stdin.read_line(&mut input)?;
-        // Remove trailing newline
-        if input.ends_with('\n') {
-            input.pop();
-            if input.ends_with('\r') {
-                input.pop();
-            }
+    // Read character by character to support -n and custom delimiter
+    let handle = stdin.lock();
+    let mut read_count: usize = 0;
+    for byte_result in handle.bytes() {
+        let byte = byte_result?;
+        let ch = char::from(byte);
+        if ch == delimiter && n_chars.is_none() {
+            break;
         }
-    } else {
-        // Read character by character until delimiter
-        let handle = stdin.lock();
-        for byte_result in handle.bytes() {
-            let byte = byte_result?;
-            let ch = char::from(byte);
-            
-            if ch == delimiter {
-                break;
-            }
-            
-            input.push(ch);
-            
-            if !silent {
-                print!("{ch}");
-                io::stdout().flush()?;
-            }
+        input.push(ch);
+        read_count += 1;
+        if !silent {
+            print!("{ch}");
+            io::stdout().flush()?;
+        }
+        if let Some(limit) = n_chars {
+            if read_count >= limit { break; }
         }
     }
 
     Ok(input)
 }
 
-fn read_with_timeout(timeout_secs: u64, delimiter: char, silent: bool) -> Result<String> {
+fn read_with_timeout(timeout_secs: u64, delimiter: char, silent: bool, n_chars: Option<usize>) -> Result<String> {
     use std::time::Duration;
     use std::thread;
     use std::sync::{Arc, Mutex};
@@ -173,7 +163,7 @@ fn read_with_timeout(timeout_secs: u64, delimiter: char, silent: bool) -> Result
 
     // Spawn thread to read input
     thread::spawn(move || {
-        let result = read_input(delimiter, silent);
+        let result = read_input(delimiter, silent, n_chars);
         match result {
             Ok(input) => {
                 *input_clone.lock().unwrap() = input;
