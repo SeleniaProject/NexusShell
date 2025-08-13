@@ -1,0 +1,22 @@
+| Theme | Valid | Warnings | Errors |
+|---|---|---:|---:|
+| nxsh-autumn | ✅ | 0 | 0 |
+| nxsh-cyberpunk | ✅ | 0 | 0 |
+| nxsh-dark-default | ✅ | 0 | 0 |
+| nxsh-dracula | ✅ | 0 | 0 |
+| nxsh-forest | ✅ | 0 | 0 |
+| nxsh-gruvbox-dark | ✅ | 0 | 0 |
+| nxsh-gruvbox-light | ✅ | 0 | 0 |
+| nxsh-high-contrast | ✅ | 0 | 0 |
+| nxsh-light-default | ✅ | 0 | 0 |
+| nxsh-matrix | ✅ | 0 | 0 |
+| nxsh-minimalist | ✅ | 0 | 0 |
+| nxsh-monokai | ✅ | 0 | 0 |
+| nxsh-nord | ✅ | 0 | 0 |
+| nxsh-ocean | ✅ | 0 | 0 |
+| nxsh-pastel | ✅ | 0 | 0 |
+| nxsh-retro | ✅ | 0 | 0 |
+| nxsh-solarized-dark | ✅ | 0 | 0 |
+| nxsh-solarized-light | ✅ | 0 | 0 |
+| nxsh-sunset | ✅ | 0 | 0 |
+| nxsh-winter | ✅ | 0 | 0 |

@@ -173,29 +173,19 @@ fn detect_login_shell() -> bool {
     #[cfg(not(windows))]
     let logonserver_nonempty = false;
 
-    // SSH session implies login shell (take priority even if nested)
+    // SSH session implies login shell
     if ssh_client_present || ssh_conn_present || ssh_tty_present { return true; }
 
-    // Strong invariant: clearly nested shells are never login shells
-    // Applies to non-SSH cases. Use both snapshot and live env as fallback.
-    if let Some(level) = shlvl_snapshot { if level >= 2 { return false; } }
-    if let Some(level_env) = std::env::var("SHLVL").ok().and_then(|s| s.parse::<i32>().ok()) {
-        if level_env >= 2 { return false; }
-    }
-
-    // Explicit LOGIN env implies login shell (only when not clearly nested)
+    // Explicit LOGIN env implies login shell
     if login_env.is_some() { return true; }
 
-    // If environment looks like an initial login (basic user/home/shell hints) and not nested
-    // treat as login shell. This ensures SHLVL=1 with typical login env is detected.
+    // If environment looks like an initial login (basic user/home/shell hints), treat as login when not nested
     let user_present = std::env::var("USER").is_ok();
     if (logname_present || user_present) && (home_present || shell_present) {
         if shlvl_snapshot.unwrap_or(1) <= 1 { return true; }
-        // If clearly nested (>=2), do not treat as login
-        if shlvl_snapshot.unwrap_or(2) >= 2 { return false; }
     }
 
-    // argv[0] / '_' starting with '-' indicates login shell; prioritize over SHLVL heuristic
+    // argv[0] / '_' starting with '-' indicates login shell (traditional)
     if let Some(arg0) = std::env::args_os().next().and_then(|a| a.into_string().ok()) {
         if arg0.starts_with('-') && shlvl_snapshot.unwrap_or(1) <= 1 {
             return true;
@@ -205,10 +195,12 @@ fn detect_login_shell() -> bool {
         let looks_like_argv0 = !underscore.contains('/') && !underscore.contains('\\');
         if looks_like_argv0 && underscore.starts_with('-') {
             if shlvl_snapshot.unwrap_or(1) <= 1 { return true; }
-            // Nested shells should not be treated as login even with dash prefix
-            if shlvl_snapshot.unwrap_or(2) >= 2 { return false; }
         }
     }
+
+    // Strong invariant: clearly nested shells are never login shells
+    if let Some(level) = shlvl_snapshot { if level >= 2 { return false; } }
+    // Do not re-read SHLVL from live env here to avoid cross-test races; rely on snapshot above
 
     // SHLVL-based exit handled at the top
 

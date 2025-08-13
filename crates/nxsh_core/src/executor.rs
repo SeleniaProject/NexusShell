@@ -520,11 +520,19 @@ impl Executor {
     
     /// Execute an AST node with the current strategy
     pub fn execute(&mut self, node: &AstNode, context: &mut ShellContext) -> ShellResult<ExecutionResult> {
+        let start_time = Instant::now();
         // Global timeout guard at entry
         if context.is_timed_out() {
-            return Ok(ExecutionResult::failure(124).with_error(b"nxsh: execution timed out".to_vec()));
+            let execution_time = start_time.elapsed().as_micros() as u64;
+            return Ok(ExecutionResult {
+                exit_code: 124,
+                stdout: String::new(),
+                stderr: "nxsh: execution timed out".to_string(),
+                execution_time,
+                strategy: self.strategy,
+                metrics: ExecutionMetrics::default(),
+            });
         }
-        let start_time = Instant::now();
 
         // Execute according to strategy, but do not early-return on error so we can update stats
         let result: ShellResult<ExecutionResult> = match self.strategy {
@@ -553,19 +561,43 @@ impl Executor {
         match result {
             Ok(mut r) => {
                 if context.is_timed_out() {
-                    Ok(ExecutionResult::failure(124).with_error(b"nxsh: execution timed out".to_vec()))
+                    let execution_time = start_time.elapsed().as_micros() as u64;
+                    Ok(ExecutionResult {
+                        exit_code: 124,
+                        stdout: String::new(),
+                        stderr: "nxsh: execution timed out".to_string(),
+                        execution_time,
+                        strategy: self.strategy,
+                        metrics: ExecutionMetrics::default(),
+                    })
                 } else {
                     Ok(r)
                 }
             },
             Err(e) => {
                 if context.is_timed_out() {
-                    Ok(ExecutionResult::failure(124).with_error(b"nxsh: execution timed out".to_vec()))
+                    let execution_time = start_time.elapsed().as_micros() as u64;
+                    Ok(ExecutionResult {
+                        exit_code: 124,
+                        stdout: String::new(),
+                        stderr: "nxsh: execution timed out".to_string(),
+                        execution_time,
+                        strategy: self.strategy,
+                        metrics: ExecutionMetrics::default(),
+                    })
                 } else {
                     // If an error occurred but a global deadline was configured and already elapsed
                     // treat it as timeout to satisfy strict timeout semantics in tests.
                     if context.is_timed_out() {
-                        Ok(ExecutionResult::failure(124).with_error(b"nxsh: execution timed out".to_vec()))
+                        let execution_time = start_time.elapsed().as_micros() as u64;
+                        Ok(ExecutionResult {
+                            exit_code: 124,
+                            stdout: String::new(),
+                            stderr: "nxsh: execution timed out".to_string(),
+                            execution_time,
+                            strategy: self.strategy,
+                            metrics: ExecutionMetrics::default(),
+                        })
                     } else {
                         Err(e)
                     }
@@ -1218,7 +1250,7 @@ impl Executor {
                 exit_code: 124, // Convention: 124 for timeout (like GNU timeout)
                 stdout: String::new(),
                 stderr: "nxsh: execution timed out".to_string(),
-                execution_time: 0,
+                execution_time: start_time.elapsed().as_micros() as u64,
                 strategy: ExecutionStrategy::DirectInterpreter,
                 metrics: ExecutionMetrics::default(),
             });
@@ -1280,7 +1312,7 @@ impl Executor {
                 exit_code: 124,
                 stdout: String::new(),
                 stderr: "nxsh: execution timed out".to_string(),
-                execution_time: 0,
+                execution_time: start_time.elapsed().as_micros() as u64,
                 strategy: ExecutionStrategy::DirectInterpreter,
                 metrics: ExecutionMetrics::default(),
             });
@@ -1338,17 +1370,17 @@ impl Executor {
             AstNode::Program(statements) => {
                 let mut result = ExecutionResult::success(0);
                 for statement in statements {
-                    if context.is_timed_out() { return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: "nxsh: execution timed out".to_string(), execution_time: 0, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() }); }
+                    if context.is_timed_out() { return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: "nxsh: execution timed out".to_string(), execution_time: start_time.elapsed().as_micros() as u64, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() }); }
                     result = self.execute_ast_direct(statement, context)?;
-                    if context.is_timed_out() { return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: "nxsh: execution timed out".to_string(), execution_time: 0, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() }); }
+                    if context.is_timed_out() { return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: "nxsh: execution timed out".to_string(), execution_time: start_time.elapsed().as_micros() as u64, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() }); }
                     if result.exit_code != 0 && !context.continue_on_error() { break; }
                 }
                 result
             },
             AstNode::Sequence { left, right } => {
-                if context.is_timed_out() { return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: "nxsh: execution timed out".to_string(), execution_time: 0, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() }); }
+                if context.is_timed_out() { return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: "nxsh: execution timed out".to_string(), execution_time: start_time.elapsed().as_micros() as u64, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() }); }
                 let _ = self.execute_ast_direct(left, context)?;
-                if context.is_timed_out() { return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: "nxsh: execution timed out".to_string(), execution_time: 0, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() }); }
+                if context.is_timed_out() { return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: "nxsh: execution timed out".to_string(), execution_time: start_time.elapsed().as_micros() as u64, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() }); }
                 self.execute_ast_direct(right, context)?
             },
             AstNode::Subshell(subshell_commands) => {
@@ -1706,13 +1738,14 @@ impl Executor {
         background: bool,
         context: &mut ShellContext
     ) -> ShellResult<ExecutionResult> {
+        let start_time = Instant::now();
         // Global timeout guard before any heavy work
         if context.is_timed_out() {
             return Ok(ExecutionResult {
                 exit_code: 124,
                 stdout: String::new(),
                 stderr: "nxsh: execution timed out".to_string(),
-                execution_time: 0,
+                execution_time: start_time.elapsed().as_micros() as u64,
                 strategy: ExecutionStrategy::DirectInterpreter,
                 metrics: ExecutionMetrics::default(),
             });
@@ -1955,7 +1988,16 @@ impl Executor {
         }
 
         // Background execution takes precedence (even for builtins) so they behave like external jobs
-        if context.is_timed_out() { return Ok(ExecutionResult::failure(124).with_error(b"nxsh: execution timed out".to_vec())); }
+        if context.is_timed_out() { 
+            return Ok(ExecutionResult {
+                exit_code: 124,
+                stdout: String::new(),
+                stderr: "nxsh: execution timed out".to_string(),
+                execution_time: start_time.elapsed().as_micros() as u64,
+                strategy: ExecutionStrategy::DirectInterpreter,
+                metrics: ExecutionMetrics::default(),
+            });
+        }
         if background {
             return self.execute_background_command(&cmd_name, cmd_args, context);
         }
@@ -1965,20 +2007,52 @@ impl Executor {
         if context.has_function(&cmd_name) {
             return self.execute_user_function_by_name(&cmd_name, &cmd_args, context);
         }
-        if context.is_timed_out() { return Ok(ExecutionResult::failure(124).with_error(b"nxsh: execution timed out".to_vec())); }
+        if context.is_timed_out() { 
+            return Ok(ExecutionResult {
+                exit_code: 124,
+                stdout: String::new(),
+                stderr: "nxsh: execution timed out".to_string(),
+                execution_time: start_time.elapsed().as_micros() as u64,
+                strategy: ExecutionStrategy::DirectInterpreter,
+                metrics: ExecutionMetrics::default(),
+            });
+        }
         if let Some(builtin) = self.builtins.get(&cmd_name) {
             let r = builtin.execute(context, &cmd_args);
             if context.is_timed_out() {
-                return Ok(ExecutionResult::failure(124).with_error(b"nxsh: execution timed out".to_vec()));
+                return Ok(ExecutionResult {
+                    exit_code: 124,
+                    stdout: String::new(),
+                    stderr: "nxsh: execution timed out".to_string(),
+                    execution_time: start_time.elapsed().as_micros() as u64,
+                    strategy: ExecutionStrategy::DirectInterpreter,
+                    metrics: ExecutionMetrics::default(),
+                });
             }
             return r;
         }
 
         // Execute as external command
-        if context.is_timed_out() { return Ok(ExecutionResult::failure(124).with_error(b"nxsh: execution timed out".to_vec())); }
+        if context.is_timed_out() { 
+            return Ok(ExecutionResult {
+                exit_code: 124,
+                stdout: String::new(),
+                stderr: "nxsh: execution timed out".to_string(),
+                execution_time: start_time.elapsed().as_micros() as u64,
+                strategy: ExecutionStrategy::DirectInterpreter,
+                metrics: ExecutionMetrics::default(),
+            });
+        }
         let r = self.execute_external_process(&cmd_name, &cmd_args, context);
         if context.is_timed_out() {
-            return Ok(ExecutionResult::failure(124).with_error(b"nxsh: execution timed out".to_vec()));
+            return Ok(ExecutionResult {
+                exit_code: 124,
+                stdout: String::new(),
+                stderr: "nxsh: execution timed out".to_string(),
+                execution_time: start_time.elapsed().as_micros() as u64,
+                strategy: ExecutionStrategy::DirectInterpreter,
+                metrics: ExecutionMetrics::default(),
+            });
         }
         r
     }
@@ -2481,6 +2555,7 @@ impl Executor {
     
     /// Execute a pipeline of commands
     fn execute_pipeline(&mut self, commands: &[AstNode], context: &mut ShellContext) -> ShellResult<ExecutionResult> {
+        let start_time = Instant::now();
         // Experimental: if PowerShell compatibility requested, attempt object pipeline using simplified textual reconstruction
         if std::env::var("NXSH_PWSH_MODE").ok().as_deref() == Some("1") {
             #[cfg(feature = "powershell_compat")]
@@ -2491,7 +2566,8 @@ impl Executor {
                 let mut compat = crate::powershell_compat::PowerShellCompat::new();
                 if let Ok(objs) = compat.execute_pipeline(&pipeline_str) {
                     let out = objs.iter().map(|o| o.to_string()).collect::<Vec<_>>().join("\n");
-                    return Ok(ExecutionResult { exit_code: 0, stdout: out, stderr: String::new(), execution_time: 0, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics { execute_time_us: 0, ..Default::default() } });
+                    let execution_time = start_time.elapsed().as_micros() as u64;
+                    return Ok(ExecutionResult { exit_code: 0, stdout: out, stderr: String::new(), execution_time, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics { execute_time_us: execution_time, ..Default::default() } });
                 }
             }
         }

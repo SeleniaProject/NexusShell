@@ -419,75 +419,131 @@ impl PerformanceProfiler {
 
     // System metrics helpers
     fn get_cpu_usage(&self) -> Result<Duration> {
-        // Simplified CPU time - would use proper system APIs
-        Ok(Duration::from_millis(100))
+        // Use cpu_time crate to fetch process CPU time cross-platform
+        let times = cpu_time::ProcessTime::try_now()
+            .map_err(|e| crate::anyhow!("Failed to get process CPU time: {}", e))?;
+        Ok(times.as_duration())
     }
 
     fn get_memory_usage(&self) -> Result<usize> {
-        // Simplified memory usage - would use proper system APIs
-        
-        
-        // This is a placeholder - real implementation would use system APIs
-        Ok(1_000_000) // 1MB placeholder
+        // Use sysinfo to fetch current process memory usage (resident set)
+        let mut sys = sysinfo::System::new();
+        sys.refresh_processes_specifics(sysinfo::ProcessRefreshKind::everything());
+        if let Ok(pid) = sysinfo::get_current_pid() {
+            if let Some(proc) = sys.process(pid) {
+                // memory() returns KiB; convert to bytes
+                let kib = proc.memory();
+                return Ok((kib as usize) * 1024);
+            }
+        }
+        Ok(0)
     }
 
     fn get_io_read_rate(&self) -> Result<u64> {
-        // Placeholder - would use system APIs
-        Ok(1024 * 1024) // 1MB/s placeholder
+        // Sample two times and compute delta bytes/time using sysinfo
+        let mut sys = sysinfo::System::new();
+        sys.refresh_processes_specifics(sysinfo::ProcessRefreshKind::everything());
+        let pid = sysinfo::get_current_pid().map_err(|e| crate::anyhow!("pid error: {}", e))?;
+        let io1 = sys.process(pid).map(|p| {
+            let du = p.disk_usage();
+            (du.read_bytes, du.written_bytes)
+        });
+        let t1 = Instant::now();
+        std::thread::sleep(Duration::from_millis(50));
+        sys.refresh_processes_specifics(sysinfo::ProcessRefreshKind::everything());
+        let io2 = sys.process(pid).map(|p| {
+            let du = p.disk_usage();
+            (du.read_bytes, du.written_bytes)
+        });
+        let dt = t1.elapsed().as_secs_f64();
+        if let (Some((r1, _)), Some((r2, _))) = (io1, io2) {
+            let delta = r2.saturating_sub(r1);
+            let rate = (delta as f64 / dt).round() as u64;
+            return Ok(rate);
+        }
+        Ok(0)
     }
 
     fn get_io_write_rate(&self) -> Result<u64> {
-        // Placeholder - would use system APIs
-        Ok(512 * 1024) // 512KB/s placeholder
+        let mut sys = sysinfo::System::new();
+        sys.refresh_processes_specifics(sysinfo::ProcessRefreshKind::everything());
+        let pid = sysinfo::get_current_pid().map_err(|e| crate::anyhow!("pid error: {}", e))?;
+        let io1 = sys.process(pid).map(|p| {
+            let du = p.disk_usage();
+            (du.read_bytes, du.written_bytes)
+        });
+        let t1 = Instant::now();
+        std::thread::sleep(Duration::from_millis(50));
+        sys.refresh_processes_specifics(sysinfo::ProcessRefreshKind::everything());
+        let io2 = sys.process(pid).map(|p| {
+            let du = p.disk_usage();
+            (du.read_bytes, du.written_bytes)
+        });
+        let dt = t1.elapsed().as_secs_f64();
+        if let (Some((_, w1)), Some((_, w2))) = (io1, io2) {
+            let delta = w2.saturating_sub(w1);
+            let rate = (delta as f64 / dt).round() as u64;
+            return Ok(rate);
+        }
+        Ok(0)
     }
 
     fn get_thread_count(&self) -> Result<usize> {
-        // Placeholder - would count actual threads
-        Ok(4)
+        // Fallback: approximate by logical core count
+        Ok(num_cpus::get())
     }
 
     fn get_network_connection_count(&self) -> Result<usize> {
-        // Placeholder - would count actual connections
-        Ok(2)
+        // sysinfo does not expose sockets; approximate via TCP table on Windows later. For now 0.
+        Ok(0)
     }
 
     fn get_system_uptime(&self) -> Result<Duration> {
-        // Placeholder - would get actual system uptime
-        Ok(Duration::from_secs(3600)) // 1 hour placeholder
+        let _sys = sysinfo::System::new();
+        Ok(Duration::from_secs(sysinfo::System::uptime()))
     }
 
     fn get_current_cpu_usage() -> Result<f64> {
-        // Placeholder - would use system APIs
-        Ok(25.0) // 25% placeholder
+        let mut sys = sysinfo::System::new_with_specifics(sysinfo::RefreshKind::new().with_cpu(sysinfo::CpuRefreshKind::everything()));
+        sys.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
+        // Average over all CPUs
+        let avg = sys.cpus().iter().map(|c| c.cpu_usage() as f64).sum::<f64>() / (sys.cpus().len() as f64).max(1.0);
+        Ok(avg)
     }
 
     fn get_current_memory_usage() -> Result<usize> {
-        // Placeholder - would use system APIs
-        Ok(100_000_000) // 100MB placeholder
+        let sys = sysinfo::System::new_with_specifics(sysinfo::RefreshKind::new().with_memory(sysinfo::MemoryRefreshKind::everything()));
+        // Use used memory in bytes (sysinfo returns KiB)
+        Ok((sys.used_memory() as usize) * 1024)
     }
 
-    fn calculate_cpu_summary(&self, _samples: &[CpuSample]) -> CpuSummary {
-        CpuSummary {
-            average_usage: 25.0,
-            peak_usage: 75.0,
-            samples_count: 1000,
-        }
+    fn calculate_cpu_summary(&self, samples: &[CpuSample]) -> CpuSummary {
+        let avg = if samples.is_empty() { 0.0 } else { samples.iter().map(|s| s.usage_percent).sum::<f64>() / samples.len() as f64 };
+        let peak = samples.iter().map(|s| s.usage_percent).fold(0.0, f64::max);
+        CpuSummary { average_usage: avg, peak_usage: peak, samples_count: samples.len() }
     }
 
-    fn calculate_memory_summary(&self, _samples: &[MemorySample]) -> MemorySummary {
-        MemorySummary {
-            average_usage: 100_000_000,
-            peak_usage: 150_000_000,
-            samples_count: 1000,
-        }
+    fn calculate_memory_summary(&self, samples: &[MemorySample]) -> MemorySummary {
+        let (sum, peak) = samples.iter().fold((0usize, 0usize), |(s, p), m| (s + m.bytes_used, p.max(m.bytes_used)));
+        let avg = if samples.is_empty() { 0 } else { sum / samples.len() };
+        MemorySummary { average_usage: avg, peak_usage: peak, samples_count: samples.len() }
     }
 
-    fn calculate_command_summary(&self, _timings: &HashMap<String, Vec<Duration>>) -> CommandSummary {
-        CommandSummary {
-            total_commands: 100,
-            average_duration: Duration::from_millis(50),
-            slowest_command: "find".to_string(),
+    fn calculate_command_summary(&self, timings: &HashMap<String, Vec<Duration>>) -> CommandSummary {
+        let total_commands = timings.values().map(|v| v.len()).sum();
+        let mut slowest_cmd = String::new();
+        let mut slowest = Duration::from_secs(0);
+        let mut total = Duration::from_secs(0);
+        let mut count = 0usize;
+        for (cmd, durs) in timings {
+            for d in durs {
+                total += *d;
+                count += 1;
+                if *d > slowest { slowest = *d; slowest_cmd = cmd.clone(); }
+            }
         }
+        let avg = if count == 0 { Duration::from_millis(0) } else { Duration::from_secs_f64(total.as_secs_f64() / count as f64) };
+        CommandSummary { total_commands, average_duration: avg, slowest_command: slowest_cmd }
     }
 
     fn generate_recommendations(&self, _session: &ProfilingSession) -> Vec<String> {

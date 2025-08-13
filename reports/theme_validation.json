@@ -1,0 +1,128 @@
+{
+  "errors": 0,
+  "rows": [
+    {
+      "errors": 0,
+      "theme": "nxsh-autumn",
+      "valid": true,
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "theme": "nxsh-cyberpunk",
+      "valid": true,
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "theme": "nxsh-dark-default",
+      "valid": true,
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "theme": "nxsh-dracula",
+      "valid": true,
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "theme": "nxsh-forest",
+      "valid": true,
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "theme": "nxsh-gruvbox-dark",
+      "valid": true,
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "theme": "nxsh-gruvbox-light",
+      "valid": true,
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "theme": "nxsh-high-contrast",
+      "valid": true,
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "theme": "nxsh-light-default",
+      "valid": true,
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "theme": "nxsh-matrix",
+      "valid": true,
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "theme": "nxsh-minimalist",
+      "valid": true,
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "theme": "nxsh-monokai",
+      "valid": true,
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "theme": "nxsh-nord",
+      "valid": true,
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "theme": "nxsh-ocean",
+      "valid": true,
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "theme": "nxsh-pastel",
+      "valid": true,
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "theme": "nxsh-retro",
+      "valid": true,
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "theme": "nxsh-solarized-dark",
+      "valid": true,
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "theme": "nxsh-solarized-light",
+      "valid": true,
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "theme": "nxsh-sunset",
+      "valid": true,
+      "warnings": 0
+    },
+    {
+      "errors": 0,
+      "theme": "nxsh-winter",
+      "valid": true,
+      "warnings": 0
+    }
+  ],
+  "total": 20,
+  "valid": 20,
+  "warnings": 0
+}

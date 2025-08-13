@@ -292,15 +292,66 @@ impl ClosureSystem {
             BinaryOperator::Add => match (left, right) {
                 (Value::Integer(a), Value::Integer(b)) => Ok(Value::Integer(a + b)),
                 (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
+                (Value::Integer(a), Value::Float(b)) => Ok(Value::Float(*a as f64 + b)),
+                (Value::Float(a), Value::Integer(b)) => Ok(Value::Float(a + *b as f64)),
                 (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
                 _ => Err(crate::anyhow!("Cannot add these types"))
             },
+            BinaryOperator::Subtract => match (left, right) {
+                (Value::Integer(a), Value::Integer(b)) => Ok(Value::Integer(a - b)),
+                (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
+                (Value::Integer(a), Value::Float(b)) => Ok(Value::Float(*a as f64 - b)),
+                (Value::Float(a), Value::Integer(b)) => Ok(Value::Float(a - *b as f64)),
+                _ => Err(crate::anyhow!("Cannot subtract these types"))
+            },
+            BinaryOperator::Multiply => match (left, right) {
+                (Value::Integer(a), Value::Integer(b)) => Ok(Value::Integer(a * b)),
+                (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
+                (Value::Integer(a), Value::Float(b)) => Ok(Value::Float(*a as f64 * b)),
+                (Value::Float(a), Value::Integer(b)) => Ok(Value::Float(a * *b as f64)),
+                _ => Err(crate::anyhow!("Cannot multiply these types"))
+            },
+            BinaryOperator::Divide => match (left, right) {
+                (Value::Integer(_), Value::Integer(0)) => Err(crate::anyhow!("Division by zero")),
+                (Value::Integer(a), Value::Integer(b)) => Ok(Value::Float(*a as f64 / *b as f64)),
+                (Value::Float(_), Value::Float(b)) if *b == 0.0 => Err(crate::anyhow!("Division by zero")),
+                (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a / b)),
+                (Value::Integer(a), Value::Float(b)) => if *b == 0.0 { Err(crate::anyhow!("Division by zero")) } else { Ok(Value::Float(*a as f64 / b)) },
+                (Value::Float(a), Value::Integer(b)) => if *b == 0 { Err(crate::anyhow!("Division by zero")) } else { Ok(Value::Float(a / *b as f64)) },
+                _ => Err(crate::anyhow!("Cannot divide these types"))
+            },
             BinaryOperator::Equal => Ok(Value::Boolean(left == right)),
+            BinaryOperator::NotEqual => Ok(Value::Boolean(left != right)),
             BinaryOperator::LessThan => match (left, right) {
                 (Value::Integer(a), Value::Integer(b)) => Ok(Value::Boolean(a < b)),
                 (Value::Float(a), Value::Float(b)) => Ok(Value::Boolean(a < b)),
-                _ => Ok(Value::Boolean(false))
+                (Value::Integer(a), Value::Float(b)) => Ok(Value::Boolean((*a as f64) < *b)),
+                (Value::Float(a), Value::Integer(b)) => Ok(Value::Boolean(*a < (*b as f64))),
+                _ => Err(crate::anyhow!("Cannot compare these types"))
             },
+            BinaryOperator::LessEqual => match (left, right) {
+                (Value::Integer(a), Value::Integer(b)) => Ok(Value::Boolean(a <= b)),
+                (Value::Float(a), Value::Float(b)) => Ok(Value::Boolean(a <= b)),
+                (Value::Integer(a), Value::Float(b)) => Ok(Value::Boolean((*a as f64) <= *b)),
+                (Value::Float(a), Value::Integer(b)) => Ok(Value::Boolean(*a <= (*b as f64))),
+                _ => Err(crate::anyhow!("Cannot compare these types"))
+            },
+            BinaryOperator::GreaterThan => match (left, right) {
+                (Value::Integer(a), Value::Integer(b)) => Ok(Value::Boolean(a > b)),
+                (Value::Float(a), Value::Float(b)) => Ok(Value::Boolean(a > b)),
+                (Value::Integer(a), Value::Float(b)) => Ok(Value::Boolean((*a as f64) > *b)),
+                (Value::Float(a), Value::Integer(b)) => Ok(Value::Boolean(*a > (*b as f64))),
+                _ => Err(crate::anyhow!("Cannot compare these types"))
+            },
+            BinaryOperator::GreaterEqual => match (left, right) {
+                (Value::Integer(a), Value::Integer(b)) => Ok(Value::Boolean(a >= b)),
+                (Value::Float(a), Value::Float(b)) => Ok(Value::Boolean(a >= b)),
+                (Value::Integer(a), Value::Float(b)) => Ok(Value::Boolean((*a as f64) >= *b)),
+                (Value::Float(a), Value::Integer(b)) => Ok(Value::Boolean(*a >= (*b as f64))),
+                _ => Err(crate::anyhow!("Cannot compare these types"))
+            },
+            BinaryOperator::And => Ok(Value::Boolean(self.value_to_bool(left) && self.value_to_bool(right))),
+            BinaryOperator::Or  => Ok(Value::Boolean(self.value_to_bool(left) || self.value_to_bool(right))),
             // Add other operators as needed
             _ => Err(crate::anyhow!("Binary operator not implemented"))
         }

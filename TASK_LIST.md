@@ -11,18 +11,18 @@
 ## 1. Core / Runtime / Executor / Updater
 - [x] `crates/nxsh_core/src/updater.rs`: 差分アップデート統合（pure-Rust bspatch 連携、`apply_delta_patch()` 本実装、フル/デルタ切替、ロールバック/バックアップの実体化）
 - [x] `crates/nxsh_core/src/updater.rs`: インストール/バックアップ/ロールバックのプレースホルダー除去（実ファイル操作・整合性検証・障害復帰の実装）
-- [ ] `crates/nxsh_core/src/executor.rs`: 外部コマンド実行結果の `execution_time` 計測を正しく反映（現状 `0` 固定箇所の解消）
+- [x] `crates/nxsh_core/src/executor.rs`: 外部コマンド実行結果の `execution_time` 計測を正しく反映（現状 `0` 固定箇所の解消）
  - [x] `crates/nxsh_core/src/mir/lower.rs`: 関数宣言の別登録機構（シンボル表/可視性）の実装
  - [x] `crates/nxsh_core/src/mir/lower.rs`: AndSC/OrSC 近辺の一時挿入/パッチ処理の最適化・明確化
  - [x] `crates/nxsh_core/src/namespace.rs`: `super` インポート対応（相対参照/可視性エラー整備）
  - [x] `crates/nxsh_core/src/job.rs`: Windows のプロセス一時停止/継続の実装（ジョブ制御のクロスプラットフォーム整備）
-- [ ] `crates/nxsh_core/src/closures.rs`: 未対応バイナリ演算子の実装（演算網羅）
-- [ ] `crates/nxsh_core/src/performance_profiler.rs`: 実システム API によるメモリ/スループット/CPU/稼働時間等メトリクスの実装
-- [ ] `crates/nxsh_core/src/shell.rs`: `shell` モジュールのプレースホルダー解消（実体実装）
+- [x] `crates/nxsh_core/src/closures.rs`: 未対応バイナリ演算子の実装（演算網羅）
+- [x] `crates/nxsh_core/src/performance_profiler.rs`: 実システム API によるメモリ/スループット/CPU/稼働時間等メトリクスの実装
+ - [x] `crates/nxsh_core/src/shell.rs`: `shell` モジュールのプレースホルダー解消（実体実装）
 
 ## 2. HAL / Platform
-- [ ] `crates/nxsh_hal/src/process_enhanced.rs`: Windows でのプロセス kill 実装（TerminateProcess 等の統合）
-- [ ] `crates/nxsh_hal/src/completion.rs`: 履歴補完の実装（シェル履歴システム統合）
+- [x] `crates/nxsh_hal/src/process_enhanced.rs`: Windows でのプロセス kill 実装（TerminateProcess 等の統合）
+- [x] `crates/nxsh_hal/src/completion.rs`: 履歴補完の実装（シェル履歴システム統合）
 
 ## 3. UI / UX
 - [ ] `crates/nxsh_ui/src/lib.rs`: `run_cui_with_config()` の `_config` 適用配線

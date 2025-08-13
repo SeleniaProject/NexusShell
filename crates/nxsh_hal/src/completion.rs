@@ -327,9 +327,48 @@ impl CompletionEngine {
         Ok(completions)
     }
 
-    fn complete_history(&self, _input: &str) -> Result<Vec<Completion>> {
-        // Placeholder for history completion - would integrate with shell's history system
-        Ok(Vec::new())
+    fn complete_history(&self, input: &str) -> Result<Vec<Completion>> {
+        let needle = input.trim();
+        let mut completions: Vec<Completion> = Vec::new();
+
+        // Integration path A: direct NXSH_HISTORY environment (newline-separated recent commands)
+        if let Ok(hist_env) = std::env::var("NXSH_HISTORY") {
+            for line in hist_env.lines().rev().take(self.config.max_results * 2) {
+                let cmd = line.trim();
+                if cmd.is_empty() { continue; }
+                if needle.is_empty() || cmd.starts_with(needle) || cmd.contains(needle) {
+                    completions.push(Completion {
+                        text: cmd.to_string(),
+                        display: self.truncate_display(cmd, 60),
+                        completion_type: CompletionType::History,
+                        description: Some("History".to_string()),
+                        score: self.calculate_score(needle, cmd),
+                    });
+                    if completions.len() >= self.config.max_results { break; }
+                }
+            }
+        } else if let Ok(path) = std::env::var("NXSH_HISTORY_FILE") {
+            if let Ok(content) = std::fs::read_to_string(path) {
+                for line in content.lines().rev() {
+                    let cmd = line.trim();
+                    if cmd.is_empty() { continue; }
+                    if needle.is_empty() || cmd.starts_with(needle) || cmd.contains(needle) {
+                        completions.push(Completion {
+                            text: cmd.to_string(),
+                            display: self.truncate_display(cmd, 60),
+                            completion_type: CompletionType::History,
+                            description: Some("History (file)".to_string()),
+                            score: self.calculate_score(needle, cmd),
+                        });
+                        if completions.len() >= self.config.max_results { break; }
+                    }
+                }
+            }
+        }
+
+        completions.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        completions.truncate(self.config.max_results);
+        Ok(completions)
     }
 
     fn calculate_score(&self, input: &str, candidate: &str) -> f64 {

@@ -117,9 +117,28 @@ impl ProcessMonitor {
         
         #[cfg(windows)]
         {
-            // Windows implementation would use TerminateProcess
-            // For now, return an error indicating not implemented
-            return Err(anyhow::anyhow!("Process killing not implemented on Windows"));
+            use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+            use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+
+            unsafe {
+                let handle: HANDLE = OpenProcess(PROCESS_TERMINATE, 0, _pid);
+                if handle == 0 {
+                    return Err(anyhow::anyhow!("Failed to open process {} for termination", _pid));
+                }
+                let exit_code: u32 = match _signal {
+                    ProcessSignal::Kill => 1,      // forceful
+                    ProcessSignal::Term => 0,      // graceful intent
+                    ProcessSignal::Int => 0xC000013A, // CTRL+C/Break equivalent status code
+                    ProcessSignal::Quit => 0,      
+                    ProcessSignal::Stop => 0,      
+                    ProcessSignal::Cont => 0,      
+                };
+                let ok = TerminateProcess(handle, exit_code);
+                CloseHandle(handle);
+                if ok == 0 {
+                    return Err(anyhow::anyhow!("TerminateProcess failed for pid {}", _pid));
+                }
+            }
         }
         
         #[allow(unreachable_code)]
