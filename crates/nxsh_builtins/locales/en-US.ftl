@@ -262,3 +262,7 @@ schedule-missing-command = schedule: missing command
 schedule-usage-time-cmd = Usage: schedule TIME COMMAND
 schedule-scheduled-as = schedule: scheduled as
 schedule-delegating-at = schedule: delegating absolute time to external 'at' if available
+
+# cron daemon
+cron-daemon-started = Cron daemon started
+cron-daemon-stopped = Cron daemon stopped

@@ -415,7 +415,7 @@ impl CronDaemon {
         self.start_backup_task().await;
         self.start_monitoring_task().await;
 
-        self.log_event("Cron daemon started").await?;
+        self.log_event(&crate::common::i18n::t("cron-daemon-started")).await?;
         Ok(())
     }
 
@@ -432,7 +432,7 @@ impl CronDaemon {
         }
 
         let _ = self.event_sender.send(CronEvent::DaemonStopped);
-        self.log_event("Cron daemon stopped").await?;
+        self.log_event(&crate::common::i18n::t("cron-daemon-stopped")).await?;
         Ok(())
     }
 
@@ -1056,7 +1056,7 @@ impl CronDaemon {
     async fn check_system_resources(config: &CronConfig) -> bool {
         #[cfg(feature = "system-info")]
         {
-            use sysinfo::{System, SystemExt, CpuExt};
+            use sysinfo::{System, SystemExt, CpuExt, Disks, DisksExt};
             let mut sys = System::new();
             sys.refresh_memory();
             sys.refresh_cpu();
@@ -1068,9 +1068,23 @@ impl CronDaemon {
             let avg_cpu: f64 = sys.cpus().iter().map(|c| c.cpu_usage() as f64).sum::<f64>() / (sys.cpus().len().max(1) as f64);
             let load = avg_cpu / 100.0 * (sys.cpus().len().max(1) as f64);
 
+            // Basic disk saturation heuristic via fullness across mounted disks
+            let disks = Disks::new_with_refreshed_list();
+            let mut disk_pressure = 0.0f64;
+            for d in &disks {
+                let total_space = d.total_space() as f64;
+                let available_space = d.available_space() as f64;
+                if total_space > 0.0 {
+                    let used_ratio = (total_space - available_space) / total_space;
+                    if used_ratio.is_finite() { disk_pressure = disk_pressure.max(used_ratio); }
+                }
+            }
+
             if load > config.system_load_threshold || mem_ratio > config.memory_threshold {
                 return false;
             }
+            // Avoid running when disks are nearly full (heuristic: >98%)
+            if disk_pressure > 0.98 { return false; }
             return true;
         }
         #[cfg(not(feature = "system-info"))]

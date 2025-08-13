@@ -262,3 +262,7 @@ schedule-missing-command = schedule: コマンドが不足しています
 schedule-usage-time-cmd = 使い方: schedule 時刻/式 コマンド
 schedule-scheduled-as = schedule: 登録しました ID:
 schedule-delegating-at = schedule: 絶対時刻は外部 'at' があれば委譲します
+
+# cron デーモン
+cron-daemon-started = Cron デーモンを開始しました
+cron-daemon-stopped = Cron デーモンを停止しました
