@@ -21,7 +21,6 @@ use anyhow::{Result, anyhow, Context};
 use std::fs::{self};
 use std::io::{self, Write};
 #[cfg(unix)]
-#[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -403,7 +402,7 @@ fn move_file(source: &Path, dest: &Path, options: &MvOptions) -> Result<()> {
     // Try atomic rename first
     match fs::rename(source, dest) {
         Ok(()) => Ok(()),
-    Err(_e) => {
+        Err(e) => {
             // Check if this is a cross-filesystem move
             #[cfg(unix)]
             if e.raw_os_error() == Some(libc::EXDEV) {
@@ -667,65 +666,13 @@ fn preserve_metadata_for_mv(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Set file access and modification times for mv command
-fn set_file_times_for_mv(path: &Path, _accessed: SystemTime, _modified: SystemTime) -> Result<()> {
-    #[cfg(unix)]
-    {
-        use std::ffi::CString;
-        use std::time::UNIX_EPOCH;
-
-        let path_cstr = CString::new(path.as_os_str().to_string_lossy().as_ref())
-            .map_err(|e| anyhow!("Invalid path for timestamp setting: {}", e))?;
-
-        let accessed_duration = accessed.duration_since(UNIX_EPOCH)
-            .map_err(|e| anyhow!("Invalid access time: {}", e))?;
-        let modified_duration = modified.duration_since(UNIX_EPOCH)
-            .map_err(|e| anyhow!("Invalid modification time: {}", e))?;
-
-        /*
-        let times = [
-            libc::timespec {
-                tv_sec: accessed_duration.as_secs() as i64,
-                tv_nsec: accessed_duration.subsec_nanos() as i64,
-            },
-            libc::timespec {
-                tv_sec: modified_duration.as_secs() as i64,
-                tv_nsec: modified_duration.subsec_nanos() as i64,
-            },
-        ];
-
-        let result = unsafe {
-            libc::utimensat(libc::AT_FDCWD, path_cstr.as_ptr(), times.as_ptr(), 0)
-        };
-
-        if result != 0 {
-            return Err(anyhow!("Failed to set file times: {}", std::io::Error::last_os_error()));
-        }
-        */
-        
-        // Placeholder for Unix timestamp setting (requires libc crate)
-        println!("Warning: File timestamp preservation not implemented");
-    }
-
-    #[cfg(windows)]
-    {
-        // Windows implementation using SetFileTime
-        use std::os::windows::fs::OpenOptionsExt;
-        use std::fs::OpenOptions;
-        
-        let _file = OpenOptions::new()
-            .write(true)
-            .custom_flags(0x02000000) // FILE_FLAG_BACKUP_SEMANTICS for directories
-            .open(path)
-            .with_context(|| format!("Failed to open file for timestamp setting: {}", path.display()))?;
-
-        // Note: Windows timestamp setting is more complex and would require additional Win32 API calls
-        // For now, we'll just log that we attempted to preserve timestamps
-        if cfg!(debug_assertions) {
-            eprintln!("mv: debug: timestamp preservation on Windows is limited for: {}", path.display());
-        }
-    }
-
+/// Set file access and modification times for mv command (cross-platform via filetime crate)
+fn set_file_times_for_mv(path: &Path, accessed: SystemTime, modified: SystemTime) -> Result<()> {
+    use filetime::{FileTime, set_file_times};
+    let at = FileTime::from_system_time(accessed);
+    let mt = FileTime::from_system_time(modified);
+    set_file_times(path, at, mt)
+        .with_context(|| format!("Failed to set file times for '{}'", path.display()))?;
     Ok(())
 }
 
