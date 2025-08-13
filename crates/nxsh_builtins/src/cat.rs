@@ -1044,10 +1044,56 @@ fn process_url(
     options: &CatOptions,
     multi_progress: Option<&MultiProgress>,
 ) -> Result<FileStats> {
-    let _ = (options.number_lines, options.number_nonblank, options.show_ends, multi_progress.is_some());
-    // This would require implementing HTTP/HTTPS/FTP client
-    // For now, return an error
-    Err(anyhow!("URL support not yet implemented: {}", url))
+    // Only HTTP/HTTPS are supported at the moment
+    let scheme = url.scheme().to_ascii_lowercase();
+    if scheme != "http" && scheme != "https" {
+        return Err(anyhow!("Unsupported URL scheme: {}", scheme));
+    }
+
+    #[cfg(feature = "net-http")]
+    {
+        // Build client with timeouts
+        let timeout = options.network_timeout;
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(timeout)
+            .timeout_read(timeout)
+            .timeout_write(timeout)
+            .build();
+
+        let resp = agent.get(url.as_str())
+            .call()
+            .map_err(|e| anyhow!("HTTP request failed: {e}"))?;
+
+        let len_opt = resp.header("Content-Length").and_then(|v| v.parse::<u64>().ok());
+        let mut reader = std::io::BufReader::new(resp.into_reader());
+
+        // Optional progress bar based on Content-Length
+        let progress_bar = if let (Some(mp), Some(total)) = (multi_progress, len_opt) {
+            let pb = mp.add(ProgressBar::new(total));
+            #[cfg(feature = "progress-ui")]
+            pb.set_message(url.as_str().to_string());
+            Some(pb)
+        } else { None };
+
+        // Process through the same pipeline as files
+        let stdout = io::stdout();
+        let mut writer = BufWriter::new(stdout.lock());
+        let stats = process_reader_with_progress(
+            Box::new(reader),
+            &mut writer,
+            options,
+            url.as_str(),
+            progress_bar.as_ref(),
+        )?;
+        if let Some(pb) = progress_bar { pb.finish_with_message("Complete"); }
+        Ok(stats)
+    }
+
+    #[cfg(not(feature = "net-http"))]
+    {
+        let _ = (multi_progress.is_some(), options.network_timeout);
+        Err(anyhow!("URL support requires 'net-http' feature"))
+    }
 }
 
 fn detect_file_type(path: &Path) -> Result<ContentType> {
