@@ -48,6 +48,9 @@ tokio = { version = "1.0", features = ["full", "sync"], optional = true }
 aes-gcm = { version = "0.10", features = ["aes"] }
 argon2 = "0.5"
 rand = "0.8"
+# Image rendering and font rasterization (pure Rust)
+image = { version = "0.24", default-features = false, features = ["png"] }
+ab_glyph = "0.2"
 
 # Unix-specific dependencies for full functionality
 [target.'cfg(unix)'.dependencies]

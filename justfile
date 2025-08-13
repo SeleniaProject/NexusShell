@@ -78,3 +78,15 @@ stats:
     echo ""
     echo "Dependency Count:"
     cargo tree --workspace | wc -l
+
+# Render all mockup PNGs from ANSI using nxsh_ui batch tool
+mockups-png:
+    # Ensure font exists
+    if (-not (Test-Path assets/fonts/JetBrainsMono-Regular.ttf)) { echo "Place a monospace font at assets/fonts/JetBrainsMono-Regular.ttf"; exit 1 }
+    # Create default config if missing
+    if (-not (Test-Path assets/mockups/generate_pngs.json)) {
+      $cfg = '{"font":"assets/fonts/JetBrainsMono-Regular.ttf","size":18,"bg":"#282828","cols":100,"line_height":1.2,"inputs":[{"in":"assets/mockups/nxsh_splash.ans","out":"assets/mockups/nxsh_splash.png"},{"in":"assets/mockups/nxsh_prompt_status.ans","out":"assets/mockups/nxsh_prompt_status.png"},{"in":"assets/mockups/nxsh_table_sample.ans","out":"assets/mockups/nxsh_table_sample.png"},{"in":"assets/mockups/nxsh_git_panel.ans","out":"assets/mockups/nxsh_git_panel.png"},{"in":"assets/mockups/nxsh_completion_panel.ans","out":"assets/mockups/nxsh_completion_panel.png"},{"in":"assets/mockups/nxsh_progress_view.ans","out":"assets/mockups/nxsh_progress_view.png"},{"in":"assets/mockups/nxsh_error_view.ans","out":"assets/mockups/nxsh_error_view.png"},{"in":"assets/mockups/nxsh_output_scroll.ans","out":"assets/mockups/nxsh_output_scroll.png"}]}'
+      if (-not (Test-Path assets/mockups)) { mkdir assets/mockups | Out-Null }
+      Set-Content -Path assets/mockups/generate_pngs.json -Value $cfg -Encoding UTF8
+    }
+    cargo run -p nxsh_ui --bin ansi_to_png_batch -- --config assets/mockups/generate_pngs.json
