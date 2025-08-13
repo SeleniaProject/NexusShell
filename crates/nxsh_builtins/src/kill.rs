@@ -74,7 +74,7 @@ impl Builtin for KillBuiltin {
         for target in &options.targets {
             match target {
                 KillTarget::Pid(pid) => execute_kill_target(*pid, options.signal)?,
-                KillTarget::ProcessGroup(pgrp) => execute_kill_target(*pgrp, options.signal)?,
+                 KillTarget::ProcessGroup(pgrp) => execute_kill_target(*pgrp, options.signal)?,
                 KillTarget::JobId(job_id) => {
                     // Resolve job id via core JobManager and send signal to its process group
                     use nxsh_core::job::{with_global_job_manager, JobSignal};
@@ -85,8 +85,12 @@ impl Builtin for KillBuiltin {
                         match mgr.get_job(*job_id) {
                             Ok(Some(job)) => {
                                 // prefer group-based signal
-                                let _ = mgr.send_signal_to_process_group(job.pgid, sig.clone());
-                                Ok(())
+                                let send_res = mgr.send_signal_to_process_group(job.pgid, sig.clone());
+                                if send_res.is_ok() { Ok(()) } else {
+                                    // fall back: try each process pid best-effort
+                                    for p in job.processes.iter() { let _ = execute_kill_target(p.pid, options.signal); }
+                                    Ok(())
+                                }
                             }
                             Ok(None) => Err(ShellError::command_not_found(&format!("Job {} not found", job_id))),
                             Err(e) => Err(e),

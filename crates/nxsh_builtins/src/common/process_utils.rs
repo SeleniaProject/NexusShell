@@ -2,7 +2,7 @@ use std::process::Command;
 use nxsh_core::{ShellError, ErrorKind, ShellResult};
 use nxsh_core::error::SystemErrorKind;
 
-pub fn execute_kill_target(target_pid: u32, _signal: i32) -> ShellResult<()> {
+pub fn execute_kill_target(target_pid: u32, signal: i32) -> ShellResult<()> {
     #[cfg(unix)]
     {
         use nix::sys::signal::{kill, Signal};

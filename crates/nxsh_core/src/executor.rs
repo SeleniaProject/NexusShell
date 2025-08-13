@@ -1375,6 +1375,10 @@ impl Executor {
                     if context.is_timed_out() { return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: "nxsh: execution timed out".to_string(), execution_time: start_time.elapsed().as_micros() as u64, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() }); }
                     if result.exit_code != 0 && !context.continue_on_error() { break; }
                 }
+                // Global timeout takes precedence over intermediate non-zero exit codes
+                if context.is_timed_out() {
+                    return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: "nxsh: execution timed out".to_string(), execution_time: start_time.elapsed().as_micros() as u64, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() });
+                }
                 result
             },
             AstNode::Sequence { left, right } => {
