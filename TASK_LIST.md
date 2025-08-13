@@ -49,7 +49,7 @@
 - [x] `crates/nxsh_builtins/src/cut.rs`: 欠損フィールドのパディング動作（仕様準拠オプション）
 - [x] `crates/nxsh_builtins/src/paste.rs`: シリアルモード（`-s`）の実装
 - [x] `crates/nxsh_builtins/src/read_builtin.rs`: `-n` オプションの完全実装
-- [ ] `crates/nxsh_builtins/src/wc.rs`: 追加フラグ群の対応
+- [x] `crates/nxsh_builtins/src/wc.rs`: 追加フラグ群の対応
 - [ ] `crates/nxsh_builtins/src/zstd_complete.rs`: 圧縮機能の実装（Pure Rust 圧縮ライブラリ統合）
 - [ ] `crates/nxsh_builtins/src/export.rs`: 関数エクスポート（`-f`）
 - [ ] `crates/nxsh_builtins/src/schedule.rs`: 内部スケジューラ（ジョブ登録/削除）
