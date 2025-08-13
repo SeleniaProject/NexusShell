@@ -785,15 +785,18 @@ impl NamespaceSystem {
     }
 
     /// Resolve super import (simplified)
-    fn resolve_super_import(&self, module_name: &str, _import_type: &ImportType) -> ShellResult<ImportResolution> {
+    fn resolve_super_import(&self, module_name: &str, import_type: &ImportType) -> ShellResult<ImportResolution> {
         debug!(module = %module_name, "Resolving super import");
-        // Placeholder for parent module resolution
-        Ok(ImportResolution {
-            success: false,
-            symbols: HashMap::new(),
-            error: Some("Super imports not yet implemented".to_string()),
-            warnings: vec![],
-        })
+        // Determine parent by splitting module name on '::' and dropping the last segment.
+        let mut parts: Vec<&str> = module_name.split("::").collect();
+        if parts.is_empty() { return Ok(ImportResolution { success: false, symbols: HashMap::new(), error: Some("Invalid module path".to_string()), warnings: vec![] }); }
+        parts.pop();
+        if parts.is_empty() {
+            return Ok(ImportResolution { success: false, symbols: HashMap::new(), error: Some("No parent module".to_string()), warnings: vec![] });
+        }
+        let parent = parts.join("::");
+        // Delegate to absolute import using the parent module
+        self.resolve_absolute_import(&[parent], import_type)
     }
 
     /// Lookup a symbol by name
