@@ -1,0 +1,22 @@
+┌──────────────────────────── Output Pane ───────────────────────────┐
+│  001  Running task: build all crates                               │
+│  002  Compiling nxsh_parser vX.Y.Z                                 │
+│  003  Compiling nxsh_core vX.Y.Z                                   │
+│  004  Compiling nxsh_ui vX.Y.Z                                     │
+│  005  Finished dev [unoptimized + debuginfo]                       │
+│  006  Running tests…                                               │
+│  007  test result: ok. 0 failed; 0 ignored; 0 measured             │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                  ▒                 │
+│                                                  ▒                 │
+│                                                  █                 │
+└────────────────────────────────────────────────────────────────────┘
+Legend: █ = thumb, ▒ = track
+
+

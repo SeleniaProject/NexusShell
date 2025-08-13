@@ -1,0 +1,18 @@
+┌──────────────────────── Completion Sidebar ───────────────────────┐
+│ Candidates                                                       │
+│  nxsh_builtins/                                                 │
+│   ├─ ls                                                         │
+│   ├─ cat                                                        │
+│   ├─ grep                                                       │
+│   ├─ awk                                                        │
+│   └─ find                                                       │
+│  crates/nxsh_ui/                                                │
+│   ├─ app.rs                                                     │
+│   └─ status_line.rs                                             │
+├──────────────────────────────────────────────────────────────────┤
+│ Tips                                                             │
+│  [EN] Tab/Shift+Tab to navigate, Right to expand, Left to collapse│
+│  [JA] Tab/Shift+Tabで移動、→で展開、←で折りたたみ。                │
+└──────────────────────────────────────────────────────────────────┘
+
+

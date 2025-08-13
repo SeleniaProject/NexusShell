@@ -1,0 +1,17 @@
+┌──────────────────────────── Git Panel ────────────────────────────┐
+│ Branch: main      Ahead: 0   Behind: 2   Stash: 1                │
+│ Upstream: origin/main                                            │
+├───────────────────────────────────────────────────────────────────┤
+│ Changes (Unstaged)                                               │
+│  M  crates/nxsh_core/src/executor.rs                             │
+│  ?? assets/mockups/nxsh_table_sample.ans                         │
+├───────────────────────────────────────────────────────────────────┤
+│ Changes (Staged)                                                 │
+│  A  assets/mockups/nxsh_splash.ans                               │
+├───────────────────────────────────────────────────────────────────┤
+│ Hints                                                            │
+│  [EN] Use Ctrl+G to toggle; Enter to stage/unstage; D to diff.   │
+│  [JA] Ctrl+Gで表示切替、Enterでステージ/解除、Dで差分表示。         │
+└───────────────────────────────────────────────────────────────────┘
+
+

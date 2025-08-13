@@ -88,7 +88,13 @@
   - `rec stop`: 録画停止およびフラッシュ
   - `rec play <FILE> [--speed=N]`: 相対時間でウェイトしつつ再生（速度変更オプション）
   - 実装: `crates/nxsh_ui/src/cui_app.rs`（録画状態/ライタ/時刻、記録関数群、コマンド分岐、help 反映）
-- [ ] `assets/mockups/` PNG & ANSI アート 8 画面作成 (UI_DESIGN.md §11) ※ 現状「予定」
+ - [x] `assets/mockups/` ANSI アート 8 画面作成 (UI_DESIGN.md §11) 完了
+   - 追加ファイル: `assets/mockups/nxsh_splash.ans`, `nxsh_prompt_status.ans`, `nxsh_table_sample.ans`, `nxsh_git_panel.ans`, `nxsh_completion_panel.ans`, `nxsh_progress_view.ans`, `nxsh_error_view.ans`, `nxsh_output_scroll.ans`
+ - [x] `assets/mockups/` PNG 8 画面生成（フォント/レンダラ選定 → PNG 出力ツール実装）
+   - 変換ツール実装: `crates/nxsh_ui/src/bin/ansi_to_png.rs`（単体）/ `ansi_to_png_batch.rs`（一括）
+   - 共通ロジック: `crates/nxsh_ui/src/ansi_render.rs`（ANSI解析/フォント描画/画像生成）
+   - 一括生成ターゲット: `just mockups-png`（JSONが無い場合は自動生成して実行）
+   - 残件: [ ] フォント配置とPNG生成の実行、および `assets/mockups/*.png` の追加
 - [x] スプラッシュ 16ms 以内描画性能検証 (起動計測仕組み) ← 実装済
   - `crates/nxsh_ui/src/startup_profiler.rs` 新規。`NXSH_MEASURE_STARTUP=1` または `--measure-startup` で有効化。
   - CLI開始→CUI初期化→初回フレーム→初回プロンプト各マイルストーンでタイムスタンプを収集し、16ms 判定を出力。
@@ -360,15 +366,17 @@
 - [ ] ヒストリ暗号化 (鍵導出 / AES-GCM) 実装コード有無調査
 - [x] プラグイン Capabilities Manifest 強制検証 (ロード拒否ケース)
   - `crates/nxsh_plugin/tests/capabilities_manifest_tests.rs` 追加（`NXSH_CAP_MANIFEST_REQUIRED=1` で capabilities 未指定を拒否、指定時は許可）。
-- [ ] ログ: JSON / human-readable 2 モード切替単体テスト
+- [x] ログ: JSON / human-readable 2 モード切替単体テスト
   - [x] `logstats` の `--json`/`--pretty`/`--prom` 各モードの基本UTを追加（`crates/nxsh_builtins/tests/log_mode_tests.rs`）
+  - [x] 文字列生成APIを導入し厳密検証を追加（`render_logstats_for_mode()`／`log_mode_strict_tests.rs`）
 - [ ] メトリクス一覧 (nxsh_* ) 実装 vs DESIGN.md 差分
 - [x] クラッシュダンプ (minidump / XOR 暗号化) 実装確認
   - `nxsh_builtins::common::crash_diagnosis` に `crypto` 無効時の XOR 方式難読化を実装（`NXSH_CRASH_XOR_KEY`）。
   - UT 追加: `crates/nxsh_builtins/tests/crash_xor_tests.rs`（暗号化ファイル生成と平文でないことを検証）。
 - [ ] アップデータ: 差分パッチ bsdiff 実装位置確認
-  - 位置: `crates/nxsh_core/src/updater.rs` の `install_update()` に delta 適用プレースホルダあり（bsdiff/bspatch 未統合）。
-  - [ ] Rust 実装選定と統合（候補: `bsdiff-rs`, `bidiff`）
+  - 位置: `crates/nxsh_core/src/updater.rs` の `install_update()` に delta 適用フロー実装（`apply_delta_patch()` 追加；BSPATCH未統合時は明示エラー、非BSPATCHはフルファイル扱いで `nxsh_new.tmp` 生成）。
+  - [x] Rust 実装候補の選定と依存候補追加（`bidiff` を optional 追加）
+  - [ ] 純Rust bspatch の統合（API連携とエラーハンドリング整備）
   - [ ] 差分適用UT（小さなバイナリで元→パッチ→新の往復検証）
   - [ ] 署名検証と併用の統合IT（deltaでもEd25519検証を通す）
 - [ ] CI で `cargo audit`, `cargo-vet`, `cargo udeps` 実行有無
