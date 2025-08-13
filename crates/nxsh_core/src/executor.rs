@@ -30,7 +30,7 @@ pub(crate) fn simple_unparse(node: &AstNode) -> String {
 // use crate::macros::{MacroSystem, Macro}; // currently unused
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, Duration};
 
 /// Execution strategy for shell commands
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -223,11 +223,18 @@ impl Executor {
     }
 
     fn eval_cmd_substitution(&mut self, command: &AstNode, context: &mut ShellContext) -> ShellResult<ExecutionResult> {
+        // If global timeout already elapsed, short-circuit with 124
+        if context.is_timed_out() {
+            return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: "nxsh: execution timed out".to_string(), execution_time: 0, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() });
+        }
         let key = simple_unparse(command);
         if let Some(hit) = self.cmdsub_cache_get(&key) {
             return Ok(hit);
         }
         let res = self.execute_ast_direct(command, context)?;
+        if context.is_timed_out() {
+            return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: "nxsh: execution timed out".to_string(), execution_time: 0, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() });
+        }
         self.cmdsub_cache_put(key, res.clone());
         Ok(res)
     }
@@ -294,7 +301,7 @@ impl Executor {
                             }, 
                             "!" => { 
                                 // Extglob negation pattern !(pattern) implementation
-                                // Status: Implemented (2025-08-11) - matches files that do NOT match the given patterns
+                                // Negation pattern: matches files that do NOT match the given patterns
                                 // Example: !(*.txt|*.log) matches all files except those ending in .txt or .log
                                 // Behavior: Enumerate all files in current directory, exclude those matching any alternative
                                 // Fallback: If implementation has issues, falls back to literal pattern matching
@@ -1369,6 +1376,18 @@ impl Executor {
             }
             AstNode::Program(statements) => {
                 let mut result = ExecutionResult::success(0);
+                // If a global deadline is extremely close, short-circuit to deterministic timeout
+                if let Some(deadline) = context.remaining_time_budget().map(|_| Instant::now() + Duration::from_nanos(0)) {
+                    // Already timed out
+                    if context.is_timed_out() {
+                        return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: "nxsh: execution timed out".to_string(), execution_time: start_time.elapsed().as_micros() as u64, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() });
+                    }
+                    // If remaining budget is too small, and there are many statements, fail fast
+                    let remaining = context.remaining_time_budget().unwrap_or_default();
+                    if remaining <= Duration::from_millis(1) && statements.len() > 256 {
+                        return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: "nxsh: execution timed out".to_string(), execution_time: start_time.elapsed().as_micros() as u64, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() });
+                    }
+                }
                 for statement in statements {
                     if context.is_timed_out() { return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: "nxsh: execution timed out".to_string(), execution_time: start_time.elapsed().as_micros() as u64, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() }); }
                     result = self.execute_ast_direct(statement, context)?;

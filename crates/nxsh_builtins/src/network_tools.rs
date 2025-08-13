@@ -15,7 +15,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
 };
 use serde::{Deserialize, Serialize};
-// NOTE: reqwest 削除方針により HTTP クライアントは後続リファクタで ureq へ移行予定 → 2025-08-10: updates 系は ureq 化完了。ここは未使用部のため削減対象 (将来: feature net-http)。
+// NOTE: reqwest 削除方針により HTTP クライアントは後続リファクタで ureq へ移行予定。updates 系は ureq 化済み。ここは未使用部のため削減対象 (将来: feature net-http)。
 use log::{info, warn, error, debug};
 
 use crate::common::i18n::tr;

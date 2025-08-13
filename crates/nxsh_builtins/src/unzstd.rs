@@ -1,6 +1,7 @@
 //! `unzstd` builtin - Zstandard decompression utility with Pure Rust implementation
 //!
-//! Complete Pure Rust implementation using the `zstd` crate
+//! Complete Pure Rust implementation using the `ruzstd` crate for streaming
+//! Zstandard frame decoding without any C/C++ dependencies.
 
 use anyhow::{anyhow, Context, Result};
 use std::{
@@ -8,6 +9,7 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
 };
+use ruzstd::streaming_decoder::StreamingDecoder;
 
 /// unzstd command implementation with Pure Rust decompression
 pub fn unzstd_cli(args: &[String]) -> Result<()> {
@@ -208,23 +210,22 @@ fn test_zstd_file(input_path: &Path, input_data: &[u8]) -> Result<()> {
     }
 }
 
-/// Pure Rust zstd decompression
+/// Pure Rust zstd decompression using ruzstd streaming decoder
 fn decompress_zstd_data(data: &[u8]) -> Result<Vec<u8>> {
-    
-    
-    // Verify zstd magic number
-    if data.len() < 4 {
-        return Err(anyhow!("File too short"));
-    }
-    
-    let zstd_magic = [0x28, 0xB5, 0x2F, 0xFD];
-    if data[..4] != zstd_magic {
-        return Err(anyhow!("Not a zstd compressed file"));
-    }
-    
-    // Pure Rust zstd implementation placeholder
-    Ok(data.to_vec())
-        .map_err(|e: &str| anyhow!("Zstd decompression failed: {}", e))
+    // Create a streaming decoder over the input bytes. ruzstd validates the
+    // frame header and will return a descriptive error if the data is not
+    // in Zstandard format or is corrupted.
+    let mut decoder = StreamingDecoder::new(data)
+        .context("unzstd: failed to initialize zstd decoder")?;
+
+    // Decompress fully into memory. For large files, a streaming path to a
+    // file handle would be preferable; this variant matches current CLI flow.
+    let mut output = Vec::new();
+    decoder
+        .read_to_end(&mut output)
+        .context("unzstd: decompression error")?;
+
+    Ok(output)
 }
 
 /// Generate decompressed filename from compressed filename

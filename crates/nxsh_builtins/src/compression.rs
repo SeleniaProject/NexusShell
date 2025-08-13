@@ -22,6 +22,8 @@ use tar::{Archive as TarArchive, Builder as TarBuilder, Header as TarHeader};
 use sevenz_rust::{SevenZReader, SevenZWriter, Password};
 use log::{info, warn, error, debug};
 use rayon::prelude::*;
+use which::which;
+use std::process::Command;
 
 use crate::common::i18n::tr;
 use nxsh_core::{context::NxshContext, result::NxshResult};
@@ -381,8 +383,8 @@ impl CompressionManager {
                 writer.flush().ok();
             },
             CompressionFormat::Zstd => {
-                // Decode-only in pure-Rust build
-                return Err(anyhow::anyhow!("zstd compression not supported (decode-only). Use gzip or xz for compression, or an external zstd binary."));
+                // Use external zstd binary for compression (Pure Rust encoder unavailable)
+                compress_with_external_zstd_file(input_path, &output_path, level as u8)?;
             },
         }
         
@@ -432,7 +434,15 @@ impl CompressionManager {
                     lzma_rs::xz_compress(&mut input_cursor, &mut output_data).context("Failed to compress with xz")?;
                 },
                 CompressionFormat::Zstd => {
-                    return Err(anyhow::anyhow!("zstd compression not supported (decode-only). Use gzip or xz for compression, or an external zstd binary."));
+                    // External zstd works file-to-file; perform on paths instead of in-memory.
+                    // Write input_data to a temp file, then compress via external zstd into output_path.
+                    let temp = tempfile::NamedTempFile::new().context("Failed to create temp file for zstd")?;
+                    std::fs::write(temp.path(), &input_data).context("Failed to write temp input for zstd")?;
+                    let out_path_str = output_path.to_string_lossy().to_string();
+                    compress_with_external_zstd_file(temp.path(), &Path::new(&out_path_str), options.compression_level as u8)
+                        .context("External zstd compression failed")?;
+                    // Read the produced file back to memory to fit the function contract
+                    output_data = std::fs::read(&out_path_str).context("Failed to read compressed output")?;
                 },
             }
             
@@ -1225,6 +1235,22 @@ impl CompressionManager {
         
         Ok(options)
     }
+}
+
+/// Compress a file using external zstd binary
+fn compress_with_external_zstd_file<P: AsRef<Path>>(input: P, output: P, level: u8) -> anyhow::Result<()> {
+    let zstd_path = which("zstd").map_err(|_| anyhow::anyhow!(
+        "Compression requires external 'zstd' binary (not found in PATH)"
+    ))?;
+    let status = Command::new(zstd_path)
+        .arg(format!("-{}", level.max(1)))
+        .args(["-o", output.as_ref().to_string_lossy().as_ref(), input.as_ref().to_string_lossy().as_ref()])
+        .status()
+        .context("Failed to launch external zstd")?;
+    if !status.success() {
+        return Err(anyhow::anyhow!("external zstd failed with status {:?}", status.code()));
+    }
+    Ok(())
 }
 
 // Enums and structs

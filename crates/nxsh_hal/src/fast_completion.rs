@@ -90,7 +90,9 @@ pub struct FastCompletion {
 static BUILTIN_COMMANDS: &[&str] = &[
     "cd", "ls", "pwd", "echo", "cat", "grep", "find", "ps", "kill",
     "cp", "mv", "rm", "mkdir", "rmdir", "touch", "chmod", "chown",
-    "tar", "gzip", "gunzip", "curl", "wget", "git", "ssh", "scp",
+    "tar", "gzip", "gunzip", "bzip2", "bunzip2", "xz", "unxz", "zip", "unzip",
+    "zstd", "unzstd",
+    "curl", "wget", "git", "ssh", "scp",
     "head", "tail", "sort", "uniq", "wc", "awk", "sed", "tr",
     "du", "df", "free", "top", "htop", "ping", "nc", "telnet",
 ];

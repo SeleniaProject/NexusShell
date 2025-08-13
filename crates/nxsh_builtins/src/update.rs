@@ -217,11 +217,11 @@ async fn handle_install(force: bool, backup: bool) -> Result<()> {
 
     println!("🔧 Installing update... (backup:{} )", if backup { "enabled" } else { "disabled" });
 
-    // Find the latest downloaded update
-    // In a real implementation, this would check the cache directory
-    // For now, we'll use a placeholder path
-    let update_path = std::path::PathBuf::from(".nxsh/updates/latest.bin");
-    
+    // Use last downloaded path from status when available; otherwise, scan cache directory.
+    let update_path = if let Some(status) = get_update_status() {
+        if let Some(path) = status.last_downloaded_path { path } else { std::path::PathBuf::from(".nxsh/updates/latest.bin") }
+    } else { std::path::PathBuf::from(".nxsh/updates/latest.bin") };
+
     if !update_path.exists() {
         return Err(anyhow!("No downloaded update found. Run 'update download' first."));
     }

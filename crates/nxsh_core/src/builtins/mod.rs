@@ -13,15 +13,17 @@ pub mod id;
 pub mod testutils;
 
 pub use id::IdBuiltin;
+use testutils::ArgDumpBuiltin;
 
 /// Register all built-in commands
 pub fn register_all_builtins() -> Vec<Arc<dyn Builtin>> {
-    let mut v: Vec<Arc<dyn Builtin>> = vec![
+    vec![
         Arc::new(jobs::JobsBuiltin),
         Arc::new(fg::FgBuiltin),
         Arc::new(bg::BgBuiltin),
         Arc::new(IdBuiltin),
-        Arc::new(testutils::ArgDumpBuiltin),
-    ];
-    v
+        Arc::new(ArgDumpBuiltin),
+        // Minimal echo builtin to ensure tests relying on `echo` run under strict timeout env
+        Arc::new(testutils::EchoBuiltin),
+    ]
 }

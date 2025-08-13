@@ -124,7 +124,7 @@ walkdir = "2"
 bitflags = "1" 
 jmespath = { version = "0.3", optional = true }
 # Network HTTP client - Pure Rust replacement for reqwest to avoid ring/rustls/C dependencies
-# Replaces previous reqwest dependency which was removed in commit 2025-08-10
+# Replaces previous reqwest dependency which was removed in a prior commit
 ureq = { version = "2.12", optional = true, default-features = false, features = ["json"] }
 html2text = { version = "0.4", optional = true }
 thiserror = "1"

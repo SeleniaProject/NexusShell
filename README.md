@@ -339,7 +339,7 @@ New-Item -ItemType SymbolicLink -Path .\ls.exe -Target .\nxsh.exe
 3. (任意) UPX 圧縮
 4. CI サイズゲート (目標 <1 MiB) + `cargo bloat` レポート
 
-### 追加済み最適化要素 (2025-08-11 更新)
+### 追加済み最適化要素（更新）
 - PowerShell / UI / JSON Logging / Metrics / Plugins / heavy-i18n の細粒度 gating
 - size_report.{ps1,sh} による delta & threshold チェック (NXSH_SIZE_MAX / NXSH_SIZE_DELTA_FAIL_PCT)
 - 簡易 brace 展開 `{a,b}` を executor へ統合 (Zsh 互換機能 第1段階) – ネスト/範囲は今後

@@ -83,6 +83,7 @@ impl BuiltinManager {
         commands.insert("xz".to_string(), BuiltinCommand::new("xz", "XZ compression", BuiltinCategory::Compression));
         commands.insert("unxz".to_string(), BuiltinCommand::new("unxz", "XZ decompression", BuiltinCategory::Compression));
         commands.insert("zstd".to_string(), BuiltinCommand::new("zstd", "Zstandard compression", BuiltinCategory::Compression));
+        commands.insert("unzstd".to_string(), BuiltinCommand::new("unzstd", "Zstandard decompression", BuiltinCategory::Compression));
 
         // Network
         commands.insert("curl".to_string(), BuiltinCommand::new("curl", "Transfer data", BuiltinCategory::Network));
@@ -129,6 +130,7 @@ impl BuiltinManager {
             "xz" => crate::xz::xz_cli(args).map_err(|e| e.into()),
             "unxz" => crate::unxz::unxz_cli(args).map_err(|e| e.into()),
             "zstd" => crate::zstd::zstd_cli(args).map_err(|e| e.into()),
+            "unzstd" => crate::unzstd::unzstd_cli(args).map_err(|e| e.into()),
             "help" => self.show_help(args, ctx).await,
             _ => {
                 return Err(anyhow::anyhow!("Unknown builtin command: {}", command).into());
@@ -136,7 +138,13 @@ impl BuiltinManager {
         };
 
         let duration = start.elapsed();
-        
+
+        // Update success/failure counters
+        {
+            let mut stats = self.stats.write().unwrap();
+            if result.is_ok() { stats.successful_executions += 1; } else { stats.failed_executions += 1; }
+        }
+
         // Record performance
         {
             let mut monitor = self.performance_monitor.write().unwrap();

@@ -21,3 +21,19 @@ impl Builtin for ArgDumpBuiltin {
     fn usage(&self) -> &'static str { "__argdump" }
     fn affects_shell_state(&self) -> bool { false }
 }
+
+pub struct EchoBuiltin;
+
+impl Builtin for EchoBuiltin {
+    fn execute(&self, _context: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
+        // Simple echo: join args by space and append newline
+        let out = if args.is_empty() { String::from("\n") } else { format!("{}\n", args.join(" ")) };
+        Ok(ExecutionResult { exit_code: 0, stdout: out, stderr: String::new(), execution_time: 0, strategy: crate::executor::ExecutionStrategy::DirectInterpreter, metrics: Default::default() })
+    }
+    fn name(&self) -> &'static str { "echo" }
+    fn help(&self) -> &'static str { "Echo arguments to standard output" }
+    fn synopsis(&self) -> &'static str { "echo [args...]" }
+    fn description(&self) -> &'static str { "Writes its arguments to standard output separated by spaces." }
+    fn usage(&self) -> &'static str { "echo [args...]" }
+    fn affects_shell_state(&self) -> bool { false }
+}

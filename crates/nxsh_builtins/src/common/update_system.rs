@@ -137,6 +137,7 @@ pub struct UpdateStatus {
     pub download_progress: Option<f64>,
     pub installation_status: InstallationStatus,
     pub channel: ReleaseChannel,
+    pub last_downloaded_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -198,6 +199,7 @@ pub fn init_update_system(config: UpdateConfig) -> Result<()> {
             download_progress: None,
             installation_status: InstallationStatus::None,
             channel,
+            last_downloaded_path: None,
         }),
         client,
     };
@@ -432,6 +434,11 @@ async fn download_update(system: &UpdateSystem, manifest: &UpdateManifest) -> Re
             }
         }
         verify_file_checksum(&download_path, &manifest.checksum)?;
+        {
+            let mut status = system.status.lock().unwrap();
+            status.last_downloaded_path = Some(download_path.clone());
+            status.installation_status = InstallationStatus::Downloaded;
+        }
         return Ok(download_path);
     }
 }

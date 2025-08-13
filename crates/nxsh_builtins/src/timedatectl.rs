@@ -900,36 +900,60 @@ impl TimedatectlManager {
         let config = self.config.clone();
 
         tokio::spawn(async move {
-            let mut drift_interval = interval(Duration::from_secs(300)); // Check every 5 minutes
-            
+            // Anchor points for drift measurement
+            let anchor_instant = Instant::now();
+            let anchor_system = SystemTime::now();
+
+            // Sample more frequently to get smoother drift estimates
+            let mut drift_interval = interval(Duration::from_secs(60));
+
             loop {
                 drift_interval.tick().await;
-                
-                if config.monitor_drift {
-                    // Calculate current drift rate
-                    // This is a placeholder for actual drift calculation
-                    let drift_rate: f64 = 0.0; // ppm
-                    
-                    if drift_rate.abs() > config.sync_config.max_drift {
-                        let _ = event_sender.send(TimedatectlEvent::DriftDetected(drift_rate));
+
+                if !config.monitor_drift { continue; }
+
+                // Elapsed monotonic time since anchor
+                let elapsed = anchor_instant.elapsed();
+
+                // Expected system time based on anchor + monotonic elapsed
+                let expected_system = anchor_system + elapsed;
+                let now_system = SystemTime::now();
+
+                // Compute signed offset = now - expected
+                let offset_ns: i128 = match now_system.duration_since(expected_system) {
+                    Ok(d) => d.as_nanos() as i128,
+                    Err(e) => {
+                        // now < expected -> negative offset
+                        let d = e.duration();
+                        -(d.as_nanos() as i128)
                     }
-                    
-                    // Record drift measurement
-                    let drift_record = TimeDriftRecord {
-                        timestamp: Utc::now(),
-                        drift_rate,
-                        frequency_offset: drift_rate,
-                        temperature: None, // Could be read from sensors
-                        source: "internal".to_string(),
-                        accuracy: Duration::from_millis(1),
-                    };
-                    
-                    {
-                        let mut stats = statistics.write().unwrap();
-                        stats.drift_history.push(drift_record);
-                        if stats.drift_history.len() > 1000 {
-                            stats.drift_history.remove(0);
-                        }
+                };
+
+                // Drift in ppm ≈ (offset / elapsed) * 1e6
+                let drift_ppm: f64 = if elapsed.as_nanos() > 0 {
+                    (offset_ns as f64) / (elapsed.as_nanos() as f64) * 1_000_000.0
+                } else { 0.0 };
+
+                // Emit event if beyond threshold
+                if drift_ppm.abs() > config.sync_config.max_drift {
+                    let _ = event_sender.send(TimedatectlEvent::DriftDetected(drift_ppm));
+                }
+
+                // Record drift measurement
+                let drift_record = TimeDriftRecord {
+                    timestamp: Utc::now(),
+                    drift_rate: drift_ppm,
+                    frequency_offset: drift_ppm,
+                    temperature: None,
+                    source: "internal".to_string(),
+                    accuracy: Duration::from_millis(1),
+                };
+
+                {
+                    let mut stats = statistics.write().unwrap();
+                    stats.drift_history.push(drift_record);
+                    if stats.drift_history.len() > 1000 {
+                        stats.drift_history.remove(0);
                     }
                 }
             }
@@ -1158,8 +1182,39 @@ impl TimedatectlManager {
     }
 
     async fn get_server_status(&self) -> Result<Vec<NTPServerStatus>> {
-        // Get status of all configured NTP servers
-        Ok(Vec::new())
+        // Probe configured servers using static NTP query helper
+        let mut statuses = Vec::new();
+        for server in &self.config.sync_config.servers {
+            if !server.active { continue; }
+            let address = server.address.clone();
+            let parsed = (|| async {
+                let pkt = Self::create_ntp_packet_static().await?;
+                let resp = Self::send_ntp_query_static(&address, pkt).await?;
+                let parsed = Self::parse_ntp_response_static(resp, Duration::from_millis(1)).await?;
+                anyhow::Ok(parsed)
+            })().await;
+            match parsed {
+                Ok(parsed) => statuses.push(NTPServerStatus {
+                    address,
+                    reachable: true,
+                    stratum: parsed.stratum,
+                    delay: Some(parsed.root_delay),
+                    offset: parsed.offset,
+                    jitter: parsed.jitter,
+                    last_sync: Some(Utc::now()),
+                }),
+                Err(_) => statuses.push(NTPServerStatus {
+                    address,
+                    reachable: false,
+                    stratum: None,
+                    delay: None,
+                    offset: None,
+                    jitter: None,
+                    last_sync: None,
+                }),
+            }
+        }
+        Ok(statuses)
     }
 
     async fn get_last_sync_time(&self) -> Option<DateTime<Utc>> {
@@ -1230,6 +1285,76 @@ pub struct TimeSyncStatus {
     pub drift_rate: Option<f64>,
     pub poll_interval: Duration,
     pub leap_status: LeapStatus,
+}
+
+#[derive(Debug, Clone)]
+struct TimeSyncSummary {
+    total_servers: usize,
+    reachable_servers: usize,
+    best_server_address: Option<String>,
+    average_delay: Option<Duration>,
+    average_offset: Option<Duration>,
+    average_jitter: Option<Duration>,
+    min_delay: Option<Duration>,
+    max_delay: Option<Duration>,
+    min_offset: Option<Duration>,
+    max_offset: Option<Duration>,
+    min_stratum: Option<u8>,
+}
+
+fn compute_timesync_summary(sync_status: &TimeSyncStatus) -> TimeSyncSummary {
+    let total_servers = sync_status.servers.len();
+    let mut reachable_servers: usize = 0;
+    let mut delays: Vec<Duration> = Vec::new();
+    let mut offsets: Vec<Duration> = Vec::new();
+    let mut jitters: Vec<Duration> = Vec::new();
+    let mut min_stratum: Option<u8> = None;
+    let mut best_server_address: Option<String> = None;
+    let mut best_metric_ns: Option<u128> = None;
+
+    for srv in &sync_status.servers {
+        if srv.reachable {
+            reachable_servers += 1;
+            if let Some(s) = srv.stratum {
+                min_stratum = match min_stratum { Some(m) => Some(m.min(s)), None => Some(s) };
+            }
+            if let Some(d) = srv.delay { delays.push(d); }
+            if let Some(o) = srv.offset { offsets.push(o); }
+            if let Some(j) = srv.jitter { jitters.push(j); }
+
+            // Prefer smallest absolute offset; fallback to delay
+            let metric_ns = if let Some(o) = srv.offset { o.as_nanos() } else { srv.delay.map(|d| d.as_nanos()).unwrap_or(u128::MAX) };
+            if best_metric_ns.map_or(true, |m| metric_ns < m) {
+                best_metric_ns = Some(metric_ns);
+                best_server_address = Some(srv.address.clone());
+            }
+        }
+    }
+
+    let average = |v: &Vec<Duration>| -> Option<Duration> {
+        if v.is_empty() { return None; }
+        let sum_ns: u128 = v.iter().map(|d| d.as_nanos()).sum();
+        Some(Duration::from_nanos((sum_ns / v.len() as u128) as u64))
+    };
+
+    let min_d = delays.iter().min().cloned();
+    let max_d = delays.iter().max().cloned();
+    let min_o = offsets.iter().min().cloned();
+    let max_o = offsets.iter().max().cloned();
+
+    TimeSyncSummary {
+        total_servers,
+        reachable_servers,
+        best_server_address,
+        average_delay: average(&delays),
+        average_offset: average(&offsets),
+        average_jitter: average(&jitters),
+        min_delay: min_d,
+        max_delay: max_d,
+        min_offset: min_o,
+        max_offset: max_o,
+        min_stratum,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1462,7 +1587,7 @@ pub async fn timedatectl_cli(args: &[String]) -> Result<()> {
         
         if !sync_status.servers.is_empty() {
             println!("\nNTP Servers:");
-            for server in sync_status.servers {
+            for server in &sync_status.servers {
                 println!("  {}: {}", server.address, 
                     if server.reachable { "reachable" } else { "unreachable" });
                 if let Some(stratum) = server.stratum {
@@ -1475,6 +1600,26 @@ pub async fn timedatectl_cli(args: &[String]) -> Result<()> {
                     println!("    Offset: {offset:?}");
                 }
             }
+        }
+
+        // Summary
+        {
+            let summary = compute_timesync_summary(&sync_status);
+            println!("\nSummary:");
+            println!("  Servers (total/reachable): {}/{}", summary.total_servers, summary.reachable_servers);
+            if let Some(s) = summary.min_stratum {
+                println!("  Best stratum: {}", s);
+            }
+            if let Some(addr) = summary.best_server_address.as_deref() {
+                println!("  Preferred server: {}", addr);
+            }
+            if let Some(d) = summary.average_delay { println!("  Avg delay: {:?}", d); }
+            if let Some(d) = summary.min_delay { println!("  Min delay: {:?}", d); }
+            if let Some(d) = summary.max_delay { println!("  Max delay: {:?}", d); }
+            if let Some(o) = summary.average_offset { println!("  Avg offset: {:?}", o); }
+            if let Some(o) = summary.min_offset { println!("  Min offset: {:?}", o); }
+            if let Some(o) = summary.max_offset { println!("  Max offset: {:?}", o); }
+            if let Some(j) = summary.average_jitter { println!("  Avg jitter: {:?}", j); }
         }
         return Ok(());
     }
@@ -1598,6 +1743,25 @@ fn parse_time_string(time_str: &str) -> Result<DateTime<Utc>> {
     }
 
     Err(anyhow!("Unable to parse time string: {}", time_str))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_time_string_variants() {
+        // ISO8601 with Z
+        assert!(parse_time_string("2023-01-02T03:04:05Z").is_ok());
+        // Space separated date time
+        assert!(parse_time_string("2023-01-02 03:04:05").is_ok());
+        assert!(parse_time_string("2023-01-02 03:04").is_ok());
+        // Time only
+        assert!(parse_time_string("12:34:56").is_ok());
+        assert!(parse_time_string("12:34").is_ok());
+        // Unix timestamp
+        assert!(parse_time_string("1700000000").is_ok());
+    }
 }
 
 fn print_timedatectl_help(i18n: &I18n) {
@@ -1797,6 +1961,20 @@ impl TimedatectlManager {
                 return self.parse_chrony_output(&output_str, server).await;
             }
         }
+
+        // Try ntpq -p (common on many systems)
+        if let Ok(output) = AsyncCommand::new("ntpq")
+            .args(["-p"])
+            .output()
+            .await
+        {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                if let Ok(res) = self.parse_ntpq_output(&output_str, server).await {
+                    return Ok(res);
+                }
+            }
+        }
         
         // Final fallback: estimated values
         Ok(NTPSyncResult {
@@ -1873,6 +2051,38 @@ impl TimedatectlManager {
         }
         
         Err(anyhow!("Server not found in chrony output"))
+    }
+
+    /// Parse ntpq -p output
+    async fn parse_ntpq_output(&self, output: &str, server: &str) -> Result<NTPSyncResult> {
+        // Example lines (header skipped):
+        // *time.cloudflare.com 123.123.123.123  -4   64   377    0.123   -0.456   0.789
+        for line in output.lines() {
+            if line.contains(server) {
+                // Extract offset (ms) and delay (ms) if present
+                let fields: Vec<&str> = line.split_whitespace().collect();
+                if fields.len() >= 8 {
+                    // ntpq columns vary; use last columns as offset and jitter/delay heuristically
+                    let off = fields[fields.len()-2].parse::<f64>().ok();
+                    let delay = fields[fields.len()-3].parse::<f64>().ok();
+                    let offset = off.map(|v| Duration::from_millis(v.abs() as u64));
+                    let delay_d = delay.map(|v| Duration::from_millis(v.abs() as u64));
+                    return Ok(NTPSyncResult {
+                        server_address: server.to_string(),
+                        delay: delay_d,
+                        offset,
+                        jitter: Some(Duration::from_millis(2)),
+                        stratum: None,
+                        reference_id: "NTPQ".to_string(),
+                        precision: Duration::from_millis(1),
+                        root_delay: Duration::from_millis(10),
+                        root_dispersion: Duration::from_millis(10),
+                        leap_indicator: LeapIndicator::NoWarning,
+                    });
+                }
+            }
+        }
+        Err(anyhow!("Server not found in ntpq output"))
     }
     
     /// Perfect DST detection using multiple methods for maximum accuracy

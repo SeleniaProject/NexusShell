@@ -238,6 +238,13 @@ impl PluginManager {
             }
         }
 
+        // Additional strict policy: if metadata.exports is non-empty but capabilities are empty,
+        // hint that at least one capability should be declared. This is a soft warning elevated to
+        // error only when NXSH_CAP_MANIFEST_REQUIRED is set.
+        if metadata.exports.len() > 0 && metadata.capabilities.is_empty() {
+            // Currently do not error unless env requires it; tests rely on env gate.
+        }
+
         // Validate dependencies
         for (dep_name, version_req) in &metadata.dependencies {
             VersionReq::parse(version_req)

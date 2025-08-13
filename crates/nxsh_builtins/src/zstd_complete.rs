@@ -610,15 +610,15 @@ fn format_size(size: u64) -> String {
 
 /// Print comprehensive help information
 fn print_zstd_help() {
-    println!("zstd - Pure Rust Zstandard compression utility (decompression only)");
+    println!("zstd - Zstandard compression utility (Pure Rust decompression + external compression)");
     println!();
     println!("Usage: zstd [OPTION]... [FILE]...");
     println!("Compress or decompress FILEs in the .zst format.");
-    println!("Note: This implementation supports decompression only (Pure Rust)");
+    println!("Note: Decompression uses Pure Rust (ruzstd). Compression uses external 'zstd' if available.");
     println!();
     println!("Operation mode:");
-    println!("  -z, --compress      force compression (NOT IMPLEMENTED)");
-    println!("  -d, --decompress    force decompression");
+    println!("  -z, --compress      force compression (via external zstd)");
+    println!("  -d, --decompress    force decompression (Pure Rust)");
     println!("  -t, --test          test compressed file integrity");
     println!("  -l, --list          list information about .zst files");
     println!();
@@ -631,9 +631,8 @@ fn print_zstd_help() {
     println!("  -1 ... -9           compression levels (for reference only)");
     println!("  --fast              alias for -1");
     println!("  --best              alias for -9");
-    println!("  -T#, --threads=#    number of threads (not used in this implementation)");
-    println!("  -M#, --memory=#     memory usage limit");
-    println!());
+    println!("  -T#, --threads=#    number of threads (passed to external zstd)");
+    println!("  -M#, --memory=#     memory usage limit (decompression safety)");
     println!("Other options:");
     println!("  -v, --verbose       be verbose");
     println!("  -q, --quiet         suppress warnings");
