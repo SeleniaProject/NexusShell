@@ -124,7 +124,7 @@ impl SedBuiltin {
 
     #[allow(dead_code)]
     fn usage(&self) -> &'static str {
-        "sed - stream editor for filtering and transforming text\n\nUSAGE:\n    sed [OPTIONS] 'script' [file...]"
+        "sed - stream editor for filtering and transforming text\n\nUSAGE:\n    sed [OPTIONS] -e 'script' [-e 'script']... [-f scriptfile]... [file...]\n\nCommon options:\n  -n, --quiet, --silent     suppress automatic printing of pattern space\n  -e, --expression=SCRIPT   add the script to the commands to be executed\n  -f, --file=SCRIPTFILE     add the contents of SCRIPTFILE to the commands\n  -i[SUF], --in-place[=SUF] edit files in place (makes backup if SUF supplied)\n  -r, -E, --regexp-extended use extended regular expressions\n  -s, --separate            consider files as separate rather than one continuous stream\n  -z, --null-data           separate lines by NUL characters\n\nBasic commands:\n  s/REGEX/REPL/[FLAGS]      substitute\n  d                          delete pattern space; start next cycle\n  p                          print pattern space\n  a TEXT                     append text after each line\n  i TEXT                     insert text before each line\n  c TEXT                     change (replace) the pattern space\n  n                          read/append next line to pattern space\n  q                          immediately quit sed\n\nFLAGS for s///: g (global), p (print), i (ignore-case), 1..9 (occurrence)"
     }
 }
 
