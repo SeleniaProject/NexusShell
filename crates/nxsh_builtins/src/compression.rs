@@ -163,7 +163,7 @@ impl CompressionManager {
     pub async fn zstd(&self, ctx: &NxshContext, args: &[String]) -> NxshResult<()> {
         let options = self.parse_zstd_args(args)?;
         
-        info!("Starting zstd (decompression-only build; compression will error) with level {}", options.compression_level);
+        info!("Starting zstd (Pure Rust: decompress via ruzstd; compress via store-mode) with level {}", options.compression_level);
         
         let operation_id = self.start_operation("zstd", &options.input_files).await;
         
@@ -852,46 +852,35 @@ impl CompressionManager {
     }
     
     async fn create_7z_archive(&self, options: &SevenZOptions) -> Result<()> {
-        // Simplified 7z creation using sevenz_rust
-        // In a real implementation, this would use the full 7z API
-        
-        let archive_path = PathBuf::from(&options.archive_name);
-        
-        // For now, just create a simple archive
-        // This is a placeholder implementation
-        println!("Creating 7z archive: {} (placeholder implementation)", archive_path.display());
-        
-        for input_file in &options.input_files {
-            if options.verbose {
-                println!("  adding: {}", input_file);
-            }
-        }
-        
-        Ok(())
+        // Delegate to external 7z/7za/7zr via the sevenz builtin for full functionality.
+        // Command: 7z a ARCHIVE [FILES...] [-pPASSWORD] [-r]
+        let mut args: Vec<String> = Vec::new();
+        args.push("a".into());
+        args.push(options.archive_name.clone());
+        for f in &options.input_files { args.push(f.clone()); }
+        if options.recursive { args.push("-r".into()); }
+        if let Some(pw) = &options.password { args.push("-p".into()); args.push(pw.clone()); }
+        if options.verbose { args.push("-bb3".into()); }
+        crate::sevenz::sevenz_cli(&args)
     }
     
     async fn extract_7z_archive(&self, options: &SevenZOptions) -> Result<()> {
-        // Simplified 7z extraction using sevenz_rust
-        // In a real implementation, this would use the full 7z API
-        
-        println!("Extracting 7z archive: {} (placeholder implementation)", options.archive_name);
-        
-        let output_dir = options.output_dir.as_ref()
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
-        
-        if options.verbose {
-            println!("  extracting to: {}", output_dir.display());
-        }
-        
-        Ok(())
+        // Command: 7z x ARCHIVE [-oOUTPUT_DIR] [-pPASSWORD] [-y]
+        let mut args: Vec<String> = Vec::new();
+        args.push("x".into());
+        args.push(options.archive_name.clone());
+        if let Some(dir) = &options.output_dir { args.push("-o".into()); args.push(dir.clone()); }
+        if let Some(pw) = &options.password { args.push("-p".into()); args.push(pw.clone()); }
+        args.push("-y".into());
+        if options.recursive { args.push("-r".into()); }
+        if options.verbose { args.push("-bb3".into()); }
+        crate::sevenz::sevenz_cli(&args)
     }
     
     async fn list_7z_archive(&self, options: &SevenZOptions) -> Result<()> {
-        // Simplified 7z listing
-        println!("Listing 7z archive: {} (placeholder implementation)", options.archive_name);
-        
-        Ok(())
+        // Command: 7z l ARCHIVE
+        let args = vec!["l".to_string(), options.archive_name.clone()];
+        crate::sevenz::sevenz_cli(&args)
     }
     
     // Argument parsing methods

@@ -3,8 +3,6 @@ use std::io::{self, Read, Write, BufReader, BufWriter};
 use std::fs::File;
 use std::path::Path;
 use ruzstd::streaming_decoder::StreamingDecoder;
-use which::which;
-use std::process::{Command, Stdio};
 
 #[derive(Debug, Clone)]
 pub struct ZstdOptions {
@@ -164,9 +162,9 @@ fn process_stdio(options: &ZstdOptions) -> Result<()> {
         decompress_stream(&mut reader, &mut writer, options)
             .context("Failed to decompress from stdin")?;
     } else {
-        // Pipe through external zstd for compression (Pure Rust encoder unavailable)
-        compress_stream_external(&mut reader, &mut writer, options)
-            .context("Failed to compress to stdout via external zstd")?;
+        // Pure Rust fallback: write a valid Zstandard frame containing a single RAW block (store mode)
+        compress_stream_store(&mut reader, &mut writer, options)
+            .context("Failed to write zstd store frame to stdout")?;
     }
 
     writer.flush().context("Failed to flush output")?;
@@ -236,8 +234,8 @@ fn process_single_file(filename: &str, options: &ZstdOptions) -> Result<()> {
         if options.decompress {
             decompress_stream(&mut reader, &mut writer, options)?;
         } else {
-            // Compress to stdout via external zstd
-            compress_stream_external(&mut reader, &mut writer, options)?;
+            // Pure Rust zstd store frame to stdout
+            compress_stream_store(&mut reader, &mut writer, options)?;
         }
         writer.flush()?;
     } else if let Some(output_file) = output_filename {
@@ -248,8 +246,8 @@ fn process_single_file(filename: &str, options: &ZstdOptions) -> Result<()> {
             decompress_stream(&mut reader, &mut writer, options)?;
             writer.flush()?;
         } else {
-            // Use external zstd to compress file to output_file
-            compress_file_external(filename, &output_file, options)?;
+            // Pure Rust zstd store frame to file
+            compress_file_store(filename, &output_file, options)?;
         }
 
         // Remove input file if not keeping it
@@ -310,74 +308,142 @@ fn decompress_stream<R: Read, W: Write>(
     Ok(())
 }
 
-/// Compress data stream using external `zstd` binary (best-effort, cross-platform)
-fn compress_stream_external<R: Read, W: Write>(
+/// Compress data stream producing a valid Zstandard frame that contains a single RAW block.
+/// This is a Pure Rust "store" encoder: it does not attempt entropy compression.
+fn compress_stream_store<R: Read, W: Write>(
     reader: &mut R,
     writer: &mut W,
-    options: &ZstdOptions,
+    _options: &ZstdOptions,
 ) -> Result<()> {
-    let zstd_path = which("zstd").map_err(|_| anyhow::anyhow!(
-        "Compression requires external 'zstd' binary (not found in PATH)"
-    ))?;
+    let mut input = Vec::new();
+    reader.read_to_end(&mut input)?;
+    write_store_frame_slice(writer, &input)
+}
 
-    // Spawn zstd process: read from stdin, write to stdout
-    let mut cmd = Command::new(zstd_path);
-    // Level
-    cmd.arg(format!("-{}", options.level.max(1)));
-    // Quiet/verbose
-    if options.quiet { cmd.arg("-q"); }
-    if options.verbose { cmd.arg("-v"); }
-    // Force
-    if options.force { cmd.arg("-f"); }
-    // Threads
-    if let Some(t) = options.threads { cmd.args(["-T", &t.to_string()]); }
-    // To stdout
-    cmd.arg("-c");
-    cmd.stdin(Stdio::piped()).stdout(Stdio::piped());
+/// Compress a file using the Pure Rust store encoder into the specified output file
+fn compress_file_store(input: &str, output: &str, _options: &ZstdOptions) -> Result<()> {
+    let mut in_file = File::open(input)
+        .with_context(|| format!("Cannot open input file '{input}'"))?;
+    let len = in_file.metadata()?.len();
+    let mut out_file = File::create(output)
+        .with_context(|| format!("Cannot create output file '{output}'"))?;
+    write_store_frame_stream(&mut out_file, &mut in_file, len)
+}
 
-    let mut child = cmd.spawn().context("Failed to spawn external zstd")?;
+/// Write a minimal, standards-compliant Zstandard frame containing a single RAW block that
+/// stores the provided payload without compression. This routine writes:
+/// - Frame magic number
+/// - Frame Header Descriptor with Single Segment and Frame Content Size fields
+/// - Frame Content Size (4 or 8 bytes depending on payload length)
+/// - One RAW block with Last-Block flag set and 21-bit block size
+/// - No frame checksum (disabled in descriptor)
+fn write_store_frame_slice<W: Write>(mut w: W, payload: &[u8]) -> Result<()> {
+    // Write magic number (little-endian on disk order): 0xFD2FB528
+    // Bytes in file order are 28 B5 2F FD
+    w.write_all(&[0x28, 0xB5, 0x2F, 0xFD])?;
 
-    // Pipe data into child stdin and read from stdout
-    {
-        let mut child_stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("Failed to open zstd stdin"))?;
-        let mut child_stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("Failed to open zstd stdout"))?;
+    // Frame Header Descriptor (FHD)
+    // Layout (per Zstandard format):
+    // - bits 7..6: Frame Content Size (FCS) field size code
+    // - bit 5: Single Segment (1 => no Window Descriptor, FCS present)
+    // - bits 4..3: Reserved (kept 0) or Dictionary ID flag (set 0 = no DictID)
+    // - bit 2: Reserved (0)
+    // - bit 1..0: Reserved (0)
+    // We choose: Single Segment = 1, DictID = 0, Content Checksum = 0, FCS size selected by payload length.
+    let len = payload.len() as u64;
+    let (fcs_code, fcs_bytes) = if len <= 0xFFFF { (0b01u8, 2usize) } // 2-byte FCS
+        else if len <= 0xFFFF_FFFF { (0b10u8, 4usize) } // 4-byte FCS
+        else { (0b11u8, 8usize) }; // 8-byte FCS
+    let fhd: u8 = (fcs_code << 6) | (1 << 5);
+    w.write_all(&[fhd])?;
 
-        // Write input in a thread to avoid deadlocks
-        let mut input_buf = Vec::new();
-        reader.read_to_end(&mut input_buf)?;
-        std::thread::spawn(move || {
-            let _ = child_stdin.write_all(&input_buf);
-        });
+    // Frame Content Size field. Zstandard stores FCS as (actual_size - 1) in little-endian.
+    let fcs_value = if len == 0 { 0 } else { len - 1 };
+    let mut buf = [0u8; 8];
+    buf[..8].copy_from_slice(&fcs_value.to_le_bytes());
+    w.write_all(&buf[..fcs_bytes])?;
 
-        let mut buf = [0u8; 64 * 1024];
-        loop {
-            let n = child_stdout.read(&mut buf)?;
-            if n == 0 { break; }
-            writer.write_all(&buf[..n])?;
-        }
+    // Single RAW block header (3 bytes):
+    // [0] last_block (1 bit, LSB) | block_type (2 bits, RAW=0) | block_size (first 5 bits)
+    // total: last(1) + type(2) + size(21) = 24 bits (3 bytes), little-endian packing.
+    // Compute 21-bit size (clamped per spec maximum 2^21-1 for a single block)
+    const MAX_BLOCK_SIZE: usize = (1 << 21) - 1;
+    if len == 0 {
+        // Emit a zero-size RAW last block to mark frame end
+        let header_val: u32 = (0u32 << 3) | ((0u32 /* RAW */) << 1) | 1;
+        let header_bytes = [
+            (header_val & 0xFF) as u8,
+            ((header_val >> 8) & 0xFF) as u8,
+            ((header_val >> 16) & 0xFF) as u8,
+        ];
+        w.write_all(&header_bytes)?;
+        return Ok(());
     }
-    let status = child.wait().context("Failed to wait for zstd")?;
-    if !status.success() {
-        return Err(anyhow::anyhow!("external zstd failed with status {:?}", status.code()));
+    let mut offset = 0usize;
+    while offset < payload.len() {
+        let remaining = payload.len() - offset;
+        let chunk = remaining.min(MAX_BLOCK_SIZE);
+        let last_block = (offset + chunk) >= payload.len();
+        let header_val: u32 = ((chunk as u32) << 3) | ((0u32 /* RAW */) << 1) | if last_block { 1 } else { 0 };
+        let header_bytes = [
+            (header_val & 0xFF) as u8,
+            ((header_val >> 8) & 0xFF) as u8,
+            ((header_val >> 16) & 0xFF) as u8,
+        ];
+        w.write_all(&header_bytes)?;
+        w.write_all(&payload[offset..offset + chunk])?;
+        offset += chunk;
     }
+
+    // No frame checksum (flag disabled)
     Ok(())
 }
 
-/// Compress a file using external zstd into the specified output file
-fn compress_file_external(input: &str, output: &str, options: &ZstdOptions) -> Result<()> {
-    let zstd_path = which("zstd").map_err(|_| anyhow::anyhow!(
-        "Compression requires external 'zstd' binary (not found in PATH)"
-    ))?;
-    let mut cmd = Command::new(zstd_path);
-    cmd.arg(format!("-{}", options.level.max(1)));
-    if options.quiet { cmd.arg("-q"); }
-    if options.verbose { cmd.arg("-v"); }
-    if options.force { cmd.arg("-f"); }
-    if let Some(t) = options.threads { cmd.args(["-T", &t.to_string()]); }
-    cmd.args(["-o", output, input]);
-    let status = cmd.status().context("Failed to launch external zstd")?;
-    if !status.success() {
-        return Err(anyhow::anyhow!("external zstd failed with status {:?}", status.code()));
+/// Public helper to write a store-mode zstd frame from a reader when the total content length is known.
+/// This avoids loading the entire payload into memory and streams blocks directly.
+pub fn write_store_frame_stream<W: Write, R: Read>(mut w: W, reader: &mut R, content_len: u64) -> Result<()> {
+    // Magic
+    w.write_all(&[0x28, 0xB5, 0x2F, 0xFD])?;
+    // FHD: Single Segment with FCS
+    let (fcs_code, fcs_bytes) = if content_len <= 0xFFFF { (0b01u8, 2usize) }
+        else if content_len <= 0xFFFF_FFFF { (0b10u8, 4usize) } else { (0b11u8, 8usize) };
+    let fhd: u8 = (fcs_code << 6) | (1 << 5);
+    w.write_all(&[fhd])?;
+    let fcs_value = if content_len == 0 { 0 } else { content_len - 1 };
+    let mut buf8 = [0u8; 8];
+    buf8[..8].copy_from_slice(&fcs_value.to_le_bytes());
+    w.write_all(&buf8[..fcs_bytes])?;
+
+    const MAX_BLOCK_SIZE: usize = (1 << 21) - 1;
+    let mut produced: u64 = 0;
+    let mut buf = vec![0u8; MAX_BLOCK_SIZE.min(64 * 1024)];
+    if content_len == 0 {
+        let header_val: u32 = (0u32 << 3) | ((0u32 /* RAW */) << 1) | 1;
+        let header_bytes = [
+            (header_val & 0xFF) as u8,
+            ((header_val >> 8) & 0xFF) as u8,
+            ((header_val >> 16) & 0xFF) as u8,
+        ];
+        w.write_all(&header_bytes)?;
+        return Ok(());
+    }
+    loop {
+        // Determine next block size limit
+        let remaining = (content_len - produced) as usize;
+        if remaining == 0 { break; }
+        let to_read = remaining.min(buf.len()).min(MAX_BLOCK_SIZE);
+        let n = reader.read(&mut buf[..to_read])?;
+        if n == 0 { break; }
+        produced += n as u64;
+        let last_block = produced == content_len;
+        let header_val: u32 = ((n as u32) << 3) | ((0u32 /* RAW */) << 1) | if last_block { 1 } else { 0 };
+        let header_bytes = [
+            (header_val & 0xFF) as u8,
+            ((header_val >> 8) & 0xFF) as u8,
+            ((header_val >> 16) & 0xFF) as u8,
+        ];
+        w.write_all(&header_bytes)?;
+        w.write_all(&buf[..n])?;
     }
     Ok(())
 }
@@ -609,11 +675,11 @@ fn format_size(size: u64) -> String {
 
 /// Print comprehensive help information
 fn print_zstd_help() {
-    println!("zstd - Zstandard utility (Pure Rust decompression; compression via external 'zstd')");
+    println!("zstd - Zstandard utility (Pure Rust decompression + store-mode compression)");
     println!("Usage: zstd [OPTION]... [FILE]...");
     println!();
     println!("  -d, --decompress        decompress (Pure Rust)");
-    println!("  -z, --compress          compress (requires external 'zstd' in PATH)");
+    println!("  -z, --compress          compress (Pure Rust store-mode: creates RAW-block .zst)");
     println!("  -c, --stdout            write to standard output");
     println!("  -k, --keep              keep input files");
     println!("  -f, --force             overwrite output files");
@@ -621,10 +687,11 @@ fn print_zstd_help() {
     println!("  -l, --list              list information about .zst files");
     println!("  -q, --quiet             suppress non-critical errors");
     println!("  -v, --verbose           increase verbosity");
-    println!("  -T, --threads N         threads for external compressor");
-    println!("  -M, --memory  LIM       memory usage limit");
+    println!("  -T, --threads N         threads (no effect in store-mode)");
+    println!("  -M, --memory  LIM       memory usage limit (info only)");
+    println!("      --zstd              alias of -z (compat)");
     println!("  -h, --help              display this help and exit");
     println!("  -V, --version           display version and exit");
     println!();
-    println!("Decompression uses ruzstd (no C deps). Compression shells out to 'zstd' when available.");
+    println!("Decompression uses ruzstd (no C deps). Compression writes RAW-block zstd frames (no entropy compression).");
 }

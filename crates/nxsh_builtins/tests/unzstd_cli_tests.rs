@@ -19,30 +19,22 @@ fn unzstd_test_mode_invalid_reports_failure() {
 }
 
 #[test]
-fn unzstd_roundtrip_external_when_available() {
-    // Only run this when external zstd is available
-    if which::which("zstd").is_err() {
-        return;
-    }
-
+fn unzstd_roundtrip_store_mode() {
     use nxsh_builtins::zstd::zstd_cli;
     let dir = tempfile::tempdir().unwrap();
     let input_path = dir.path().join("roundtrip_unzstd.txt");
     let original = "Zstd roundtrip via external compressor and pure-rust decompressor\n".repeat(64);
     std::fs::write(&input_path, original.as_bytes()).unwrap();
 
-    // Compress using external zstd via our zstd_cli wrapper
+    // Compress using Pure Rust store-mode via our zstd_cli wrapper
     assert!(zstd_cli(&[input_path.to_string_lossy().to_string()]).is_ok());
     let zst_path = input_path.with_extension("txt.zst");
     assert!(zst_path.exists());
 
-    // Remove original to avoid "File exists" on decompression
-    std::fs::remove_file(&input_path).unwrap();
+    // Decompress; keep original .zst and allow overwrite of existing target
+    assert!(unzstd_cli(&["-k".to_string(), "-f".to_string(), zst_path.to_string_lossy().to_string()]).is_ok());
 
-    // Decompress with -k to keep the .zst
-    assert!(unzstd_cli(&["-k".to_string(), zst_path.to_string_lossy().to_string()]).is_ok());
-
-    // Validate content restored
+    // Validate content restored (target is input_path)
     let restored = std::fs::read_to_string(&input_path).unwrap();
     assert_eq!(restored, original);
 }

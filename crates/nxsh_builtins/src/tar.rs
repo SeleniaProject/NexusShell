@@ -242,7 +242,9 @@ fn create_archive(options: &TarOptions) -> Result<()> {
         }
         Compression::Xz => {
             // lzma-rs does not provide a Write adapter. Create tar to a temp file, then XZ-compress it.
-            use tempfile::NamedTempFile;
+use tempfile::NamedTempFile;
+#[cfg(feature = "compression-zstd")]
+use crate::zstd; // use zstd helpers from this crate
             let temp = NamedTempFile::new().context("tar: failed to create temporary file")?;
             let temp_path = temp.path().to_path_buf();
             {
@@ -282,8 +284,50 @@ fn create_archive(options: &TarOptions) -> Result<()> {
             return Err(anyhow!("tar: bzip2 compression not supported in pure-Rust build (decode only). Use gzip or xz."));
         }
         Compression::Zstd => {
-            // ruzstd is decode-only. Provide a clear error.
-            return Err(anyhow!("tar: zstd compression not supported in pure-Rust build (decode only). Use gzip or xz."));
+            #[cfg(not(feature = "compression-zstd"))]
+            {
+                // Feature not enabled
+                return Err(anyhow!("tar: zstd compression not supported in this build. Enable 'compression-zstd'."));
+            }
+            #[cfg(feature = "compression-zstd")]
+            {
+            // Build tar to a temporary file, then wrap it into a zstd store-mode frame.
+            use tempfile::NamedTempFile;
+            let temp = NamedTempFile::new().context("tar: failed to create temporary file")?;
+            let temp_path = temp.path().to_path_buf();
+            {
+                let temp_file = File::options().write(true).truncate(true).open(&temp_path)
+                    .context("tar: failed to open temp file for writing")?;
+                let mut tar_builder = tar::Builder::new(BufWriter::new(temp_file));
+                for file_path in &options.files {
+                    if !file_path.exists() {
+                        eprintln!("tar: {}: No such file or directory", file_path.display());
+                        continue;
+                    }
+                    if options.verbose { println!("{}", file_path.display()); }
+                    if file_path.is_dir() {
+                        tar_builder.append_dir_all(file_path, file_path)
+                            .with_context(|| format!("tar: cannot add directory {}", file_path.display()))?;
+                    } else {
+                        let mut file = File::open(file_path)
+                            .with_context(|| format!("tar: cannot open {}", file_path.display()))?;
+                        tar_builder.append_file(file_path, &mut file)
+                            .with_context(|| format!("tar: cannot add file {}", file_path.display()))?;
+                    }
+                }
+                tar_builder.finish().context("tar: error finishing archive")?;
+            }
+            // Now read temp tar and write a zstd store-mode frame to the final output
+            let mut temp_file = File::open(&temp_path)
+                .context("tar: failed to reopen temp tar for zstd framing")?;
+            let tar_len = temp_file.metadata()?.len();
+            let output_file = File::create(archive_path)
+                .with_context(|| format!("tar: cannot create {}", archive_path.display()))?;
+            let mut out = BufWriter::new(output_file);
+            crate::zstd::write_store_frame_stream(&mut out, &mut temp_file, tar_len)
+                .context("tar: zstd store-mode framing failed")?;
+            out.flush().ok();
+            }
         }
         Compression::None => {
             let output_file = File::create(archive_path)
@@ -325,6 +369,12 @@ fn extract_archive(options: &TarOptions) -> Result<()> {
         eprintln!("tar: extracting from {}", archive_path.display());
     }
 
+    // If -C/--directory was provided, change directory before extraction
+    if let Some(ref change_dir) = options.change_dir {
+        std::env::set_current_dir(change_dir)
+            .with_context(|| format!("tar: cannot change to directory {}", change_dir.display()))?;
+    }
+
     let input_file = File::open(archive_path)
         .with_context(|| format!("tar: cannot open {}", archive_path.display()))?;
     
@@ -357,7 +407,7 @@ fn extract_archive(options: &TarOptions) -> Result<()> {
 
     let mut tar_archive = tar::Archive::new(BufReader::new(reader));
 
-    // Change directory if specified
+    // (Legacy) Extract-to path if provided separately
     if let Some(ref extract_to) = options.extract_to {
         std::env::set_current_dir(extract_to)
             .with_context(|| format!("tar: cannot change to directory {}", extract_to.display()))?;
@@ -580,9 +630,13 @@ fn print_tar_help() {
     println!("  -z, --gzip                 filter through gzip");
     println!("  -j, --bzip2                filter through bzip2 (decode only in this build; compression not available)");
     println!("  -J, --xz                   filter through xz");
-    println!("      --zstd                 filter through zstd (decode only in this build; compression not available)");
+    println!("      --zstd                 filter through zstd (Pure Rust: decode, and encode via store-mode RAW frame)");
     println!("  -C, --directory=DIR        change to directory DIR");
     println!("  -p, --preserve-permissions preserve file permissions (default)");
+    println!("      --owner=NAME           set owner for added files");
+    println!("      --group=NAME           set group for added files");
+    println!("      --numeric-owner        use numeric owner/group IDs");
+    println!("      --mtime=DATE           set modification time for added files");
     println!("      --strip-components=N   strip N leading path components");
     println!("      --exclude=PATTERN      exclude files matching PATTERN");
     println!("  -W, --verify               attempt to verify the archive");
@@ -593,9 +647,10 @@ fn print_tar_help() {
     println!("  tar -cJf archive.tar.xz files/     # Create xz-compressed archive");
     println!("  tar -xzf archive.tar.gz            # Extract gzipped archive");
     println!("  tar -tzf archive.tar.gz            # List contents of gzipped archive");
-    println!("  tar -x --zstd -f archive.tar.zst   # Extract zstd-compressed archive (decode-only)");
+    println!("  tar -x --zstd -f archive.tar.zst   # Extract zstd-compressed archive");
+    println!("  tar -c --zstd -f archive.tar.zst DIR  # Create zstd store-mode archive");
     println!("  tar -x -j -f archive.tar.bz2       # Extract bzip2-compressed archive (decode-only)");
     println!();
-    println!("Note: This build is Pure Rust. bzip2/zstd compression is not available; use gzip or xz for compression.");
+    println!("Note: This build is Pure Rust. bzip2 compression is not available; zstd uses store-mode frames (no entropy compression).");
     println!("Report bugs to: tar-bug@gnu.org");
 }
