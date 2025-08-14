@@ -1,3 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build default (release)
+        run: cargo build -p nxsh_cli --release
+
+      - name: Build busybox-min (release-small)
+        run: cargo build -p nxsh_cli --no-default-features --features busybox-min --profile release-small
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item target/release/nxsh.exe dist/nxsh-windows-x86_64.exe
+          Copy-Item target/release-small/nxsh.exe dist/nxsh-busybox-min-windows-x86_64.exe
+          Compress-Archive -Path dist/nxsh-windows-x86_64.exe -DestinationPath dist/nxsh-windows-x86_64.zip
+          Compress-Archive -Path dist/nxsh-busybox-min-windows-x86_64.exe -DestinationPath dist/nxsh-busybox-min-windows-x86_64.zip
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp target/release/nxsh dist/nxsh-linux-x86_64
+          cp target/release-small/nxsh dist/nxsh-busybox-min-linux-x86_64
+          tar -C dist -czf dist/nxsh-linux-x86_64.tar.gz nxsh-linux-x86_64
+          tar -C dist -czf dist/nxsh-busybox-min-linux-x86_64.tar.gz nxsh-busybox-min-linux-x86_64
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ runner.os }}-artifacts
+          path: dist/*
+
+  release:
+    name: Publish release
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/nxsh-*.zip
+            artifacts/**/nxsh-*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 name: NexusShell Release
 
 on:
