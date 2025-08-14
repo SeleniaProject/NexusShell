@@ -19,6 +19,11 @@ ci:
 bench:
     cargo bench 
 
+# Run benches and enforce JIT/MIR 2x speedup using Criterion outputs
+bench-gate:
+    cargo bench -p nxsh_core --bench jit_vs_interp
+    python scripts/check_jit_speedup.py --target-dir target/criterion --bench-group jit_vs_interp --interp-name interp_execute --jit-name mir_execute --required-speedup 2.0
+
 miri:
     cargo +nightly miri test --workspace 
 
@@ -65,12 +70,20 @@ command-status:
 full-ci: ci command-status-check busybox-size-gate
     echo "All CI checks passed successfully"
 
+# Full CI with performance gate
+full-ci-with-bench: ci command-status-check busybox-size-gate bench-gate
+    echo "All CI checks + bench gate passed successfully"
+
 # Development convenience target for updating all generated files
 update-generated: command-status busybox-size-report
     echo "Updated all generated files: COMMAND_STATUS.md and size reports"
     # Also refresh theme validation report (Markdown)
     if (-not (Test-Path reports)) { mkdir reports | Out-Null }
     cargo run -p nxsh_ui --bin theme_validator_test -- --dir assets/themes --out-format md --out reports/theme_validation.md
+
+# Docs/spec consistency quick check (alias of command-status-check)
+docs-check: command-status-check
+    echo "Docs/spec command catalogs are consistent"
 
 # Show project statistics (commands implemented, binary size, dependencies)
 stats:
