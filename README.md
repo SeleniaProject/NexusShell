@@ -1,6 +1,8 @@
 # NexusShell (nxsh)
 
-[![Build Status](https://github.com/SeleniaProject/NexusShell/workflows/CI/badge.svg)](https://github.com/SeleniaProject/NexusShell/actions)
+[![CI](https://github.com/SeleniaProject/NexusShell/actions/workflows/ci.yml/badge.svg)](https://github.com/SeleniaProject/NexusShell/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/SeleniaProject/NexusShell/actions/workflows/codeql.yml/badge.svg)](https://github.com/SeleniaProject/NexusShell/actions/workflows/codeql.yml)
+[![Coverage](https://codecov.io/gh/SeleniaProject/NexusShell/branch/main/graph/badge.svg)](https://codecov.io/gh/SeleniaProject/NexusShell)
 [![Command Coverage](https://img.shields.io/badge/commands-57%2F182-brightgreen.svg)](COMMAND_STATUS.md)
 [![Binary Size](https://img.shields.io/badge/busybox--min-<1.5MB-blue.svg)](scripts/size_report.ps1)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
