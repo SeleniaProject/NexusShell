@@ -73,7 +73,9 @@
 
 ## Documentation
 
-46. [ ] `docs/CHANGELOG.md` updated with release entry.
+46. [ ] `docs/CHANGELOG.md` updated with release entry。
+    - zstd 圧縮は Pure Rust ストアモード（RAW ブロック）対応。往復テスト済みで外部依存なし。
+    - tar `--zstd` も Pure Rust ストアモードで作成/展開に対応。
 47. [ ] Man pages generated under `docs/man/` for all built-ins.
 48. [ ] DESIGN, SPEC, UI_DESIGN synced to implementation (no TODO markers).
 49. [ ] README badges (build, coverage) reflect current status.
