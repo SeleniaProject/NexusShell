@@ -34,6 +34,38 @@ use walkdir::{WalkDir, DirEntry as WalkDirEntry};
 use regex::RegexBuilder;
 use glob::{Pattern, MatchOptions};
 use chrono::{DateTime, Local};
+/// Print `find` help message
+fn print_find_help() {
+    println!("Usage: find [PATH...] [EXPR]");
+    println!("Search for files in a directory hierarchy and apply tests/actions.");
+    println!("");
+    println!("Common options:");
+    println!("  -maxdepth N           descend at most N levels of directories");
+    println!("  -mindepth N           do not act on first N levels");
+    println!("  -follow, -L           follow symbolic links");
+    println!("  -xdev                 stay on current filesystem");
+    println!("  -icase                case-insensitive name matching");
+    println!("  -stats                print traversal statistics");
+    println!("");
+    println!("Tests:");
+    println!("  -name PATTERN         file name matches shell PATTERN");
+    println!("  -iname PATTERN        like -name, case-insensitive");
+    println!("  -type [f|d|l|b|c|p|s] file type matches");
+    println!("  -size [+|-]N[kMG]     file size test");
+    println!("  -mtime N              modified N days ago (see also -mmin)");
+    println!("  -perm MODE            permission bits match (octal)");
+    println!("  -user NAME            file owner is NAME");
+    println!("  -group NAME           file group is NAME");
+    println!("");
+    println!("Actions:");
+    println!("  -print                print pathname (default)");
+    println!("  -print0               print with NUL terminator");
+    println!("  -exec CMD {{}} ;        execute CMD; {} is replaced by pathname", "{}");
+    println!("  -execdir CMD {{}} ;     like -exec, but execute in file's dir");
+    println!("");
+    println!("Operators:");
+    println!("  ! -not, -a -and, -o -or, ( EXPR ) precedence");
+}
 // use rayon::prelude::*; // TODO: 並列探索未実装なら削除検討 (par_iter使用未確認)
 #[cfg(feature = "progress-ui")]
 use indicatif::{ProgressBar, ProgressStyle};
@@ -413,6 +445,10 @@ fn get_group_by_gid(_gid: u32) -> Option<u32> { None }
 fn get_group_by_gid(_gid: u32) -> Option<u32> { None }
 
 pub fn find_cli(args: &[String]) -> Result<()> {
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        print_find_help();
+        return Ok(());
+    }
     let options = parse_find_args(args)?;
     let stats = Arc::new(FindStats::new());
     
