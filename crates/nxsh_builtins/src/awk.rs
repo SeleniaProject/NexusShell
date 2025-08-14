@@ -13,6 +13,17 @@ use std::io::{BufRead, BufReader};
 /// AWK コマンド簡易実装 (最小限) – BEGIN/PATTERN/ACTIONS と print のみ対応
 /// 今後の高機能化のため内部構造は維持しつつ、スタブから実行可能状態へ昇格させる。
 pub fn awk_cli(args: &[String], _ctx: &mut nxsh_core::context::ShellContext) -> anyhow::Result<()> {
+	if args.iter().any(|a| a == "--help" || a == "-h") {
+		println!("awk - pattern scanning and processing language");
+		println!("Usage: awk [-F FS] [-f progfile] [-v var=val] 'program' [file ...]");
+		println!("  -F, --field-separator FS    set input field separator");
+		println!("  -f, --file PROGFILE         read program from file");
+		println!("  -v, --assign VAR=VAL        assign variable before program begins");
+		println!("Examples:");
+        println!("  awk -F, -v OFS='\\t' '{{ print $1, $3 }}' data.csv");
+		println!("  awk -f script.awk input.txt");
+		return Ok(());
+	}
     // nxsh の他ビルトインと同じ引数解釈を流用
     let options = parse_awk_args(args)
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
