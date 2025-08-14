@@ -1,0 +1,50 @@
+name: Nightly Bench Gate
+
+on:
+  schedule:
+    - cron: '0 3 * * *' # Every day at 03:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  bench-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: swatinem/rust-cache@v2
+
+      - name: Set up Rust (stable)
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Run Criterion bench (jit_vs_interp)
+        run: |
+          cargo bench -p nxsh_core --bench jit_vs_interp -- --sample-size 30
+
+      - name: Enforce JIT/MIR speedup gate (>= 2.0x)
+        run: |
+          python scripts/check_jit_speedup.py \
+            --target-dir target/criterion \
+            --bench-group jit_vs_interp \
+            --interp-name interp_execute \
+            --jit-name mir_execute \
+            --required-speedup 2.0
+
+      - name: Upload Criterion reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-reports
+          path: target/criterion
+
+
