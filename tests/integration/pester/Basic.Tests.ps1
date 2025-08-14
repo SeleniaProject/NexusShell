@@ -14,6 +14,18 @@ Describe "nxsh basic" {
     $json = Get-Content out2.txt -Raw
     $json.Trim().StartsWith('{') | Should -BeTrue
   }
+
+  It "zstd store-mode roundtrip works" {
+    $nx = "$PSScriptRoot/../../target/release/nxsh.exe"
+    $tmp = Join-Path $env:TEMP "nxsh_pester_zstd.txt"
+    Set-Content -Path $tmp -Value "abc123" -NoNewline
+    $p1 = Start-Process -FilePath $nx -ArgumentList '-c',"zstd $tmp" -NoNewWindow -PassThru -Wait
+    $p1.ExitCode | Should -Be 0
+    Test-Path "$tmp.zst" | Should -BeTrue
+    $p2 = Start-Process -FilePath $nx -ArgumentList '-c',"zstd -d -f $tmp.zst" -NoNewWindow -PassThru -Wait
+    $p2.ExitCode | Should -Be 0
+    (Get-Content $tmp -Raw) | Should -Match 'abc123'
+  }
 }
 
 
