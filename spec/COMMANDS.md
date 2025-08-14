@@ -97,16 +97,17 @@
 ### 3. テキスト処理
 | Command | Synopsis | 概要 | |
 |---------|----------|------|--|
-| grep | `grep [OPTS] PATTERN FILE...` | 正規表現検索 (PCRE2) | |
+| grep | `grep [OPTS] PATTERN FILE...` | 正規表現検索 (PCRE2)。`-E/-F/-G/-P`, `-r/-R`, `-A/-B/-C`, `--include/--exclude` 等をサポート | |
 | egrep | `egrep PATTERN FILE` | POSIX ERE 検索 | リンク先同上 |
 | fgrep | `fgrep PATTERN FILE` | 固定文字列検索 | |
 | awk | `awk 'PROGRAM' FILE` | パターン処理言語 | |
-| sed | `sed SCRIPT FILE` | ストリームエディタ | |
+| sed | `sed -e 's/REGEX/REPL/g' FILE` | ストリームエディタ（`-n/-e/-f/-i/-r/-z` 等をサポート） | |
 | tr | `tr SET1 SET2` | 文字集合変換 | |
 | cut | `cut -f LIST FILE` | 列抽出 | |
 | paste | `paste FILE1 FILE2` | 行横結合 | |
 | sort | `sort [OPTS]` | 並び替え | |
 | uniq | `uniq [OPTS]` | 重複行削除 | |
+| find | `find [PATH...] [EXPR]` | 階層検索（`-name`/`-type`/`-size`/`-mtime`/`-exec` 等をサポート） | |
 | head | `head [-n N] FILE` | 先頭表示 | |
 | tail | `tail [-f] [-n N] FILE` | 末尾表示・追跡 | |
 | wc | `wc [-lwmc] FILE` | 行・単語数 | |
@@ -183,12 +184,12 @@
 | unxz | `unxz FILE.xz` | 解凍 |
 | zip | `zip ARCHIVE.zip FILE...` | Zip 作成 |
 | unzip | `unzip ARCHIVE.zip` | 解凍 |
-| tar | `tar -czf ARCHIVE.tar.gz DIR` | TAR 一括 |
+| tar | `tar -czf ARCHIVE.tar.gz DIR` | TAR 一括（`--zstd` は Pure Rust ストアモードで作成/展開対応。`--exclude=PATTERN`, `--strip-components=N`, `-p/--preserve-permissions`, `--no-same-permissions`, `--overwrite`, `-W/--verify`, `--owner/--group/--numeric-owner/--mtime` をサポート） |
 | cpio | `cpio -o < FILES` | アーカイブ |
 | ar | `ar rcs LIB.a OBJ...` | 静的ライブラリ |
-| zstd | `zstd FILE` | 超高速圧縮 |
-| unzstd | `unzstd FILE.zst` | 解凍 |
-| 7z | `7z a ARCHIVE.7z FILE...` | マルチフォーマット |
+| zstd | `zstd FILE` | zstd 圧縮（Pure Rust ストアモード: RAW ブロックでフレーム生成。`-T/--threads`, `-M/--memory` は互換情報用） |
+| unzstd | `unzstd FILE.zst` | zstd 解凍（Pure Rust） |
+| 7z | `7z a ARCHIVE.7z FILE...` | マルチフォーマット（外部 7z に委譲） |
 
 ---
 
