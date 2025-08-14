@@ -164,12 +164,12 @@ impl CompletionEngine {
             }
         }
 
-        // zstd flags (compression via external binary; decompression via internal path)
+        // zstd flags (compression via internal store-mode; decompression via internal path)
         if trimmed.starts_with("zstd ") {
             let after = trimmed.strip_prefix("zstd ").unwrap_or("");
             let needle = after.trim_start();
             const ZSTD_FLAGS: &[&str] = &[
-                "-d", "-z", "-c", "-t", "-q", "-v", "-T", "--help", "--version",
+                "-d", "-z", "-c", "-t", "-q", "-v", "-T", "-M", "--memory", "--help", "--version",
             ];
             for f in ZSTD_FLAGS {
                 if f.starts_with(needle) {
@@ -184,7 +184,7 @@ impl CompletionEngine {
             }
         }
 
-        // unzstd flags (pure-Rust decompression)
+        // unzstd flags (Pure Rust decompression)
         if trimmed.starts_with("unzstd ") {
             let after = trimmed.strip_prefix("unzstd ").unwrap_or("");
             let needle = after.trim_start();
@@ -200,6 +200,419 @@ impl CompletionEngine {
                         description: Some("unzstd flag".to_string()),
                         score: self.calculate_score(needle, f),
                     });
+                }
+            }
+        }
+
+        // tar flags (including --zstd Pure Rust store-mode support)
+        if trimmed.starts_with("tar ") {
+            let after = trimmed.strip_prefix("tar ").unwrap_or("");
+            let needle = after.trim_start();
+            const TAR_FLAGS: &[&str] = &[
+                "-c", "--create",
+                "-x", "--extract",
+                "-t", "--list",
+                "-r", "--append",
+                "-u", "--update",
+                "-d", "--diff", "--compare",
+                "-f", "--file",
+                "-z", "--gzip",
+                "-j", "--bzip2",
+                "-J", "--xz",
+                "--zstd",
+                "-v", "--verbose",
+                "-C", "--directory",
+                "-p", "--preserve-permissions",
+                "--no-same-permissions",
+                "--overwrite",
+                "--verify", "-W",
+                "--strip-components=",
+                "--exclude=",
+                "--owner=",
+                "--group=",
+                "--numeric-owner",
+                "--mtime=",
+            ];
+            for f in TAR_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("tar flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
+                }
+            }
+        }
+
+        // cp flags
+        if trimmed.starts_with("cp ") {
+            let after = trimmed.strip_prefix("cp ").unwrap_or("");
+            let needle = after.trim_start();
+            const CP_FLAGS: &[&str] = &[
+                "-r", "-R", "--recursive",
+                "-a", "--archive",
+                "-v", "--verbose",
+                "-f", "--force",
+                "-n", "--no-clobber",
+                "-i", "--interactive",
+                "-p", "--preserve",
+                "-t", "--target-directory",
+                "-T", "--no-target-directory",
+            ];
+            for f in CP_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("cp flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
+                }
+            }
+        }
+
+        // mv flags
+        if trimmed.starts_with("mv ") {
+            let after = trimmed.strip_prefix("mv ").unwrap_or("");
+            let needle = after.trim_start();
+            const MV_FLAGS: &[&str] = &[
+                "-f", "--force",
+                "-i", "--interactive",
+                "-n", "--no-clobber",
+                "-v", "--verbose",
+                "-t", "--target-directory",
+                "-T", "--no-target-directory",
+            ];
+            for f in MV_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("mv flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
+                }
+            }
+        }
+
+        // rm flags
+        if trimmed.starts_with("rm ") {
+            let after = trimmed.strip_prefix("rm ").unwrap_or("");
+            let needle = after.trim_start();
+            const RM_FLAGS: &[&str] = &[
+                "-r", "-R", "--recursive",
+                "-f", "--force",
+                "-v", "--verbose",
+                "-d", "--dir",
+                "-i", "--interactive",
+                "--one-file-system",
+                "--preserve-root",
+                "--no-preserve-root",
+            ];
+            for f in RM_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("rm flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
+                }
+            }
+        }
+
+        // 7z flags/subcommands (delegated to external 7z)
+        if trimmed.starts_with("7z ") {
+            let after = trimmed.strip_prefix("7z ").unwrap_or("");
+            let needle = after.trim_start();
+            const SEVENZ_SUBCMDS: &[&str] = &["a", "x", "l", "t"]; // add, extract, list, test
+            const SEVENZ_FLAGS: &[&str] = &[
+                "-o", "-p", "-r", "-y", "-bb3", "-bb0", "-bd",
+            ];
+            for s in SEVENZ_SUBCMDS {
+                if s.starts_with(needle) {
+                    out.push(Completion {
+                        text: s.to_string(),
+                        display: s.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("7z subcommand".to_string()),
+                        score: self.calculate_score(needle, s),
+                    });
+                }
+            }
+            for f in SEVENZ_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("7z flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
+                }
+            }
+        }
+
+        // zip flags
+        if trimmed.starts_with("zip ") {
+            let after = trimmed.strip_prefix("zip ").unwrap_or("");
+            let needle = after.trim_start();
+            const ZIP_FLAGS: &[&str] = &[
+                "-r", "-q", "-v", "-0", "-1", "-5", "-9",
+            ];
+            for f in ZIP_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("zip flag".to_string()), score: self.calculate_score(needle, f) });
+                }
+            }
+        }
+
+        // grep flags (GNU subset implemented)
+        if trimmed.starts_with("grep ") {
+            let after = trimmed.strip_prefix("grep ").unwrap_or("");
+            let needle = after.trim_start();
+            const GREP_FLAGS: &[&str] = &[
+                "-E", "--extended-regexp",
+                "-F", "--fixed-strings",
+                "-G", "--basic-regexp",
+                "-P", "--perl-regexp",
+                "-e", "--regexp",
+                "-f", "--file",
+                "-i", "--ignore-case",
+                "-v", "--invert-match",
+                "-w", "--word-regexp",
+                "-x", "--line-regexp",
+                "-c", "--count",
+                "-l", "--files-with-matches",
+                "-L", "--files-without-match",
+                "-m", "--max-count",
+                "-n", "--line-number",
+                "-H", "--with-filename",
+                "-h", "--no-filename",
+                "-o", "--only-matching",
+                "-q", "--quiet",
+                "-s", "--no-messages",
+                "-r", "--recursive",
+                "-R", "--dereference-recursive",
+                "-A", "--after-context",
+                "-B", "--before-context",
+                "-C", "--context",
+                "-a", "--text",
+                "-I",
+                "-z", "--null-data",
+                "-Z", "--null",
+                "--color", "--color=always", "--color=never", "--color=auto",
+                "--include=",
+                "--exclude=",
+                "--exclude-dir=",
+                "--help", "--version",
+            ];
+            for f in GREP_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("grep flag".to_string()), score: self.calculate_score(needle, f) });
+                }
+            }
+        }
+
+        // sed flags (common subset)
+        if trimmed.starts_with("sed ") {
+            let after = trimmed.strip_prefix("sed ").unwrap_or("");
+            let needle = after.trim_start();
+            const SED_FLAGS: &[&str] = &[
+                "-n", "--quiet", "--silent",
+                "-e", "--expression",
+                "-f", "--file",
+                "-i", "--in-place",
+                "-r", "-E", "--regexp-extended",
+                "-s", "--separate",
+                "-u", "--unbuffered",
+                "--posix",
+                "--help", "--version",
+            ];
+            for f in SED_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("sed flag".to_string()), score: self.calculate_score(needle, f) });
+                }
+            }
+        }
+
+        // awk flags (implemented subset)
+        if trimmed.starts_with("awk ") {
+            let after = trimmed.strip_prefix("awk ").unwrap_or("");
+            let needle = after.trim_start();
+            const AWK_FLAGS: &[&str] = &[
+                "-F", "--field-separator",
+                "-f", "--file",
+                "-v", "--assign",
+                "--help",
+            ];
+            for f in AWK_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("awk flag".to_string()), score: self.calculate_score(needle, f) });
+                }
+            }
+        }
+
+        // unzip flags
+        if trimmed.starts_with("unzip ") {
+            let after = trimmed.strip_prefix("unzip ").unwrap_or("");
+            let needle = after.trim_start();
+            const UNZIP_FLAGS: &[&str] = &[
+                "-d", "-l", "-o", "-n", "-q", "-v", "-P",
+            ];
+            for f in UNZIP_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("unzip flag".to_string()), score: self.calculate_score(needle, f) });
+                }
+            }
+        }
+
+        // gzip flags
+        if trimmed.starts_with("gzip ") {
+            let after = trimmed.strip_prefix("gzip ").unwrap_or("");
+            let needle = after.trim_start();
+            const GZIP_FLAGS: &[&str] = &[
+                "-d", "-k", "-c", "-f", "-t", "-q", "-v", "-1", "-5", "-9",
+            ];
+            for f in GZIP_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("gzip flag".to_string()), score: self.calculate_score(needle, f) });
+                }
+            }
+        }
+
+        // gunzip flags
+        if trimmed.starts_with("gunzip ") {
+            let after = trimmed.strip_prefix("gunzip ").unwrap_or("");
+            let needle = after.trim_start();
+            const GUNZIP_FLAGS: &[&str] = &[
+                "-k", "-c", "-f", "-t", "-q", "-v",
+            ];
+            for f in GUNZIP_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("gunzip flag".to_string()), score: self.calculate_score(needle, f) });
+                }
+            }
+        }
+
+        // xz flags
+        if trimmed.starts_with("xz ") {
+            let after = trimmed.strip_prefix("xz ").unwrap_or("");
+            let needle = after.trim_start();
+            const XZ_FLAGS: &[&str] = &[
+                "-d", "-k", "-c", "-f", "-T", "-q", "-v", "-0", "-5", "-9",
+            ];
+            for f in XZ_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("xz flag".to_string()), score: self.calculate_score(needle, f) });
+                }
+            }
+        }
+
+        // unxz flags
+        if trimmed.starts_with("unxz ") {
+            let after = trimmed.strip_prefix("unxz ").unwrap_or("");
+            let needle = after.trim_start();
+            const UNXZ_FLAGS: &[&str] = &[
+                "-k", "-c", "-f", "-t", "-q", "-v",
+            ];
+            for f in UNXZ_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("unxz flag".to_string()), score: self.calculate_score(needle, f) });
+                }
+            }
+        }
+
+        // bzip2 flags
+        if trimmed.starts_with("bzip2 ") {
+            let after = trimmed.strip_prefix("bzip2 ").unwrap_or("");
+            let needle = after.trim_start();
+            const BZIP2_FLAGS: &[&str] = &[
+                "-d", "-k", "-c", "-f", "-q", "-v", "-1", "-5", "-9",
+            ];
+            for f in BZIP2_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("bzip2 flag".to_string()), score: self.calculate_score(needle, f) });
+                }
+            }
+        }
+
+        // bunzip2 flags
+        if trimmed.starts_with("bunzip2 ") {
+            let after = trimmed.strip_prefix("bunzip2 ").unwrap_or("");
+            let needle = after.trim_start();
+            const BUNZIP2_FLAGS: &[&str] = &[
+                "-k", "-c", "-f", "-t", "-q", "-v",
+            ];
+            for f in BUNZIP2_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("bunzip2 flag".to_string()), score: self.calculate_score(needle, f) });
+                }
+            }
+        }
+
+        // chmod fallback/system flags (suggest common forms)
+        if trimmed.starts_with("chmod ") {
+            let after = trimmed.strip_prefix("chmod ").unwrap_or("");
+            let needle = after.trim_start();
+            const CHMOD_FLAGS: &[&str] = &[
+                "-R", "--recursive",
+                "-v", "--verbose",
+                "-c", "--changes",
+                "--reference=",
+                // numeric mode patterns are free-form; we still offer a hint
+                "644", "755", "600", "700",
+            ];
+            for f in CHMOD_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("chmod flag/mode".to_string()), score: self.calculate_score(needle, f) });
+                }
+            }
+        }
+
+        // chown flags (common)
+        if trimmed.starts_with("chown ") {
+            let after = trimmed.strip_prefix("chown ").unwrap_or("");
+            let needle = after.trim_start();
+            const CHOWN_FLAGS: &[&str] = &[
+                "-R", "--recursive",
+                "-v", "--verbose",
+                "-c", "--changes",
+                "--reference=",
+                "--from=",
+                "--preserve-root",
+                "--no-preserve-root",
+            ];
+            for f in CHOWN_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("chown flag".to_string()), score: self.calculate_score(needle, f) });
+                }
+            }
+        }
+
+        // find flags (supported subset reflected from builtins)
+        if trimmed.starts_with("find ") {
+            let after = trimmed.strip_prefix("find ").unwrap_or("");
+            let needle = after.trim_start();
+            const FIND_FLAGS: &[&str] = &[
+                "-maxdepth", "-mindepth", "-follow", "-L", "-xdev",
+                "-progress", "-parallel", "-icase", "-stats",
+                "-name", "-iname", "-path", "-ipath",
+                "-type", "-size", "-mtime", "-mmin", "-atime", "-amin", "-ctime", "-cmin",
+                "-perm", "-user", "-group",
+                "-regex", "-iregex",
+                "-print", "-print0", "-delete",
+                "-exec", "-execdir", "-ok", "-okdir",
+                "-and", "-a", "-or", "-o", "-not", "!",
+            ];
+            for f in FIND_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("find expression/flag".to_string()), score: self.calculate_score(needle, f) });
                 }
             }
         }
@@ -746,6 +1159,89 @@ mod tests {
         let contains_score = engine.calculate_score("s", "ls");
         assert!(contains_score > 0.0);
         assert!(contains_score < prefix_score);
+    }
+
+    #[test]
+    fn test_grep_flag_completion_contains_ignore_case() {
+        let engine = CompletionEngine::new();
+        let context = CompletionContext {
+            completion_type: CompletionType::Command,
+            working_dir: std::env::current_dir().unwrap(),
+            command_line: "grep -".to_string(),
+            cursor_position: 6,
+        };
+
+        let completions = engine.get_completions("", &context).unwrap();
+        assert!(completions.iter().any(|c| c.text == "-i"), "expected -i to be suggested");
+    }
+
+    #[test]
+    fn test_find_flag_completion_includes_maxdepth() {
+        let engine = CompletionEngine::new();
+        let context = CompletionContext {
+            completion_type: CompletionType::Command,
+            working_dir: std::env::current_dir().unwrap(),
+            command_line: "find -m".to_string(),
+            cursor_position: 7,
+        };
+
+        let completions = engine.get_completions("", &context).unwrap();
+        assert!(completions.iter().any(|c| c.text == "-maxdepth"), "expected -maxdepth to be suggested");
+    }
+
+    #[test]
+    fn test_tar_flag_completion_includes_strip_components() {
+        let engine = CompletionEngine::new();
+        let context = CompletionContext {
+            completion_type: CompletionType::Command,
+            working_dir: std::env::current_dir().unwrap(),
+            command_line: "tar --st".to_string(),
+            cursor_position: 9,
+        };
+
+        let completions = engine.get_completions("", &context).unwrap();
+        assert!(completions.iter().any(|c| c.text == "--strip-components="), "expected --strip-components= to be suggested");
+    }
+
+    #[test]
+    fn test_cp_flag_completion_includes_recursive() {
+        let engine = CompletionEngine::new();
+        let context = CompletionContext {
+            completion_type: CompletionType::Command,
+            working_dir: std::env::current_dir().unwrap(),
+            command_line: "cp -".to_string(),
+            cursor_position: 4,
+        };
+
+        let completions = engine.get_completions("", &context).unwrap();
+        assert!(completions.iter().any(|c| c.text == "-r"), "expected -r to be suggested");
+    }
+
+    #[test]
+    fn test_tar_completion_includes_owner_and_mtime() {
+        let engine = CompletionEngine::new();
+        let context = CompletionContext {
+            completion_type: CompletionType::Command,
+            working_dir: std::env::current_dir().unwrap(),
+            command_line: "tar --".to_string(),
+            cursor_position: 6,
+        };
+        let completions = engine.get_completions("", &context).unwrap();
+        assert!(completions.iter().any(|c| c.text == "--owner="));
+        assert!(completions.iter().any(|c| c.text == "--mtime="));
+    }
+
+    #[test]
+    fn test_find_completion_includes_delete() {
+        let engine = CompletionEngine::new();
+        let context = CompletionContext {
+            completion_type: CompletionType::Command,
+            working_dir: std::env::current_dir().unwrap(),
+            command_line: "find -".to_string(),
+            cursor_position: 6,
+        };
+        let completions = engine.get_completions("", &context).unwrap();
+        assert!(completions.iter().any(|c| c.text == "-delete"));
     }
 
     #[test]
