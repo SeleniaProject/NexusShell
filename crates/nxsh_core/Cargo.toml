@@ -180,3 +180,7 @@ harness = false
 [[bench]]
 name = "io_performance"
 harness = false
+
+[[bench]]
+name = "jit_vs_interp"
+harness = false
