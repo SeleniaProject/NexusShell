@@ -24,20 +24,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Collect implemented builtin names
     let implemented: BTreeSet<String> = names.into_iter().map(|s| s.to_string()).collect();
 
-    // Parse docs/COMMANDS.md for declared commands (very naive: lines starting with | name |)
-    let mut declared = BTreeSet::new();
-    if let Ok(spec) = fs::read_to_string(manifest.join("docs").join("COMMANDS.md")) {
-        for line in spec.lines() {
-            if let Some(stripped) = line.strip_prefix("| ") { // table row
+    // Helper to parse command names from a Markdown table file (first cell in rows)
+    fn parse_commands_from_md(path: &PathBuf) -> io::Result<BTreeSet<String>> {
+        let mut set = BTreeSet::new();
+        let text = fs::read_to_string(path)?;
+        for line in text.lines() {
+            if let Some(stripped) = line.strip_prefix("| ") {
                 if let Some(rest) = stripped.split('|').next() {
                     let candidate = rest.trim();
-                    if !candidate.is_empty() && candidate.chars().all(|c| c.is_ascii_alphanumeric() || [ '-', '_'].contains(&c)) {
-                        declared.insert(candidate.to_string());
+                    if !candidate.is_empty()
+                        && candidate.chars().all(|c| c.is_ascii_alphanumeric() || ['-', '_'].contains(&c))
+                    {
+                        set.insert(candidate.to_string());
                     }
                 }
             }
         }
+        Ok(set)
     }
+
+    // Parse docs and spec command catalogs
+    let docs_cmds = parse_commands_from_md(&manifest.join("docs").join("COMMANDS.md")).unwrap_or_default();
+    let spec_cmds = parse_commands_from_md(&manifest.join("spec").join("COMMANDS.md")).unwrap_or_default();
+    let declared: BTreeSet<String> = docs_cmds.union(&spec_cmds).cloned().collect();
 
     // Generate enhanced markdown with statistics
     let total_declared = declared.len();
@@ -70,38 +79,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::write(&out, &md)?;
     println!("Generated {} with coverage {:.1}%", out.display(), coverage_percent as f64);
 
+    // Prepare unified diff/report and checks
+    let mut any_issue = false;
+    let mut report = String::from("# COMMAND_STATUS DIFF\n");
+
+    // Check docs <-> spec consistency
+    let mut docs_only: Vec<String> = docs_cmds.difference(&spec_cmds).cloned().collect();
+    let mut spec_only: Vec<String> = spec_cmds.difference(&docs_cmds).cloned().collect();
+    if !docs_only.is_empty() || !spec_only.is_empty() {
+        any_issue = true;
+        docs_only.sort(); spec_only.sort();
+        report.push_str("\n## Docs vs Spec Mismatch\n");
+        if !docs_only.is_empty() {
+            report.push_str("\n### Present only in docs/COMMANDS.md\n");
+            for n in docs_only { report.push_str(&format!("+ `{}`\n", n)); }
+        }
+        if !spec_only.is_empty() {
+            report.push_str("\n### Present only in spec/COMMANDS.md\n");
+            for n in spec_only { report.push_str(&format!("- `{}`\n", n)); }
+        }
+    }
+
     // Diff with existing COMMAND_STATUS.md if present
     let existing = manifest.join("COMMAND_STATUS.md");
     if existing.exists() {
         let old = fs::read_to_string(&existing)?;
         if old != md {
-            let diff_path = manifest.join("COMMAND_STATUS.diff.md");
+            any_issue = true;
             // Very naive line-based diff (added/removed)
             let old_set: BTreeSet<&str> = old.lines().collect();
             let new_set: BTreeSet<&str> = md.lines().collect();
-            let mut diff = String::from("# COMMAND_STATUS DIFF\n\n## Added\n");
-            for l in new_set.difference(&old_set) { if l.starts_with("| `") { diff.push_str("+ "); diff.push_str(l); diff.push('\n'); } }
-            diff.push_str("\n## Removed\n");
-            for l in old_set.difference(&new_set) { if l.starts_with("| `") { diff.push_str("- "); diff.push_str(l); diff.push('\n'); } }
-            fs::write(&diff_path, diff)?;
-            
-            if update_mode {
-                // Update mode: write the new content and continue
-                fs::write(&existing, &md)?;
-                println!("Updated COMMAND_STATUS.md with new content");
-            } else {
-                // Check mode: report differences and exit with error code for CI
-                eprintln!("Command status changed. See {}", diff_path.display());
-                eprintln!("Run with --update flag to apply changes automatically");
-                std::process::exit(4); // Non-zero to signal CI
-            }
-        } else {
-            println!("COMMAND_STATUS.md is up to date");
+            report.push_str("\n## Status Table Changes\n\n### Added\n");
+            for l in new_set.difference(&old_set) { if l.starts_with("| `") { report.push_str("+ "); report.push_str(l); report.push('\n'); } }
+            report.push_str("\n### Removed\n");
+            for l in old_set.difference(&new_set) { if l.starts_with("| `") { report.push_str("- "); report.push_str(l); report.push('\n'); } }
         }
-    } else if update_mode {
-        // Create new COMMAND_STATUS.md in update mode
-        fs::write(&existing, &md)?;
-        println!("Created new COMMAND_STATUS.md");
+    } else {
+        // Missing status file is an issue in check mode
+        any_issue = true;
+        report.push_str("\n## Missing File\n\n`COMMAND_STATUS.md` not found. Run generator with `--update` to create it.\n");
+    }
+
+    // Write report and decide action
+    if any_issue {
+        let diff_path = manifest.join("COMMAND_STATUS.diff.md");
+        fs::write(&diff_path, &report)?;
+        if update_mode {
+            // Update or create COMMAND_STATUS.md content
+            fs::write(&existing, &md)?;
+            println!("Updated/Created COMMAND_STATUS.md (see diff for details)");
+        } else {
+            eprintln!("Found documentation/status inconsistencies. See {}", diff_path.display());
+            eprintln!("Run with --update flag to apply status table changes where possible");
+            std::process::exit(4);
+        }
+    } else {
+        println!("Documentation and status are consistent");
     }
     Ok(())
 }
