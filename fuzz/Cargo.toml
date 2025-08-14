@@ -1,0 +1,21 @@
+[package]
+name = "nxsh_fuzz"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
+ruzstd = "0.5"
+nxsh_parser = { path = "../crates/nxsh_parser" }
+
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = true
+
+
