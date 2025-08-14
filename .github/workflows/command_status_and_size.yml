@@ -14,12 +14,15 @@ jobs:
       - name: Generate command status
         run: |
           rustc --edition 2021 scripts/gen_command_status.rs -o gen_cmd_status
-          ./gen_cmd_status || true
-          if [ -f COMMAND_STATUS.diff.md ]; then
-            echo 'Command status diff detected:'
-            cat COMMAND_STATUS.diff.md
-            exit 4
-          fi
+          # Check mode: fail on inconsistencies (status diff or docs/spec mismatch)
+          ./gen_cmd_status
+      - name: Upload command status diff (if present)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: command-status-diff
+          path: |
+            COMMAND_STATUS.diff.md
   busybox-size:
     runs-on: ubuntu-latest
     env:
