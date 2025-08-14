@@ -2,6 +2,7 @@
 use std::time::Instant;
 use std::io::Write;
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 // BusyBox モード設計方針:
 // 1. --busybox フラグ、または 環境変数 NXSH_BUSYBOX=1、あるいは 実行ファイル名が nxsh-busybox か
 //    既存 builtin 名の場合に BusyBox 互換軽量起動パスへ分岐。
@@ -102,7 +103,7 @@ fn print_busybox_help() {
 /// Fast help display without clap overhead
 fn print_fast_help() {
     use std::io::{self, Write};
-    let _ = writeln!(io::stdout(), "NexusShell v0.1.0-dev - High-performance command line interface");
+    let _ = writeln!(io::stdout(), "NexusShell {VERSION} - High-performance command line interface");
     let _ = writeln!(io::stdout());
     let _ = writeln!(io::stdout(), "USAGE:");
     let _ = writeln!(io::stdout(), "    nxsh [OPTIONS] [COMMAND]");
@@ -172,7 +173,7 @@ async fn main() -> anyhow::Result<()> {
     if args.len() >= 2 {
         match args[1].as_str() {
             "--version" | "-V" => {
-                println!("NexusShell v0.1.0-dev");
+                println!("NexusShell {VERSION}");
                 return Ok(());
             }
             "--help" | "-h" => {
@@ -182,10 +183,10 @@ async fn main() -> anyhow::Result<()> {
             "--fast-boot" => {
                 let elapsed = start_time.elapsed().as_nanos();
                 if elapsed < 1000000 { // < 1ms
-                    print!("NexusShell v0.1.0-dev\nStarted in {elapsed}ns\nλ ");
+                    print!("NexusShell {VERSION}\nStarted in {elapsed}ns\nλ ");
                 } else {
                     let micros = elapsed / 1000;
-                    print!("NexusShell v0.1.0-dev\nStarted in {micros}μs\nλ ");
+                    print!("NexusShell {VERSION}\nStarted in {micros}μs\nλ ");
                 }
                 std::io::stdout().flush()?;
                 return Ok(());
@@ -314,7 +315,7 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() >= 2 {
         match args[1].as_str() {
-            "--version" | "-V" => { println!("NexusShell v0.1.0-dev"); return Ok(()); }
+            "--version" | "-V" => { println!("NexusShell"); return Ok(()); }
             "--help" | "-h" => { print_fast_help(); return Ok(()); }
             "--busybox" => { return run_busybox_mode(); }
             _ => {}

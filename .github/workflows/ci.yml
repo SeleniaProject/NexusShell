@@ -124,6 +124,25 @@ jobs:
         run: scripts/compile_po_to_mo.sh
 
   theme-validate:
+  size-gate:
+    name: Size gate (busybox-min)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run size report (threshold)
+        shell: pwsh
+        run: |
+          $env:NXSH_SIZE_MAX = "1572864"
+          ./scripts/size_report.ps1 -Profile release-small -Variant busybox-min -OutJson size_report_local.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload size report
+        uses: actions/upload-artifact@v4
+        with:
+          name: size-report
+          path: size_report_local.json
     name: Theme validation (python)
     runs-on: ubuntu-latest
     steps:
