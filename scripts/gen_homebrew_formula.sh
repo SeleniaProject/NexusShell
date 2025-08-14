@@ -16,7 +16,7 @@ class Nexusshell < Formula
   version "${VERSION}"
   url "https://github.com/SeleniaProject/NexusShell/releases/download/${VERSION}/${ARTIFACT}"
   sha256 "${SHA256}"
-  license "Proprietary"
+  license any_of: ["MIT", "Apache-2.0"]
 
   def install
     bin.install "nxsh"
