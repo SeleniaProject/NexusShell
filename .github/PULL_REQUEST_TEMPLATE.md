@@ -1,3 +1,25 @@
+## Summary
+
+Describe the change concisely.
+
+## Changes
+
+- What was changed and why
+- Breaking changes (if any)
+
+## Testing
+
+- How you tested this change (commands, platforms)
+- CI status should be green
+
+## Checklist
+
+- [ ] Code builds locally: `cargo check --workspace --all-features`
+- [ ] Tests pass: `cargo test --workspace --all-features`
+- [ ] Format: `cargo fmt --all -- --check`
+- [ ] Clippy review where relevant
+- [ ] Docs/README updated if needed
+- [ ] No secrets or credentials in changes
 ## 概要
 - 目的 / 背景:
 
