@@ -47,6 +47,9 @@ jobs:
       - name: Cargo test (all features)
         run: cargo test --workspace --all-features --no-fail-fast
 
+      - name: Cargo build release (all features)
+        run: cargo build --workspace --all-features --release
+
   clippy:
     name: Clippy (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -78,6 +81,32 @@ jobs:
 
       - name: Run clippy (diagnostics only)
         run: cargo clippy --workspace --all-features -- -A clippy::all
+
+  fmt:
+    name: Format check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust toolchain (with rustfmt)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  deny:
+    name: Cargo Deny (dependency audit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Cargo Deny
+        uses: EmbarkStudios/cargo-deny-action@v1
 name: NexusShell CI
 
 on:
