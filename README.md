@@ -480,4 +480,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - gzip: 圧縮/解凍（flate2 rust_backend）
 - xz: 圧縮/解凍（lzma-rs）
 - bzip2: 解凍のみ（bzip2-rs）
-- zstd: 解凍のみ（ruzstd）
+- zstd: 解凍（ruzstd）/ 圧縮（Pure Rust ストアモード: RAW ブロックのフレーム生成）
