@@ -88,7 +88,7 @@ async fn fsck_apply_free_clusters_commits_on_shadow() {
     // Allocate clusters by writing a file using fatfs
     {
         use fscommon::BufStream;
-        use fatfs::{FormatVolumeOptions, FileSystem, FsOptions};
+        use fatfs::{FileSystem, FsOptions};
         let f = std::fs::OpenOptions::new().read(true).write(true).open(&img_path).unwrap();
         let buf = BufStream::new(f);
         let fs = FileSystem::new(buf, FsOptions::new()).unwrap();

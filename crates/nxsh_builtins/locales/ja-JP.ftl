@@ -273,3 +273,14 @@ cron.log.modified_job = ジョブを更新しました: { $job_id } ({ $name })
 cron.log.enabled_job = ジョブを有効化しました: { $job_id } ({ $name })
 cron.log.disabled_job = ジョブを無効化しました: { $job_id } ({ $name })
 cron.log.manual_executed = 手動実行を開始しました: { $job_id } ({ $name })
+
+# timedatectl コマンド
+timedatectl.help.title = timedatectl: 時刻と日付の管理
+timedatectl.help.usage = 使い方:
+timedatectl.help.commands = コマンド一覧:
+timedatectl.help.options = オプション:
+timedatectl.help.time_formats = 受け付ける時刻フォーマット:
+timedatectl.help.examples = 例:
+timedatectl.help.timesync_options = timesync-status のオプション:
+timedatectl.help.timesync_json_option =   -J, --json            ステータスと要約をJSONで出力
+timedatectl.help.global_json_option =   グローバル: 一部のコマンドは -J/--json でJSON出力に対応

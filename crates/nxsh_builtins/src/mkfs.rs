@@ -1,6 +1,6 @@
 //! `mkfs` builtin  Eformat a block device or file image with a filesystem.
 //!
-//! Current implementation supports **FAT32** creation using the `fatfs` crate.
+//! Current implementation supports **FAT12/FAT16/FAT32** creation using the `fatfs` crate.
 //! Syntax:
 //!     mkfs -t fat32 DEVICE [--label LABEL]
 //!
@@ -65,14 +65,26 @@ pub async fn mkfs_cli(args: &[String]) -> Result<()> {
     { let _ = &label; let _ = &device; }
 
     match fstype.to_lowercase().as_str() {
+        "fat12" => {
+            #[cfg(unix)]
+            format_fat(&device, label.as_deref().unwrap_or("NXSH"), FatType::Fat12)?;
+            #[cfg(not(unix))]
+            println!("mkfs: FAT formatting unsupported on this platform");
+        }
+        "fat16" => {
+            #[cfg(unix)]
+            format_fat(&device, label.as_deref().unwrap_or("NXSH"), FatType::Fat16)?;
+            #[cfg(not(unix))]
+            println!("mkfs: FAT formatting unsupported on this platform");
+        }
         "fat" | "fat32" | "vfat" => {
             #[cfg(unix)]
-            format_fat32(&device, label.as_deref().unwrap_or("NXSH"))?;
+            format_fat(&device, label.as_deref().unwrap_or("NXSH"), FatType::Fat32)?;
             #[cfg(not(unix))]
             println!("mkfs: FAT formatting unsupported on this platform");
         }
         other => {
-            return Err(anyhow!("mkfs: unsupported filesystem type '{}'. Only fat32 is currently implemented.", other));
+            return Err(anyhow!("mkfs: unsupported filesystem type '{}' (supported: fat12, fat16, fat32).", other));
         }
     }
 
@@ -80,7 +92,7 @@ pub async fn mkfs_cli(args: &[String]) -> Result<()> {
 }
 
 #[cfg(unix)]
-fn format_fat32(dev: &str, label: &str) -> Result<()> {
+fn format_fat(dev: &str, label: &str, kind: FatType) -> Result<()> {
     use std::io::Seek;
 
     let f = OpenOptions::new().read(true).write(true).open(Path::new(dev))?;
@@ -93,7 +105,7 @@ fn format_fat32(dev: &str, label: &str) -> Result<()> {
     label_bytes[..copy_len].copy_from_slice(&label_slice[..copy_len]);
 
     let opts = FormatVolumeOptions::new()
-        .fat_type(FatType::Fat32)
+        .fat_type(kind)
         .volume_label(label_bytes);
 
     format_volume(&mut stream, opts)
@@ -101,7 +113,7 @@ fn format_fat32(dev: &str, label: &str) -> Result<()> {
 
     // flush underlying file
     stream.flush()?;
-    println!("mkfs: formatted {} as FAT32 (label = {})", dev, label);
+    println!("mkfs: formatted {} as {:?} (label = {})", dev, kind, label);
     Ok(())
 }
 

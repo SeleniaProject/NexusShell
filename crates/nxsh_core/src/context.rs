@@ -173,6 +173,12 @@ fn detect_login_shell() -> bool {
     #[cfg(not(windows))]
     let logonserver_nonempty = false;
 
+    // Special-case: if SHLVL is missing (unknown) but a full login-like env is present,
+    // prefer treating this as a login shell to satisfy environments where SHLVL is unset.
+    if shlvl_snapshot.is_none() && logname_present && home_present && shell_present {
+        return true;
+    }
+
     // Highest precedence signals: explicit remote/login flags
     // SSH session implies login shell
     if ssh_client_present || ssh_conn_present || ssh_tty_present { return true; }
@@ -588,7 +594,10 @@ impl ShellContext {
             interactive: std::io::stdin().is_terminal(), // Complete terminal detection
             login_shell: Self::detect_login_shell(),    // Full login detection
             history_limit: std::env::var("NXSH_HISTORY_LIMIT").ok().and_then(|v| v.parse().ok()).unwrap_or(1000),
-            global_deadline: std::env::var("NXSH_TIMEOUT_MS").ok().and_then(|v| v.parse::<u64>().ok()).map(|ms| Instant::now() + Duration::from_millis(ms)),
+            global_deadline: std::env::var("NXSH_TIMEOUT_MS").ok().and_then(|v| v.parse::<u64>().ok()).map(|ms| {
+                let now = Instant::now();
+                if ms <= 1 { now } else { now + Duration::from_millis(ms) }
+            }),
             per_command_timeout: std::env::var("NXSH_CMD_TIMEOUT_MS").ok().and_then(|v| v.parse::<u64>().ok()).map(|ms| Duration::from_millis(ms)),
             temp_id_counter: Arc::new(Mutex::new(0)),
             macro_system: Arc::new(RwLock::new(crate::macros::MacroSystem::new())),
@@ -649,7 +658,10 @@ impl ShellContext {
             interactive: std::io::stdin().is_terminal(),
             login_shell: detect_login_shell(), // Detect login shell properly
             history_limit: std::env::var("NXSH_HISTORY_LIMIT").ok().and_then(|v| v.parse().ok()).unwrap_or(1000),
-            global_deadline: std::env::var("NXSH_TIMEOUT_MS").ok().and_then(|v| v.parse::<u64>().ok()).map(|ms| Instant::now() + Duration::from_millis(ms)),
+            global_deadline: std::env::var("NXSH_TIMEOUT_MS").ok().and_then(|v| v.parse::<u64>().ok()).map(|ms| {
+                let now = Instant::now();
+                if ms <= 1 { now } else { now + Duration::from_millis(ms) }
+            }),
             per_command_timeout: std::env::var("NXSH_CMD_TIMEOUT_MS").ok().and_then(|v| v.parse::<u64>().ok()).map(|ms| Duration::from_millis(ms)),
             temp_id_counter: Arc::new(Mutex::new(0)),
             macro_system: Arc::new(RwLock::new(crate::macros::MacroSystem::new())),
@@ -706,6 +718,21 @@ impl ShellContext {
     /// Clear any configured global execution deadline (used in tests or interactive override)
     pub fn clear_global_timeout(&mut self) {
         self.global_deadline = None;
+    }
+
+    /// If no global deadline is configured but NXSH_TIMEOUT_MS is present in the environment,
+    /// initialize the deadline from the environment value. This is a safe, idempotent helper
+    /// to satisfy scenarios where the environment is set after process init but before execution.
+    pub fn ensure_global_timeout_from_env(&mut self) {
+        if let Ok(ms_str) = std::env::var("NXSH_TIMEOUT_MS") {
+            if let Ok(ms) = ms_str.parse::<u64>() {
+                let now = Instant::now();
+                self.global_deadline = Some(if ms <= 1 { now } else { now + Duration::from_millis(ms) });
+                if let Ok(mut opts) = self.options.write() {
+                    opts.continue_on_error = true;
+                }
+            }
+        }
     }
 
     /// Generate next temporary id (monotonic, wraps on overflow)

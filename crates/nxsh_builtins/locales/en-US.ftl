@@ -273,3 +273,14 @@ cron.log.modified_job = Modified cron job: { $job_id } ({ $name })
 cron.log.enabled_job = Enabled cron job: { $job_id } ({ $name })
 cron.log.disabled_job = Disabled cron job: { $job_id } ({ $name })
 cron.log.manual_executed = Manually executed job: { $job_id } ({ $name })
+
+# timedatectl command
+timedatectl.help.title = timedatectl: Time and Date Management
+timedatectl.help.usage = Usage:
+timedatectl.help.commands = Commands:
+timedatectl.help.options = Options:
+timedatectl.help.time_formats = Accepted time formats:
+timedatectl.help.examples = Examples:
+timedatectl.help.timesync_options = Options for timesync-status:
+timedatectl.help.timesync_json_option =   -J, --json            Output status and summary as compact JSON
+timedatectl.help.global_json_option =   Global: some commands accept -J/--json for JSON output

@@ -1275,7 +1275,7 @@ pub struct TimezoneInfo {
     pub dst_transition: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TimeSyncStatus {
     pub enabled: bool,
     pub synchronized: bool,
@@ -1287,7 +1287,7 @@ pub struct TimeSyncStatus {
     pub leap_status: LeapStatus,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct TimeSyncSummary {
     total_servers: usize,
     reachable_servers: usize,
@@ -1357,7 +1357,7 @@ fn compute_timesync_summary(sync_status: &TimeSyncStatus) -> TimeSyncSummary {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct NTPServerStatus {
     pub address: String,
     pub reachable: bool,
@@ -1391,7 +1391,7 @@ pub enum LeapIndicator {
     AlarmCondition,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum LeapStatus {
     Normal,
     InsertPending,
@@ -1407,6 +1407,7 @@ pub async fn timedatectl_cli(args: &[String]) -> Result<()> {
     let mut show_help = false;
     let mut show_status = true; // Default command
     let mut show_timesync = false;
+    let mut json_output = false;
     let mut list_timezones = false;
     let mut set_time = None;
     let mut set_timezone = None;
@@ -1423,9 +1424,10 @@ pub async fn timedatectl_cli(args: &[String]) -> Result<()> {
         match args[i].as_str() {
             "--help" | "-h" => show_help = true,
             "status" => show_status = true,
-            "show" => show_status = true,
+            "show" => { show_status = true; json_output = true; },
             "timesync-status" => show_timesync = true,
-            "show-timesync" => show_timesync = true,
+            "show-timesync" => { show_timesync = true; json_output = true; },
+            "--json" | "-J" => { json_output = true; },
             "list-timezones" => list_timezones = true,
             "set-time" => {
                 i += 1;
@@ -1570,82 +1572,99 @@ pub async fn timedatectl_cli(args: &[String]) -> Result<()> {
 
     if show_timesync {
         let sync_status = manager.get_timesync_status().await?;
-        println!("Time synchronization status:");
-        println!("  Enabled: {}", sync_status.enabled);
-        println!("  Synchronized: {}", sync_status.synchronized);
-        if let Some(last_sync) = sync_status.last_sync {
-            println!("  Last sync: {}", last_sync.format("%Y-%m-%d %H:%M:%S UTC"));
-        }
-        if let Some(accuracy) = sync_status.sync_accuracy {
-            println!("  Sync accuracy: {accuracy:?}");
-        }
-        if let Some(drift) = sync_status.drift_rate {
-            println!("  Drift rate: {drift:.3} ppm");
-        }
-        println!("  Poll interval: {:?}", sync_status.poll_interval);
-        println!("  Leap status: {:?}", sync_status.leap_status);
-        
-        if !sync_status.servers.is_empty() {
-            println!("\nNTP Servers:");
-            for server in &sync_status.servers {
-                println!("  {}: {}", server.address, 
-                    if server.reachable { "reachable" } else { "unreachable" });
-                if let Some(stratum) = server.stratum {
-                    println!("    Stratum: {stratum}");
-                }
-                if let Some(delay) = server.delay {
-                    println!("    Delay: {delay:?}");
-                }
-                if let Some(offset) = server.offset {
-                    println!("    Offset: {offset:?}");
-                }
+        if json_output {
+            #[derive(Serialize)]
+            struct JsonOut<'a> {
+                status: &'a TimeSyncStatus,
+                summary: TimeSyncSummary,
             }
-        }
-
-        // Summary
-        {
             let summary = compute_timesync_summary(&sync_status);
-            println!("\nSummary:");
-            println!("  Servers (total/reachable): {}/{}", summary.total_servers, summary.reachable_servers);
-            if let Some(s) = summary.min_stratum {
-                println!("  Best stratum: {}", s);
+            let out = JsonOut { status: &sync_status, summary };
+            let s = serde_json::to_string(&out)?;
+            println!("{}", s);
+        } else {
+            println!("Time synchronization status:");
+            println!("  Enabled: {}", sync_status.enabled);
+            println!("  Synchronized: {}", sync_status.synchronized);
+            if let Some(last_sync) = sync_status.last_sync {
+                println!("  Last sync: {}", last_sync.format("%Y-%m-%d %H:%M:%S UTC"));
             }
-            if let Some(addr) = summary.best_server_address.as_deref() {
-                println!("  Preferred server: {}", addr);
+            if let Some(accuracy) = sync_status.sync_accuracy {
+                println!("  Sync accuracy: {accuracy:?}");
             }
-            if let Some(d) = summary.average_delay { println!("  Avg delay: {:?}", d); }
-            if let Some(d) = summary.min_delay { println!("  Min delay: {:?}", d); }
-            if let Some(d) = summary.max_delay { println!("  Max delay: {:?}", d); }
-            if let Some(o) = summary.average_offset { println!("  Avg offset: {:?}", o); }
-            if let Some(o) = summary.min_offset { println!("  Min offset: {:?}", o); }
-            if let Some(o) = summary.max_offset { println!("  Max offset: {:?}", o); }
-            if let Some(j) = summary.average_jitter { println!("  Avg jitter: {:?}", j); }
+            if let Some(drift) = sync_status.drift_rate {
+                println!("  Drift rate: {drift:.3} ppm");
+            }
+            println!("  Poll interval: {:?}", sync_status.poll_interval);
+            println!("  Leap status: {:?}", sync_status.leap_status);
+            
+            if !sync_status.servers.is_empty() {
+                println!("\nNTP Servers:");
+                for server in &sync_status.servers {
+                    println!("  {}: {}", server.address, 
+                        if server.reachable { "reachable" } else { "unreachable" });
+                    if let Some(stratum) = server.stratum {
+                        println!("    Stratum: {stratum}");
+                    }
+                    if let Some(delay) = server.delay {
+                        println!("    Delay: {delay:?}");
+                    }
+                    if let Some(offset) = server.offset {
+                        println!("    Offset: {offset:?}");
+                    }
+                }
+            }
+
+            // Summary
+            {
+                let summary = compute_timesync_summary(&sync_status);
+                println!("\nSummary:");
+                println!("  Servers (total/reachable): {}/{}", summary.total_servers, summary.reachable_servers);
+                if let Some(s) = summary.min_stratum {
+                    println!("  Best stratum: {}", s);
+                }
+                if let Some(addr) = summary.best_server_address.as_deref() {
+                    println!("  Preferred server: {}", addr);
+                }
+                if let Some(d) = summary.average_delay { println!("  Avg delay: {:?}", d); }
+                if let Some(d) = summary.min_delay { println!("  Min delay: {:?}", d); }
+                if let Some(d) = summary.max_delay { println!("  Max delay: {:?}", d); }
+                if let Some(o) = summary.average_offset { println!("  Avg offset: {:?}", o); }
+                if let Some(o) = summary.min_offset { println!("  Min offset: {:?}", o); }
+                if let Some(o) = summary.max_offset { println!("  Max offset: {:?}", o); }
+                if let Some(j) = summary.average_jitter { println!("  Avg jitter: {:?}", j); }
+            }
         }
         return Ok(());
     }
 
     if show_statistics {
         let stats = manager.get_statistics().await;
-        println!("Time Management Statistics:");
-        println!("  Total adjustments: {}", stats.total_adjustments);
-        println!("  Total drift correction: {:.3} ppm", stats.total_drift_correction);
-        println!("  Average sync accuracy: {:?}", stats.average_sync_accuracy);
-        println!("  Sync success rate: {:.2}%", stats.sync_success_rate * 100.0);
-        println!("  Uptime synchronized: {:?}", stats.uptime_synchronized);
-        
-        if let Some(last_adjustment) = stats.last_major_adjustment {
-            println!("  Last major adjustment: {}", last_adjustment.format("%Y-%m-%d %H:%M:%S UTC"));
-        }
+        if json_output {
+            let s = serde_json::to_string(&stats)?;
+            println!("{}", s);
+        } else {
+            println!("Time Management Statistics:");
+            println!("  Total adjustments: {}", stats.total_adjustments);
+            println!("  Total drift correction: {:.3} ppm", stats.total_drift_correction);
+            println!("  Average sync accuracy: {:?}", stats.average_sync_accuracy);
+            println!("  Sync success rate: {:.2}%", stats.sync_success_rate * 100.0);
+            println!("  Uptime synchronized: {:?}", stats.uptime_synchronized);
+            
+            if let Some(last_adjustment) = stats.last_major_adjustment {
+                println!("  Last major adjustment: {}", last_adjustment.format("%Y-%m-%d %H:%M:%S UTC"));
+            }
 
-        if !stats.server_statistics.is_empty() {
-            println!("\nServer Statistics:");
-            for (server, server_stats) in &stats.server_statistics {
-                println!("  {server}:");
-                println!("    Total queries: {}", server_stats.total_queries);
-                println!("    Success rate: {:.2}%", 
-                    server_stats.successful_queries as f64 / server_stats.total_queries as f64 * 100.0);
-                println!("    Average delay: {:?}", server_stats.average_delay);
-                println!("    Reliability score: {:.3}", server_stats.reliability_score);
+            if !stats.server_statistics.is_empty() {
+                println!("\nServer Statistics:");
+                for (server, server_stats) in &stats.server_statistics {
+                    println!("  {server}:");
+                    println!("    Total queries: {}", server_stats.total_queries);
+                    println!("    Success rate: {:.2}%", 
+                        server_stats.successful_queries as f64 / server_stats.total_queries as f64 * 100.0);
+                    println!("    Average delay: {:?}", server_stats.average_delay);
+                    println!("    Reliability score: {:.3}", server_stats.reliability_score);
+                }
             }
         }
         return Ok(());
@@ -1677,40 +1696,44 @@ pub async fn timedatectl_cli(args: &[String]) -> Result<()> {
 
     if show_status {
         let status = manager.get_status().await;
-        
-        println!("               Local time: {}", status.local_time.format("%a %Y-%m-%d %H:%M:%S %Z"));
-        println!("           Universal time: {}", status.universal_time.format("%a %Y-%m-%d %H:%M:%S UTC"));
-        
-        if let Some(rtc_time) = status.rtc_time {
-            println!("                 RTC time: {}", rtc_time.format("%a %Y-%m-%d %H:%M:%S"));
-        }
-        
-        println!("                Time zone: {} ({:+05})", 
-            status.timezone,
-            status.timezone_offset / 3600 * 100 + (status.timezone_offset % 3600) / 60
-        );
-        
-        println!("System clock synchronized: {}", 
-            if status.system_clock_synchronized { "yes" } else { "no" });
-        
-        println!("              NTP service: {:?}", status.ntp_service);
-        println!("          RTC in local TZ: {}", 
-            if status.rtc_in_local_tz { "yes" } else { "no" });
-        
-        if let Some(accuracy) = status.sync_accuracy {
-            println!("           Sync accuracy: {accuracy:?}");
-        }
-        
-        if let Some(drift) = status.drift_rate {
-            println!("            Drift rate: {drift:.3} ppm");
-        }
-        
-        if let Some(last_sync) = status.last_sync {
-            println!("            Last sync: {}", last_sync.format("%Y-%m-%d %H:%M:%S UTC"));
-        }
-        
-        if status.leap_second_pending {
-            println!("        Leap second: pending");
+        if json_output {
+            let s = serde_json::to_string(&status)?;
+            println!("{}", s);
+        } else {
+            println!("               Local time: {}", status.local_time.format("%a %Y-%m-%d %H:%M:%S %Z"));
+            println!("           Universal time: {}", status.universal_time.format("%a %Y-%m-%d %H:%M:%S UTC"));
+            
+            if let Some(rtc_time) = status.rtc_time {
+                println!("                 RTC time: {}", rtc_time.format("%a %Y-%m-%d %H:%M:%S"));
+            }
+            
+            println!("                Time zone: {} ({:+05})", 
+                status.timezone,
+                status.timezone_offset / 3600 * 100 + (status.timezone_offset % 3600) / 60
+            );
+            
+            println!("System clock synchronized: {}", 
+                if status.system_clock_synchronized { "yes" } else { "no" });
+            
+            println!("              NTP service: {:?}", status.ntp_service);
+            println!("          RTC in local TZ: {}", 
+                if status.rtc_in_local_tz { "yes" } else { "no" });
+            
+            if let Some(accuracy) = status.sync_accuracy {
+                println!("           Sync accuracy: {accuracy:?}");
+            }
+            
+            if let Some(drift) = status.drift_rate {
+                println!("            Drift rate: {drift:.3} ppm");
+            }
+            
+            if let Some(last_sync) = status.last_sync {
+                println!("            Last sync: {}", last_sync.format("%Y-%m-%d %H:%M:%S UTC"));
+            }
+            
+            if status.leap_second_pending {
+                println!("        Leap second: pending");
+            }
         }
     }
 
@@ -1762,6 +1785,32 @@ mod tests {
         // Unix timestamp
         assert!(parse_time_string("1700000000").is_ok());
     }
+
+    #[test]
+    fn test_timesync_summary_basic() {
+        let servers = vec![
+            NTPServerStatus { address: "s1".into(), reachable: true, stratum: Some(3), delay: Some(Duration::from_millis(10)), offset: Some(Duration::from_millis(5)), jitter: Some(Duration::from_millis(2)), last_sync: None },
+            NTPServerStatus { address: "s2".into(), reachable: true, stratum: Some(2), delay: Some(Duration::from_millis(8)), offset: Some(Duration::from_millis(1)), jitter: Some(Duration::from_millis(1)), last_sync: None },
+            NTPServerStatus { address: "s3".into(), reachable: false, stratum: None, delay: None, offset: None, jitter: None, last_sync: None },
+        ];
+        let status = TimeSyncStatus {
+            enabled: true,
+            synchronized: true,
+            servers,
+            last_sync: None,
+            sync_accuracy: Some(Duration::from_millis(2)),
+            drift_rate: Some(0.1),
+            poll_interval: Duration::from_secs(64),
+            leap_status: LeapStatus::Normal,
+        };
+        let summary = compute_timesync_summary(&status);
+        assert_eq!(summary.total_servers, 3);
+        assert_eq!(summary.reachable_servers, 2);
+        assert_eq!(summary.min_stratum, Some(2));
+        assert_eq!(summary.best_server_address.as_deref(), Some("s2"));
+        assert!(summary.average_delay.is_some());
+        assert!(summary.average_offset.is_some());
+    }
 }
 
 fn print_timedatectl_help(i18n: &I18n) {
@@ -1780,6 +1829,8 @@ fn print_timedatectl_help(i18n: &I18n) {
     println!("    set-ntp BOOL            Enable/disable NTP synchronization");
     println!("    timesync-status         Show detailed time synchronization status");
     println!("    show-timesync           Show timesync status in machine-readable format");
+    println!("{}", i18n.get("timedatectl.help.timesync_options", None));
+    println!("{}", i18n.get("timedatectl.help.timesync_json_option", None));
     println!("    add-ntp-server SERVER   Add NTP server");
     println!("    remove-ntp-server SERVER Remove NTP server");
     println!("    statistics              Show time management statistics");
@@ -1789,6 +1840,7 @@ fn print_timedatectl_help(i18n: &I18n) {
     println!("    -h, --help              Show this help message");
     println!("    --monitor               Monitor time synchronization status");
     println!("    --all                   Show all properties");
+    println!("{}", i18n.get("timedatectl.help.global_json_option", None));
     println!();
     println!("{}", i18n.get("timedatectl.help.time_formats", None));
     println!("    YYYY-MM-DD HH:MM:SS     Full date and time");

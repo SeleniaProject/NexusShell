@@ -49,7 +49,10 @@ impl CompletionEngine {
         }
 
         // Generate new completions
-        let completions = self.generate_completions(input, context)?;
+        let mut completions = self.generate_completions(input, context)?;
+
+        // Lightweight command-specific suggestions
+        completions.extend(self.complete_builtin_flags(&context.command_line));
         
         // Cache results
         self.cache_completions(input, context, &completions);
@@ -120,6 +123,89 @@ impl CompletionEngine {
         }
     }
 
+    /// Provide simple flag/subcommand suggestions for certain builtins based on prefix heuristics.
+    /// This is intentionally lightweight to keep completion fast and dependency-free.
+    fn complete_builtin_flags(&self, input: &str) -> Vec<Completion> {
+        let trimmed = input.trim_start();
+        // Match patterns like: "timedatectl ", "timedatectl t", etc.
+        const TDCT_SUBCMDS: &[&str] = &[
+            "status", "show", "timesync-status", "show-timesync", "statistics",
+            "add-ntp-server", "remove-ntp-server",
+        ];
+        const TDCT_FLAGS: &[&str] = &[
+            "--json", "-J", "--monitor", "-h", "--help",
+        ];
+
+        let mut out: Vec<Completion> = Vec::new();
+        if trimmed.starts_with("timedatectl ") {
+            let after = trimmed.strip_prefix("timedatectl ").unwrap_or("");
+            let needle = after.trim_start();
+            for s in TDCT_SUBCMDS {
+                if s.starts_with(needle) {
+                    out.push(Completion {
+                        text: s.to_string(),
+                        display: s.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("timedatectl subcommand".to_string()),
+                        score: self.calculate_score(needle, s),
+                    });
+                }
+            }
+            for f in TDCT_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("timedatectl flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
+                }
+            }
+        }
+
+        // zstd flags (compression via external binary; decompression via internal path)
+        if trimmed.starts_with("zstd ") {
+            let after = trimmed.strip_prefix("zstd ").unwrap_or("");
+            let needle = after.trim_start();
+            const ZSTD_FLAGS: &[&str] = &[
+                "-d", "-z", "-c", "-t", "-q", "-v", "-T", "--help", "--version",
+            ];
+            for f in ZSTD_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("zstd flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
+                }
+            }
+        }
+
+        // unzstd flags (pure-Rust decompression)
+        if trimmed.starts_with("unzstd ") {
+            let after = trimmed.strip_prefix("unzstd ").unwrap_or("");
+            let needle = after.trim_start();
+            const UNZSTD_FLAGS: &[&str] = &[
+                "-k", "--keep", "-f", "--force", "-c", "--stdout", "-t", "--test", "-q", "--quiet", "-v", "--verbose",
+            ];
+            for f in UNZSTD_FLAGS {
+                if f.starts_with(needle) {
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("unzstd flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
+                }
+            }
+        }
+        out
+    }
+
     fn complete_commands(&self, input: &str) -> Result<Vec<Completion>> {
         let mut completions = Vec::new();
         
@@ -128,6 +214,9 @@ impl CompletionEngine {
             "cd", "ls", "pwd", "echo", "cat", "grep", "find", "ps", "kill", 
             "cp", "mv", "rm", "mkdir", "rmdir", "touch", "chmod", "chown",
             "tar", "gzip", "gunzip", "curl", "wget", "git", "ssh", "scp",
+            // Extended builtins frequently used in NexusShell
+            "zstd", "unzstd", "zip", "unzip", "bzip2", "bunzip2", "xz", "unxz",
+            "timedatectl",
         ];
         
         for builtin in &builtins {

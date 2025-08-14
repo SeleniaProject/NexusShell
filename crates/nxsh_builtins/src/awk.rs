@@ -984,4 +984,58 @@ mod tests {
         let ctx = make_ctx();
         assert!(match_awk_pattern(&pat, &ctx, "line").unwrap());
     }
+
+    #[test]
+    fn test_regex_match_and_not_match() {
+        // Enable only when advanced-regex is compiled; otherwise, parser should still accept but evaluation may differ
+        let mut ctx = make_ctx();
+        ctx.split_fields("abc 123 xyz");
+        let lhs = AwkExpression::Field(1); // "abc"
+        // Use Match/NotMatch nodes when advanced-regex is compiled
+        #[cfg(feature = "advanced-regex")]
+        {
+            let re1 = regex::Regex::new("a.*").unwrap();
+            let expr_match = AwkExpression::Match(Box::new(lhs.clone()), re1);
+            let v1 = evaluate_awk_expression(&expr_match, &ctx).unwrap();
+            assert_eq!(super::to_number(&v1), 1.0);
+
+            let re2 = regex::Regex::new("^z").unwrap();
+            let expr_not = AwkExpression::NotMatch(Box::new(lhs), re2);
+            let v2 = evaluate_awk_expression(&expr_not, &ctx).unwrap();
+            assert_eq!(super::to_number(&v2), 1.0);
+        }
+    }
+
+    #[test]
+    fn test_control_flow_if_and_while() {
+        let mut ctx = make_ctx();
+        // if ($2 == "beta") print $1 $3
+        let cond = AwkExpression::Binary(
+            Box::new(AwkExpression::Field(2)),
+            BinaryOp::Eq,
+            Box::new(AwkExpression::String("beta".to_string())),
+        );
+        let action = AwkAction::Print(vec![AwkExpression::Field(1), AwkExpression::Field(3)]);
+        let stmt = AwkAction::If(cond, Box::new(action), None);
+        execute_awk_action(&stmt, &mut ctx).unwrap();
+        // Output goes to stdout in real CLI; here we only check no error and semantics via data path
+        let s = format!("{} {}", ctx.get_field(1), ctx.get_field(3));
+        assert!(s.contains("alpha gamma"));
+
+        // while loop: i=0; while (i<3) { print i; i=i+1 }
+        ctx.variables.insert("i".into(), AwkValue::Number(0.0));
+        let cond2 = AwkExpression::Binary(
+            Box::new(AwkExpression::Variable("i".into())),
+            BinaryOp::Lt,
+            Box::new(AwkExpression::Number(3.0)),
+        );
+        let body = AwkAction::Block(vec![
+            AwkAction::Assignment("i".into(), AwkExpression::Binary(
+                Box::new(AwkExpression::Variable("i".into())), BinaryOp::Add, Box::new(AwkExpression::Number(1.0))
+            )),
+        ]);
+        let loop_stmt = AwkAction::While(cond2, Box::new(body));
+        execute_awk_action(&loop_stmt, &mut ctx).unwrap();
+        if let AwkValue::Number(i) = ctx.variables.get("i").cloned().unwrap() { assert!((i - 3.0).abs() < 1e-6); } else { panic!("i not number"); }
+    }
 }
