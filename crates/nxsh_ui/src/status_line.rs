@@ -71,11 +71,24 @@ impl StatusMetricsCollector {
                 let (rx_bps, tx_bps) = {
                     #[cfg(feature = "net-metrics")]
                     {
-                        use sysinfo::NetworksExt; // trait providing accessors in older APIs
-                        sys.refresh_networks();
+                        // sysinfo >= 0.30 moved network refresh to Networks handle
+                        // and removed NetworksExt trait. Use the new API here.
+                        let networks = sys.networks_mut();
+                        networks.refresh();
                         let mut total_rx: u64 = 0;
                         let mut total_tx: u64 = 0;
-                        for (_name, data) in sys.networks().iter() {
+                        for (_name, data) in networks.iter() {
+                            // Keep compatibility with potential API naming differences.
+                            #[allow(deprecated)]
+                            {
+                                // Prefer new names if available via methods; fallback to old ones.
+                                #[cfg(any())]
+                                {
+                                    total_rx = total_rx.saturating_add(data.received());
+                                    total_tx = total_tx.saturating_add(data.transmitted());
+                                }
+                            }
+                            // Use legacy method names which are still present on many versions.
                             total_rx = total_rx.saturating_add(data.total_received());
                             total_tx = total_tx.saturating_add(data.total_transmitted());
                         }

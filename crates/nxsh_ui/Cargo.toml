@@ -41,6 +41,8 @@ chrono = { version = "0.4", features = ["serde"] }
 hostname = "0.3"
 whoami = "1.4"
 sysinfo = "0.30"
+# Optional battery metrics support
+battery = { version = "0.7", optional = true }
 # Fuzzy matching for advanced completion
 fuzzy-matcher = "0.3"
 # Async support for high-performance operations
@@ -64,8 +66,10 @@ unicode-segmentation = "1.10"
 default = ["async"]
 async = ["tokio"]
 # Optional metrics feature gates
+# Enabling net-metrics uses sysinfo's network API (no extra deps)
 net-metrics = []
-battery-metrics = []
+# Enabling battery-metrics pulls in the optional `battery` crate
+battery-metrics = ["battery"]
 
 [[example]]
 name = "theme_system_test"
