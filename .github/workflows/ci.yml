@@ -147,6 +147,11 @@ jobs:
         with:
           name: coverage-lcov
           path: coverage.lcov
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.lcov
+          fail_ci_if_error: false
 name: NexusShell CI
 
 on:
