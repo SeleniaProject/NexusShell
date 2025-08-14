@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use sysinfo::{System, CpuRefreshKind, MemoryRefreshKind};
+use sysinfo::{System, SystemExt, CpuExt, NetworkExt};
 
 /// Snapshot of status metrics for the status line.
 #[derive(Debug, Clone)]
@@ -43,8 +43,8 @@ impl StatusMetricsCollector {
         thread::spawn(move || {
             let mut sys = System::new();
             // Initial refresh to establish baseline for CPU and networks.
-            sys.refresh_cpu_specifics(CpuRefreshKind::everything());
-            sys.refresh_memory_specifics(MemoryRefreshKind::everything());
+            sys.refresh_cpu();
+            sys.refresh_memory();
             // Accumulators for network rate calculation (feature-gated implementation below).
             let mut last_rx: u64 = 0;
             let mut last_tx: u64 = 0;
@@ -56,8 +56,8 @@ impl StatusMetricsCollector {
                 thread::sleep(interval);
 
                 // Refresh measurements
-                sys.refresh_cpu_specifics(CpuRefreshKind::new().with_cpu_usage());
-                sys.refresh_memory_specifics(MemoryRefreshKind::new().with_ram());
+                sys.refresh_cpu();
+                sys.refresh_memory();
                 // Network refresh happens inside feature-gated section if enabled.
 
                 // CPU: use global average
@@ -71,24 +71,12 @@ impl StatusMetricsCollector {
                 let (rx_bps, tx_bps) = {
                     #[cfg(feature = "net-metrics")]
                     {
-                        // sysinfo >= 0.30 moved network refresh to Networks handle
-                        // and removed NetworksExt trait. Use the new API here.
-                        let networks = sys.networks_mut();
-                        networks.refresh();
-                        let mut total_rx: u64 = 0;
-                        let mut total_tx: u64 = 0;
-                        for (_name, data) in networks.iter() {
-                            // Keep compatibility with potential API naming differences.
-                            #[allow(deprecated)]
-                            {
-                                // Prefer new names if available via methods; fallback to old ones.
-                                #[cfg(any())]
-                                {
-                                    total_rx = total_rx.saturating_add(data.received());
-                                    total_tx = total_tx.saturating_add(data.transmitted());
-                                }
-                            }
-                            // Use legacy method names which are still present on many versions.
+						// Refresh networks for compatible versions
+						sys.refresh_networks();
+						let mut total_rx: u64 = 0;
+						let mut total_tx: u64 = 0;
+						for (_name, data) in sys.networks() {
+                            // Use method names compatible with sysinfo 0.29
                             total_rx = total_rx.saturating_add(data.total_received());
                             total_tx = total_tx.saturating_add(data.total_transmitted());
                         }

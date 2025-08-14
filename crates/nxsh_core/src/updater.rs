@@ -825,7 +825,7 @@ impl UpdateSystem {
 
             // Helper: decode signed 64-bit number in BSDIFF offtin format
             fn offtin(buf: [u8; 8]) -> i64 {
-                let mut y: i64 = ((buf[7] & 0x7f) as i64);
+                let mut y: i64 = (buf[7] & 0x7f) as i64;
                 for i in (0..7).rev() {
                     y = (y << 8) + (buf[i] as i64);
                 }

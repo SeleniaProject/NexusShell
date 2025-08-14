@@ -120,17 +120,30 @@ fn format_fat(dev: &str, label: &str, kind: FatType) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempfile;
     
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn create_fat_image() {
-        let img = tempfile().unwrap();
-        img.set_len(8 * 1024 * 1024).unwrap(); // 8 MiB image
-        let path = "/tmp/mkfs_test.img";
-        let img_path = std::path::Path::new("test.img");
-        std::fs::copy(img_path, path).unwrap();
-        let _ = mkfs_cli(&["-t".into(), "fat32".into(), path.into()]).await;
-        std::fs::remove_file(path).unwrap();
+        // Create a temporary image file and format it as FAT32
+        let path = std::env::temp_dir().join("mkfs_test.img");
+        {
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .open(&path)
+                .unwrap();
+            file.set_len(8 * 1024 * 1024).unwrap(); // 8 MiB image
+        }
+        let path_str = path.to_string_lossy().to_string();
+        let _ = mkfs_cli(&["-t".into(), "fat32".into(), path_str]).await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[cfg(not(unix))]
+    #[tokio::test]
+    async fn create_fat_image() {
+        // FAT formatting is unsupported on non-Unix platforms in this build; skip test.
+        assert!(true);
     }
 } 

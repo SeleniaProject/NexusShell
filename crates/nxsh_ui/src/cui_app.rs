@@ -24,7 +24,7 @@ use std::{
     time::{Duration, Instant},
 };
 // sysinfo 0.30 以降は拡張トレイト import 不要 (メソッドは固有実装)
-use sysinfo::{System, Pid};
+use sysinfo::{System, Pid, SystemExt, PidExt, ProcessExt};
 use tokio::sync::Mutex;
 
 use crate::{

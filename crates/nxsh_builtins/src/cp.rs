@@ -460,7 +460,7 @@ mod tests {
 
     // Helper to invoke cp_cli in both async (non super-min) and sync (super-min) modes
     #[cfg(not(feature = "super-min"))]
-    async fn run(args: &[String]) -> Result<()> { cp_cli(args).await }
+    fn run(args: &[String]) -> Result<()> { futures::executor::block_on(cp_cli(args)) }
     #[cfg(feature = "super-min")]
     fn run(args: &[String]) -> Result<()> { cp_cli(args) }
 
@@ -473,7 +473,7 @@ mod tests {
         let mut f = File::create(&src).unwrap();
         writeln!(f, "hello world").unwrap();
         
-    run(&[src.to_string_lossy().into(), dst.to_string_lossy().into()]).await.unwrap();
+    run(&[src.to_string_lossy().into(), dst.to_string_lossy().into()]).unwrap();
         
         assert!(dst.exists());
         let content = fs::read_to_string(&dst).unwrap();
@@ -490,7 +490,7 @@ mod tests {
         writeln!(f, "test content").unwrap();
         
         // Copy with preserve flag
-    run(&["-p".to_string(), src.to_string_lossy().into(), dst.to_string_lossy().into()]).await.unwrap();
+    run(&["-p".to_string(), src.to_string_lossy().into(), dst.to_string_lossy().into()]).unwrap();
         
         assert!(dst.exists());
         let content = fs::read_to_string(&dst).unwrap();
@@ -528,7 +528,7 @@ mod tests {
         writeln!(f2, "content2").unwrap();
         
         // Copy recursively
-    run(&["-r".to_string(), src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]).await.unwrap();
+    run(&["-r".to_string(), src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]).unwrap();
         
         // Verify structure was copied
         assert!(dst_dir.exists());
@@ -553,7 +553,7 @@ mod tests {
         fs::create_dir_all(&src_dir).unwrap();
         
         // Should fail without -r flag
-    let result = run(&[src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]).await;
+    let result = run(&[src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("-r not specified"));
     }
@@ -578,7 +578,7 @@ mod tests {
             file1.to_string_lossy().into(),
             file2.to_string_lossy().into(),
             dst_dir.to_string_lossy().into()
-    ]).await.unwrap();
+    ]).unwrap();
         
         // Verify both files were copied
         assert!(dst_dir.join("file1.txt").exists());
@@ -597,7 +597,7 @@ mod tests {
         let nonexistent = dir.path().join("nonexistent.txt");
         let dst = dir.path().join("destination.txt");
         
-    let result = run(&[nonexistent.to_string_lossy().into(), dst.to_string_lossy().into()]).await;
+    let result = run(&[nonexistent.to_string_lossy().into(), dst.to_string_lossy().into()]);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("No such file or directory"));
     }
@@ -613,7 +613,7 @@ mod tests {
         
         // This test mainly ensures the verbose flag is parsed correctly
         // In a real implementation, we'd capture log output to verify verbose messages
-    run(&["-v".to_string(), src.to_string_lossy().into(), dst.to_string_lossy().into()]).await.unwrap();
+    run(&["-v".to_string(), src.to_string_lossy().into(), dst.to_string_lossy().into()]).unwrap();
         
         assert!(dst.exists());
     }
@@ -629,7 +629,7 @@ mod tests {
         writeln!(f, "test content").unwrap();
         
         // Test combined flags -rpv
-    run(&["-rpv".to_string(), src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]).await.unwrap();
+    run(&["-rpv".to_string(), src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]).unwrap();
         
         assert!(dst_dir.exists());
         assert!(dst_dir.join("test.txt").exists());
@@ -647,14 +647,14 @@ mod tests {
         let mut f = File::create(&src).unwrap();
         writeln!(f, "test").unwrap();
         
-    let result = run(&["-x".to_string(), src.to_string_lossy().into(), dst.to_string_lossy().into()]).await;
+    let result = run(&["-x".to_string(), src.to_string_lossy().into(), dst.to_string_lossy().into()]);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("invalid option"));
     }
 
     #[tokio::test]
     async fn missing_operands_fails() {
-        let result = run(&[]).await;
+    let result = run(&[]);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("missing operands"));
     }
@@ -666,7 +666,7 @@ mod tests {
         let mut f = File::create(&src).unwrap();
         writeln!(f, "test").unwrap();
         
-    let result = run(&[src.to_string_lossy().into()]).await;
+    let result = run(&[src.to_string_lossy().into()]);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("missing destination"));
     }
@@ -693,7 +693,7 @@ mod tests {
         let link_in_src = src_dir.join("link.txt");
         std::os::unix::fs::symlink(&target, &link_in_src).unwrap();
         
-    run(&["-r".to_string(), src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]).await.unwrap();
+    run(&["-r".to_string(), src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]).unwrap();
         
         let copied_link = dst_dir.join("source").join("link.txt");
         assert!(copied_link.exists());

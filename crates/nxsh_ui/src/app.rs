@@ -23,6 +23,7 @@ use std::{
     io::{self, Write},
     time::{Duration, Instant},
 };
+use sysinfo::{SystemExt, ProcessExt};
 
 // Import CUI application components
 use crate::{

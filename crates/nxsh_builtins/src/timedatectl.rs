@@ -1752,10 +1752,20 @@ fn parse_time_string(time_str: &str) -> Result<DateTime<Utc>> {
         "%Y-%m-%d %H:%M:%S UTC",
     ];
 
-    for format in formats {
+    for format in &formats {
         if let Ok(naive_dt) = NaiveDateTime::parse_from_str(time_str, format) {
             return Ok(DateTime::from_naive_utc_and_offset(naive_dt, Utc));
         }
+    }
+    // Time-only inputs like HH:MM or HH:MM:SS: combine with today's date (local) then convert to UTC
+    if let Ok(t) = NaiveTime::parse_from_str(time_str, "%H:%M:%S")
+        .or_else(|_| NaiveTime::parse_from_str(time_str, "%H:%M"))
+    {
+        let today = Local::now().date_naive();
+        let naive_dt = NaiveDateTime::new(today, t);
+        let local_dt = Local.from_local_datetime(&naive_dt).single()
+            .ok_or_else(|| anyhow!("Ambiguous local time"))?;
+        return Ok(local_dt.with_timezone(&Utc));
     }
 
     // Try parsing as Unix timestamp

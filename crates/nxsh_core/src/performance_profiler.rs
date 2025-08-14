@@ -5,6 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use serde::{Deserialize, Serialize};
+use sysinfo::{SystemExt, ProcessExt, CpuExt};
 
 /// Comprehensive performance monitoring and optimization system
 #[derive(Debug, Clone)]
@@ -499,21 +500,25 @@ impl PerformanceProfiler {
     }
 
     fn get_system_uptime(&self) -> Result<Duration> {
-        let _sys = sysinfo::System::new();
-        Ok(Duration::from_secs(sysinfo::System::uptime()))
+        // Use instance method for broader sysinfo version compatibility
+        let mut sys = sysinfo::System::new();
+        sys.refresh_system();
+        Ok(Duration::from_secs(sys.uptime()))
     }
 
     fn get_current_cpu_usage() -> Result<f64> {
-        let mut sys = sysinfo::System::new_with_specifics(sysinfo::RefreshKind::new().with_cpu(sysinfo::CpuRefreshKind::everything()));
-        sys.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
-        // Average over all CPUs
-        let avg = sys.cpus().iter().map(|c| c.cpu_usage() as f64).sum::<f64>() / (sys.cpus().len() as f64).max(1.0);
+        // Compatible sampling: refresh all CPUs and average usage
+        let mut sys = sysinfo::System::new();
+        sys.refresh_cpu();
+        let cpus = sys.cpus();
+        let avg = if cpus.is_empty() { 0.0 } else { cpus.iter().map(|c| c.cpu_usage() as f64).sum::<f64>() / (cpus.len() as f64) };
         Ok(avg)
     }
 
     fn get_current_memory_usage() -> Result<usize> {
-        let sys = sysinfo::System::new_with_specifics(sysinfo::RefreshKind::new().with_memory(sysinfo::MemoryRefreshKind::everything()));
-        // Use used memory in bytes (sysinfo returns KiB)
+        // Compatible sampling: refresh memory and read used memory (KiB)
+        let mut sys = sysinfo::System::new();
+        sys.refresh_memory();
         Ok((sys.used_memory() as usize) * 1024)
     }
 
