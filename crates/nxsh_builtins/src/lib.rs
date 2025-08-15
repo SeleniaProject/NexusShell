@@ -594,6 +594,9 @@ pub mod timedatectl { use anyhow::{Result, anyhow}; pub fn timedatectl_cli(_: &[
 #[cfg(not(feature = "heavy-time"))]
 pub use timedatectl::timedatectl_cli;
 
+#[cfg(all(test, feature = "heavy-time"))]
+mod timedatectl_tests;
+
 #[cfg(feature = "hardware")]
 pub mod lscpu;
 #[cfg(feature = "hardware")]

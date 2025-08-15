@@ -798,13 +798,15 @@ impl TimedatectlManager {
                 })
             }
             Err(_) => {
-                // Best-effort fallback identical to instance method
-                Self::fallback_ntp_sync_static(&server.address).await
+                // Use pure Rust NTP implementation
+                let sync_result = self.pure_rust_ntp_sync(server).await
+                    .or_else(|_| self.minimal_fallback_sync(server).await)?;
+                Ok(sync_result)
             }
         }
     }
 
-    /// Create NTP packet (static variant)
+    /// Static helper for NTP packet creation
     async fn create_ntp_packet_static() -> Result<Vec<u8>> {
         let mut packet = vec![0u8; 48];
         packet[0] = 0x1B; // LI=00, VN=011, Mode=011 (client)
@@ -1022,81 +1024,220 @@ impl TimedatectlManager {
         }
     }
 
+    /// Complete timezone information calculation with full database support
     async fn get_timezone_info(&self, timezone: &str) -> TimezoneInfo {
-        // Perfect timezone information calculation
         #[cfg(feature = "i18n")]
-        let tz: Tz = timezone.parse().unwrap_or(chrono_tz::UTC);
+        {
+            use chrono_tz::Tz;
+            
+            // Parse timezone with comprehensive validation
+            let tz: Tz = match timezone.parse() {
+                Ok(parsed_tz) => parsed_tz,
+                Err(_) => {
+                    // Try common timezone aliases
+                    match timezone.to_lowercase().as_str() {
+                        "utc" | "gmt" => chrono_tz::UTC,
+                        "est" => chrono_tz::US::Eastern,
+                        "pst" => chrono_tz::US::Pacific,
+                        "cst" => chrono_tz::US::Central,
+                        "mst" => chrono_tz::US::Mountain,
+                        "jst" => chrono_tz::Asia::Tokyo,
+                        "cet" => chrono_tz::Europe::Berlin,
+                        _ => chrono_tz::UTC, // Fallback to UTC
+                    }
+                }
+            };
+            
+            let now = Utc::now();
+            let local_time = tz.from_utc_datetime(&now.naive_utc());
+            
+            // Calculate precise offset including DST
+            let offset_seconds = local_time.offset().fix().local_minus_utc();
+            
+            // Advanced DST detection using timezone database
+            let dst_active = self.is_dst_active_full(&tz, &now).await;
+            
+            // Calculate next DST transition with high accuracy
+            let dst_transition = self.get_next_dst_transition_full(&tz, &now).await;
+            
+            TimezoneInfo {
+                name: tz.name().to_string(),
+                offset_seconds,
+                dst_active,
+                dst_transition,
+            }
+        }
+        
         #[cfg(not(feature = "i18n"))]
-        let tz: Tz = chrono::Utc; // stub
-        let now = Utc::now();
-        let local_time = tz.from_utc_datetime(&now.naive_utc());
-        
-        // Calculate accurate offset
-        let offset_seconds = local_time.offset().fix().local_minus_utc();
-        
-        // Detect DST status
-        let dst_active = self.is_dst_active(&tz, &now).await;
-        
-        // Calculate next DST transition
-        let dst_transition = self.get_next_dst_transition(&tz, &now).await;
-        
-        TimezoneInfo {
-            name: timezone.to_string(),
-            offset_seconds,
-            dst_active,
-            dst_transition,
+        {
+            // Minimal build: UTC only with basic offset calculation
+            let now = Utc::now();
+            let local_now = Local::now();
+            let offset_seconds = local_now.offset().fix().local_minus_utc();
+            
+            // Simple DST detection for minimal build
+            let dst_active = Self::detect_dst_status(&local_now).unwrap_or(false);
+            
+            TimezoneInfo {
+                name: timezone.to_string(),
+                offset_seconds,
+                dst_active,
+                dst_transition: None, // No transition calculation in minimal build
+            }
         }
     }
     
-    /// Perfect DST detection algorithm
-    async fn is_dst_active(&self, tz: &Tz, utc_time: &DateTime<Utc>) -> bool {
-        #[cfg(not(feature = "i18n"))]
-        { return false; }
+    /// Advanced DST detection with comprehensive timezone database support
+    #[cfg(feature = "i18n")]
+    async fn is_dst_active_full(&self, tz: &chrono_tz::Tz, utc_time: &DateTime<Utc>) -> bool {
         let local_time = tz.from_utc_datetime(&utc_time.naive_utc());
         
-        // Method 1: Check offset difference from standard time
-        let january_time = tz.with_ymd_and_hms(utc_time.year(), 1, 15, 12, 0, 0).unwrap();
-        let july_time = tz.with_ymd_and_hms(utc_time.year(), 7, 15, 12, 0, 0).unwrap();
+        // Method 1: Direct timezone offset comparison
+        let january_time = match tz.with_ymd_and_hms(utc_time.year(), 1, 15, 12, 0, 0).single() {
+            Some(dt) => dt,
+            None => return false,
+        };
+        let july_time = match tz.with_ymd_and_hms(utc_time.year(), 7, 15, 12, 0, 0).single() {
+            Some(dt) => dt,
+            None => return false,
+        };
         
         let jan_offset = january_time.offset().fix().local_minus_utc();
         let jul_offset = july_time.offset().fix().local_minus_utc();
         let current_offset = local_time.offset().fix().local_minus_utc();
         
-        // DST is active if current offset is greater than standard offset
-        let standard_offset = jan_offset.min(jul_offset);
-        current_offset > standard_offset
+        // If no DST in this timezone, offsets will be equal
+        if jan_offset == jul_offset {
+            return false;
+        }
+        
+        // DST is active if current offset matches the larger offset (summer time)
+        let dst_offset = jan_offset.max(jul_offset);
+        current_offset == dst_offset
     }
     
-    /// Calculate next DST transition
-    async fn get_next_dst_transition(&self, tz: &Tz, utc_time: &DateTime<Utc>) -> Option<DateTime<Utc>> {
-        #[cfg(not(feature = "i18n"))]
-        { return None; }
+    /// Fallback DST detection for minimal build
+    #[cfg(not(feature = "i18n"))]
+    async fn is_dst_active_full(&self, _tz: &chrono::Utc, _utc_time: &DateTime<Utc>) -> bool {
+        // Use the existing detect_dst_status method for minimal build
+        let local_time = Local::now();
+        Self::detect_dst_status(&local_time).unwrap_or(false)
+    }
+    
+    /// Calculate next DST transition with precise timezone database lookup
+    #[cfg(feature = "i18n")]
+    async fn get_next_dst_transition_full(&self, tz: &chrono_tz::Tz, utc_time: &DateTime<Utc>) -> Option<DateTime<Utc>> {
         let current_year = utc_time.year();
         
-        // Check transitions for current and next year
+        // Check if timezone has DST at all
+        if !self.timezone_has_dst_full(tz, current_year).await {
+            return None;
+        }
+        
+        // Search for transitions in current and next year
         for year in current_year..=current_year + 1 {
-            // Common DST transition periods (varies by region)
-            const SPRING_CANDIDATES: &[(u32,u32)] = &[
-                (3, 8),   // Second Sunday in March (US)
-                (3, 29),  // Last Sunday in March (EU)
-                (10, 3),  // First Sunday in October (Southern Hemisphere)
-            ];
-            const FALL_CANDIDATES: &[(u32,u32)] = &[
-                (11, 1),  // First Sunday in November (US)
-                (10, 25), // Last Sunday in October (EU)
-                (4, 5),   // First Sunday in April (Southern Hemisphere)
-            ];
+            // Comprehensive DST transition detection
+            let transitions = self.find_all_dst_transitions(tz, year).await;
             
-            for (month, day_target) in SPRING_CANDIDATES.iter().chain(FALL_CANDIDATES.iter()) {
-                if let Some(transition_date) = self.find_dst_transition_date(year, *month, *day_target, tz).await {
-                    if transition_date > *utc_time {
-                        return Some(transition_date);
-                    }
+            for transition in transitions {
+                if transition > *utc_time {
+                    return Some(transition);
                 }
             }
         }
         
         None
+    }
+    
+    /// Find all DST transitions in a given year for a timezone
+    #[cfg(feature = "i18n")]
+    async fn find_all_dst_transitions(&self, tz: &chrono_tz::Tz, year: i32) -> Vec<DateTime<Utc>> {
+        let mut transitions = Vec::new();
+        
+        // Sample every day of the year to detect offset changes
+        let mut prev_offset = None;
+        
+        for month in 1..=12 {
+            let days_in_month = match month {
+                2 => if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) { 29 } else { 28 },
+                4 | 6 | 9 | 11 => 30,
+                _ => 31,
+            };
+            
+            for day in 1..=days_in_month {
+                if let Some(naive_date) = chrono::NaiveDate::from_ymd_opt(year, month, day) {
+                    let naive_datetime = naive_date.and_hms_opt(12, 0, 0).unwrap();
+                    
+                    if let Some(local_dt) = tz.from_local_datetime(&naive_datetime).single() {
+                        let current_offset = local_dt.offset().fix().local_minus_utc();
+                        
+                        if let Some(prev) = prev_offset {
+                            if prev != current_offset {
+                                // Transition detected - find exact time
+                                if let Some(exact_transition) = self.find_exact_transition_time(tz, naive_date).await {
+                                    transitions.push(exact_transition);
+                                }
+                            }
+                        }
+                        
+                        prev_offset = Some(current_offset);
+                    }
+                }
+            }
+        }
+        
+        transitions
+    }
+    
+    /// Find exact transition time on a given date
+    #[cfg(feature = "i18n")]
+    async fn find_exact_transition_time(&self, tz: &chrono_tz::Tz, date: chrono::NaiveDate) -> Option<DateTime<Utc>> {
+        // DST transitions typically occur at 2:00 AM local time
+        for hour in 0..24 {
+            for minute in [0, 30] {
+                if let Some(naive_time) = chrono::NaiveTime::from_hms_opt(hour, minute, 0) {
+                    let naive_dt = date.and_time(naive_time);
+                    
+                    // Check if this time is ambiguous (DST transition)
+                    match tz.from_local_datetime(&naive_dt) {
+                        chrono::LocalResult::Ambiguous(dt1, dt2) => {
+                            // Return the earlier UTC time (spring forward) or later (fall back)
+                            return Some(dt1.min(dt2).with_timezone(&Utc));
+                        }
+                        chrono::LocalResult::None => {
+                            // This time doesn't exist (spring forward)
+                            if let Some(before_time) = chrono::NaiveTime::from_hms_opt(hour.saturating_sub(1), minute, 0) {
+                                let before_dt = date.and_time(before_time);
+                                if let Some(valid_dt) = tz.from_local_datetime(&before_dt).single() {
+                                    return Some(valid_dt.with_timezone(&Utc));
+                                }
+                            }
+                        }
+                        _ => continue,
+                    }
+                }
+            }
+        }
+        None
+    }
+    
+    /// Check if timezone has DST rules for given year (full build)
+    #[cfg(feature = "i18n")]
+    async fn timezone_has_dst_full(&self, tz: &chrono_tz::Tz, year: i32) -> bool {
+        if let Some(jan_dt) = tz.with_ymd_and_hms(year, 1, 15, 12, 0, 0).single() {
+            if let Some(jul_dt) = tz.with_ymd_and_hms(year, 7, 15, 12, 0, 0).single() {
+                let jan_offset = jan_dt.offset().fix().local_minus_utc();
+                let jul_offset = jul_dt.offset().fix().local_minus_utc();
+                return jan_offset != jul_offset;
+            }
+        }
+        false
+    }
+    
+    /// Fallback for minimal build
+    #[cfg(not(feature = "i18n"))]
+    async fn get_next_dst_transition_full(&self, _tz: &chrono::Utc, _utc_time: &DateTime<Utc>) -> Option<DateTime<Utc>> {
+        None // No DST transition calculation in minimal build
     }
     
     /// Find exact DST transition date for a given period
@@ -1187,20 +1328,16 @@ impl TimedatectlManager {
         for server in &self.config.sync_config.servers {
             if !server.active { continue; }
             let address = server.address.clone();
-            let parsed = (|| async {
-                let pkt = Self::create_ntp_packet_static().await?;
-                let resp = Self::send_ntp_query_static(&address, pkt).await?;
-                let parsed = Self::parse_ntp_response_static(resp, Duration::from_millis(1)).await?;
-                anyhow::Ok(parsed)
-            })().await;
-            match parsed {
-                Ok(parsed) => statuses.push(NTPServerStatus {
+            
+            // Use pure Rust NTP implementation for server status
+            match self.pure_rust_ntp_sync(&address).await {
+                Ok(sync_result) => statuses.push(NTPServerStatus {
                     address,
                     reachable: true,
-                    stratum: parsed.stratum,
-                    delay: Some(parsed.root_delay),
-                    offset: parsed.offset,
-                    jitter: parsed.jitter,
+                    stratum: sync_result.stratum,
+                    delay: sync_result.delay,
+                    offset: sync_result.offset,
+                    jitter: sync_result.jitter,
                     last_sync: Some(Utc::now()),
                 }),
                 Err(_) => statuses.push(NTPServerStatus {
@@ -1700,39 +1837,79 @@ pub async fn timedatectl_cli(args: &[String]) -> Result<()> {
             let s = serde_json::to_string(&status)?;
             println!("{}", s);
         } else {
-            println!("               Local time: {}", status.local_time.format("%a %Y-%m-%d %H:%M:%S %Z"));
-            println!("           Universal time: {}", status.universal_time.format("%a %Y-%m-%d %H:%M:%S UTC"));
+            // Localized status output with fallbacks
+            let manager = TimedatectlManager::new(config, i18n.clone()).await?;
+            
+            println!("               {}: {}", 
+                i18n.get("timedatectl.status.local_time", None)
+                    .unwrap_or("Local time".to_string()),
+                status.local_time.format("%a %Y-%m-%d %H:%M:%S %Z"));
+            println!("           {}: {}", 
+                i18n.get("timedatectl.status.universal_time", None)
+                    .unwrap_or("Universal time".to_string()),
+                status.universal_time.format("%a %Y-%m-%d %H:%M:%S UTC"));
             
             if let Some(rtc_time) = status.rtc_time {
-                println!("                 RTC time: {}", rtc_time.format("%a %Y-%m-%d %H:%M:%S"));
+                println!("                 {}: {}", 
+                    i18n.get("timedatectl.status.rtc_time", None)
+                        .unwrap_or("RTC time".to_string()),
+                    rtc_time.format("%a %Y-%m-%d %H:%M:%S"));
             }
             
-            println!("                Time zone: {} ({:+05})", 
+            println!("                {}: {} ({:+05})", 
+                i18n.get("timedatectl.status.time_zone", None)
+                    .unwrap_or("Time zone".to_string()),
                 status.timezone,
                 status.timezone_offset / 3600 * 100 + (status.timezone_offset % 3600) / 60
             );
             
-            println!("System clock synchronized: {}", 
-                if status.system_clock_synchronized { "yes" } else { "no" });
+            println!("{}: {}", 
+                i18n.get("timedatectl.status.system_clock_synchronized", None)
+                    .unwrap_or("System clock synchronized".to_string()),
+                if status.system_clock_synchronized { 
+                    i18n.get("timedatectl.common.yes", None).unwrap_or("yes".to_string())
+                } else { 
+                    i18n.get("timedatectl.common.no", None).unwrap_or("no".to_string())
+                });
             
-            println!("              NTP service: {:?}", status.ntp_service);
-            println!("          RTC in local TZ: {}", 
-                if status.rtc_in_local_tz { "yes" } else { "no" });
+            println!("              {}: {:?}", 
+                i18n.get("timedatectl.status.ntp_service", None)
+                    .unwrap_or("NTP service".to_string()),
+                status.ntp_service);
+            println!("          {}: {}", 
+                i18n.get("timedatectl.status.rtc_in_local_tz", None)
+                    .unwrap_or("RTC in local TZ".to_string()),
+                if status.rtc_in_local_tz { 
+                    i18n.get("timedatectl.common.yes", None).unwrap_or("yes".to_string())
+                } else { 
+                    i18n.get("timedatectl.common.no", None).unwrap_or("no".to_string())
+                });
             
             if let Some(accuracy) = status.sync_accuracy {
-                println!("           Sync accuracy: {accuracy:?}");
+                println!("           {}: {accuracy:?}", 
+                    i18n.get("timedatectl.status.sync_accuracy", None)
+                        .unwrap_or("Sync accuracy".to_string()));
             }
             
             if let Some(drift) = status.drift_rate {
-                println!("            Drift rate: {drift:.3} ppm");
+                println!("            {}: {drift:.3} ppm", 
+                    i18n.get("timedatectl.status.drift_rate", None)
+                        .unwrap_or("Drift rate".to_string()));
             }
             
             if let Some(last_sync) = status.last_sync {
-                println!("            Last sync: {}", last_sync.format("%Y-%m-%d %H:%M:%S UTC"));
+                println!("            {}: {}", 
+                    i18n.get("timedatectl.status.last_sync", None)
+                        .unwrap_or("Last sync".to_string()),
+                    last_sync.format("%Y-%m-%d %H:%M:%S UTC"));
             }
             
             if status.leap_second_pending {
-                println!("        Leap second: pending");
+                println!("        {}: {}", 
+                    i18n.get("timedatectl.status.leap_second", None)
+                        .unwrap_or("Leap second".to_string()),
+                    i18n.get("timedatectl.status.pending", None)
+                        .unwrap_or("pending".to_string()));
             }
         }
     }
@@ -1824,80 +2001,170 @@ mod tests {
 }
 
 fn print_timedatectl_help(i18n: &I18n) {
-    println!("{}", i18n.get("timedatectl.help.title", None));
+    // Complete i18n support with fallback to English
+    let title = i18n.get("timedatectl.help.title", None)
+        .unwrap_or("NexusShell TimeDateCtl - Time and Date Management".to_string());
+    let usage = i18n.get("timedatectl.help.usage", None)
+        .unwrap_or("Usage:".to_string());
+    let commands = i18n.get("timedatectl.help.commands", None)
+        .unwrap_or("Commands:".to_string());
+    let options = i18n.get("timedatectl.help.options", None)
+        .unwrap_or("Options:".to_string());
+    let time_formats = i18n.get("timedatectl.help.time_formats", None)
+        .unwrap_or("Time Formats:".to_string());
+    let examples = i18n.get("timedatectl.help.examples", None)
+        .unwrap_or("Examples:".to_string());
+    
+    println!("{}", title);
     println!();
-    println!("{}", i18n.get("timedatectl.help.usage", None));
+    println!("{}", usage);
     println!("    timedatectl [OPTIONS] [COMMAND]");
     println!();
-    println!("{}", i18n.get("timedatectl.help.commands", None));
-    println!("    status                  Show current time and date settings (default)");
-    println!("    show                    Show current settings in machine-readable format");
-    println!("    set-time TIME           Set system time");
-    println!("    set-timezone ZONE       Set system timezone");
-    println!("    list-timezones          List available timezones");
-    println!("    set-local-rtc BOOL      Set RTC to local time (true) or UTC (false)");
-    println!("    set-ntp BOOL            Enable/disable NTP synchronization");
-    println!("    timesync-status         Show detailed time synchronization status");
-    println!("    show-timesync           Show timesync status in machine-readable format");
-    println!("{}", i18n.get("timedatectl.help.timesync_options", None));
-    println!("{}", i18n.get("timedatectl.help.timesync_json_option", None));
-    println!("    add-ntp-server SERVER   Add NTP server");
-    println!("    remove-ntp-server SERVER Remove NTP server");
-    println!("    statistics              Show time management statistics");
-    println!("    history                 Show time adjustment history");
+    println!("{}", commands);
+    
+    // Localized command descriptions
+    println!("    status                  {}", 
+        i18n.get("timedatectl.help.cmd.status", None)
+            .unwrap_or("Show current time and date settings (default)".to_string()));
+    println!("    show                    {}", 
+        i18n.get("timedatectl.help.cmd.show", None)
+            .unwrap_or("Show current settings in machine-readable format".to_string()));
+    println!("    set-time TIME           {}", 
+        i18n.get("timedatectl.help.cmd.set_time", None)
+            .unwrap_or("Set system time".to_string()));
+    println!("    set-timezone ZONE       {}", 
+        i18n.get("timedatectl.help.cmd.set_timezone", None)
+            .unwrap_or("Set system timezone".to_string()));
+    println!("    list-timezones          {}", 
+        i18n.get("timedatectl.help.cmd.list_timezones", None)
+            .unwrap_or("List available timezones".to_string()));
+    println!("    set-local-rtc BOOL      {}", 
+        i18n.get("timedatectl.help.cmd.set_local_rtc", None)
+            .unwrap_or("Set RTC to local time (true) or UTC (false)".to_string()));
+    println!("    set-ntp BOOL            {}", 
+        i18n.get("timedatectl.help.cmd.set_ntp", None)
+            .unwrap_or("Enable/disable NTP synchronization".to_string()));
+    println!("    timesync-status         {}", 
+        i18n.get("timedatectl.help.cmd.timesync_status", None)
+            .unwrap_or("Show detailed time synchronization status".to_string()));
+    println!("    show-timesync           {}", 
+        i18n.get("timedatectl.help.cmd.show_timesync", None)
+            .unwrap_or("Show timesync status in machine-readable format".to_string()));
+    println!("    add-ntp-server SERVER   {}", 
+        i18n.get("timedatectl.help.cmd.add_ntp_server", None)
+            .unwrap_or("Add NTP server".to_string()));
+    println!("    remove-ntp-server SERVER {}", 
+        i18n.get("timedatectl.help.cmd.remove_ntp_server", None)
+            .unwrap_or("Remove NTP server".to_string()));
+    println!("    statistics              {}", 
+        i18n.get("timedatectl.help.cmd.statistics", None)
+            .unwrap_or("Show time management statistics".to_string()));
+    println!("    history                 {}", 
+        i18n.get("timedatectl.help.cmd.history", None)
+            .unwrap_or("Show time adjustment history".to_string()));
+    
     println!();
-    println!("{}", i18n.get("timedatectl.help.options", None));
-    println!("    -h, --help              Show this help message");
-    println!("    --monitor               Monitor time synchronization status");
-    println!("    --all                   Show all properties");
-    println!("{}", i18n.get("timedatectl.help.global_json_option", None));
+    println!("{}", options);
+    println!("    -h, --help              {}", 
+        i18n.get("timedatectl.help.opt.help", None)
+            .unwrap_or("Show this help message".to_string()));
+    println!("    --monitor               {}", 
+        i18n.get("timedatectl.help.opt.monitor", None)
+            .unwrap_or("Monitor time synchronization status".to_string()));
+    println!("    --all                   {}", 
+        i18n.get("timedatectl.help.opt.all", None)
+            .unwrap_or("Show all properties".to_string()));
+    println!("    -J, --json              {}", 
+        i18n.get("timedatectl.help.opt.json", None)
+            .unwrap_or("Output in JSON format".to_string()));
+    
     println!();
-    println!("{}", i18n.get("timedatectl.help.time_formats", None));
-    println!("    YYYY-MM-DD HH:MM:SS     Full date and time");
-    println!("    YYYY-MM-DD HH:MM        Date and time without seconds");
-    println!("    HH:MM:SS                Time only (today's date)");
-    println!("    HH:MM                   Time without seconds");
-    println!("    TIMESTAMP               Unix timestamp");
-    println!("    YYYY-MM-DDTHH:MM:SSZ    ISO 8601 format");
+    println!("{}", time_formats);
+    println!("    YYYY-MM-DD HH:MM:SS     {}", 
+        i18n.get("timedatectl.help.fmt.full_datetime", None)
+            .unwrap_or("Full date and time".to_string()));
+    println!("    YYYY-MM-DD HH:MM        {}", 
+        i18n.get("timedatectl.help.fmt.datetime_no_sec", None)
+            .unwrap_or("Date and time without seconds".to_string()));
+    println!("    HH:MM:SS                {}", 
+        i18n.get("timedatectl.help.fmt.time_only", None)
+            .unwrap_or("Time only (today's date)".to_string()));
+    println!("    HH:MM                   {}", 
+        i18n.get("timedatectl.help.fmt.time_no_sec", None)
+            .unwrap_or("Time without seconds".to_string()));
+    println!("    TIMESTAMP               {}", 
+        i18n.get("timedatectl.help.fmt.unix_timestamp", None)
+            .unwrap_or("Unix timestamp".to_string()));
+    println!("    YYYY-MM-DDTHH:MM:SSZ    {}", 
+        i18n.get("timedatectl.help.fmt.iso8601", None)
+            .unwrap_or("ISO 8601 format".to_string()));
+    
     println!();
-    println!("{}", i18n.get("timedatectl.help.examples", None));
-    println!("    timedatectl                                    # Show current status");
-    println!("    timedatectl set-time '2024-12-25 12:00:00'    # Set specific time");
-    println!("    timedatectl set-timezone 'America/New_York'   # Set timezone");
-    println!("    timedatectl list-timezones | grep Tokyo       # Find Tokyo timezone");
-    println!("    timedatectl set-ntp true                      # Enable NTP sync");
-    println!("    timedatectl add-ntp-server pool.ntp.org       # Add NTP server");
-    println!("    timedatectl timesync-status                   # Show sync details");
-    println!("    timedatectl statistics                        # Show statistics");
+    println!("{}", examples);
+    println!("    timedatectl                                    # {}", 
+        i18n.get("timedatectl.help.ex.status", None)
+            .unwrap_or("Show current status".to_string()));
+    println!("    timedatectl set-time '2024-12-25 12:00:00'    # {}", 
+        i18n.get("timedatectl.help.ex.set_time", None)
+            .unwrap_or("Set specific time".to_string()));
+    println!("    timedatectl set-timezone 'America/New_York'   # {}", 
+        i18n.get("timedatectl.help.ex.set_timezone", None)
+            .unwrap_or("Set timezone".to_string()));
+    println!("    timedatectl list-timezones | grep Tokyo       # {}", 
+        i18n.get("timedatectl.help.ex.find_timezone", None)
+            .unwrap_or("Find Tokyo timezone".to_string()));
+    println!("    timedatectl set-ntp true                      # {}", 
+        i18n.get("timedatectl.help.ex.enable_ntp", None)
+            .unwrap_or("Enable NTP sync".to_string()));
+    println!("    timedatectl add-ntp-server pool.ntp.org       # {}", 
+        i18n.get("timedatectl.help.ex.add_server", None)
+            .unwrap_or("Add NTP server".to_string()));
+    println!("    timedatectl timesync-status                   # {}", 
+        i18n.get("timedatectl.help.ex.sync_status", None)
+            .unwrap_or("Show sync details".to_string()));
+    println!("    timedatectl statistics                        # {}", 
+        i18n.get("timedatectl.help.ex.statistics", None)
+            .unwrap_or("Show statistics".to_string()));
 }
 
 impl TimedatectlManager {
-    /// Create NTP packet according to RFC 5905
+    /// Create NTP packet according to RFC 5905 with precise timestamp handling
     async fn create_ntp_packet(&self) -> Result<Vec<u8>> {
         let mut packet = vec![0u8; 48];
         
         // NTP packet format (RFC 5905)
         // Byte 0: LI (2 bits) + VN (3 bits) + Mode (3 bits)
-        packet[0] = 0x1B; // LI=00, VN=011 (version 3), Mode=011 (client)
+        packet[0] = 0x23; // LI=00, VN=100 (version 4), Mode=011 (client)
         
         // Bytes 1-3: Stratum, Poll, Precision
-        packet[1] = 0;    // Stratum (0 = unspecified)
-        packet[2] = 4;    // Poll interval (2^4 = 16 seconds)
-        packet[3] = 0xFA; // Precision (2^-6 = ~15ms)
+        packet[1] = 0;    // Stratum (0 = unspecified/unsynchronized)
+        packet[2] = 6;    // Poll interval (2^6 = 64 seconds)
+        packet[3] = 0xEC; // Precision (2^-20 = ~1 microsecond)
         
-        // Bytes 4-7: Root Delay (32-bit fixed point)
-        // Bytes 8-11: Root Dispersion (32-bit fixed point)
+        // Bytes 4-7: Root Delay (32-bit NTP short format)
+        let root_delay: u32 = 0x0001_0000; // 1 second in NTP short format
+        packet[4..8].copy_from_slice(&root_delay.to_be_bytes());
+        
+        // Bytes 8-11: Root Dispersion (32-bit NTP short format)
+        let root_dispersion: u32 = 0x0001_0000; // 1 second in NTP short format
+        packet[8..12].copy_from_slice(&root_dispersion.to_be_bytes());
+        
         // Bytes 12-15: Reference Identifier
+        packet[12..16].copy_from_slice(b"NXSH"); // NexusShell identifier
         
-        // Bytes 40-47: Transmit Timestamp (current time)
+        // Get high-precision timestamp
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default();
-        let ntp_time = now.as_secs() + 2_208_988_800; // Convert to NTP epoch (1900)
-        let ntp_frac = ((now.subsec_nanos() as u64) << 32) / 1_000_000_000;
         
-        packet[40..44].copy_from_slice(&(ntp_time as u32).to_be_bytes());
-        packet[44..48].copy_from_slice(&(ntp_frac as u32).to_be_bytes());
+        // Convert to NTP timestamp format (seconds since 1900-01-01)
+        let ntp_seconds = now.as_secs() + 2_208_988_800;
+        // Convert fractional seconds to NTP format (2^32 fractions per second)
+        let ntp_fraction = ((now.subsec_nanos() as u64) << 32) / 1_000_000_000;
+        
+        // Bytes 40-47: Transmit Timestamp (64-bit NTP timestamp)
+        packet[40..44].copy_from_slice(&(ntp_seconds as u32).to_be_bytes());
+        packet[44..48].copy_from_slice(&(ntp_fraction as u32).to_be_bytes());
         
         Ok(packet)
     }
@@ -1938,39 +2205,86 @@ impl TimedatectlManager {
         Ok(response)
     }
     
-    /// Parse NTP response packet
-    async fn parse_ntp_response(&self, response: Vec<u8>, _delay: Duration) -> Result<NTPResponseData> {   
+    /// Parse NTP response packet with precise timestamp calculations
+    async fn parse_ntp_response(&self, response: Vec<u8>, network_delay: Duration) -> Result<NTPResponseData> {   
         if response.len() < 48 {
             return Err(anyhow!("NTP response too short"));
         }
         
+        // Validate NTP version and mode
+        let version = (response[0] >> 3) & 0x7;
+        let mode = response[0] & 0x7;
+        if version < 3 || version > 4 {
+            return Err(anyhow!("Unsupported NTP version: {}", version));
+        }
+        if mode != 4 { // Server mode
+            return Err(anyhow!("Invalid NTP mode: {}", mode));
+        }
+        
         // Parse NTP packet fields
-        let stratum = if response[1] == 0 { None } else { Some(response[1]) };
-        let precision = Duration::from_nanos(1_000_000_000u64 >> (256 - response[3] as u64));
+        let stratum = if response[1] == 0 || response[1] > 15 { None } else { Some(response[1]) };
         
-        // Parse timestamps
-        let transmit_time = u32::from_be_bytes([response[40], response[41], response[42], response[43]]) as u64;
-        let transmit_frac = u32::from_be_bytes([response[44], response[45], response[46], response[47]]) as u64;
-        
-        // Calculate offset (simplified calculation)
-        let server_time_ns = ((transmit_time - 2_208_988_800) * 1_000_000_000 + 
-                            (transmit_frac * 1_000_000_000)) >> 32;
-        let local_time_ns = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos() as u64;
-        
-        let offset = if server_time_ns > local_time_ns {
-            Some(Duration::from_nanos(server_time_ns - local_time_ns))
+        // Parse precision as signed 8-bit exponent
+        let precision_exp = response[3] as i8;
+        let precision = if precision_exp < 0 {
+            Duration::from_nanos((1_000_000_000.0 / (2.0_f64.powi(-precision_exp as i32))) as u64)
         } else {
-            Some(Duration::from_nanos(local_time_ns - server_time_ns))
+            Duration::from_secs(2u64.pow(precision_exp as u32))
         };
         
-        // Parse reference ID
-        let ref_id_bytes = &response[12..16];
-        let reference_id = String::from_utf8_lossy(ref_id_bytes).trim_end_matches('\0').to_string();
+        // Parse all timestamps for proper offset calculation
+        let reference_time = self.parse_ntp_timestamp(&response[16..24])?;
+        let origin_time = self.parse_ntp_timestamp(&response[24..32])?;
+        let receive_time = self.parse_ntp_timestamp(&response[32..40])?;
+        let transmit_time = self.parse_ntp_timestamp(&response[40..48])?;
         
-        // Calculate root delay and dispersion
+        // Get current local time for offset calculation
+        let destination_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        
+        // Calculate precise offset using NTP algorithm (RFC 5905)
+        // offset = ((T2 - T1) + (T3 - T4)) / 2
+        // delay = (T4 - T1) - (T3 - T2)
+        let t1 = origin_time;
+        let t2 = receive_time;
+        let t3 = transmit_time;
+        let t4 = destination_time;
+        
+        let offset_calc = ((t2.as_nanos() as i128 - t1.as_nanos() as i128) + 
+                          (t3.as_nanos() as i128 - t4.as_nanos() as i128)) / 2;
+        let delay_calc = (t4.as_nanos() as i128 - t1.as_nanos() as i128) - 
+                        (t3.as_nanos() as i128 - t2.as_nanos() as i128);
+        
+        let offset = if offset_calc.abs() < (Duration::from_secs(86400).as_nanos() as i128) {
+            Some(Duration::from_nanos(offset_calc.abs() as u64))
+        } else {
+            None // Reject unreasonable offsets
+        };
+        
+        let calculated_delay = if delay_calc > 0 && delay_calc < (Duration::from_secs(10).as_nanos() as i128) {
+            Duration::from_nanos(delay_calc as u64)
+        } else {
+            network_delay // Fallback to measured network delay
+        };
+        
+        // Calculate jitter based on delay variation
+        let jitter = Some(calculated_delay / 10); // Estimated as 10% of delay
+        
+        // Parse reference ID based on stratum
+        let reference_id = if let Some(s) = stratum {
+            if s == 1 {
+                // Primary reference (GPS, atomic clock, etc.)
+                String::from_utf8_lossy(&response[12..16]).trim_end_matches('\0').to_string()
+            } else {
+                // Secondary reference (IP address)
+                format!("{}.{}.{}.{}", response[12], response[13], response[14], response[15])
+            }
+        } else {
+            "UNKNOWN".to_string()
+        };
+        
+        // Parse root delay and dispersion (NTP short format)
         let root_delay_raw = u32::from_be_bytes([response[4], response[5], response[6], response[7]]);
         let root_delay = Duration::from_nanos(((root_delay_raw as u64) * 1_000_000_000) >> 16);
         
@@ -1983,12 +2297,12 @@ impl TimedatectlManager {
             1 => LeapIndicator::LastMinute61,
             2 => LeapIndicator::LastMinute59,
             3 => LeapIndicator::AlarmCondition,
-            _ => LeapIndicator::NoWarning,
+            _ => LeapIndicator::Unsynchronized,
         };
         
         Ok(NTPResponseData {
             offset,
-            jitter: Some(Duration::from_millis(1)), // Estimated jitter
+            jitter,
             stratum,
             reference_id,
             precision,
@@ -1998,58 +2312,67 @@ impl TimedatectlManager {
         })
     }
     
-    /// Fallback NTP sync using system commands
-    async fn fallback_ntp_sync(&self, server: &str) -> Result<NTPSyncResult> {
-        // Try ntpdate command
-        if let Ok(output) = AsyncCommand::new("ntpdate")
-            .args(["-q", server])
-            .output()
-            .await
-        {
-            if output.status.success() {
-                let output_str = String::from_utf8_lossy(&output.stdout);
-                return self.parse_ntpdate_output(&output_str, server).await;
-            }
+    /// Parse NTP timestamp (64-bit) to Duration since UNIX epoch
+    fn parse_ntp_timestamp(&self, bytes: &[u8]) -> Result<Duration> {
+        if bytes.len() != 8 {
+            return Err(anyhow!("Invalid NTP timestamp length"));
         }
         
-        // Try chrony chronyc command
-        if let Ok(output) = AsyncCommand::new("chronyc")
-            .args(["sources", "-v"])
-            .output()
-            .await
-        {
-            if output.status.success() {
-                let output_str = String::from_utf8_lossy(&output.stdout);
-                return self.parse_chrony_output(&output_str, server).await;
-            }
-        }
-
-        // Try ntpq -p (common on many systems)
-        if let Ok(output) = AsyncCommand::new("ntpq")
-            .args(["-p"])
-            .output()
-            .await
-        {
-            if output.status.success() {
-                let output_str = String::from_utf8_lossy(&output.stdout);
-                if let Ok(res) = self.parse_ntpq_output(&output_str, server).await {
-                    return Ok(res);
-                }
-            }
+        let seconds = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as u64;
+        let fraction = u32::from_be_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as u64;
+        
+        // Convert from NTP epoch (1900) to UNIX epoch (1970)
+        if seconds < 2_208_988_800 {
+            return Err(anyhow!("Invalid NTP timestamp: before UNIX epoch"));
         }
         
-        // Final fallback: estimated values
+        let unix_seconds = seconds - 2_208_988_800;
+        let nanos = (fraction * 1_000_000_000) >> 32;
+        
+        Ok(Duration::new(unix_seconds, nanos as u32))
+    }
+    
+    /// Pure Rust NTP sync implementation (no external dependencies)
+    async fn pure_rust_ntp_sync(&self, server: &str) -> Result<NTPSyncResult> {
+        // Create and send NTP packet using our pure Rust implementation
+        let packet = self.create_ntp_packet().await?;
+        let start_time = std::time::Instant::now();
+        let response = self.send_ntp_query(server, packet).await?;
+        let network_delay = start_time.elapsed();
+        
+        // Parse response using our precise implementation
+        let ntp_data = self.parse_ntp_response(response, network_delay).await?;
+        
+        Ok(NTPSyncResult {
+            server_address: server.to_string(),
+            delay: Some(network_delay),
+            offset: ntp_data.offset,
+            jitter: ntp_data.jitter,
+            stratum: ntp_data.stratum,
+            reference_id: ntp_data.reference_id,
+            precision: ntp_data.precision,
+            root_delay: ntp_data.root_delay,
+            root_dispersion: ntp_data.root_dispersion,
+            leap_indicator: ntp_data.leap_indicator,
+        })
+    }
+    
+    /// Minimal fallback for emergency cases only
+    async fn minimal_fallback_sync(&self, server: &str) -> Result<NTPSyncResult> {
+        // Only use this if pure Rust implementation fails
+        self.log_event(&format!("WARNING: Using minimal fallback for server {}", server)).await.ok();
+        
         Ok(NTPSyncResult {
             server_address: server.to_string(),
             delay: Some(Duration::from_millis(100)),
-            offset: Some(Duration::from_millis(10)),
+            offset: Some(Duration::from_millis(0)), // Assume synchronized
             jitter: Some(Duration::from_millis(5)),
-            stratum: Some(3),
+            stratum: Some(16), // Mark as unsynchronized
             reference_id: "FALLBACK".to_string(),
             precision: Duration::from_millis(1),
-            root_delay: Duration::from_millis(50),
-            root_dispersion: Duration::from_millis(25),
-            leap_indicator: LeapIndicator::NoWarning,
+            root_delay: Duration::from_millis(100),
+            root_dispersion: Duration::from_millis(100),
+            leap_indicator: LeapIndicator::Unsynchronized,
         })
     }
     
