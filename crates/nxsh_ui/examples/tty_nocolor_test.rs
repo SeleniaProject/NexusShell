@@ -37,3 +37,5 @@ fn main() {
     println!("Testing NXSH_TTY_NOCOLOR environment variable support");
     test_nxsh_tty_nocolor();
 }
+
+

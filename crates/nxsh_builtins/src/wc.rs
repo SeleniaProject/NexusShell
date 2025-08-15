@@ -9,7 +9,8 @@
 //!   • With no OPTION, defaults to -lwc (like GNU coreutils)
 //!   • FILE of "-" means STDIN; no FILE defaults to STDIN.
 //!
-//! Flags other than the above (e.g. --files0-from) are not implemented.
+//! Supports a subset of GNU flags:
+//!   --files0-from=FILE   read filenames, separated by NUL, from FILE
 
 use anyhow::{anyhow, Result};
 use std::fs::File;
@@ -29,6 +30,7 @@ bitflags::bitflags! {
 pub fn wc_cli(args: &[String]) -> Result<()> {
     let mut idx = 0;
     let mut mode = Mode::empty();
+    let mut files0_from: Option<String> = None;
 
     // parse options
     while idx < args.len() {
@@ -42,6 +44,14 @@ pub fn wc_cli(args: &[String]) -> Result<()> {
                 "--bytes" => mode |= Mode::BYTES,
                 "--chars" => mode |= Mode::CHARS,
                 "--max-line-length" => mode |= Mode::MAXLINE,
+                s if s.starts_with("--files0-from=") => {
+                    files0_from = Some(s.trim_start_matches("--files0-from=").to_string());
+                }
+                "--files0-from" => {
+                    idx += 1;
+                    if idx >= args.len() { return Err(anyhow!("wc: option '--files0-from' requires an argument")); }
+                    files0_from = Some(args[idx].clone());
+                }
                 _ => return Err(anyhow!(format!("wc: invalid option '{}'", arg))),
             }
         } else {
@@ -63,13 +73,23 @@ pub fn wc_cli(args: &[String]) -> Result<()> {
     let mut total = (0usize, 0usize, 0usize, 0usize, 0usize); // lines, words, bytes, chars, maxline
     let mut files_processed = 0;
 
-    if idx >= args.len() {
-        let counts = count_stream("-", mode)?;
-        print_counts(counts, "-", mode, false)?;
+    let mut inputs: Vec<String> = if let Some(list_path) = files0_from {
+        let data = std::fs::read(list_path)?;
+        let mut v = Vec::new();
+        for chunk in data.split(|b| *b == 0) {
+            if chunk.is_empty() { continue; }
+            v.push(String::from_utf8_lossy(chunk).to_string());
+        }
+        if v.is_empty() { vec!["-".to_string()] } else { v }
+    } else if idx >= args.len() { vec!["-".to_string()] } else { args[idx..].to_vec() };
+
+    if inputs.len() == 1 {
+        let counts = count_stream(&inputs[0], mode)?;
+        print_counts(counts, &inputs[0], mode, false)?;
     } else {
-        for p in &args[idx..] {
+        for p in &inputs {
             let counts = count_stream(p, mode)?;
-            print_counts(counts, p, mode, args.len() - idx > 1)?;
+            print_counts(counts, p, mode, inputs.len() > 1)?;
             accumulate(&mut total, counts);
             files_processed += 1;
         }

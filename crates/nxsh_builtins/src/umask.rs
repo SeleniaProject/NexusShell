@@ -2,7 +2,7 @@
 //! Usage:
 //!   umask           # print current mask in 4-digit octal (e.g., 0022)
 //!   umask MODE      # set mask to MODE (octal)
-//!   umask -S        # symbolic output (rwx style, not yet implemented)
+//!   umask -S        # symbolic output (rwx style)
 //!
 //! On Unix uses `libc::umask`. On Windows prints unsupported message.
 
@@ -14,8 +14,19 @@ use nix::sys::stat::{umask, Mode};
 pub fn umask_cli(args: &[String]) -> Result<()> {
     #[cfg(windows)]
     {
-        println!("umask: not supported on Windows");
-        Ok(())
+        if args.is_empty() {
+            // Windows: no real umask; print 0000 for compatibility
+            println!("0000");
+            return Ok(());
+        }
+        if args[0] == "-S" {
+            // All permissions allowed
+            println!("u=rwx,g=rwx,o=rwx");
+            return Ok(());
+        }
+        // Accept but ignore setting
+        println!("umask: setting ignored on Windows");
+        return Ok(());
     }
     #[cfg(unix)]
     {

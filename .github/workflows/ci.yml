@@ -123,7 +123,6 @@ jobs:
       - name: Compile translations
         run: scripts/compile_po_to_mo.sh
 
-  theme-validate:
   size-gate:
     name: Size gate (busybox-min)
     runs-on: windows-latest
@@ -143,6 +142,7 @@ jobs:
         with:
           name: size-report
           path: size_report_local.json
+  theme-validate:
     name: Theme validation (python)
     runs-on: ubuntu-latest
     steps:
@@ -153,7 +153,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Validate theme JSONs
-        run: python validate_themes.py
+        run: python scripts/tools/validate_themes.py
 
   coverage:
     name: Coverage (ubuntu)
@@ -184,53 +184,3 @@ jobs:
         with:
           files: coverage.lcov
           fail_ci_if_error: false
-name: NexusShell CI
-
-on:
-  push:
-    branches:
-      - main
-      - 'dev/*'
-  pull_request:
-    branches:
-      - main
-
-jobs:
-  build-test-arm64:
-    name: Build & Test (Self-hosted ARM64)
-    runs-on: [self-hosted, linux, ARM64]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@v1
-        with:
-          toolchain: stable
-          components: clippy,rustfmt
-
-      - name: Cache cargo registry and build artifacts
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Build and test workspace
-        run: cargo test --workspace --all-features --release
-
-      - name: Install CycloneDX generator
-        run: cargo install cyclonedx-bom --locked
-
-      - name: Generate SBOM
-        run: cyclonedx-bom -o sbom.xml
-
-      - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: sbom
-          path: sbom.xml 

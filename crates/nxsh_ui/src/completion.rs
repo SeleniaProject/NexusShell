@@ -67,6 +67,8 @@ impl NexusCompleter {
         // Initialize with system commands and environment variables
         completer.refresh_system_commands()?;
         completer.refresh_environment_variables();
+        // Also include full set of internal builtins so Tab 補完に反映される
+        completer.refresh_builtin_commands();
 
         Ok(completer)
     }
@@ -222,62 +224,10 @@ impl NexusCompleter {
     /// Refresh builtin commands from registry
     pub fn refresh_builtin_commands(&mut self) {
         self.builtin_cache.clear();
-        
-        // Add builtin commands - simplified approach
-        let builtins = vec![
-            ("alias", "Create or display aliases"),
-            ("cd", "Change directory"),
-            ("pwd", "Print working directory"),
-            ("ls", "List directory contents"),
-            ("cat", "Display file contents"),
-            ("cp", "Copy files"),
-            ("mv", "Move files"),
-            ("rm", "Remove files"),
-            ("mkdir", "Create directories"),
-            ("rmdir", "Remove directories"),
-            ("touch", "Create/update files"),
-            ("ln", "Create links"),
-            ("find", "Search files"),
-            ("grep", "Search text patterns"),
-            ("sort", "Sort lines"),
-            ("uniq", "Remove duplicates"),
-            ("head", "Show first lines"),
-            ("tail", "Show last lines"),
-            ("wc", "Count words/lines"),
-            ("cut", "Extract columns"),
-            ("awk", "Text processing"),
-            ("sed", "Stream editor"),
-            ("tr", "Translate characters"),
-            ("fold", "Wrap lines"),
-            ("ps", "List processes"),
-            ("top", "Process monitor"),
-            ("kill", "Terminate processes"),
-            ("free", "Memory usage"),
-            ("uptime", "System uptime"),
-            ("id", "User/group IDs"),
-            ("whoami", "Current user"),
-            ("hostname", "System hostname"),
-            ("uname", "System information"),
-            ("date", "Date and time"),
-            ("cal", "Calendar"),
-            ("env", "Environment variables"),
-            ("chmod", "Change permissions"),
-            ("chown", "Change ownership"),
-            ("chgrp", "Change group"),
-            ("stat", "File statistics"),
-            ("tar", "Archive files"),
-            ("gzip", "Compress files"),
-            ("bzip2", "Compress files"),
-            ("xz", "Compress files"),
-            ("zstd", "Compress files"),
-            ("zip", "Create ZIP files"),
-            ("curl", "Transfer data"),
-            ("wget", "Download files"),
-            ("ping", "Network connectivity"),
-        ];
-        
-        for (name, description) in builtins {
-            self.builtin_cache.insert(name.to_string(), description.to_string());
+        // Use authoritative list from nxsh_builtins so数百コマンドが常に一致
+        let names: Vec<&'static str> = nxsh_builtins::list_builtin_names();
+        for name in names {
+            self.builtin_cache.insert(name.to_string(), "Builtin command".to_string());
         }
         
         // Add shell keywords

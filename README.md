@@ -287,6 +287,11 @@ NXSH_DISABLE_UPX=1              # UPX スキップ
 ```
 CI では `prev.json` をアーティファクトから取得し、差分が基準超の場合ブロック。
 
+### テーマ検証
+```
+python scripts/tools/validate_themes.py
+```
+
 ### シンボリックリンク戦略
 単一 `nxsh` バイナリを複数コマンド名で呼び出し:
 ```

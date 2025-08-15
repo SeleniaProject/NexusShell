@@ -47,6 +47,8 @@ impl NexusLineEditor {
             .build();
 
         let mut editor: Editor<RustyHelper, DefaultHistory> = Editor::with_config(config)?;
+        // Ensure Tab triggers completion explicitly (Windows PowerShell/Terminal quirks)
+        editor.bind_sequence(rustyline::KeyEvent::from('\t'), rustyline::Cmd::Complete);
         // Attach helper with a default standalone completer (no shared state yet)
         editor.set_helper(Some(RustyHelper::new_standalone()));
         
@@ -78,6 +80,7 @@ impl NexusLineEditor {
             .build();
 
         let mut editor: Editor<RustyHelper, DefaultHistory> = Editor::with_config(config)?;
+        editor.bind_sequence(rustyline::KeyEvent::from('\t'), rustyline::Cmd::Complete);
         editor.set_helper(Some(RustyHelper::new_standalone()));
         // Note: set_max_history_size might not be available in this version
         
@@ -322,7 +325,12 @@ impl RLCompleter for RustyHelper {
                 return Ok((start_pos, pairs));
             }
         }
-        Ok((pos, Vec::new()))
+        // Fallback to filename completion when no shared engine or lock contention occurs
+        let fc = rustyline::completion::FilenameCompleter::new();
+        let mut out_pairs: Vec<Pair> = Vec::new();
+        let (start, candidates) = fc.complete(line, pos, _ctx)?;
+        for c in candidates { out_pairs.push(Pair { display: c.display.clone(), replacement: c.replacement.clone() }); }
+        Ok((start, out_pairs))
     }
 }
 

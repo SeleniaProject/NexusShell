@@ -71,6 +71,8 @@ pub fn command_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
         } else if arg == "-V" {
             verbose = true;
             list_only = true;
+        } else if arg == "-p" {
+            // POSIX -p: use default PATH. Our shell already uses env PATH; treat as no-op.
         } else if arg.starts_with('-') {
             return Err(anyhow!("command: unsupported option '{}'.", arg));
         } else {

@@ -433,19 +433,33 @@ fn set_file_times(path: &Path, accessed: SystemTime, modified: SystemTime) -> Re
     #[cfg(windows)]
     {
         // Windows implementation using SetFileTime
-        use std::os::windows::fs::OpenOptionsExt;
         use std::fs::OpenOptions;
-        
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::{
+            Foundation::FILETIME,
+            Storage::FileSystem::SetFileTime,
+        };
+        use std::time::UNIX_EPOCH;
+
+        fn to_filetime(t: SystemTime) -> FILETIME {
+            let dur = t.duration_since(UNIX_EPOCH).unwrap_or_default();
+            let mut intervals = (dur.as_secs() as u64) * 10_000_000 + (dur.subsec_nanos() as u64) / 100;
+            intervals += 11644473600u64 * 10_000_000; // Unix -> Windows epoch offset
+            FILETIME { dwLowDateTime: intervals as u32, dwHighDateTime: (intervals >> 32) as u32 }
+        }
+
+        let at = to_filetime(accessed);
+        let mt = to_filetime(modified);
         let file = OpenOptions::new()
             .write(true)
-            .custom_flags(0x02000000) // FILE_FLAG_BACKUP_SEMANTICS for directories
+            // FILE_FLAG_BACKUP_SEMANTICS (0x02000000) is needed for directories; open without creation
+            .custom_flags(0x02000000)
             .open(path)
             .with_context(|| format!("Failed to open file for timestamp setting: {}", path.display()))?;
-
-        // Note: Windows timestamp setting is more complex and would require additional Win32 API calls
-        // For now, we'll just log that we attempted to preserve timestamps
-        let _ = (&accessed, &modified, &file); // silence unused vars on windows until implemented
-        debug!("Timestamp preservation on Windows is limited for: {}", path.display());
+        let handle = file.as_raw_handle();
+        unsafe {
+            let _ = SetFileTime(handle as _, std::ptr::null(), &at as *const FILETIME, &mt as *const FILETIME);
+        }
     }
 
     Ok(())

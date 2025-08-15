@@ -1,12 +1,14 @@
 //! `cut` command  Ecolumn extraction utility.
 //!
 //! Supported subset (field mode only):
-//!   cut -f LIST [-d DELIM] [FILE...]
+//!   cut -f LIST [-d DELIM] [--output-delimiter=STR] [-s] [FILE...]
 //!
 //! • LIST: comma-separated 1-based field numbers or ranges (e.g. 1,3,5-7)
 //! • DELIM: single-byte delimiter character (default TAB). Escape sequences \t,\n,\r allowed.
 //! • Multibyte UTF-8 input is treated as bytes for delimiter splitting (matches GNU cut behaviour).
 //! • Lines with fewer fields than requestedは、指定フィールドに対して不足分を空として出力する `--pad` をサポート。
+//! • -s suppresses lines with no delimiter.
+//! • --output-delimiter sets output delimiter (default: input delimiter).
 //!
 //! Character (-c) and byte (-b) mode are out of scope for this minimal implementation.
 
@@ -23,6 +25,8 @@ pub fn cut_cli(args: &[String]) -> Result<()> {
     let mut fields_spec = None::<String>;
     let mut delim = b'\t'; // default TAB
     let mut pad_missing = false;
+    let mut suppress_no_delim = false; // -s
+    let mut out_delim: Option<u8> = None; // --output-delimiter
 
     while idx < args.len() {
         match args[idx].as_str() {
@@ -42,6 +46,13 @@ pub fn cut_cli(args: &[String]) -> Result<()> {
             "--pad" => {
                 pad_missing = true;
             }
+            "-s" => { suppress_no_delim = true; }
+            s if s.starts_with("--output-delimiter=") => {
+                let d = s.trim_start_matches("--output-delimiter=");
+                let dstr = unescape(d)?; let bytes = dstr.as_bytes();
+                if bytes.len() != 1 { return Err(anyhow!("cut: output delimiter must be a single byte")); }
+                out_delim = Some(bytes[0]);
+            }
             "--" => {
                 idx += 1; // end of options
                 break;
@@ -59,17 +70,17 @@ pub fn cut_cli(args: &[String]) -> Result<()> {
 
     // Remaining args are files; if none, read stdin
     if idx >= args.len() {
-        process_reader(delim, &ranges, pad_missing, BufReader::new(io::stdin()))?;
+        process_reader(delim, out_delim.unwrap_or(delim), &ranges, pad_missing, suppress_no_delim, BufReader::new(io::stdin()))?;
     } else {
         for p in &args[idx..] {
             let file = File::open(Path::new(p))?;
-            process_reader(delim, &ranges, pad_missing, BufReader::new(file))?;
+            process_reader(delim, out_delim.unwrap_or(delim), &ranges, pad_missing, suppress_no_delim, BufReader::new(file))?;
         }
     }
     Ok(())
 }
 
-fn process_reader<R: BufRead>(delim: u8, ranges: &[(usize, usize)], pad_missing: bool, mut reader: R) -> Result<()> {
+fn process_reader<R: BufRead>(delim: u8, out_delim: u8, ranges: &[(usize, usize)], pad_missing: bool, suppress_no_delim: bool, mut reader: R) -> Result<()> {
     let stdout = io::stdout();
     let mut handle = stdout.lock();
     let mut buf = Vec::new();
@@ -78,6 +89,8 @@ fn process_reader<R: BufRead>(delim: u8, ranges: &[(usize, usize)], pad_missing:
         if let Some(&last) = buf.last() {
             if last == b'\n' { buf.pop(); }
         }
+        let had_delim = buf.contains(&delim);
+        if suppress_no_delim && !had_delim { handle.write_all(b"\n")?; buf.clear(); continue; }
         let mut field_idx = 1usize;
         let mut start = 0usize;
         let mut first_output = true;
@@ -85,7 +98,7 @@ fn process_reader<R: BufRead>(delim: u8, ranges: &[(usize, usize)], pad_missing:
             let is_delim = if i == buf.len() { true } else { buf[i] == delim };
             if is_delim {
                 if ranges.iter().any(|(s, e)| field_idx >= *s && field_idx <= *e) {
-                    if !first_output { handle.write_all(&[delim])?; }
+                    if !first_output { handle.write_all(&[out_delim])?; }
                     handle.write_all(&buf[start..i])?;
                     first_output = false;
                 }
@@ -97,7 +110,7 @@ fn process_reader<R: BufRead>(delim: u8, ranges: &[(usize, usize)], pad_missing:
         if pad_missing && field_idx <= max_selected {
             for idx in field_idx..=max_selected {
                 if ranges.iter().any(|(s, e)| idx >= *s && idx <= *e) {
-                    if !first_output { handle.write_all(&[delim])?; }
+                    if !first_output { handle.write_all(&[out_delim])?; }
                     // empty field
                     first_output = false;
                 }

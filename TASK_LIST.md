@@ -1,0 +1,145 @@
+## ビルトイン簡略化/未実装チェックリスト
+
+- [ ] `crates/nxsh_builtins/src/awk.rs`
+  - [ ] 簡易パーサを完全対応へ拡張（BEGIN/END、正規表現、式/配列/連想配列、ユーザー関数、条件/ループ、フィールド分割、レコード分割）
+  - [ ] `printf`/`print` の完全互換（フォーマット指定子/幅/精度/エスケープ）
+  - [ ] 簡易式評価の撤廃と本格評価器の実装（数値/文字列/ブール/比較/正規表現一致）
+
+- [ ] `crates/nxsh_builtins/src/find.rs`
+  - [ ] 式ツリー評価の完全実装（AND/OR/NOT、括弧、優先順位、短絡評価）
+  - [ ] 正規表現エンジンの実装/選択（Basic/Extended/Perl 相当）
+  - [ ] `-printf`/`-fls` 出力の完全化（現在の簡易実装を置換）
+  - [ ] GID→グループ名解決の実装（現在は簡易名称）
+  - [ ] 並列探索（rayon）導入と `--parallel` オプション実装
+  - [ ] レガシーベクターフォールバック動作の撤廃
+  - [ ] 進捗UI（`progress-ui`）と統合した堅牢な進行表示
+
+- [ ] `crates/nxsh_builtins/src/timedatectl.rs`
+  - [ ] NTP クライアントの本実装（送受時刻スタンプ、オフセット/遅延/ジッタ/ストラタム計算）
+  - [ ] タイムゾーンDB/夏時間判定の実装（最小ビルドの UTC 限定スタブ排除）
+  - [ ] 外部 `ntpdate/chrony/date` フォールバック依存の削減/撤廃
+  - [ ] 簡略オフセット計算の精密化（NTP 固定小数点処理）
+  - [ ] 完全 i18n 対応（メッセージ/書式）
+
+- [ ] `crates/nxsh_builtins/src/fsck.rs`
+  - [ ] FAT チェイン解析/ロストクラスタ/クロスリンク厳密検出
+  - [ ] `-a`（自動修復）実装とジャーナリングによる安全な書き戻し
+  - [ ] 簡易マーキング/naive 比較の撤廃と完全検査の導入
+
+- [ ] `crates/nxsh_builtins/src/zstd.rs` および `zstd_complete.rs`
+  - [ ] Pure Rust 圧縮（辞書、圧縮レベル、マルチスレッド、チェック）実装
+  - [ ] RAW ブロックのみのストアモード・フォールバック解消
+  - [ ] CLI 互換オプションの網羅実装（互換エイリアス含む）
+
+- [ ] `crates/nxsh_builtins/src/tar.rs`
+  - [ ] 簡易タイムスタンプ表記の本実装（時刻/権限/所有者などメタデータの厳密整形）
+
+- [ ] `crates/nxsh_builtins/src/network_tools.rs`
+  - [ ] `netstat`/`ss` 相当の完全実装（/proc 読み取り・WinAPI・BSD sysctl 等）
+  - [ ] `ping`（ICMP）/`traceroute`（UDP/ICMP TTL）の本実装と権限周りの対処
+  - [ ] 逆引き DNS（PTR）実装、インターフェース/ルーティング表の実データ取得
+  - [ ] プレースホルダ出力/簡易実装の撤廃
+
+- [ ] `crates/nxsh_builtins/src/ls.rs`
+  - [ ] ユーザー/グループ解決の Pure Rust 化（現在の代替/簡易実装の置換）
+  - [ ] ctime/atime 取得のクロスプラットフォーム対応（Windows 代替/フォールバック除去）
+  - [ ] `-l` 表示の完全互換（桁揃え、ロケール、色分けと連携）
+
+- [ ] `crates/nxsh_builtins/src/cksum.rs`
+  - [ ] CRC32 の最適化（テーブル/ハードウェア支援）
+  - [ ] `compute_simple_hash` 撤廃と MD5/SHA1/SHA256 の正規実装
+  - [ ] アルゴリズム選択の拡張と互換出力形式の厳密化
+
+- [ ] `crates/nxsh_builtins/src/compression.rs`
+  - [ ] zstd 外部依存の撤廃（Pure Rust エンコーダ導入）
+  - [ ] 7z 作成は外部委譲から堅牢ラッパまたは内蔵実装へ拡張
+
+- [ ] `crates/nxsh_builtins/src/sed.rs`
+  - [ ] advanced-regex フィーチャ依存を排し統一実装（置換/アドレス範囲/ラベル/ジャンプ/保持領域）
+  - [ ] プレースホルダ変数/未使用変数の整理と本実装化
+
+- [ ] `crates/nxsh_builtins/src/cron.rs`
+  - [ ] システム監視（負荷/メモリ/イベント）の実装（現在の TODO/プレースホルダ値撤廃）
+  - [ ] 非 Unix 環境でのフォールバック動作の具体化（通知/送信機構）
+
+- [ ] `crates/nxsh_builtins/src/schedule.rs`
+  - [ ] 引数なし時の内部フォールバック強化（対話 UI/ガイドの整備）
+
+- [ ] `crates/nxsh_builtins/src/chgrp.rs`
+  - [ ] 外部委譲前提を削減し、再帰/シンボリック名/ACL 対応（現在は数値 GID のみ）
+  - [ ] Windows 実装の提供
+
+- [ ] `crates/nxsh_builtins/src/chown.rs`
+  - [ ] 外部 `chown` 依存の低減、UID[:GID] 以外（名前/再帰/参照ファイル）対応
+  - [ ] Windows/ACL 対応
+
+- [ ] `crates/nxsh_builtins/src/kill.rs`
+  - [ ] ジョブ制御の実装（`%job` 等）
+  - [ ] 非対応ターゲット/フォールバックの整理、OS 別シグナル実装
+
+- [ ] `crates/nxsh_builtins/src/id.rs`
+  - [ ] Windows でのユーザー/グループ照会の実装（現在は未実装/Dummy）
+  - [ ] クロスプラットフォームなグループ照合の完全化
+
+- [ ] `crates/nxsh_builtins/src/wc.rs`
+  - [ ] 未実装フラグ（例: `--files0-from`）の実装、GNU 互換の細部挙動
+
+- [ ] `crates/nxsh_builtins/src/cat.rs`
+  - [ ] URL スキーム拡張（ftp/file/data 等）、HTTP/HTTPS 以外の未対応解消
+
+- [ ] `crates/nxsh_builtins/src/cut.rs`
+  - [ ] 不明オプション扱いを削減し、全オプション（-b/-c/-f/-d/-s/--output-delimiter 等）実装
+
+- [ ] `crates/nxsh_builtins/src/command.rs`
+  - [ ] POSIX 拡張（-p 他）の実装、現状 unsupported オプションの解消
+
+- [ ] `crates/nxsh_builtins/src/umask.rs`
+  - [ ] `-S`（象徴表記）実装、Windows サポート
+
+- [ ] `crates/nxsh_builtins/src/strings.rs`
+  - [ ] 追加エンコーディング/自動判別、エラー/i18n 整備
+
+- [ ] `crates/nxsh_builtins/src/pkill.rs`
+  - [ ] 数値シグナルのみ制限の解消（シグナル名対応、属性フィルタ、正規表現）
+
+- [ ] `crates/nxsh_builtins/src/xz.rs`
+  - [ ] 未対応 `format/check` の拡張、完全圧縮/解凍機能
+
+- [ ] 非 Unix で未対応のビルトイン
+  - [ ] `suspend.rs`/`dmidecode.rs`/`hwclock.rs`/`lspci.rs`/`lsusb.rs`/`fdisk.rs`/`mount.rs`/`smartctl.rs`/`hdparm.rs`
+    - [ ] WinAPI など代替 API による機能提供、外部コマンド依存の低減/撤廃
+
+- [ ] `crates/nxsh_builtins/src/grep.rs`
+  - [ ] 正規表現エンジン不在時のリテラルフォールバック解消（BRE/ERE/PCRE 相当実装）
+  - [ ] 性能最適化（並列/mmap/巨大ファイル）
+
+- [ ] `crates/nxsh_builtins/src/less.rs`
+  - [ ] 非 TTY 時のフォールバック改善（ページング模擬、幅制御、色抜き）
+
+- [ ] `crates/nxsh_builtins/src/cp.rs` / `mv.rs`
+  - [ ] Windows でのタイムスタンプ/属性/ACL/ADS の完全保存
+  - [ ] コピー完全性検証の強化（整合性/再試行/レジューム）
+
+- [ ] `crates/nxsh_builtins/src/common/update_system.rs`
+  - [ ] `updates`/`async-runtime` 無効時のスタブ解消
+  - [ ] 原子的インストール/ロールバックの実装とテスト
+  - [ ] バックグラウンドチェッカーの no-op 解消
+
+- [ ] `crates/nxsh_builtins/src/common/logging.rs`
+  - [ ] 複数出力サブスクライバの合成（現在の stderr 単独フォールバック撤廃）
+
+- [ ] `crates/nxsh_builtins/src/common/metrics.rs`
+  - [ ] プレースホルダ更新の撤廃と実メトリクス集計/公開
+
+- [ ] `crates/nxsh_builtins/src/lib.rs`
+  - [ ] `super-min` 構成時の egrep 等スタブ整理と機能提供方針の確立
+
+- [ ] i18n スタブ解消
+  - [ ] `at.rs`/`date.rs`/`cat.rs`/`timedatectl.rs` などでの i18n スタブ/フォールバックの本実装
+
+- [ ] テスト関連/その他
+  - [ ] `crates/nxsh_builtins/src/echo.rs` のテストで示される `stdout.collect()` 相当の検証パス実装
+  - [ ] `crates/nxsh_core/src/builtins/testutils.rs` の最小 `echo` を本番相当の実装/注入に置換
+
+
+

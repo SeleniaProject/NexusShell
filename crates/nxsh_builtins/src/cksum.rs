@@ -63,16 +63,22 @@ fn compute_checksum(data: &[u8], algorithm: &str) -> Result<(String, usize)> {
             Ok((format!("{crc}"), size))
         }
         "md5" => {
-            let hash = compute_simple_hash(data, 32);
-            Ok((hash, size))
+            let digest = md5::compute(data);
+            Ok((format!("{:x}", digest), size))
         }
         "sha1" => {
-            let hash = compute_simple_hash(data, 40);
-            Ok((hash, size))
+            use sha2::digest::Digest;
+            let mut hasher = sha2::Sha1::new();
+            hasher.update(data);
+            let out = hasher.finalize();
+            Ok((format!("{:x}", out), size))
         }
         "sha256" => {
-            let hash = compute_simple_hash(data, 64);
-            Ok((hash, size))
+            use sha2::digest::Digest;
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(data);
+            let out = hasher.finalize();
+            Ok((format!("{:x}", out), size))
         }
         _ => {
             Err(anyhow::anyhow!("Unsupported algorithm: {}", algorithm))

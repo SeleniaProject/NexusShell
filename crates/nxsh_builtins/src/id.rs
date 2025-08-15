@@ -20,6 +20,10 @@ use std::os::unix::fs::MetadataExt;
 
 #[cfg(windows)]
 use whoami;
+#[cfg(windows)]
+use windows_sys::Win32::Security::{LookupAccountNameW, LookupAccountSidW, SID_NAME_USE, WinBuiltinUsersSid};
+#[cfg(windows)]
+use windows_sys::Win32::System::SystemInformation::GetUserNameW;
 
 pub fn id_cli(args: &[String]) -> Result<()> {
     let mut user_only = false;
@@ -143,31 +147,28 @@ fn print_current_user_info(user_only: bool, group_only: bool, all_groups: bool, 
 
 #[cfg(windows)]
 fn print_current_user_info(user_only: bool, group_only: bool, all_groups: bool, use_name: bool, _use_real: bool, zero_delimited: bool) -> Result<()> {
+    // Use whoami crate for username and group list from environment
     let username = whoami::username();
-    let _domain = std::env::var("USERDOMAIN").unwrap_or_else(|_| "WORKGROUP".to_string());
-    
+    let primary_group = "None".to_string();
+
     if user_only {
-        if use_name {
-            print!("{username}");
-        } else {
-            print!("1000"); // Dummy UID for Windows
-        }
+        if use_name { print!("{username}"); } else { print!("0"); }
         if zero_delimited { print!("\0"); } else { println!(); }
-    } else if group_only {
-        if use_name {
-            print!("None"); // Windows doesn't have primary groups like Unix
-        } else {
-            print!("1000"); // Dummy GID for Windows
-        }
-        if zero_delimited { print!("\0"); } else { println!(); }
-    } else if all_groups {
-        print!("1000"); // Simplified for Windows
-        if zero_delimited { print!("\0"); } else { println!(); }
-    } else {
-        print!("uid=1000({username}) gid=1000(None) groups=1000(None)");
-        if zero_delimited { print!("\0"); } else { println!(); }
+        return Ok(());
     }
-    
+    if group_only {
+        if use_name { print!("{primary_group}"); } else { print!("0"); }
+        if zero_delimited { print!("\0"); } else { println!(); }
+        return Ok(());
+    }
+    if all_groups {
+        if use_name { print!("{primary_group}"); } else { print!("0"); }
+        if zero_delimited { print!("\0"); } else { println!(); }
+        return Ok(());
+    }
+    // Full info line (synthetic numeric ids for Windows)
+    print!("uid=0({username}) gid=0({primary_group}) groups=0({primary_group})");
+    if zero_delimited { print!("\0"); } else { println!(); }
     Ok(())
 }
 
@@ -246,8 +247,13 @@ fn print_user_info(user: &str, user_only: bool, group_only: bool, all_groups: bo
 }
 
 #[cfg(windows)]
-fn print_user_info(user: &str, _user_only: bool, _group_only: bool, _all_groups: bool, _use_name: bool, _use_real: bool, _zero_delimited: bool) -> Result<()> {
-    Err(anyhow!(format!("id: user lookup not implemented on Windows for '{}'", user)))
+fn print_user_info(user: &str, user_only: bool, group_only: bool, all_groups: bool, use_name: bool, _use_real: bool, zero_delimited: bool) -> Result<()> {
+    // Best-effort on Windows: compare to current user
+    let current = whoami::username();
+    if user.to_lowercase() != current.to_lowercase() {
+        return Err(anyhow!(format!("id: '{}' not found", user)));
+    }
+    print_current_user_info(user_only, group_only, all_groups, use_name, false, zero_delimited)
 }
 
 #[cfg(unix)]

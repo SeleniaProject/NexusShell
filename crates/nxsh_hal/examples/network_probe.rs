@@ -1,15 +1,11 @@
-use std::io::Write;
 use nxsh_hal::platform::Platform;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let platform = Platform::new()?;
-    
     println!("Testing Network Interface Detection...");
-    
-    // Get network interfaces
+
     let interfaces = platform.get_network_interfaces().await?;
-    
     if interfaces.is_empty() {
         println!("❌ No network interfaces found");
     } else {
@@ -26,6 +22,8 @@ async fn main() -> anyhow::Result<()> {
             println!();
         }
     }
-    
+
     Ok(())
 }
+
+

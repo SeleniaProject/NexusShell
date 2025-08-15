@@ -772,27 +772,31 @@ fn find_matches_in_line(line: &str, matcher: &GrepMatcher) -> Vec<(usize, usize)
     }
     #[cfg(not(feature = "advanced-regex"))]
     {
+        // Literal/word/line matching with case-insensitive and -w/-x handling
         let mut matches = Vec::new();
+        let line_cmp = if matcher.options.ignore_case { line.to_lowercase() } else { line.to_string() };
         for pat in &matcher.fixed_patterns {
-            if matcher.options.ignore_case {
-                let line_lower = line.to_lowercase();
-                let pat_lower = pat.to_lowercase();
-                let mut offset = 0;
-                let mut search_slice = line_lower.as_str();
-                while let Some(pos) = search_slice.find(&pat_lower) {
-                    matches.push((offset + pos, offset + pos + pat.len()));
-                    let next = pos + 1; // allow overlapping
-                    offset += next;
-                    if next >= search_slice.len() { break; }
-                    search_slice = &search_slice[next..];
+            let pat_cmp = if matcher.options.ignore_case { pat.to_lowercase() } else { pat.clone() };
+            if matcher.options.line_regexp {
+                if line_cmp.trim_end_matches('\n') == pat_cmp { matches.push((0, line.len())); }
+                continue;
+            }
+            if matcher.options.word_regexp {
+                // Word boundary: split into words and compare tokens
+                for (start, token) in line_cmp.split_word_bounds().scan(0usize, |offset, tok| { let s=*offset; *offset+=tok.len(); Some((s,tok)) }) {
+                    // token can include punctuation; keep simple is_alphanumeric based word check
+                    if token.eq(&pat_cmp) {
+                        // Map start in cmp to original byte index (same length here)
+                        matches.push((start, start + token.len()));
+                    }
                 }
-            } else {
-                let mut start_pos = 0;
-                while let Some(pos) = line[start_pos..].find(pat) {
-                    let abs = start_pos + pos;
-                    matches.push((abs, abs + pat.len()));
-                    start_pos = abs + 1; // overlapping support
-                }
+                continue;
+            }
+            let mut start_pos = 0;
+            while let Some(pos) = line_cmp[start_pos..].find(&pat_cmp) {
+                let abs = start_pos + pos;
+                matches.push((abs, abs + pat.len()));
+                start_pos = abs + 1; // overlapping support
             }
         }
         return matches;

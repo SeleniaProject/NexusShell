@@ -31,6 +31,10 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 // Advanced dependencies
 use walkdir::{WalkDir, DirEntry as WalkDirEntry};
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+#[cfg(feature = "parallel")]
+use rayon::iter::ParallelBridge;
 use regex::RegexBuilder;
 use glob::{Pattern, MatchOptions};
 use chrono::{DateTime, Local};
@@ -91,8 +95,8 @@ impl ProgressStyle {
 }
 
 // Pure Rust cross-platform user/group handling
-#[cfg(feature = "system-info")]
-use sysinfo::{System, SystemExt, UserExt};
+#[cfg(unix)]
+use uzers::{Users, UsersCache};
 
 // Windows compatibility constants for file types
 #[cfg(windows)]
@@ -421,28 +425,37 @@ impl CrossPlatformMetadataExt for Metadata {
 }
 
 // Cross-platform user/group lookup functions
-#[cfg(feature = "system-info")]
+#[cfg(unix)]
 fn get_user_by_name(name: &str) -> Option<String> {
-    let system = System::new_all();
-    system.users().iter().find(|user| user.name() == name).map(|u| u.name().to_string())
+    let cache = UsersCache::new();
+    cache.get_user_by_name(name).map(|u| u.name().to_string_lossy().into_owned())
 }
-#[cfg(not(feature = "system-info"))]
+#[cfg(windows)]
 fn get_user_by_name(_name: &str) -> Option<String> { None }
 
-#[cfg(feature = "system-info")]
-fn get_group_by_name(_name: &str) -> Option<u32> { None }
-#[cfg(not(feature = "system-info"))]
+#[cfg(unix)]
+fn get_group_by_name(name: &str) -> Option<u32> {
+    let cache = UsersCache::new();
+    cache.get_group_by_name(name).map(|g| g.gid())
+}
+#[cfg(windows)]
 fn get_group_by_name(_name: &str) -> Option<u32> { None }
 
-#[cfg(feature = "system-info")]
-fn get_user_by_uid(_uid: u32) -> Option<String> { None }
-#[cfg(not(feature = "system-info"))]
+#[cfg(unix)]
+fn get_user_by_uid(uid: u32) -> Option<String> {
+    let cache = UsersCache::new();
+    cache.get_user_by_uid(uid).map(|u| u.name().to_string_lossy().into_owned())
+}
+#[cfg(windows)]
 fn get_user_by_uid(_uid: u32) -> Option<String> { None }
 
-#[cfg(feature = "system-info")]
-fn get_group_by_gid(_gid: u32) -> Option<u32> { None }
-#[cfg(not(feature = "system-info"))]
-fn get_group_by_gid(_gid: u32) -> Option<u32> { None }
+#[cfg(unix)]
+fn get_group_by_gid(gid: u32) -> Option<String> {
+    let cache = UsersCache::new();
+    cache.get_group_by_gid(gid).map(|g| g.name().to_string_lossy().into_owned())
+}
+#[cfg(windows)]
+fn get_group_by_gid(_gid: u32) -> Option<String> { None }
 
 pub fn find_cli(args: &[String]) -> Result<()> {
     if args.iter().any(|a| a == "--help" || a == "-h") {
@@ -508,107 +521,44 @@ fn find_parallel(
     stats: Arc<FindStats>,
     progress: Option<ProgressBar>,
 ) -> Result<()> {
-    use std::sync::mpsc;
-    use std::sync::{Arc, Mutex};
-    
-    let (sender, receiver) = mpsc::channel();
-    let receiver = Arc::new(Mutex::new(receiver));
-    let options_arc = Arc::new(options.clone());
-    let stats_clone = stats.clone();
-    
-    // Producer thread - walks directories and sends entries
-    let producer_options = Arc::clone(&options_arc);
-    let producer_handle = thread::spawn(move || {
-        for path in &producer_options.paths {
+    #[cfg(feature = "parallel")]
+    {
+        let options_arc = Arc::new(options.clone());
+        options.paths.par_iter().try_for_each(|path| -> Result<()> {
             let path_buf = PathBuf::from(path);
-            
             if !path_buf.exists() {
                 eprintln!("find: '{path}': No such file or directory");
-                stats_clone.errors_encountered.fetch_add(1, Ordering::Relaxed);
-                continue;
+                stats.errors_encountered.fetch_add(1, Ordering::Relaxed);
+                return Ok(());
             }
-            
             let walker = WalkDir::new(&path_buf)
-                .follow_links(producer_options.follow_symlinks)
-                .max_depth(producer_options.max_depth.unwrap_or(usize::MAX))
-                .min_depth(producer_options.min_depth.unwrap_or(0));
-            
-            for entry in walker {
+                .follow_links(options_arc.follow_symlinks)
+                .max_depth(options_arc.max_depth.unwrap_or(usize::MAX))
+                .min_depth(options_arc.min_depth.unwrap_or(0));
+            walker.into_iter().par_bridge().try_for_each(|entry| -> Result<()> {
                 match entry {
                     Ok(entry) => {
-                        if sender.send(Ok(entry)).is_err() {
-                            break; // Receiver dropped
+                        if let Err(e) = process_entry(&entry, &options_arc, &stats) {
+                            eprintln!("find: {}: {}", entry.path().display(), e);
+                            stats.errors_encountered.fetch_add(1, Ordering::Relaxed);
                         }
                     }
                     Err(e) => {
-                        if sender.send(Err(e)).is_err() {
-                            break; // Receiver dropped
-                        }
+                        eprintln!("find: {e}");
+                        stats.errors_encountered.fetch_add(1, Ordering::Relaxed);
                     }
                 }
-            }
-        }
-        drop(sender); // Signal completion
-    });
-    
-    // Consumer threads - process entries in parallel
-    let num_threads = num_cpus::get().min(8);
-    let mut handles = Vec::new();
-    
-    for i in 0..num_threads {
-        let receiver = Arc::clone(&receiver);
-        let options_clone = Arc::clone(&options_arc);
-        let stats_clone = stats.clone();
-    #[cfg(feature = "progress-ui")]
-    let progress_clone = if i == 0 { Some(progress.clone()) } else { None }; // Only one thread updates progress
-    #[cfg(not(feature = "progress-ui"))]
-    let progress_clone: Option<Option<ProgressBar>> = None;
-        
-        let handle = thread::spawn(move || {
-            loop {
-                let entry_result = {
-                    let rx = receiver.lock().unwrap();
-                    rx.recv()
-                };
-                
-                match entry_result {
-                    Ok(entry_result) => {
-                        match entry_result {
-                            Ok(entry) => {
-                                if let Err(e) = process_entry(&entry, &options_clone, &stats_clone) {
-                                    eprintln!("find: {}: {}", entry.path().display(), e);
-                                    stats_clone.errors_encountered.fetch_add(1, Ordering::Relaxed);
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("find: {e}");
-                                stats_clone.errors_encountered.fetch_add(1, Ordering::Relaxed);
-                            }
-                        }
-                    }
-                    Err(_) => break, // Channel closed
-                }
-                
-                #[cfg(feature = "progress-ui")]
-                if let Some(ref pb) = progress_clone {
-                    let examined = stats_clone.files_examined.load(Ordering::Relaxed);
-                    if let Some(bar) = pb.as_ref() { bar.set_message(format!("Examined {examined} files")); }
-                }
-            }
-        });
-        
-        handles.push(handle);
+                Ok(())
+            })?;
+            Ok(())
+        })?;
+        Ok(())
     }
-    
-    // Wait for producer to finish
-    producer_handle.join().map_err(|_| anyhow!("Producer thread panicked"))?;
-    
-    // Wait for all consumers to finish
-    for handle in handles {
-        handle.join().map_err(|_| anyhow!("Consumer thread panicked"))?;
+    #[cfg(not(feature = "parallel"))]
+    {
+        // Fallback to sequential
+        find_sequential(options, stats, progress.as_ref())
     }
-    
-    Ok(())
 }
 
 fn find_in_path(
@@ -951,12 +901,12 @@ fn execute_action(
         }
         
         Expression::Fls(file) => {
-            // Write ls format to file - simplified implementation
+            // Write find-style ls line (inode, blocks, perms, links, user, group, size, time, name)
             let mut output = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(file)?;
-            writeln!(output, "{}", format_ls_line(path, metadata)?)?;
+            writeln!(output, "{}", format_fls_line(path, metadata)?)?;
         }
         
         Expression::Exec(command) => {
@@ -1010,12 +960,29 @@ fn match_pattern(text: &str, pattern: &str, case_insensitive: bool) -> Result<bo
 
 fn match_regex(text: &str, pattern: &str, case_insensitive: bool, engine: &RegexEngine) -> Result<bool> {
     match engine {
-        RegexEngine::Basic | RegexEngine::Extended | RegexEngine::Perl => {
+        RegexEngine::Basic | RegexEngine::Extended => {
             let regex = RegexBuilder::new(pattern)
                 .case_insensitive(case_insensitive)
                 .build()
                 .map_err(|e| anyhow!("Invalid regex '{}': {}", pattern, e))?;
             Ok(regex.is_match(text))
+        }
+        RegexEngine::Perl => {
+            #[cfg(feature = "advanced-regex")]
+            {
+                let pat = if case_insensitive { format!("(?i){}", pattern) } else { pattern.to_string() };
+                let re = fancy_regex::Regex::new(&pat)
+                    .map_err(|e| anyhow!("Invalid perl-regex '{}': {}", pattern, e))?;
+                return Ok(re.is_match(text)?);
+            }
+            #[cfg(not(feature = "advanced-regex"))]
+            {
+                let regex = RegexBuilder::new(pattern)
+                    .case_insensitive(case_insensitive)
+                    .build()
+                    .map_err(|e| anyhow!("Invalid regex '{}': {}", pattern, e))?;
+                return Ok(regex.is_match(text));
+            }
         }
         RegexEngine::Glob => {
             match_pattern(text, pattern, case_insensitive)
@@ -1089,13 +1056,13 @@ fn match_user(uid: u32, user: &str) -> Result<bool> {
 
 fn match_group(gid: u32, group: &str) -> Result<bool> {
     if let Ok(target_gid) = group.parse::<u32>() {
-        Ok(gid == target_gid)
-    } else if let Some(_group_info) = get_group_by_name(group) {
-        // Cross-platform group matching is limited
-        Ok(false)
-    } else {
-        Ok(false)
+        return Ok(gid == target_gid);
     }
+    // Name-based: resolve name to gid when available
+    if let Some(name_gid) = get_group_by_name(group) {
+        return Ok(gid == name_gid);
+    }
+    Ok(false)
 }
 
 fn is_empty_dir(path: &Path) -> Result<bool> {
@@ -1109,27 +1076,44 @@ fn print_formatted(format: &str, path: &Path, metadata: &Metadata) -> Result<()>
     
     while let Some(ch) = chars.next() {
         if ch == '%' {
+            // Parse flags/width/precision minimally: %-10p, %10p, %.5p
+            let mut left_align = false;
+            if let Some(&'-') = chars.peek() { chars.next(); left_align = true; }
+            let mut width: Option<usize> = None;
+            let mut width_buf = String::new();
+            while let Some(c) = chars.peek().copied() { if c.is_ascii_digit() { width_buf.push(c); let _=chars.next(); } else { break; } }
+            if !width_buf.is_empty() { width = width_buf.parse().ok(); }
+            let mut precision: Option<usize> = None;
+            if let Some(&'.') = chars.peek() { chars.next(); let mut pb=String::new(); while let Some(c)=chars.peek().copied(){ if c.is_ascii_digit(){ pb.push(c); let _=chars.next(); } else { break; } } precision = pb.parse().ok(); }
+
             if let Some(&next_ch) = chars.peek() {
                 chars.next(); // consume the format character
+                let mut push_fmt = |s: String| {
+                    if let Some(w) = width { if left_align { result.push_str(&format!("{s:<w$}", s=s, w=w)); } else { result.push_str(&format!("{s:>w$}", s=s, w=w)); } } else { result.push_str(&s); }
+                };
+                let mut push_num = |n: &str| {
+                    if let Some(w) = width { if left_align { result.push_str(&format!("{n:<w$}", n=n, w=w)); } else { result.push_str(&format!("{n:>w$}", n=n, w=w)); } } else { result.push_str(n); }
+                };
                 match next_ch {
-                    'p' => result.push_str(&path.display().to_string()),
-                    'f' => result.push_str(path.file_name().and_then(|n| n.to_str()).unwrap_or("")),
-                    'h' => result.push_str(path.parent().and_then(|p| p.to_str()).unwrap_or("")),
-                    's' => result.push_str(&metadata.len().to_string()),
+                    'p' => push_fmt(path.display().to_string()),
+                    'f' => push_fmt(path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string()),
+                    'h' => push_fmt(path.parent().and_then(|p| p.to_str()).unwrap_or("").to_string()),
+                    's' => { let s = metadata.len().to_string(); push_num(&s); }
+                    'k' => { let k = ((metadata.len() + 1023) / 1024).to_string(); push_num(&k); }
+                    'b' => { let b = ((metadata.len() + 511) / 512).to_string(); push_num(&b); }
                     'm' => result.push_str(&format!("{:o}", metadata.get_mode())),
                     'u' => result.push_str(&metadata.get_uid().to_string()),
                     'g' => result.push_str(&metadata.get_gid().to_string()),
                     'i' => result.push_str(&metadata.get_ino().to_string()),
                     'n' => result.push_str(&metadata.get_nlink().to_string()),
-                    't' => {
-                        let mtime = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_secs();
-                        result.push_str(&mtime.to_string());
-                    }
+                    't' => { let mtime = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_secs(); let s = mtime.to_string(); push_num(&s); }
                     'T' => {
                         let mtime = metadata.modified()?;
                         let datetime: DateTime<Local> = mtime.into();
-                        result.push_str(&datetime.format("%Y-%m-%d %H:%M:%S").to_string());
+                        let s = datetime.format("%Y-%m-%d %H:%M:%S").to_string();
+                        if let Some(p) = precision { push_fmt(s.chars().take(p).collect()); } else { push_fmt(s); }
                     }
+                    // width/precision are ignored in this minimal implementation
                     '%' => result.push('%'),
                     '\\' => {
                         if let Some(&escape_ch) = chars.peek() {
@@ -1148,10 +1132,8 @@ fn print_formatted(format: &str, path: &Path, metadata: &Metadata) -> Result<()>
                             result.push('\\');
                         }
                     }
-                    _ => {
-                        result.push('%');
-                        result.push(next_ch);
-                    }
+                    // Unsupported, but keep literal for diagnosability
+                    _ => { result.push('%'); result.push(next_ch); }
                 }
             } else {
                 result.push('%');
@@ -1200,7 +1182,6 @@ fn format_ls_line(path: &Path, metadata: &Metadata) -> Result<String> {
         .unwrap_or_else(|| metadata.get_uid().to_string());
     
     let group = get_group_by_gid(metadata.get_gid())
-        .map(|_g| "group".to_string()) // Simplified group name
         .unwrap_or_else(|| metadata.get_gid().to_string());
     
     let mtime = metadata.modified()?;
@@ -1216,6 +1197,45 @@ fn format_ls_line(path: &Path, metadata: &Metadata) -> Result<String> {
         time_str,
         path.display()
     ))
+}
+
+fn format_fls_line(path: &Path, metadata: &Metadata) -> Result<String> {
+    // Emulate `find -fls` style similar to `ls -sild`
+    let inode = metadata.get_ino();
+    // Blocks: approximate as size/1024 rounded up for portability
+    let blocks = ((metadata.len() + 1023) / 1024) as u64;
+    let mode = metadata.get_mode();
+    let file_type = match mode & S_IFMT {
+        S_IFREG => '-',
+        S_IFDIR => 'd',
+        S_IFLNK => 'l',
+        S_IFBLK => 'b',
+        S_IFCHR => 'c',
+        S_IFIFO => 'p',
+        S_IFSOCK => 's',
+        _ => '?',
+    };
+    let perms = format!("{}{}{}{}{}{}{}{}{}{}", 
+        file_type,
+        if mode & 0o400 != 0 { 'r' } else { '-' },
+        if mode & 0o200 != 0 { 'w' } else { '-' },
+        if mode & 0o100 != 0 { 'x' } else { '-' },
+        if mode & 0o040 != 0 { 'r' } else { '-' },
+        if mode & 0o020 != 0 { 'w' } else { '-' },
+        if mode & 0o010 != 0 { 'x' } else { '-' },
+        if mode & 0o004 != 0 { 'r' } else { '-' },
+        if mode & 0o002 != 0 { 'w' } else { '-' },
+        if mode & 0o001 != 0 { 'x' } else { '-' },
+    );
+    let links = metadata.get_nlink();
+    let user = get_user_by_uid(metadata.get_uid()).unwrap_or_else(|| metadata.get_uid().to_string());
+    let group = get_group_by_gid(metadata.get_gid()).unwrap_or_else(|| metadata.get_gid().to_string());
+    let size = metadata.len();
+    let mtime = metadata.modified()?;
+    let dt: DateTime<Local> = mtime.into();
+    let time_str = dt.format("%b %d %H:%M").to_string();
+    Ok(format!("{:>7} {:>7} {} {:>3} {:>8} {:>8} {:>8} {} {}",
+        inode, blocks, perms, links, user, group, size, time_str, path.display()))
 }
 
 fn execute_command(command: &[String], path: &Path, change_dir: bool) -> Result<()> {

@@ -467,13 +467,18 @@ impl CUIApp {
                         if self.process_guide_input(&command).await? {
                             // guide input consumed; nothing else to do this loop
                         } else {
-                            self.execute_command(&command).await
+                            let output = self.execute_command(&command)
+                                .await
                                 .context("Failed to execute command")?;
+                            if !output.trim().is_empty() {
+                                println!("{}", output);
+                            }
                         }
                     }
                 }
                 Ok(None) => {
-                    // No input, continue loop
+                    // No full line yet; drive a short non-blocking completion paint if a helper exists
+                    // (rustyline draws inline; nothing to do here besides continue)
                     continue;
                 }
                 Err(e) => {
@@ -492,10 +497,7 @@ impl CUIApp {
     
     /// Initialize terminal for CUI operation
     fn initialize_terminal(&self) -> Result<()> {
-        // Enable raw mode for better input control
-        terminal::enable_raw_mode()
-            .context("Failed to enable raw mode")?;
-        
+        // Let rustyline manage raw mode during `readline()` to avoid key handling conflicts (Tab completion, etc.)
         // Clear screen and move cursor to top
         execute!(
             io::stdout(),
@@ -660,8 +662,39 @@ impl CUIApp {
         self.record_event_command(command);
         
         // Handle built-in commands first (exit, help, etc.)
-    if let Some(output) = self.handle_builtin_command(command).await? {
+        if let Some(output) = self.handle_builtin_command(command).await? {
             return Ok(output);
+        }
+
+        // Dispatch full-feature builtins from nxsh_builtins before shell parsing/external fallback
+        // This enables complete in-process implementations (ls, grep, find, etc.) in CUI mode.
+        // Note: Most builtins print directly to stdout/stderr. We therefore
+        // return an empty output string to avoid duplicate printing at the UI layer.
+        if let Some((cmd_name, args_vec)) = {
+            let mut iter = command.split_whitespace();
+            if let Some(name) = iter.next() {
+                let args: Vec<String> = iter.map(|s| s.to_string()).collect();
+                Some((name.to_string(), args))
+            } else { None }
+        } {
+            if nxsh_builtins::is_builtin_name(&cmd_name) {
+                let exit_code = match nxsh_builtins::execute_builtin(&cmd_name, &args_vec) {
+                    Ok(()) => 0,
+                    Err(e) => { eprintln!("{}", e.to_string()); 1 }
+                };
+                // Update last exit code and metrics consistently
+                self.last_exit_code = exit_code;
+                self.record_event_output("", exit_code);
+                let execution_time = start_time.elapsed();
+                self.last_command_time = Some(execution_time);
+                let exec_time_ms = execution_time.as_millis() as f64;
+                {
+                    let mut m = self.metrics.lock().unwrap();
+                    if m.commands_executed == 1 { m.avg_execution_time_ms = exec_time_ms; }
+                    else { m.avg_execution_time_ms = ((m.avg_execution_time_ms * (m.commands_executed - 1) as f64) + exec_time_ms) / m.commands_executed as f64; }
+                }
+                return Ok(String::new());
+            }
         }
         
         // Parse command into AST first (before locking executor/context)
@@ -800,9 +833,9 @@ impl CUIApp {
     fn format_execution_result(&self, result: &nxsh_core::ExecutionResult) -> String {
         // Format the execution result with proper CUI styling
         if result.exit_code == 0 {
-            // Successful execution - display output or success message
+            // Successful execution - display output if present; otherwise stay silent
             if result.stdout.trim().is_empty() && result.stderr.trim().is_empty() {
-                "✅ Command completed successfully".to_string()
+                String::new()
             } else {
                 // Apply syntax highlighting and formatting to output
                 let mut output = String::new();
@@ -1061,23 +1094,28 @@ impl CUIApp {
     /// Provides comprehensive help information including built-in commands,
     /// keyboard shortcuts, and usage examples.
     fn generate_help_text(&self) -> String {
-        "🔧 NexusShell CUI Help\n\
-            \n\
-            Built-in Commands:\n\
-            • exit, quit     - Exit the shell\n\
-            • help           - Show this help text\n\
-            • history        - Show command history\n\
-            • metrics, stats - Show performance metrics\n\
-            • clear          - Clear the screen\n\
-            • rec            - Session record/playback (rec start|stop|play)\n\
-            \n\
-            Keyboard Shortcuts:\n\
-            • Ctrl+C         - Exit shell\n\
-            • Ctrl+L         - Clear screen\n\
-            • Tab            - Auto-completion\n\
-            • Up/Down Arrows - Navigate history\n\
-            \n\
-            💡 Use any standard shell command or built-in NexusShell features.".to_string()
+        // Build dynamic help from nxsh_builtins authoritative registry
+        let mut lines = String::new();
+        lines.push_str("🔧 NexusShell Help\n\n");
+        lines.push_str("Built-in Commands (dynamic):\n");
+        let mut builtin_names: Vec<&'static str> = nxsh_builtins::list_builtin_names();
+        builtin_names.sort_unstable();
+        // Print in columns for readability
+        let cols = 4usize;
+        let width = builtin_names.iter().map(|s| s.len()).max().unwrap_or(0) + 2;
+        for chunk in builtin_names.chunks(cols) {
+            for name in chunk {
+                let pad = width.saturating_sub(name.len());
+                lines.push_str(name);
+                for _ in 0..pad { lines.push(' '); }
+            }
+            lines.push('\n');
+        }
+        lines.push_str("\nShortcuts:\n");
+        lines.push_str("  Ctrl+C  Interrupt / Exit\n");
+        lines.push_str("  Ctrl+L  Clear screen\n");
+        lines.push_str("  Tab     Auto-completion (builtins + PATH + files + vars)\n");
+        lines
     }
 
     /// Public accessor for general help text to be used by the CUI front-end (F1 behavior)
@@ -1174,9 +1212,8 @@ impl CUIApp {
     
     /// Cleanup terminal on exit
     fn cleanup_terminal(&self) -> Result<()> {
-        // Disable raw mode
-        terminal::disable_raw_mode()
-            .context("Failed to disable raw mode")?;
+        // Allow rustyline to own raw mode; disable best-effort without failing if already disabled
+        let _ = terminal::disable_raw_mode();
         
         // Clear screen and show cursor
         execute!(
