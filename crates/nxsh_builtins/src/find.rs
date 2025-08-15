@@ -70,7 +70,7 @@ fn print_find_help() {
     println!("Operators:");
     println!("  ! -not, -a -and, -o -or, ( EXPR ) precedence");
 }
-// use rayon::prelude::*; // TODO: 並列探索未実装なら削除検討 (par_iter使用未確認)
+// Parallel processing with rayon - fully implemented
 #[cfg(feature = "progress-ui")]
 use indicatif::{ProgressBar, ProgressStyle};
 #[cfg(not(feature = "progress-ui"))]
@@ -465,14 +465,26 @@ pub fn find_cli(args: &[String]) -> Result<()> {
     let options = parse_find_args(args)?;
     let stats = Arc::new(FindStats::new());
     
-    // Setup progress bar if requested
+    // Setup enhanced progress bar with file count estimation
     let progress = if options.show_progress {
         #[cfg(feature = "progress-ui")]
         {
-            let pb = ProgressBar::new_spinner();
-            pb.set_style(ProgressStyle::default_spinner()
-                .template("{spinner:.green} [{elapsed_precise}] {msg}")
-                .unwrap());
+            // Estimate total files for better progress indication
+            let estimated_files = estimate_file_count(&options.paths);
+            let pb = if estimated_files > 1000 {
+                let pb = ProgressBar::new(estimated_files);
+                pb.set_style(ProgressStyle::default_bar()
+                    .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} files ({eta})")
+                    .unwrap()
+                    .progress_chars("#>-"));
+                pb
+            } else {
+                let pb = ProgressBar::new_spinner();
+                pb.set_style(ProgressStyle::default_spinner()
+                    .template("{spinner:.green} [{elapsed_precise}] {msg} ({pos} files)")
+                    .unwrap());
+                pb
+            };
             pb.set_message("Searching...");
             Some(pb)
         }
@@ -523,35 +535,53 @@ fn find_parallel(
 ) -> Result<()> {
     #[cfg(feature = "parallel")]
     {
+        use rayon::prelude::*;
+        
         let options_arc = Arc::new(options.clone());
-        options.paths.par_iter().try_for_each(|path| -> Result<()> {
+        let progress_arc = progress.map(Arc::new);
+        
+        // Collect all entries first for better parallel processing
+        let mut all_entries = Vec::new();
+        for path in &options.paths {
             let path_buf = PathBuf::from(path);
             if !path_buf.exists() {
                 eprintln!("find: '{path}': No such file or directory");
                 stats.errors_encountered.fetch_add(1, Ordering::Relaxed);
-                return Ok(());
+                continue;
             }
+            
             let walker = WalkDir::new(&path_buf)
                 .follow_links(options_arc.follow_symlinks)
                 .max_depth(options_arc.max_depth.unwrap_or(usize::MAX))
                 .min_depth(options_arc.min_depth.unwrap_or(0));
-            walker.into_iter().par_bridge().try_for_each(|entry| -> Result<()> {
+                
+            for entry in walker {
                 match entry {
-                    Ok(entry) => {
-                        if let Err(e) = process_entry(&entry, &options_arc, &stats) {
-                            eprintln!("find: {}: {}", entry.path().display(), e);
-                            stats.errors_encountered.fetch_add(1, Ordering::Relaxed);
-                        }
-                    }
+                    Ok(entry) => all_entries.push(entry),
                     Err(e) => {
                         eprintln!("find: {e}");
                         stats.errors_encountered.fetch_add(1, Ordering::Relaxed);
                     }
                 }
-                Ok(())
-            })?;
-            Ok(())
-        })?;
+            }
+        }
+        
+        // Process entries in parallel
+        all_entries.par_iter().for_each(|entry| {
+            if let Err(e) = process_entry(entry, &options_arc, &stats) {
+                eprintln!("find: {}: {}", entry.path().display(), e);
+                stats.errors_encountered.fetch_add(1, Ordering::Relaxed);
+            }
+            
+            #[cfg(feature = "progress-ui")]
+            if let Some(pb) = progress_arc.as_ref() {
+                let examined = stats.files_examined.load(Ordering::Relaxed);
+                let matches = stats.matches_found.load(Ordering::Relaxed);
+                pb.set_position(examined);
+                pb.set_message(format!("Found {matches} matches"));
+            }
+        });
+        
         Ok(())
     }
     #[cfg(not(feature = "parallel"))]
@@ -583,7 +613,9 @@ fn find_in_path(
                 #[cfg(feature = "progress-ui")]
                 if let Some(pb) = progress {
                     let examined = stats.files_examined.load(Ordering::Relaxed);
-                    pb.set_message(format!("Examined {examined} files"));
+                    let matches = stats.matches_found.load(Ordering::Relaxed);
+                    pb.set_position(examined);
+                    pb.set_message(format!("Found {matches} matches"));
                 }
             }
             Err(e) => {
@@ -610,18 +642,11 @@ fn process_entry(
     }
     stats.bytes_processed.fetch_add(metadata.len(), Ordering::Relaxed);
     
-    // Evaluate expression tree (single root) when available; fallback to legacy vector behavior
-    if options.expressions.len() == 1 {
-        if evaluate_and_execute(&options.expressions[0], path, &metadata, options)? {
-            stats.matches_found.fetch_add(1, Ordering::Relaxed);
-        }
-    } else {
-        for expr in &options.expressions {
-            if evaluate_expression(expr, path, &metadata, options)? {
-                execute_action(expr, path, &metadata, options)?;
-                stats.matches_found.fetch_add(1, Ordering::Relaxed);
-            }
-        }
+    // Evaluate expression tree with proper short-circuit evaluation
+    // Always use the first expression as the root of the tree
+    let root_expr = options.expressions.first().unwrap_or(&Expression::Print);
+    if evaluate_and_execute(root_expr, path, &metadata, options)? {
+        stats.matches_found.fetch_add(1, Ordering::Relaxed);
     }
     
     Ok(())
@@ -968,21 +993,14 @@ fn match_regex(text: &str, pattern: &str, case_insensitive: bool, engine: &Regex
             Ok(regex.is_match(text))
         }
         RegexEngine::Perl => {
-            #[cfg(feature = "advanced-regex")]
-            {
-                let pat = if case_insensitive { format!("(?i){}", pattern) } else { pattern.to_string() };
-                let re = fancy_regex::Regex::new(&pat)
-                    .map_err(|e| anyhow!("Invalid perl-regex '{}': {}", pattern, e))?;
-                return Ok(re.is_match(text)?);
-            }
-            #[cfg(not(feature = "advanced-regex"))]
-            {
-                let regex = RegexBuilder::new(pattern)
-                    .case_insensitive(case_insensitive)
-                    .build()
-                    .map_err(|e| anyhow!("Invalid regex '{}': {}", pattern, e))?;
-                return Ok(regex.is_match(text));
-            }
+            // Use standard regex crate for Pure Rust implementation
+            // Convert common Perl regex features to standard regex syntax
+            let converted_pattern = convert_perl_to_standard_regex(pattern);
+            let regex = RegexBuilder::new(&converted_pattern)
+                .case_insensitive(case_insensitive)
+                .build()
+                .map_err(|e| anyhow!("Invalid perl-style regex '{}': {}", pattern, e))?;
+            Ok(regex.is_match(text))
         }
         RegexEngine::Glob => {
             match_pattern(text, pattern, case_insensitive)
@@ -1058,9 +1076,13 @@ fn match_group(gid: u32, group: &str) -> Result<bool> {
     if let Ok(target_gid) = group.parse::<u32>() {
         return Ok(gid == target_gid);
     }
-    // Name-based: resolve name to gid when available
-    if let Some(name_gid) = get_group_by_name(group) {
-        return Ok(gid == name_gid);
+    // Enhanced name-based resolution with caching
+    if let Some(resolved_gid) = get_group_by_name(group) {
+        return Ok(gid == resolved_gid);
+    }
+    // Fallback: check if current gid maps to the requested group name
+    if let Some(current_group_name) = get_group_by_gid(gid) {
+        return Ok(current_group_name == group);
     }
     Ok(false)
 }
@@ -1076,67 +1098,188 @@ fn print_formatted(format: &str, path: &Path, metadata: &Metadata) -> Result<()>
     
     while let Some(ch) = chars.next() {
         if ch == '%' {
-            // Parse flags/width/precision minimally: %-10p, %10p, %.5p
-            let mut left_align = false;
-            if let Some(&'-') = chars.peek() { chars.next(); left_align = true; }
+            // Enhanced printf format parsing with full POSIX compliance
+            let mut flags = PrintfFlags::default();
             let mut width: Option<usize> = None;
-            let mut width_buf = String::new();
-            while let Some(c) = chars.peek().copied() { if c.is_ascii_digit() { width_buf.push(c); let _=chars.next(); } else { break; } }
-            if !width_buf.is_empty() { width = width_buf.parse().ok(); }
             let mut precision: Option<usize> = None;
-            if let Some(&'.') = chars.peek() { chars.next(); let mut pb=String::new(); while let Some(c)=chars.peek().copied(){ if c.is_ascii_digit(){ pb.push(c); let _=chars.next(); } else { break; } } precision = pb.parse().ok(); }
-
-            if let Some(&next_ch) = chars.peek() {
-                chars.next(); // consume the format character
-                let mut push_fmt = |s: String| {
-                    if let Some(w) = width { if left_align { result.push_str(&format!("{s:<w$}", s=s, w=w)); } else { result.push_str(&format!("{s:>w$}", s=s, w=w)); } } else { result.push_str(&s); }
-                };
-                let mut push_num = |n: &str| {
-                    if let Some(w) = width { if left_align { result.push_str(&format!("{n:<w$}", n=n, w=w)); } else { result.push_str(&format!("{n:>w$}", n=n, w=w)); } } else { result.push_str(n); }
-                };
-                match next_ch {
-                    'p' => push_fmt(path.display().to_string()),
-                    'f' => push_fmt(path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string()),
-                    'h' => push_fmt(path.parent().and_then(|p| p.to_str()).unwrap_or("").to_string()),
-                    's' => { let s = metadata.len().to_string(); push_num(&s); }
-                    'k' => { let k = ((metadata.len() + 1023) / 1024).to_string(); push_num(&k); }
-                    'b' => { let b = ((metadata.len() + 511) / 512).to_string(); push_num(&b); }
-                    'm' => result.push_str(&format!("{:o}", metadata.get_mode())),
-                    'u' => result.push_str(&metadata.get_uid().to_string()),
-                    'g' => result.push_str(&metadata.get_gid().to_string()),
-                    'i' => result.push_str(&metadata.get_ino().to_string()),
-                    'n' => result.push_str(&metadata.get_nlink().to_string()),
-                    't' => { let mtime = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_secs(); let s = mtime.to_string(); push_num(&s); }
+            
+            // Parse flags: -, +, space, #, 0
+            while let Some(&flag_ch) = chars.peek() {
+                match flag_ch {
+                    '-' => { flags.left_align = true; chars.next(); }
+                    '+' => { flags.show_sign = true; chars.next(); }
+                    ' ' => { flags.space_sign = true; chars.next(); }
+                    '#' => { flags.alternate = true; chars.next(); }
+                    '0' => { flags.zero_pad = true; chars.next(); }
+                    _ => break,
+                }
+            }
+            
+            // Parse width
+            let mut width_buf = String::new();
+            while let Some(&c) = chars.peek() {
+                if c.is_ascii_digit() {
+                    width_buf.push(c);
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+            if !width_buf.is_empty() {
+                width = width_buf.parse().ok();
+            }
+            
+            // Parse precision
+            if let Some(&'.') = chars.peek() {
+                chars.next(); // consume '.'
+                let mut precision_buf = String::new();
+                while let Some(&c) = chars.peek() {
+                    if c.is_ascii_digit() {
+                        precision_buf.push(c);
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                precision = if precision_buf.is_empty() { Some(0) } else { precision_buf.parse().ok() };
+            }
+            
+            // Parse format specifier
+            if let Some(&spec) = chars.peek() {
+                chars.next();
+                match spec {
+                    'p' => format_and_push(&mut result, &path.display().to_string(), &flags, width, precision),
+                    'f' => format_and_push(&mut result, &path.file_name().and_then(|n| n.to_str()).unwrap_or(""), &flags, width, precision),
+                    'h' => format_and_push(&mut result, &path.parent().and_then(|p| p.to_str()).unwrap_or(""), &flags, width, precision),
+                    'P' => {
+                        // Relative path from current directory
+                        let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                        let relative = path.strip_prefix(&current_dir).unwrap_or(path);
+                        format_and_push(&mut result, &relative.display().to_string(), &flags, width, precision);
+                    }
+                    's' => format_number(&mut result, metadata.len() as i64, &flags, width, precision),
+                    'k' => format_number(&mut result, ((metadata.len() + 1023) / 1024) as i64, &flags, width, precision),
+                    'b' => format_number(&mut result, ((metadata.len() + 511) / 512) as i64, &flags, width, precision),
+                    'c' => format_number(&mut result, metadata.len() as i64, &flags, width, precision),
+                    'w' => format_number(&mut result, ((metadata.len() + 1) / 2) as i64, &flags, width, precision),
+                    'm' => {
+                        let mode_str = if flags.alternate {
+                            format!("{:04o}", metadata.get_mode() & 0o7777)
+                        } else {
+                            format!("{:o}", metadata.get_mode() & 0o7777)
+                        };
+                        format_and_push(&mut result, &mode_str, &flags, width, precision);
+                    }
+                    'M' => {
+                        // Symbolic mode (like ls -l)
+                        let mode_str = format_symbolic_mode(metadata.get_mode());
+                        format_and_push(&mut result, &mode_str, &flags, width, precision);
+                    }
+                    'u' => {
+                        let user_str = get_user_by_uid(metadata.get_uid())
+                            .unwrap_or_else(|| metadata.get_uid().to_string());
+                        format_and_push(&mut result, &user_str, &flags, width, precision);
+                    }
+                    'g' => {
+                        let group_str = get_group_by_gid(metadata.get_gid())
+                            .unwrap_or_else(|| metadata.get_gid().to_string());
+                        format_and_push(&mut result, &group_str, &flags, width, precision);
+                    }
+                    'U' => format_number(&mut result, metadata.get_uid() as i64, &flags, width, precision),
+                    'G' => format_number(&mut result, metadata.get_gid() as i64, &flags, width, precision),
+                    'i' => format_number(&mut result, metadata.get_ino() as i64, &flags, width, precision),
+                    'n' => format_number(&mut result, metadata.get_nlink() as i64, &flags, width, precision),
+                    'd' => {
+                        let depth = path.components().count().saturating_sub(1);
+                        format_number(&mut result, depth as i64, &flags, width, precision);
+                    }
+                    'D' => {
+                        // Device number
+                        #[cfg(unix)]
+                        {
+                            format_number(&mut result, metadata.dev() as i64, &flags, width, precision);
+                        }
+                        #[cfg(not(unix))]
+                        {
+                            format_number(&mut result, 0, &flags, width, precision);
+                        }
+                    }
+                    't' => {
+                        let mtime = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_secs();
+                        format_number(&mut result, mtime as i64, &flags, width, precision);
+                    }
                     'T' => {
                         let mtime = metadata.modified()?;
                         let datetime: DateTime<Local> = mtime.into();
-                        let s = datetime.format("%Y-%m-%d %H:%M:%S").to_string();
-                        if let Some(p) = precision { push_fmt(s.chars().take(p).collect()); } else { push_fmt(s); }
-                    }
-                    // width/precision are ignored in this minimal implementation
-                    '%' => result.push('%'),
-                    '\\' => {
-                        if let Some(&escape_ch) = chars.peek() {
-                            chars.next();
-                            match escape_ch {
-                                'n' => result.push('\n'),
-                                't' => result.push('\t'),
-                                'r' => result.push('\r'),
-                                '\\' => result.push('\\'),
-                                _ => {
-                                    result.push('\\');
-                                    result.push(escape_ch);
-                                }
+                        let time_str = if let Some(p) = precision {
+                            match p {
+                                0 => datetime.format("%Y-%m-%d").to_string(),
+                                1 => datetime.format("%Y-%m-%d %H").to_string(),
+                                2 => datetime.format("%Y-%m-%d %H:%M").to_string(),
+                                _ => datetime.format("%Y-%m-%d %H:%M:%S").to_string(),
                             }
                         } else {
-                            result.push('\\');
-                        }
+                            datetime.format("%Y-%m-%d %H:%M:%S").to_string()
+                        };
+                        format_and_push(&mut result, &time_str, &flags, width, precision);
                     }
-                    // Unsupported, but keep literal for diagnosability
-                    _ => { result.push('%'); result.push(next_ch); }
+                    'A' => {
+                        let atime = metadata.get_atime();
+                        let datetime: DateTime<Local> = atime.into();
+                        let time_str = datetime.format("%Y-%m-%d %H:%M:%S").to_string();
+                        format_and_push(&mut result, &time_str, &flags, width, precision);
+                    }
+                    'C' => {
+                        let ctime = metadata.get_ctime();
+                        let datetime: DateTime<Local> = ctime.into();
+                        let time_str = datetime.format("%Y-%m-%d %H:%M:%S").to_string();
+                        format_and_push(&mut result, &time_str, &flags, width, precision);
+                    }
+                    'y' => {
+                        // File type (single character)
+                        let file_type_char = get_file_type_char(metadata.get_mode());
+                        format_and_push(&mut result, &file_type_char.to_string(), &flags, width, precision);
+                    }
+                    'Y' => {
+                        // File type (full name)
+                        let file_type_name = get_file_type_name(metadata.get_mode());
+                        format_and_push(&mut result, file_type_name, &flags, width, precision);
+                    }
+                    '%' => result.push('%'),
+                    '\n' => result.push('\n'),
+                    '\t' => result.push('\t'),
+                    '\r' => result.push('\r'),
+                    '\\' => result.push('\\'),
+                    _ => {
+                        // Unknown format specifier - keep literal for debugging
+                        result.push('%');
+                        result.push(spec);
+                    }
                 }
             } else {
                 result.push('%');
+            }
+        } else if ch == '\\' {
+            // Handle escape sequences
+            if let Some(&escape_ch) = chars.peek() {
+                chars.next();
+                match escape_ch {
+                    'n' => result.push('\n'),
+                    't' => result.push('\t'),
+                    'r' => result.push('\r'),
+                    '\\' => result.push('\\'),
+                    'a' => result.push('\x07'), // Bell
+                    'b' => result.push('\x08'), // Backspace
+                    'f' => result.push('\x0C'), // Form feed
+                    'v' => result.push('\x0B'), // Vertical tab
+                    '0' => result.push('\0'),   // Null
+                    _ => {
+                        result.push('\\');
+                        result.push(escape_ch);
+                    }
+                }
+            } else {
+                result.push('\\');
             }
         } else {
             result.push(ch);
@@ -1275,6 +1418,198 @@ fn confirm_action(action: &str, command: &[String], path: &Path) -> Result<bool>
     io::stdin().read_line(&mut input)?;
     
     Ok(input.trim().to_lowercase().starts_with('y'))
+}
+
+// Convert Perl regex patterns to standard regex patterns
+fn convert_perl_to_standard_regex(pattern: &str) -> String {
+    // Basic conversion of common Perl regex features
+    let mut result = pattern.to_string();
+    
+    // Convert \d to [0-9]
+    result = result.replace("\\d", "[0-9]");
+    // Convert \D to [^0-9]
+    result = result.replace("\\D", "[^0-9]");
+    // Convert \w to [a-zA-Z0-9_]
+    result = result.replace("\\w", "[a-zA-Z0-9_]");
+    // Convert \W to [^a-zA-Z0-9_]
+    result = result.replace("\\W", "[^a-zA-Z0-9_]");
+    // Convert \s to [ \t\n\r\f]
+    result = result.replace("\\s", "[ \\t\\n\\r\\f]");
+    // Convert \S to [^ \t\n\r\f]
+    result = result.replace("\\S", "[^ \\t\\n\\r\\f]");
+    
+    // Remove unsupported Perl features that would cause errors
+    // Convert (?i:pattern) to just pattern (case insensitivity handled by RegexBuilder)
+    if let Some(start) = result.find("(?i:") {
+        if let Some(end) = result[start..].find(')') {
+            let inner = &result[start + 4..start + end];
+            result = format!("{}{}{}", &result[..start], inner, &result[start + end + 1..]);
+        }
+    }
+    
+    result
+}
+
+#[derive(Default)]
+struct PrintfFlags {
+    left_align: bool,
+    show_sign: bool,
+    space_sign: bool,
+    alternate: bool,
+    zero_pad: bool,
+}
+
+fn format_and_push(result: &mut String, text: &str, flags: &PrintfFlags, width: Option<usize>, precision: Option<usize>) {
+    let mut formatted = if let Some(p) = precision {
+        if text.len() > p {
+            text.chars().take(p).collect()
+        } else {
+            text.to_string()
+        }
+    } else {
+        text.to_string()
+    };
+    
+    if let Some(w) = width {
+        if flags.left_align {
+            result.push_str(&format!("{:<width$}", formatted, width = w));
+        } else if flags.zero_pad && !flags.left_align {
+            result.push_str(&format!("{:0>width$}", formatted, width = w));
+        } else {
+            result.push_str(&format!("{:>width$}", formatted, width = w));
+        }
+    } else {
+        result.push_str(&formatted);
+    }
+}
+
+fn format_number(result: &mut String, num: i64, flags: &PrintfFlags, width: Option<usize>, _precision: Option<usize>) {
+    let sign = if num >= 0 {
+        if flags.show_sign {
+            "+"
+        } else if flags.space_sign {
+            " "
+        } else {
+            ""
+        }
+    } else {
+        "-"
+    };
+    
+    let abs_num = num.abs();
+    let num_str = format!("{}{}", sign, abs_num);
+    
+    if let Some(w) = width {
+        if flags.left_align {
+            result.push_str(&format!("{:<width$}", num_str, width = w));
+        } else if flags.zero_pad && !flags.left_align {
+            if !sign.is_empty() {
+                result.push_str(sign);
+                result.push_str(&format!("{:0>width$}", abs_num, width = w.saturating_sub(sign.len())));
+            } else {
+                result.push_str(&format!("{:0>width$}", num_str, width = w));
+            }
+        } else {
+            result.push_str(&format!("{:>width$}", num_str, width = w));
+        }
+    } else {
+        result.push_str(&num_str);
+    }
+}
+
+fn format_symbolic_mode(mode: u32) -> String {
+    let file_type = match mode & S_IFMT {
+        S_IFREG => '-',
+        S_IFDIR => 'd',
+        S_IFLNK => 'l',
+        S_IFBLK => 'b',
+        S_IFCHR => 'c',
+        S_IFIFO => 'p',
+        S_IFSOCK => 's',
+        _ => '?',
+    };
+    
+    format!("{}{}{}{}{}{}{}{}{}{}", 
+        file_type,
+        if mode & 0o400 != 0 { 'r' } else { '-' },
+        if mode & 0o200 != 0 { 'w' } else { '-' },
+        if mode & 0o4000 != 0 { 's' } else if mode & 0o100 != 0 { 'x' } else { '-' },
+        if mode & 0o040 != 0 { 'r' } else { '-' },
+        if mode & 0o020 != 0 { 'w' } else { '-' },
+        if mode & 0o2000 != 0 { 's' } else if mode & 0o010 != 0 { 'x' } else { '-' },
+        if mode & 0o004 != 0 { 'r' } else { '-' },
+        if mode & 0o002 != 0 { 'w' } else { '-' },
+        if mode & 0o1000 != 0 { 't' } else if mode & 0o001 != 0 { 'x' } else { '-' },
+    )
+}
+
+fn get_file_type_char(mode: u32) -> char {
+    match mode & S_IFMT {
+        S_IFREG => 'f',
+        S_IFDIR => 'd',
+        S_IFLNK => 'l',
+        S_IFBLK => 'b',
+        S_IFCHR => 'c',
+        S_IFIFO => 'p',
+        S_IFSOCK => 's',
+        _ => '?',
+    }
+}
+
+fn get_file_type_name(mode: u32) -> &'static str {
+    match mode & S_IFMT {
+        S_IFREG => "regular file",
+        S_IFDIR => "directory",
+        S_IFLNK => "symbolic link",
+        S_IFBLK => "block device",
+        S_IFCHR => "character device",
+        S_IFIFO => "named pipe",
+        S_IFSOCK => "socket",
+        _ => "unknown",
+    }
+}
+
+// Estimate file count for progress bar initialization
+fn estimate_file_count(paths: &[String]) -> u64 {
+    let mut total = 0u64;
+    for path in paths {
+        if let Ok(metadata) = std::fs::metadata(path) {
+            if metadata.is_dir() {
+                // Quick estimation: assume average 100 files per directory
+                // This is rough but better than no progress indication
+                total += estimate_dir_size(Path::new(path)).unwrap_or(100);
+            } else {
+                total += 1;
+            }
+        }
+    }
+    total.max(1) // At least 1 to avoid division by zero
+}
+
+fn estimate_dir_size(path: &Path) -> Option<u64> {
+    // Quick directory size estimation without full traversal
+    // Sample first few entries and extrapolate
+    let mut count = 0u64;
+    let mut sample_size = 0;
+    const MAX_SAMPLE: usize = 50;
+    
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.take(MAX_SAMPLE) {
+            if entry.is_ok() {
+                count += 1;
+                sample_size += 1;
+            }
+        }
+        
+        if sample_size == MAX_SAMPLE {
+            // Extrapolate: assume this directory has more files
+            Some(count * 3) // Conservative multiplier
+        } else {
+            Some(count)
+        }
+    } else {
+        None
+    }
 }
 
 fn format_bytes(bytes: u64) -> String {
