@@ -95,6 +95,17 @@ timedatectl.timesync.avg_jitter = Jitter médio:
 
 # rótulos de status do timedatectl
 timedatectl.status.local_time = Hora local
+
+# Cabeçalhos de ajuda do timedatectl
+timedatectl.help.title = timedatectl: Gerenciamento de Data e Hora
+timedatectl.help.usage = Uso:
+timedatectl.help.commands = Comandos:
+timedatectl.help.options = Opções:
+timedatectl.help.time_formats = Formatos de hora aceitos:
+timedatectl.help.examples = Exemplos:
+timedatectl.help.timesync_options = Opções para timesync-status:
+timedatectl.help.timesync_json_option =   -J, --json            Exibir status e resumo como JSON compacto
+timedatectl.help.global_json_option =   Global: alguns comandos aceitam -J/--json para saída JSON
 timedatectl.status.universal_time = Tempo universal (UTC)
 timedatectl.status.rtc_time = Hora do RTC
 timedatectl.status.time_zone = Fuso horário

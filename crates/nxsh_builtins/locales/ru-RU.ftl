@@ -95,6 +95,17 @@ timedatectl.timesync.avg_jitter = Средний джиттер:
 
 # Метки статуса timedatectl
 timedatectl.status.local_time = Локальное время
+
+# Заголовки раздела справки timedatectl
+timedatectl.help.title = timedatectl: Управление временем и датой
+timedatectl.help.usage = Использование:
+timedatectl.help.commands = Команды:
+timedatectl.help.options = Параметры:
+timedatectl.help.time_formats = Допустимые форматы времени:
+timedatectl.help.examples = Примеры:
+timedatectl.help.timesync_options = Параметры для timesync-status:
+timedatectl.help.timesync_json_option =   -J, --json            Показать статус и сводку в компактном JSON
+timedatectl.help.global_json_option =   Глобально: некоторые команды поддерживают -J/--json для вывода JSON
 timedatectl.status.universal_time = Всемирное время (UTC)
 timedatectl.status.rtc_time = Время RTC
 timedatectl.status.time_zone = Часовой пояс

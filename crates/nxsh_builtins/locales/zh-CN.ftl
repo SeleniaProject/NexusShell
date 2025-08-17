@@ -271,6 +271,17 @@ timedatectl.timesync.avg_jitter = 平均抖动：
 
 # timedatectl 状态标签
 timedatectl.status.local_time = 本地时间
+
+# timedatectl 帮助部分标题
+timedatectl.help.title = timedatectl：时间与日期管理
+timedatectl.help.usage = 用法：
+timedatectl.help.commands = 命令：
+timedatectl.help.options = 选项：
+timedatectl.help.time_formats = 可接受的时间格式：
+timedatectl.help.examples = 示例：
+timedatectl.help.timesync_options = timesync-status 的选项：
+timedatectl.help.timesync_json_option =   -J, --json            以精简 JSON 显示状态与摘要
+timedatectl.help.global_json_option =   全局：部分命令支持使用 -J/--json 输出 JSON
 timedatectl.status.universal_time = 世界时 (UTC)
 timedatectl.status.rtc_time = RTC 时间
 timedatectl.status.time_zone = 时区

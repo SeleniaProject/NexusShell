@@ -95,6 +95,17 @@ timedatectl.timesync.avg_jitter = 평균 지터:
 
 # timedatectl 상태 레이블
 timedatectl.status.local_time = 로컬 시간
+
+# timedatectl 도움말 섹션 헤더
+timedatectl.help.title = timedatectl: 날짜와 시간 관리
+timedatectl.help.usage = 사용법:
+timedatectl.help.commands = 명령:
+timedatectl.help.options = 옵션:
+timedatectl.help.time_formats = 허용되는 시간 형식:
+timedatectl.help.examples = 예시:
+timedatectl.help.timesync_options = timesync-status 옵션:
+timedatectl.help.timesync_json_option =   -J, --json            상태와 요약을 간결한 JSON으로 출력
+timedatectl.help.global_json_option =   전역: 일부 명령은 -J/--json 으로 JSON 출력 지원
 timedatectl.status.universal_time = 세계시 (UTC)
 timedatectl.status.rtc_time = RTC 시간
 timedatectl.status.time_zone = 시간대

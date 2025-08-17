@@ -94,6 +94,15 @@ timedatectl.timesync.max_offset = Scarto massimo:
 timedatectl.timesync.avg_jitter = Jitter medio:
 
 # Etichette stato timedatectl
+timedatectl.help.title = timedatectl: Gestione di Data e Ora
+timedatectl.help.usage = Utilizzo:
+timedatectl.help.commands = Comandi:
+timedatectl.help.options = Opzioni:
+timedatectl.help.time_formats = Formati orari accettati:
+timedatectl.help.examples = Esempi:
+timedatectl.help.timesync_options = Opzioni per timesync-status:
+timedatectl.help.timesync_json_option =   -J, --json            Mostra stato e riepilogo come JSON compatto
+timedatectl.help.global_json_option =   Globale: alcuni comandi accettano -J/--json per l'output JSON
 timedatectl.status.local_time = Ora locale
 timedatectl.status.universal_time = Tempo universale (UTC)
 timedatectl.status.rtc_time = Ora RTC
