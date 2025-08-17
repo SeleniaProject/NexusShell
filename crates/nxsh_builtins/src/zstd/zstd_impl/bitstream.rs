@@ -34,6 +34,14 @@ impl<W: Write> BitWriter<W> {
 		Ok(())
 	}
 
+	/// Write raw bytes to the output stream.
+	/// Automatically aligns to byte boundary first if there are pending bits.
+	pub fn write_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
+		self.align_to_byte()?;
+		self.out.write_all(bytes)?;
+		Ok(())
+	}
+
 	pub fn into_inner(mut self) -> io::Result<W> {
 		self.align_to_byte()?;
 		Ok(self.out)

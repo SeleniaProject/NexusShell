@@ -402,7 +402,12 @@ fn compress_stream_full<R: Read, W: Write>(reader: &mut R, writer: &mut W, optio
     // いずれ本格エンコーダへ置換。現状は literals を Raw で詰め、Sequences は nbSeq=0 にする。
     // 内部の試験用パス（未使用）
     let mut _tmp = Vec::new();
-    let _ = compress_reader_to_writer(&input[..], &mut _tmp, FullZstdOptions { level: options.level, checksum: options.checksum, window_log: 20 });
+    let _ = compress_reader_to_writer(&input[..], &mut _tmp, FullZstdOptions { 
+        level: options.level, 
+        checksum: options.checksum, 
+        window_log: 20,
+        force_four_stream: None,
+    });
 
     write_compressed_frame_literals_only(writer, &input, options.checksum)
         .context("failed to write compressed(literals-only) frame")?;
