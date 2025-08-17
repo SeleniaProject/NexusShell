@@ -226,6 +226,22 @@ pub mod seq_write {
 	mod tests_seq_write {
 		use super::*;
 		#[test]
+		fn test_predefined_minimal_header() {
+			// Simple test with basic sequences
+			let seqs = vec![
+				Seq{ ll_code:1, ll_extra:0, ml_code:3, ml_extra:0, of_code:1, of_extra:0 }, 
+				Seq{ ll_code:2, ll_extra:0, ml_code:5, ml_extra:0, of_code:2, of_extra:0 }
+			];
+			let bytes = build_sequences_predefined_section_bytes(&seqs).expect("predefined section");
+			assert!(bytes.len() > 2);
+			assert_eq!(bytes[0], 2u8); // nbSeq=2
+			let modes = bytes[1];
+			assert_eq!(modes & 0b11, 0b00); // LL mode Predefined
+			assert_eq!((modes>>2) & 0b11, 0b00); // OF mode Predefined
+			assert_eq!((modes>>4) & 0b11, 0b00); // ML mode Predefined
+		}
+
+		#[test]
 		fn test_fse_compressed_minimal_header() {
 			let seqs = vec![Seq{ ll_code:1,ll_extra:0, ml_code:3,ml_extra:0, of_code:4,of_extra:1 }, Seq{ ll_code:2,ll_extra:0, ml_code:5,ml_extra:0, of_code:6,of_extra:1 }];
 			let bytes = build_sequences_fse_compressed_section_bytes(&seqs).expect("fse section");
@@ -257,9 +273,19 @@ pub mod seq_write {
 		let mut ll_hist = vec![0u32; 36];
 		let mut ml_hist = vec![0u32; 53];
 		let mut max_of_sym: usize = 0;
-		for s in seqs { if (s.ll_code as usize) < 36 { ll_hist[s.ll_code as usize] += 1; } if (s.ml_code as usize) < 53 { ml_hist[s.ml_code as usize] += 1; } max_of_sym = max_of_sym.max(s.of_code as usize); }
+		for s in seqs { 
+			if (s.ll_code as usize) < 36 { ll_hist[s.ll_code as usize] += 1; } 
+			if (s.ml_code as usize) < 53 { ml_hist[s.ml_code as usize] += 1; } 
+			max_of_sym = max_of_sym.max(s.of_code as usize);
+		}
+		// Cap max_of_sym to reasonable bounds to prevent excessive memory allocation
+		max_of_sym = max_of_sym.min(31); // RFC 8878 suggests max 28 for predefined, allow some margin
 		let mut of_hist = vec![0u32; max_of_sym + 1];
-		for s in seqs { of_hist[s.of_code as usize] += 1; }
+		for s in seqs { 
+			if (s.of_code as usize) <= max_of_sym {
+				of_hist[s.of_code as usize] += 1; 
+			}
+		}
 		let ll_total: u32 = ll_hist.iter().sum();
 		let ml_total: u32 = ml_hist.iter().sum();
 		let of_total: u32 = of_hist.iter().sum();

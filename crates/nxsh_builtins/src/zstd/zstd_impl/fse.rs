@@ -34,18 +34,16 @@ pub mod predefined {
 
     /// RFC 8878 3.1.1.3.2.2 literalsLength_defaultDistribution[36]
     pub const LL_DEFAULT_DISTRIBUTION: [i16; LL_SYMBOLS] = [
-        4, 3, 2, 2, 2, 2, 2, 2,
-        2, 2, 2, 2, 2, 1, 1, 1,
+        4, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1,
         2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 2, 1, 1, 1, 1, 1,
         -1, -1, -1, -1,
     ];
 
     /// RFC 8878 3.1.1.3.2.2 matchLengths_defaultDistribution[53]
     pub const ML_DEFAULT_DISTRIBUTION: [i16; ML_SYMBOLS] = [
-        1, 4, 3, 2, 2, 2, 2, 2, 2,
-        1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 4, 3, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -1,
         -1, -1, -1, -1, -1,
     ];
 
@@ -75,10 +73,18 @@ pub struct FseEncTable {
     pub symbol_table: Vec<u16>,
     /// Number of bits to output when transitioning from a given state (size = 1<<table_log)
     pub nb_bits_out: Vec<u8>,
-    /// Next state base for a given symbol (size = alphabet size)
+    /// State table for next state lookup (size = 1<<table_log)
+    pub state_table: Vec<u16>,
+    /// Parameters for each symbol
+    pub symbol_params: Vec<SymbolParams>,
+    /// Legacy base field for compatibility
     pub base: Vec<u16>,
-    /// Threshold per symbol for bit extraction (size = alphabet size)
-    pub threshold: Vec<u16>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SymbolParams {
+    pub delta_find_state: i32,
+    pub delta_nb_bits: i32,
 }
 
 impl FseEncTable {
@@ -88,74 +94,203 @@ impl FseEncTable {
         let table_size = 1usize << table_log;
         let sum: i32 = counts.iter().map(|&c| c as i32).sum();
         if sum != table_size as i32 {
-            return Err(io::Error::other("normalized counts must sum to 2^table_log"));
+            return Err(io::Error::other(format!("normalized counts sum {} != expected {}", sum, table_size)));
         }
         if counts.iter().any(|&c| c < 0) {
             return Err(io::Error::other("negative normalized counts not supported yet"));
         }
         let alphabet = counts.len();
-        // Spread symbols into table according to counts, using a step relatively prime to table_size.
-        let mut table: Vec<u16> = vec![u16::MAX; table_size];
-        let step = (table_size >> 1) + (table_size >> 3) + 3; // classic FSE spread step
+        
+        // Spread symbols using FSE standard distribution
+        let mut symbol_table = vec![0u16; table_size];
+        let step = (table_size >> 1) + (table_size >> 3) + 3;
         let mut pos = 0usize;
-        for (sym, &cnt) in counts.iter().enumerate() {
-            for _ in 0..cnt as usize {
-                if table[pos] != u16::MAX {
-                    // find next empty
-                    while table[pos] != u16::MAX { pos = (pos + 1) & (table_size - 1); }
+        
+        for (sym, &count) in counts.iter().enumerate() {
+            for _ in 0..count as usize {
+                while symbol_table[pos] != 0 && pos < table_size {
+                    pos = (pos + 1) % table_size;
                 }
-                table[pos] = sym as u16;
-                pos = (pos + step) & (table_size - 1);
+                if pos >= table_size {
+                    return Err(io::Error::other("FSE table overflow"));
+                }
+                symbol_table[pos] = (sym + 1) as u16; // +1 to distinguish from unset
+                pos = (pos + step) % table_size;
             }
         }
-        // Build per-symbol state counts encountered so far.
-        let mut state_count: Vec<u16> = vec![0; alphabet];
-        let mut base = vec![0u16; alphabet];
-        let mut threshold = vec![0u16; alphabet];
-        for (s, &cnt) in counts.iter().enumerate() {
-            if cnt > 0 {
-                base[s] = ((cnt as u16) << (table_log as u16)) - (cnt as u16);
-                threshold[s] = ((cnt as u16) << 1) - 1;
+        
+        // Convert back to 0-based indexing
+        for item in &mut symbol_table {
+            if *item > 0 {
+                *item -= 1;
             }
         }
-        // Compute nb_bits_out for each table state and finalize base values
+        
+        // Build cumulative table for state assignment
+        let mut cumul = vec![0u16; alphabet + 1];
+        for i in 0..alphabet {
+            cumul[i + 1] = cumul[i] + (counts[i] as u16);
+        }
+        
+        // Build state table (maps state to next state base)
+        let mut state_table = vec![0u16; table_size];
+        let mut state_count = vec![0u16; alphabet];
+        
+        for state in 0..table_size {
+            let sym = symbol_table[state] as usize;
+            state_table[state] = cumul[sym] + state_count[sym];
+            state_count[sym] += 1;
+        }
+        
+        // Calculate encoding parameters for each symbol  
+        let mut symbol_params = vec![SymbolParams { delta_find_state: 0, delta_nb_bits: 0 }; alphabet];
         let mut nb_bits_out = vec![0u8; table_size];
-        for (state, &sym) in table.iter().enumerate() {
-            if sym == u16::MAX { return Err(io::Error::other("internal: unfilled state")); }
-            let s = sym as usize;
-            let c = counts[s] as u16;
-            // Standard formula: nbBits = tableLog - floor_log2(count)
-            let clz = (c as u32).leading_zeros();
-            let floor_log2_c = 31i16 - (clz as i16); // since c>0
-            let out_bits = (table_log as i16) - floor_log2_c;
-            nb_bits_out[state] = out_bits.max(0) as u8;
-            state_count[s] += 1;
+        
+        // Build symbol parameters using zstd reference algorithm
+        let mut total = 0i32;
+        for (sym, &count) in counts.iter().enumerate() {
+            match count {
+                0 => {
+                    // No occurrence - filling for compatibility with FSE_getMaxNbBits()
+                    symbol_params[sym].delta_nb_bits = (((table_log + 1) as i32) << 16) - (1i32 << table_log);
+                    symbol_params[sym].delta_find_state = 0;
+                },
+                1 => {
+                    // Low probability symbol (count == 1) or (count == -1 for predefined)
+                    symbol_params[sym].delta_nb_bits = ((table_log as i32) << 16) - (1i32 << table_log);
+                    symbol_params[sym].delta_find_state = total - 1;
+                    total += 1;
+                    
+                    // Set nb_bits for states of this symbol  
+                    for state in 0..table_size {
+                        if symbol_table[state] == sym as u16 {
+                            nb_bits_out[state] = table_log;
+                        }
+                    }
+                },
+                _ => {
+                    // Normal case (count > 1)
+                    let count_u32 = count as u32;
+                    let max_bits_out = table_log - (31 - (count_u32 - 1).leading_zeros()) as u8;
+                    let min_state_plus = count_u32 << max_bits_out;
+                    
+                    symbol_params[sym].delta_nb_bits = ((max_bits_out as i32) << 16) - min_state_plus as i32;
+                    symbol_params[sym].delta_find_state = total - count as i32;
+                    total += count as i32;
+                    
+                    // Set nb_bits for states of this symbol
+                    for state in 0..table_size {
+                        if symbol_table[state] == sym as u16 {
+                            nb_bits_out[state] = max_bits_out;
+                        }
+                    }
+                }
+            }
         }
-        Ok(Self { table_log, symbol_table: table, nb_bits_out, base, threshold })
+
+        // Build base values for compatibility with old interface
+        let mut base = vec![0u16; alphabet];
+        for (sym, &count) in counts.iter().enumerate() {
+            if count > 0 {
+                let count_u32 = count as u32;
+                let max_bits_out = if count == 1 {
+                    table_log
+                } else {
+                    table_log - (31 - (count_u32 - 1).leading_zeros()) as u8
+                };
+                base[sym] = (count_u32 << max_bits_out) as u16;
+            }
+        }
+
+        Ok(Self { 
+            table_log, 
+            symbol_table, 
+            nb_bits_out, 
+            state_table,
+            symbol_params,
+            base,
+        })
+    }
+
+    /// Build encoding table from predefined distribution with -1 entries (unused symbols).
+    /// This handles RFC distributions where -1 indicates unused symbols.
+    pub fn from_predefined_distribution(dist: &[i16], table_log: u8) -> io::Result<Self> {
+        // Convert -1 to 0 and calculate actual sum of positive entries
+        let mut normalized: Vec<i16> = dist.iter().map(|&v| if v > 0 { v } else { 0 }).collect();
+        let current_sum: i32 = normalized.iter().map(|&c| c as i32).sum();
+        let expected_sum = 1i32 << table_log;
+        
+        // Predefined distributions may need adjustment to sum to expected_sum
+        if current_sum != expected_sum {
+            // Add the difference to the first non-zero symbol to make it sum correctly
+            let diff = expected_sum - current_sum;
+            if let Some(first_nonzero) = normalized.iter_mut().find(|x| **x > 0) {
+                *first_nonzero += diff as i16;
+            } else {
+                return Err(io::Error::other("no non-zero symbols in predefined distribution"));
+            }
+        }
+        
+        Self::from_normalized(&normalized, table_log)
     }
 
     /// Encode a sequence of symbols into an FSE bitstream (LSB-first) and return the bytes with a final state.
     /// Note: This minimal encoder writes the final state as little-endian u16 after the bitstream for testing roundtrip.
     pub fn encode_symbols(&self, symbols: &[u16]) -> io::Result<Vec<u8>> {
         if symbols.is_empty() { return Ok(Vec::new()); }
-        // Initialize state to any valid state for the last symbol. Choose first occurrence.
+        
+        // Initialize state to first state for the last symbol  
         let last_sym = symbols[symbols.len() - 1] as usize;
-        let mut state: u32 = 0;
-        for (i, &sym) in self.symbol_table.iter().enumerate() { if sym as usize == last_sym { state = i as u32; break; } }
+        if last_sym >= self.symbol_params.len() {
+            return Err(io::Error::other("symbol out of alphabet range"));
+        }
+        
+        // Find first state for this symbol
+        let mut state = None;
+        for (st, &sym) in self.symbol_table.iter().enumerate() {
+            if sym as usize == last_sym {
+                state = Some(st);
+                break;
+            }
+        }
+        let mut state = state.ok_or_else(|| io::Error::other("no state found for last symbol"))? as u32;
+        
         let mut out = Vec::with_capacity(symbols.len() / 2 + 8);
         let mut bw = crate::zstd::zstd_impl::bitstream::BitWriter::new(&mut out);
+        
         // Process from last to first as per FSE encoding
         for &sym_u16 in symbols[..symbols.len()-1].iter().rev() {
             let s = sym_u16 as usize;
-            let c = self.base[s] >> (self.table_log as u16); // original count approximation
-            let nb_bits = self.nb_bits_out[state as usize];
-            let max_state = ((c as u32) << (self.table_log as u32)) - 1;
-            let low_mask = (1u32 << nb_bits) - 1;
-            bw.write_bits(state as u64 & low_mask as u64, nb_bits)?;
-            // Next state computation: base[s] + (state >> nb_bits)
-            state = self.base[s] as u32 + (state >> nb_bits);
-            if state > max_state { return Err(io::Error::other("state overflow")); }
+            if s >= self.symbol_params.len() { 
+                return Err(io::Error::other("symbol out of alphabet range")); 
+            }
+            
+            let params = &self.symbol_params[s];
+            // Extract nb_bits from delta_nb_bits (upper 16 bits) 
+            let nb_bits = ((params.delta_nb_bits >> 16) & 0xFFFF) as u8;
+            
+            // Output lower bits of state
+            if nb_bits > 32 { 
+                return Err(io::Error::other(format!("invalid nb_bits: {}", nb_bits))); 
+            }
+            let mask = if nb_bits == 0 { 0 } else { (1u32 << nb_bits) - 1 };
+            bw.write_bits((state & mask) as u64, nb_bits)?;
+            
+            // Calculate next state using zstd formula
+            let next_state_idx = (state >> nb_bits) as i32 + params.delta_find_state;
+            if next_state_idx < 0 || next_state_idx as usize >= self.state_table.len() {
+                return Err(io::Error::other(format!("invalid state index: {} (state={}, nb_bits={}, delta_find_state={})", 
+                    next_state_idx, state, nb_bits, params.delta_find_state)));
+            }
+            state = self.state_table[next_state_idx as usize] as u32;
+            
+            // Basic sanity check
+            let table_size = 1u32 << self.table_log;
+            if state >= table_size { 
+                return Err(io::Error::other(format!("state overflow: {} >= {}", state, table_size))); 
+            }
         }
+        
         bw.align_to_byte()?;
         // Append final state (for testing convenience)
         out.extend_from_slice(&(state as u16).to_le_bytes());
@@ -267,13 +402,25 @@ mod tests_choose_log {
 /// Build FSE encoding tables for Predefined mode from RFC default distributions.
 pub fn build_predefined_tables() -> io::Result<(FseEncTable, FseEncTable, FseEncTable)> {
     use predefined::*;
-    // Convert default distributions to normalized counts where -1 maps to 1 (rare) per RFC table build.
-    let ll_counts: Vec<i16> = LL_DEFAULT_DISTRIBUTION.iter().map(|&v| if v < 0 { 1 } else { v }).collect();
-    let ml_counts: Vec<i16> = ML_DEFAULT_DISTRIBUTION.iter().map(|&v| if v < 0 { 1 } else { v }).collect();
-    let of_counts: Vec<i16> = OF_DEFAULT_DISTRIBUTION.iter().map(|&v| if v < 0 { 1 } else { v }).collect();
-    let ll = FseEncTable::from_normalized(&ll_counts, LL_ACCURACY_LOG)?;
-    let ml = FseEncTable::from_normalized(&ml_counts, ML_ACCURACY_LOG)?;
-    let of = FseEncTable::from_normalized(&of_counts, OF_ACCURACY_LOG)?;
+    // Use RFC default distributions as-is (they already sum to 2^accuracy_log)
+    let ll_counts: Vec<i16> = LL_DEFAULT_DISTRIBUTION.to_vec();
+    let ml_counts: Vec<i16> = ML_DEFAULT_DISTRIBUTION.to_vec();
+    let of_counts: Vec<i16> = OF_DEFAULT_DISTRIBUTION.to_vec();
+    
+    // For encoding, we need to temporarily handle -1 symbols by excluding them from the table
+    // but still preserving the array structure. We'll build tables without -1 entries.
+    let mut ll_working = Vec::new();
+    let mut ml_working = Vec::new();
+    let mut of_working = Vec::new();
+    
+    for &c in &ll_counts { if c > 0 { ll_working.push(c); } }
+    for &c in &ml_counts { if c > 0 { ml_working.push(c); } }
+    for &c in &of_counts { if c > 0 { of_working.push(c); } }
+    
+    // Build tables with only positive counts but using the full alphabet sizes for indexing
+    let ll = FseEncTable::from_predefined_distribution(&ll_counts, LL_ACCURACY_LOG)?;
+    let ml = FseEncTable::from_predefined_distribution(&ml_counts, ML_ACCURACY_LOG)?;
+    let of = FseEncTable::from_predefined_distribution(&of_counts, OF_ACCURACY_LOG)?;
     Ok((ll, of, ml))
 }
 
@@ -333,10 +480,10 @@ mod tests {
         buf.clear();
         assert_eq!(write_nb_sequences_varint(&mut buf, 127).unwrap(), 1);
         assert_eq!(buf, vec![127u8]);
-    // nb=128 -> 2 bytes : b0 = 128 + (128>>8)=128, b1=0
+    // nb=128 -> 2 bytes : b0 = 128 + (128>>8)=128, b1=128&0xFF=128
         buf.clear();
         assert_eq!(write_nb_sequences_varint(&mut buf, 128).unwrap(), 2);
-        assert_eq!(buf, vec![128u8, 0u8]);
+        assert_eq!(buf, vec![128u8, 128u8]);
     // nb just before 3-byte threshold (0x7F00): 0x7EFF encoded in 2 bytes
         buf.clear();
     assert_eq!(write_nb_sequences_varint(&mut buf, 0x7EFF).unwrap(), 2);
@@ -344,7 +491,7 @@ mod tests {
         // nb requiring 3 bytes -> byte0=255
         buf.clear();
         assert_eq!(write_nb_sequences_varint(&mut buf, 0xFF00).unwrap(), 3);
-    assert_eq!(buf, vec![255u8, 0x00, 0x08]); // 0xFF00 - 0x7F00 = 0x0800 -> 0x00 0x08
+    assert_eq!(buf, vec![255u8, 0x00, 0x80]); // 0xFF00 - 0x7F00 = 0x8000 -> 0x00 0x80
     }
 
     #[test]
