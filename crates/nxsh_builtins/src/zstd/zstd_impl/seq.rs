@@ -1,4 +1,4 @@
-use crate::zstd::zstd_impl::lz77::find_matches;
+use crate::zstd::zstd_impl::lz77::{find_matches, find_matches_with_dict};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Seq {
@@ -233,21 +233,26 @@ fn of_code_to_dist(of_code: u8, extra: u32) -> u32 {
 /// Tokenize into sequences and produce the concatenated literal stream used by sequences.
 /// This is preparatory work for the Sequences section writer.
 pub fn tokenize_full(input: &[u8]) -> (Vec<Seq>, Vec<u8>) {
-	if input.is_empty() { return (Vec::new(), Vec::new()); }
-	let matches = find_matches(input, 20, 3);
-	let mut seqs = Vec::new();
-	let mut literals = Vec::with_capacity(input.len());
-	let mut i = 0usize;
-	let mut mpos = 0usize;
-	while i < input.len() {
-		while mpos < matches.len() && matches[mpos].0 < i { mpos += 1; }
-		if mpos >= matches.len() { break; }
-		let (pos, m) = matches[mpos];
-		if pos < i || m.len < 3 || m.dist <= 3 { mpos += 1; continue; }
-		// Append literals preceding the match
-		if pos > i { literals.extend_from_slice(&input[i..pos]); }
-		let ll = (pos - i) as u32;
-		if let Some((of_code, of_extra)) = dist_to_of_code_and_extra(m.dist) {
+    tokenize_full_with_dict(input, None)
+}
+
+/// Enhanced tokenize with dictionary support
+pub fn tokenize_full_with_dict(input: &[u8], dict: Option<&[u8]>) -> (Vec<Seq>, Vec<u8>) {
+    if input.is_empty() { return (Vec::new(), Vec::new()); }
+    let matches = find_matches_with_dict(input, dict, 20, 3);
+    let mut seqs = Vec::new();
+    let mut literals = Vec::with_capacity(input.len());
+    let mut i = 0usize;
+    let mut mpos = 0usize;
+    while i < input.len() {
+        while mpos < matches.len() && matches[mpos].0 < i { mpos += 1; }
+        if mpos >= matches.len() { break; }
+        let (pos, m) = matches[mpos];
+        if pos < i || m.len < 3 || m.dist <= 3 { mpos += 1; continue; }
+        // Append literals preceding the match
+        if pos > i { literals.extend_from_slice(&input[i..pos]); }
+        let ll = (pos - i) as u32;
+        if let Some((of_code, of_extra)) = dist_to_of_code_and_extra(m.dist) {
 			let (ll_code, ll_extra) = len_to_ll_code_and_extra(ll);
 			let (ml_code, ml_extra) = len_to_ml_code_and_extra(m.len);
 			seqs.push(Seq { ll_code, ll_extra, ml_code, ml_extra, of_code, of_extra });
