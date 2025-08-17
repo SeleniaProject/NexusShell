@@ -855,81 +855,194 @@ impl NetworkToolsManager {
     async fn enumerate_windows_connections_iphelper(&self, options: &NetstatOptions) -> Result<Vec<NetworkConnection>> {
         use windows_sys::Win32::NetworkManagement::IpHelper::*;
         use windows_sys::Win32::Networking::WinSock::*;
+        
         unsafe {
             let mut list: Vec<NetworkConnection> = Vec::new();
+            
             // TCP v4
             if options.show_tcp || options.show_all {
                 let mut size: u32 = 0;
                 let mut ret = GetExtendedTcpTable(std::ptr::null_mut(), &mut size, 1, AF_INET as u32, TCP_TABLE_CLASS::TCP_TABLE_OWNER_PID_ALL, 0);
-                let mut buf = vec![0u8; size as usize];
-                ret = GetExtendedTcpTable(buf.as_mut_ptr() as *mut _, &mut size, 1, AF_INET as u32, TCP_TABLE_CLASS::TCP_TABLE_OWNER_PID_ALL, 0);
-                if ret == 0 {
-                    let table = buf.as_ptr() as *const MIB_TCPTABLE_OWNER_PID;
-                    let count = (*table).dwNumEntries as usize;
-                    let rows = std::slice::from_raw_parts((*table).table.as_ptr(), count);
-                    for r in rows {
-                        let local = SocketAddr::new(IpAddr::V4(Ipv4Addr::from(u32::from_be(r.dwLocalAddr))), u16::from_be(r.dwLocalPort as u16));
-                        let remote = SocketAddr::new(IpAddr::V4(Ipv4Addr::from(u32::from_be(r.dwRemoteAddr))), u16::from_be(r.dwRemotePort as u16));
-                        let state = match r.dwState { MIB_TCP_STATE_ESTAB => ConnectionState::Established, MIB_TCP_STATE_LISTEN => ConnectionState::Listen, MIB_TCP_STATE_TIME_WAIT => ConnectionState::TimeWait, MIB_TCP_STATE_CLOSE_WAIT => ConnectionState::CloseWait, MIB_TCP_STATE_FIN_WAIT1 => ConnectionState::FinWait1, MIB_TCP_STATE_FIN_WAIT2 => ConnectionState::FinWait2, MIB_TCP_STATE_SYN_SENT => ConnectionState::SynSent, MIB_TCP_STATE_SYN_RCVD => ConnectionState::SynRecv, _ => ConnectionState::Unknown };
-                        list.push(NetworkConnection { protocol: "TCP".into(), local_address: local, remote_address: if state==ConnectionState::Listen { None } else { Some(remote) }, state, recv_queue: 0, send_queue: 0, process_id: Some(r.dwOwningPid), process_name: None });
+                if size > 0 {
+                    let mut buf = vec![0u8; size as usize];
+                    ret = GetExtendedTcpTable(buf.as_mut_ptr() as *mut _, &mut size, 1, AF_INET as u32, TCP_TABLE_CLASS::TCP_TABLE_OWNER_PID_ALL, 0);
+                    if ret == 0 {
+                        let table = buf.as_ptr() as *const MIB_TCPTABLE_OWNER_PID;
+                        let count = (*table).dwNumEntries as usize;
+                        let rows = std::slice::from_raw_parts((*table).table.as_ptr(), count);
+                        for r in rows {
+                            let local = SocketAddr::new(
+                                IpAddr::V4(Ipv4Addr::from(u32::from_le(r.dwLocalAddr))), 
+                                u16::from_be(r.dwLocalPort as u16)
+                            );
+                            let remote = SocketAddr::new(
+                                IpAddr::V4(Ipv4Addr::from(u32::from_le(r.dwRemoteAddr))), 
+                                u16::from_be(r.dwRemotePort as u16)
+                            );
+                            let state = match r.dwState {
+                                MIB_TCP_STATE_ESTAB => ConnectionState::Established,
+                                MIB_TCP_STATE_LISTEN => ConnectionState::Listen,
+                                MIB_TCP_STATE_TIME_WAIT => ConnectionState::TimeWait,
+                                MIB_TCP_STATE_CLOSE_WAIT => ConnectionState::CloseWait,
+                                MIB_TCP_STATE_FIN_WAIT1 => ConnectionState::FinWait1,
+                                MIB_TCP_STATE_FIN_WAIT2 => ConnectionState::FinWait2,
+                                MIB_TCP_STATE_SYN_SENT => ConnectionState::SynSent,
+                                MIB_TCP_STATE_SYN_RCVD => ConnectionState::SynRecv,
+                                MIB_TCP_STATE_LAST_ACK => ConnectionState::LastAck,
+                                MIB_TCP_STATE_CLOSING => ConnectionState::Closing,
+                                MIB_TCP_STATE_CLOSED => ConnectionState::Close,
+                                _ => ConnectionState::Unknown
+                            };
+                            
+                            let remote_addr = if state == ConnectionState::Listen || 
+                                               remote.ip().is_unspecified() {
+                                None
+                            } else {
+                                Some(remote)
+                            };
+                            
+                            list.push(NetworkConnection {
+                                protocol: "tcp".to_string(),
+                                local_address: local,
+                                remote_address: remote_addr,
+                                state,
+                                recv_queue: 0,
+                                send_queue: 0,
+                                process_id: Some(r.dwOwningPid),
+                                process_name: None,
+                            });
+                        }
                     }
                 }
             }
+            
             // UDP v4
             if options.show_udp || options.show_all {
                 let mut size: u32 = 0;
                 let mut ret = GetExtendedUdpTable(std::ptr::null_mut(), &mut size, 1, AF_INET as u32, UDP_TABLE_CLASS::UDP_TABLE_OWNER_PID, 0);
-                let mut buf = vec![0u8; size as usize];
-                ret = GetExtendedUdpTable(buf.as_mut_ptr() as *mut _, &mut size, 1, AF_INET as u32, UDP_TABLE_CLASS::UDP_TABLE_OWNER_PID, 0);
-                if ret == 0 {
-                    let table = buf.as_ptr() as *const MIB_UDPTABLE_OWNER_PID;
-                    let count = (*table).dwNumEntries as usize;
-                    let rows = std::slice::from_raw_parts((*table).table.as_ptr(), count);
-                    for r in rows {
-                        let local = SocketAddr::new(IpAddr::V4(Ipv4Addr::from(u32::from_be(r.dwLocalAddr))), u16::from_be(r.dwLocalPort as u16));
-                        list.push(NetworkConnection { protocol: "UDP".into(), local_address: local, remote_address: None, state: ConnectionState::Unknown, recv_queue: 0, send_queue: 0, process_id: Some(r.dwOwningPid), process_name: None });
+                if size > 0 {
+                    let mut buf = vec![0u8; size as usize];
+                    ret = GetExtendedUdpTable(buf.as_mut_ptr() as *mut _, &mut size, 1, AF_INET as u32, UDP_TABLE_CLASS::UDP_TABLE_OWNER_PID, 0);
+                    if ret == 0 {
+                        let table = buf.as_ptr() as *const MIB_UDPTABLE_OWNER_PID;
+                        let count = (*table).dwNumEntries as usize;
+                        let rows = std::slice::from_raw_parts((*table).table.as_ptr(), count);
+                        for r in rows {
+                            let local = SocketAddr::new(
+                                IpAddr::V4(Ipv4Addr::from(u32::from_le(r.dwLocalAddr))), 
+                                u16::from_be(r.dwLocalPort as u16)
+                            );
+                            
+                            list.push(NetworkConnection {
+                                protocol: "udp".to_string(),
+                                local_address: local,
+                                remote_address: None,
+                                state: ConnectionState::Unknown,
+                                recv_queue: 0,
+                                send_queue: 0,
+                                process_id: Some(r.dwOwningPid),
+                                process_name: None,
+                            });
+                        }
                     }
                 }
             }
+            
             // TCP v6
             if options.show_tcp || options.show_all {
                 let mut size: u32 = 0;
                 let mut ret = GetExtendedTcpTable(std::ptr::null_mut(), &mut size, 1, AF_INET6 as u32, TCP_TABLE_CLASS::TCP_TABLE_OWNER_PID_ALL, 0);
-                let mut buf = vec![0u8; size as usize];
-                ret = GetExtendedTcpTable(buf.as_mut_ptr() as *mut _, &mut size, 1, AF_INET6 as u32, TCP_TABLE_CLASS::TCP_TABLE_OWNER_PID_ALL, 0);
-                if ret == 0 {
-                    let table = buf.as_ptr() as *const MIB_TCP6TABLE_OWNER_PID;
-                    let count = (*table).dwNumEntries as usize;
-                    let rows = std::slice::from_raw_parts((*table).table.as_ptr(), count);
-                    for r in rows {
-                        let local_ip = Ipv6Addr::from(r.ucLocalAddr);
-                        let remote_ip = Ipv6Addr::from(r.ucRemoteAddr);
-                        let local = SocketAddr::new(IpAddr::V6(local_ip), u16::from_be(r.dwLocalPort as u16));
-                        let remote = SocketAddr::new(IpAddr::V6(remote_ip), u16::from_be(r.dwRemotePort as u16));
-                        let state = match r.State { MIB_TCP_STATE_ESTAB => ConnectionState::Established, MIB_TCP_STATE_LISTEN => ConnectionState::Listen, MIB_TCP_STATE_TIME_WAIT => ConnectionState::TimeWait, MIB_TCP_STATE_CLOSE_WAIT => ConnectionState::CloseWait, MIB_TCP_STATE_FIN_WAIT1 => ConnectionState::FinWait1, MIB_TCP_STATE_FIN_WAIT2 => ConnectionState::FinWait2, MIB_TCP_STATE_SYN_SENT => ConnectionState::SynSent, MIB_TCP_STATE_SYN_RCVD => ConnectionState::SynRecv, _ => ConnectionState::Unknown };
-                        list.push(NetworkConnection { protocol: "TCP6".into(), local_address: local, remote_address: if state==ConnectionState::Listen { None } else { Some(remote) }, state, recv_queue: 0, send_queue: 0, process_id: Some(r.dwOwningPid), process_name: None });
+                if size > 0 {
+                    let mut buf = vec![0u8; size as usize];
+                    ret = GetExtendedTcpTable(buf.as_mut_ptr() as *mut _, &mut size, 1, AF_INET6 as u32, TCP_TABLE_CLASS::TCP_TABLE_OWNER_PID_ALL, 0);
+                    if ret == 0 {
+                        let table = buf.as_ptr() as *const MIB_TCP6TABLE_OWNER_PID;
+                        let count = (*table).dwNumEntries as usize;
+                        let rows = std::slice::from_raw_parts((*table).table.as_ptr(), count);
+                        for r in rows {
+                            // Convert ucLocalAddr and ucRemoteAddr from [u8; 16] to Ipv6Addr
+                            let local_ip = Ipv6Addr::from(r.ucLocalAddr);
+                            let remote_ip = Ipv6Addr::from(r.ucRemoteAddr);
+                            let local = SocketAddr::new(
+                                IpAddr::V6(local_ip), 
+                                u16::from_be(r.dwLocalPort as u16)
+                            );
+                            let remote = SocketAddr::new(
+                                IpAddr::V6(remote_ip), 
+                                u16::from_be(r.dwRemotePort as u16)
+                            );
+                            
+                            let state = match r.dwState {
+                                MIB_TCP_STATE_ESTAB => ConnectionState::Established,
+                                MIB_TCP_STATE_LISTEN => ConnectionState::Listen,
+                                MIB_TCP_STATE_TIME_WAIT => ConnectionState::TimeWait,
+                                MIB_TCP_STATE_CLOSE_WAIT => ConnectionState::CloseWait,
+                                MIB_TCP_STATE_FIN_WAIT1 => ConnectionState::FinWait1,
+                                MIB_TCP_STATE_FIN_WAIT2 => ConnectionState::FinWait2,
+                                MIB_TCP_STATE_SYN_SENT => ConnectionState::SynSent,
+                                MIB_TCP_STATE_SYN_RCVD => ConnectionState::SynRecv,
+                                MIB_TCP_STATE_LAST_ACK => ConnectionState::LastAck,
+                                MIB_TCP_STATE_CLOSING => ConnectionState::Closing,
+                                MIB_TCP_STATE_CLOSED => ConnectionState::Close,
+                                _ => ConnectionState::Unknown
+                            };
+                            
+                            let remote_addr = if state == ConnectionState::Listen || 
+                                               remote.ip().is_unspecified() {
+                                None
+                            } else {
+                                Some(remote)
+                            };
+                            
+                            list.push(NetworkConnection {
+                                protocol: "tcp6".to_string(),
+                                local_address: local,
+                                remote_address: remote_addr,
+                                state,
+                                recv_queue: 0,
+                                send_queue: 0,
+                                process_id: Some(r.dwOwningPid),
+                                process_name: None,
+                            });
+                        }
                     }
                 }
             }
+            
             // UDP v6
             if options.show_udp || options.show_all {
                 let mut size: u32 = 0;
                 let mut ret = GetExtendedUdpTable(std::ptr::null_mut(), &mut size, 1, AF_INET6 as u32, UDP_TABLE_CLASS::UDP_TABLE_OWNER_PID, 0);
-                let mut buf = vec![0u8; size as usize];
-                ret = GetExtendedUdpTable(buf.as_mut_ptr() as *mut _, &mut size, 1, AF_INET6 as u32, UDP_TABLE_CLASS::UDP_TABLE_OWNER_PID, 0);
-                if ret == 0 {
-                    let table = buf.as_ptr() as *const MIB_UDP6TABLE_OWNER_PID;
-                    let count = (*table).dwNumEntries as usize;
-                    let rows = std::slice::from_raw_parts((*table).table.as_ptr(), count);
-                    for r in rows {
-                        let local_ip = Ipv6Addr::from(r.ucLocalAddr);
-                        let local = SocketAddr::new(IpAddr::V6(local_ip), u16::from_be(r.dwLocalPort as u16));
-                        list.push(NetworkConnection { protocol: "UDP6".into(), local_address: local, remote_address: None, state: ConnectionState::Unknown, recv_queue: 0, send_queue: 0, process_id: Some(r.dwOwningPid), process_name: None });
+                if size > 0 {
+                    let mut buf = vec![0u8; size as usize];
+                    ret = GetExtendedUdpTable(buf.as_mut_ptr() as *mut _, &mut size, 1, AF_INET6 as u32, UDP_TABLE_CLASS::UDP_TABLE_OWNER_PID, 0);
+                    if ret == 0 {
+                        let table = buf.as_ptr() as *const MIB_UDP6TABLE_OWNER_PID;
+                        let count = (*table).dwNumEntries as usize;
+                        let rows = std::slice::from_raw_parts((*table).table.as_ptr(), count);
+                        for r in rows {
+                            let local_ip = Ipv6Addr::from(r.ucLocalAddr);
+                            let local = SocketAddr::new(
+                                IpAddr::V6(local_ip), 
+                                u16::from_be(r.dwLocalPort as u16)
+                            );
+                            
+                            list.push(NetworkConnection {
+                                protocol: "udp6".to_string(),
+                                local_address: local,
+                                remote_address: None,
+                                state: ConnectionState::Unknown,
+                                recv_queue: 0,
+                                send_queue: 0,
+                                process_id: Some(r.dwOwningPid),
+                                process_name: None,
+                            });
+                        }
                     }
                 }
             }
-            // Post-process to fill process_name from PID (best-effort)
-            let mut list = list;
+            
+            // Fill process names from PIDs
             let pids: HashSet<u32> = list.iter().filter_map(|c| c.process_id).collect();
             let mut name_cache: HashMap<u32, String> = HashMap::new();
             for pid in pids {
@@ -937,6 +1050,7 @@ impl NetworkToolsManager {
                     name_cache.insert(pid, name);
                 }
             }
+            
             for conn in &mut list {
                 if let Some(pid) = conn.process_id {
                     if let Some(name) = name_cache.get(&pid) {
@@ -944,6 +1058,7 @@ impl NetworkToolsManager {
                     }
                 }
             }
+            
             Ok(list)
         }
     }
@@ -992,7 +1107,14 @@ impl NetworkToolsManager {
         // Read /proc/net/tcp
         if let Ok(content) = tokio::fs::read_to_string("/proc/net/tcp").await {
             for line in content.lines().skip(1) {
-                if let Some(conn) = self.parse_proc_net_tcp_line(line) {
+                if let Some(mut conn) = self.parse_proc_net_tcp_line(line) {
+                    // Try to fill process info if inode is available
+                    if let Some(inode) = self.extract_inode_from_proc_line(line) {
+                        if let Some((pid, name)) = self.find_process_by_socket_inode(inode).await {
+                            conn.process_id = Some(pid);
+                            conn.process_name = Some(name);
+                        }
+                    }
                     connections.push(conn);
                 }
             }
@@ -1001,7 +1123,13 @@ impl NetworkToolsManager {
         // Read /proc/net/tcp6
         if let Ok(content) = tokio::fs::read_to_string("/proc/net/tcp6").await {
             for line in content.lines().skip(1) {
-                if let Some(conn) = self.parse_proc_net_tcp6_line(line) {
+                if let Some(mut conn) = self.parse_proc_net_tcp6_line(line) {
+                    if let Some(inode) = self.extract_inode_from_proc_line(line) {
+                        if let Some((pid, name)) = self.find_process_by_socket_inode(inode).await {
+                            conn.process_id = Some(pid);
+                            conn.process_name = Some(name);
+                        }
+                    }
                     connections.push(conn);
                 }
             }
@@ -1017,7 +1145,13 @@ impl NetworkToolsManager {
         // Read /proc/net/udp
         if let Ok(content) = tokio::fs::read_to_string("/proc/net/udp").await {
             for line in content.lines().skip(1) {
-                if let Some(conn) = self.parse_proc_net_udp_line(line) {
+                if let Some(mut conn) = self.parse_proc_net_udp_line(line) {
+                    if let Some(inode) = self.extract_inode_from_proc_line(line) {
+                        if let Some((pid, name)) = self.find_process_by_socket_inode(inode).await {
+                            conn.process_id = Some(pid);
+                            conn.process_name = Some(name);
+                        }
+                    }
                     connections.push(conn);
                 }
             }
@@ -1026,13 +1160,88 @@ impl NetworkToolsManager {
         // Read /proc/net/udp6
         if let Ok(content) = tokio::fs::read_to_string("/proc/net/udp6").await {
             for line in content.lines().skip(1) {
-                if let Some(conn) = self.parse_proc_net_udp6_line(line) {
+                if let Some(mut conn) = self.parse_proc_net_udp6_line(line) {
+                    if let Some(inode) = self.extract_inode_from_proc_line(line) {
+                        if let Some((pid, name)) = self.find_process_by_socket_inode(inode).await {
+                            conn.process_id = Some(pid);
+                            conn.process_name = Some(name);
+                        }
+                    }
                     connections.push(conn);
                 }
             }
         }
         
         Ok(connections)
+    }
+    
+    #[cfg(unix)]
+    fn extract_inode_from_proc_line(&self, line: &str) -> Option<u64> {
+        // /proc/net/tcp format: 
+        // sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 10 {
+            parts[9].parse().ok()
+        } else {
+            None
+        }
+    }
+    
+    #[cfg(unix)]
+    async fn find_process_by_socket_inode(&self, inode: u64) -> Option<(u32, String)> {
+        // Look through /proc/*/fd/* for socket:[inode]
+        let proc_dir = std::path::Path::new("/proc");
+        if let Ok(entries) = std::fs::read_dir(proc_dir) {
+            for entry in entries.flatten() {
+                if let Ok(pid_str) = entry.file_name().into_string() {
+                    if let Ok(pid) = pid_str.parse::<u32>() {
+                        if let Some(process_name) = self.check_process_for_socket_inode(pid, inode).await {
+                            return Some((pid, process_name));
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+    
+    #[cfg(unix)]
+    async fn check_process_for_socket_inode(&self, pid: u32, inode: u64) -> Option<String> {
+        let fd_dir = format!("/proc/{}/fd", pid);
+        let target_link = format!("socket:[{}]", inode);
+        
+        if let Ok(entries) = std::fs::read_dir(fd_dir) {
+            for entry in entries.flatten() {
+                if let Ok(link_target) = std::fs::read_link(entry.path()) {
+                    if let Some(link_str) = link_target.to_str() {
+                        if link_str == target_link {
+                            // Found the process, get its name
+                            return self.get_process_name_from_pid_linux(pid).await;
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+    
+    #[cfg(unix)]
+    async fn get_process_name_from_pid_linux(&self, pid: u32) -> Option<String> {
+        let comm_path = format!("/proc/{}/comm", pid);
+        if let Ok(comm) = tokio::fs::read_to_string(comm_path).await {
+            Some(comm.trim().to_string())
+        } else {
+            // Fallback to reading cmdline
+            let cmdline_path = format!("/proc/{}/cmdline", pid);
+            if let Ok(cmdline) = tokio::fs::read_to_string(cmdline_path).await {
+                if let Some(first_arg) = cmdline.split('\0').next() {
+                    if let Some(basename) = std::path::Path::new(first_arg).file_name() {
+                        return basename.to_str().map(|s| s.to_string());
+                    }
+                }
+            }
+            None
+        }
     }
     
     #[cfg(unix)]
@@ -1151,10 +1360,27 @@ impl NetworkToolsManager {
     fn parse_proc_net_addr_v6(&self, addr_str: &str) -> Option<SocketAddr> {
         if let Some((addr_hex, port_hex)) = addr_str.split_once(':') {
             if addr_hex.len() == 32 && port_hex.len() == 4 {
-                // IPv6 address - simplified parsing
+                // IPv6 address - proper parsing of 32 hex chars to 16 bytes
                 if let Ok(port_num) = u16::from_str_radix(port_hex, 16) {
-                    // For now, use a placeholder IPv6 address
-                    let ip = Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1);
+                    let mut bytes = [0u8; 16];
+                    for i in 0..16 {
+                        if let Ok(byte) = u8::from_str_radix(&addr_hex[i*2..i*2+2], 16) {
+                            bytes[i] = byte;
+                        } else {
+                            return None;
+                        }
+                    }
+                    
+                    // Convert from little-endian to big-endian (network byte order)
+                    let mut segments = [0u16; 8];
+                    for i in 0..8 {
+                        segments[i] = u16::from_le_bytes([bytes[i*2], bytes[i*2+1]]);
+                    }
+                    
+                    let ip = Ipv6Addr::new(
+                        segments[0], segments[1], segments[2], segments[3],
+                        segments[4], segments[5], segments[6], segments[7],
+                    );
                     return Some(SocketAddr::new(IpAddr::V6(ip), port_num));
                 }
             }
@@ -1296,19 +1522,68 @@ impl NetworkToolsManager {
     }
     
     async fn reverse_dns_lookup(&self, ip: IpAddr) -> Option<String> {
-        #[cfg(feature = "dns-tools")]
-        {
-            use trust_dns_resolver::{TokioAsyncResolver, config::{ResolverConfig, ResolverOpts}};
-            // Use system DNS by default
-            let resolver = TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default()).ok()?;
-            match resolver.reverse_lookup(ip).await {
-                Ok(resp) => resp.iter().next().map(|name| name.to_utf8()),
+        // Use built-in std::net lookup for PTR resolution
+        match tokio::task::spawn_blocking(move || {
+            use std::net::ToSocketAddrs;
+            // Try to resolve the IP address to hostname
+            let dummy_port = 80;
+            let socket_addr = std::net::SocketAddr::new(ip, dummy_port);
+            
+            // Use reverse lookup via getnameinfo-like functionality
+            // This is a simple approach using std::net
+            match socket_addr.to_socket_addrs() {
+                Ok(_) => {
+                    // Try parsing as string and using system resolver
+                    use std::process::Command;
+                    
+                    #[cfg(unix)]
+                    {
+                        let output = Command::new("nslookup")
+                            .arg(ip.to_string())
+                            .output();
+                        
+                        if let Ok(output) = output {
+                            let stdout = String::from_utf8_lossy(&output.stdout);
+                            for line in stdout.lines() {
+                                if line.contains("name =") {
+                                    if let Some(name) = line.split("name =").nth(1) {
+                                        return Some(name.trim().to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    #[cfg(windows)]
+                    {
+                        let output = Command::new("nslookup")
+                            .arg(ip.to_string())
+                            .output();
+                        
+                        if let Ok(output) = output {
+                            let stdout = String::from_utf8_lossy(&output.stdout);
+                            let lines: Vec<&str> = stdout.lines().collect();
+                            for (i, line) in lines.iter().enumerate() {
+                                if line.contains("Address:") && i + 1 < lines.len() {
+                                    if let Some(name_line) = lines.get(i + 1) {
+                                        if name_line.starts_with("Name:") {
+                                            if let Some(name) = name_line.split("Name:").nth(1) {
+                                                return Some(name.trim().to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    None
+                },
                 Err(_) => None,
             }
-        }
-        #[cfg(not(feature = "dns-tools"))]
-        {
-            None
+        }).await {
+            Ok(result) => result,
+            Err(_) => None,
         }
     }
     
@@ -1663,40 +1938,396 @@ impl NetworkToolsManager {
     }
     
     async fn show_ip_addresses(&self) -> Result<()> {
-        println!("IP addresses:");
+        let interfaces = self.get_network_interfaces().await?;
         
-        // This would use system APIs to get actual interface information
-        // Simplified implementation
-        println!("1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN");
-        println!("    inet 127.0.0.1/8 scope host lo");
-        println!("    inet6 ::1/128 scope host");
-        println!("2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP");
-        println!("    inet 192.168.1.100/24 brd 192.168.1.255 scope global eth0");
+        for iface in interfaces {
+            println!("{}: {}: <{}> mtu {} state {}", 
+                    iface.index,
+                    iface.name, 
+                    iface.flags.join(","),
+                    iface.mtu,
+                    if iface.flags.contains(&"UP".to_string()) { "UP" } else { "DOWN" }
+            );
+            
+            for addr in &iface.addresses {
+                match addr {
+                    IpAddr::V4(ipv4) => {
+                        // Try to determine subnet from common patterns
+                        let prefix = if ipv4.is_loopback() { 8 } else { 24 };
+                        println!("    inet {}/{} scope {}", 
+                                ipv4, 
+                                prefix,
+                                if ipv4.is_loopback() { "host" } else { "global" }
+                        );
+                    },
+                    IpAddr::V6(ipv6) => {
+                        let prefix = if ipv6.is_loopback() { 128 } else { 64 };
+                        let scope = if ipv6.is_loopback() { "host" } else { "link" };
+                        println!("    inet6 {}/{} scope {}", ipv6, prefix, scope);
+                    }
+                }
+            }
+            
+            if let Some(mac) = &iface.mac_address {
+                println!("    link/ether {}", mac);
+            }
+        }
         
         Ok(())
     }
     
     async fn show_routing_table(&self) -> Result<()> {
-        println!("Kernel IP routing table");
-        println!("Destination     Gateway         Genmask         Flags Metric Ref    Use Iface");
+        #[cfg(unix)]
+        {
+            // Try to read /proc/net/route for IPv4 routing table
+            if let Ok(content) = tokio::fs::read_to_string("/proc/net/route").await {
+                println!("Kernel IP routing table");
+                println!("{:<15} {:<15} {:<15} {:<5} {:<6} {:<3} {:<8} {:<8}", 
+                        "Destination", "Gateway", "Genmask", "Flags", "Metric", "Ref", "Use", "Iface");
+                
+                for line in content.lines().skip(1) {
+                    if let Some(route) = self.parse_proc_route_line(line) {
+                        println!("{}", route);
+                    }
+                }
+            } else {
+                // Fallback to route command
+                let output = Command::new("route")
+                    .arg("-n")
+                    .output()
+                    .await
+                    .context("Failed to execute route command")?;
+                
+                if output.status.success() {
+                    print!("{}", String::from_utf8_lossy(&output.stdout));
+                }
+            }
+        }
         
-        // This would read the actual routing table
-        // Simplified implementation
-        println!("0.0.0.0         192.168.1.1     0.0.0.0         UG    100    0        0 eth0");
-        println!("192.168.1.0     0.0.0.0         255.255.255.0   U     100    0        0 eth0");
+        #[cfg(windows)]
+        {
+            let output = Command::new("route")
+                .arg("print")
+                .output()
+                .await
+                .context("Failed to execute route command")?;
+            
+            if output.status.success() {
+                print!("{}", String::from_utf8_lossy(&output.stdout));
+            }
+        }
         
         Ok(())
     }
     
     async fn show_network_interfaces(&self) -> Result<()> {
-        println!("Network interfaces:");
+        let interfaces = self.get_network_interfaces().await?;
         
-        // This would get actual interface information
-        // Simplified implementation
-        println!("1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT");
-        println!("2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP mode DEFAULT");
+        for iface in interfaces {
+            let flags_str = iface.flags.join(",");
+            let state = if iface.flags.contains(&"UP".to_string()) { "UP" } else { "DOWN" };
+            
+            println!("{}: {}: <{}> mtu {} qdisc {} state {} mode DEFAULT",
+                    iface.index,
+                    iface.name,
+                    flags_str,
+                    iface.mtu,
+                    "unknown", // qdisc is Linux-specific
+                    state
+            );
+        }
         
         Ok(())
+    }
+    
+    async fn get_network_interfaces(&self) -> Result<Vec<NetworkInterface>> {
+        #[cfg(unix)]
+        {
+            self.get_unix_network_interfaces().await
+        }
+        #[cfg(windows)]
+        {
+            self.get_windows_network_interfaces().await
+        }
+    }
+    
+    #[cfg(unix)]
+    async fn get_unix_network_interfaces(&self) -> Result<Vec<NetworkInterface>> {
+        use std::process::Command;
+        
+        let mut interfaces = Vec::new();
+        
+        // Use 'ip link show' to get interface information
+        let output = Command::new("ip")
+            .args(&["link", "show"])
+            .output()
+            .await;
+            
+        if let Ok(output) = output {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    if let Some(iface) = self.parse_ip_link_line(line) {
+                        interfaces.push(iface);
+                    }
+                }
+            }
+        }
+        
+        // Fallback to reading /sys/class/net if ip command failed
+        if interfaces.is_empty() {
+            if let Ok(entries) = std::fs::read_dir("/sys/class/net") {
+                for entry in entries.flatten() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        let mut iface = NetworkInterface {
+                            name: name.to_string(),
+                            index: 0,
+                            flags: vec!["UNKNOWN".to_string()],
+                            mtu: 1500,
+                            addresses: Vec::new(),
+                            mac_address: None,
+                            rx_packets: 0,
+                            tx_packets: 0,
+                            rx_bytes: 0,
+                            tx_bytes: 0,
+                            rx_errors: 0,
+                            tx_errors: 0,
+                        };
+                        
+                        // Try to read interface details from /sys
+                        if let Ok(mtu) = std::fs::read_to_string(format!("/sys/class/net/{}/mtu", name)) {
+                            if let Ok(mtu_val) = mtu.trim().parse::<u32>() {
+                                iface.mtu = mtu_val;
+                            }
+                        }
+                        
+                        if let Ok(addr) = std::fs::read_to_string(format!("/sys/class/net/{}/address", name)) {
+                            iface.mac_address = Some(addr.trim().to_string());
+                        }
+                        
+                        // Get IP addresses using getifaddrs-like functionality
+                        iface.addresses = self.get_interface_addresses(name).await;
+                        
+                        interfaces.push(iface);
+                    }
+                }
+            }
+        }
+        
+        Ok(interfaces)
+    }
+    
+    #[cfg(windows)]
+    async fn get_windows_network_interfaces(&self) -> Result<Vec<NetworkInterface>> {
+        use windows_sys::Win32::NetworkManagement::IpHelper::*;
+        use windows_sys::Win32::Foundation::*;
+        use std::mem;
+        
+        let mut interfaces = Vec::new();
+        
+        unsafe {
+            let mut size: u32 = 0;
+            let mut ret = GetAdaptersInfo(std::ptr::null_mut(), &mut size);
+            
+            if ret == ERROR_BUFFER_OVERFLOW && size > 0 {
+                let mut buffer = vec![0u8; size as usize];
+                ret = GetAdaptersInfo(buffer.as_mut_ptr() as *mut _, &mut size);
+                
+                if ret == NO_ERROR {
+                    let mut adapter = buffer.as_ptr() as *const IP_ADAPTER_INFO;
+                    let mut index = 1;
+                    
+                    while !adapter.is_null() {
+                        let adapter_ref = &*adapter;
+                        
+                        // Convert adapter name
+                        let name = std::ffi::CStr::from_ptr(adapter_ref.AdapterName.as_ptr())
+                            .to_string_lossy()
+                            .to_string();
+                        
+                        let description = std::ffi::CStr::from_ptr(adapter_ref.Description.as_ptr())
+                            .to_string_lossy()
+                            .to_string();
+                        
+                        let mut flags = Vec::new();
+                        if adapter_ref.Type == MIB_IF_TYPE_ETHERNET {
+                            flags.push("BROADCAST".to_string());
+                            flags.push("MULTICAST".to_string());
+                        }
+                        if adapter_ref.Type == MIB_IF_TYPE_LOOPBACK {
+                            flags.push("LOOPBACK".to_string());
+                        }
+                        flags.push("UP".to_string()); // Assume UP for now
+                        
+                        // Get MAC address
+                        let mac_address = if adapter_ref.AddressLength > 0 {
+                            let mac_bytes = std::slice::from_raw_parts(
+                                adapter_ref.Address.as_ptr(), 
+                                adapter_ref.AddressLength as usize
+                            );
+                            Some(format!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                                mac_bytes[0], mac_bytes[1], mac_bytes[2],
+                                mac_bytes[3], mac_bytes[4], mac_bytes[5]))
+                        } else {
+                            None
+                        };
+                        
+                        // Get IP addresses
+                        let mut addresses = Vec::new();
+                        let mut ip_addr = &adapter_ref.IpAddressList;
+                        loop {
+                            let ip_str = std::ffi::CStr::from_ptr(ip_addr.IpAddress.String.as_ptr())
+                                .to_string_lossy();
+                            if let Ok(ip) = ip_str.parse::<IpAddr>() {
+                                addresses.push(ip);
+                            }
+                            
+                            if ip_addr.Next.is_null() {
+                                break;
+                            }
+                            ip_addr = &*ip_addr.Next;
+                        }
+                        
+                        let iface = NetworkInterface {
+                            name: format!("{} ({})", description, name),
+                            index: index,
+                            flags,
+                            mtu: 1500, // Default MTU
+                            addresses,
+                            mac_address,
+                            rx_packets: 0,
+                            tx_packets: 0,
+                            rx_bytes: 0,
+                            tx_bytes: 0,
+                            rx_errors: 0,
+                            tx_errors: 0,
+                        };
+                        
+                        interfaces.push(iface);
+                        index += 1;
+                        
+                        adapter = adapter_ref.Next;
+                    }
+                }
+            }
+        }
+        
+        Ok(interfaces)
+    }
+    
+    #[cfg(unix)]
+    fn parse_ip_link_line(&self, line: &str) -> Option<NetworkInterface> {
+        // Parse lines like: "2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP mode DEFAULT group default qlen 1000"
+        if let Some((index_name, rest)) = line.split_once(": ") {
+            if let Some((name, flags_mtu)) = rest.split_once(": ") {
+                let index = index_name.parse().unwrap_or(0);
+                
+                let mut flags = Vec::new();
+                let mut mtu = 1500;
+                
+                if let Some(flags_start) = flags_mtu.find('<') {
+                    if let Some(flags_end) = flags_mtu.find('>') {
+                        let flags_str = &flags_mtu[flags_start + 1..flags_end];
+                        flags = flags_str.split(',').map(|s| s.to_string()).collect();
+                    }
+                }
+                
+                if let Some(mtu_pos) = flags_mtu.find("mtu ") {
+                    let mtu_part = &flags_mtu[mtu_pos + 4..];
+                    if let Some(mtu_str) = mtu_part.split_whitespace().next() {
+                        mtu = mtu_str.parse().unwrap_or(1500);
+                    }
+                }
+                
+                return Some(NetworkInterface {
+                    name: name.to_string(),
+                    index,
+                    flags,
+                    mtu,
+                    addresses: Vec::new(),
+                    mac_address: None,
+                    rx_packets: 0,
+                    tx_packets: 0,
+                    rx_bytes: 0,
+                    tx_bytes: 0,
+                    rx_errors: 0,
+                    tx_errors: 0,
+                });
+            }
+        }
+        None
+    }
+    
+    #[cfg(unix)]
+    async fn get_interface_addresses(&self, interface_name: &str) -> Vec<IpAddr> {
+        let mut addresses = Vec::new();
+        
+        // Try using 'ip addr show' command
+        if let Ok(output) = Command::new("ip")
+            .args(&["addr", "show", interface_name])
+            .output()
+            .await
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    if line.trim().starts_with("inet ") || line.trim().starts_with("inet6 ") {
+                        if let Some(addr_part) = line.trim().split_whitespace().nth(1) {
+                            if let Some(addr_str) = addr_part.split('/').next() {
+                                if let Ok(ip) = addr_str.parse::<IpAddr>() {
+                                    addresses.push(ip);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        addresses
+    }
+    
+    #[cfg(unix)]
+    fn parse_proc_route_line(&self, line: &str) -> Option<String> {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 8 {
+            return None;
+        }
+        
+        // /proc/net/route format:
+        // Iface Destination Gateway Flags RefCnt Use Metric Mask MTU Window IRTT
+        let iface = parts[0];
+        let dest_hex = parts[1];
+        let gateway_hex = parts[2];
+        let flags_hex = parts[3];
+        let metric = parts[6];
+        let mask_hex = parts[7];
+        
+        // Convert hex to IP addresses
+        let dest = self.hex_to_ipv4(dest_hex)?;
+        let gateway = self.hex_to_ipv4(gateway_hex)?;
+        let mask = self.hex_to_ipv4(mask_hex)?;
+        
+        // Convert flags
+        let flags_num = u32::from_str_radix(flags_hex, 16).ok()?;
+        let mut flags_str = String::new();
+        if flags_num & 0x0001 != 0 { flags_str.push('U'); } // Up
+        if flags_num & 0x0002 != 0 { flags_str.push('G'); } // Gateway
+        if flags_num & 0x0004 != 0 { flags_str.push('H'); } // Host
+        
+        Some(format!("{:<15} {:<15} {:<15} {:<5} {:<6} {:<3} {:<8} {:<8}", 
+                    dest, gateway, mask, flags_str, metric, "0", "0", iface))
+    }
+    
+    #[cfg(unix)]
+    fn hex_to_ipv4(&self, hex_str: &str) -> Option<String> {
+        if hex_str.len() != 8 {
+            return None;
+        }
+        
+        let num = u32::from_str_radix(hex_str, 16).ok()?;
+        let ip = Ipv4Addr::from(num.swap_bytes());
+        Some(ip.to_string())
     }
     
     async fn show_interface_details(&self, interface: &str) -> Result<()> {

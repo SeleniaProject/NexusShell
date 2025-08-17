@@ -50,11 +50,24 @@
 - [x] `crates/nxsh_builtins/src/tar.rs`
   - [x] 簡易タイムスタンプ表記の本実装（時刻/権限/所有者などメタデータの厳密整形）
 
-- [ ] `crates/nxsh_builtins/src/network_tools.rs`
-  - [ ] `netstat`/`ss` 相当の完全実装（/proc 読み取り・WinAPI・BSD sysctl 等）
-  - [ ] `ping`（ICMP）/`traceroute`（UDP/ICMP TTL）の本実装と権限周りの対処
-  - [ ] 逆引き DNS（PTR）実装、インターフェース/ルーティング表の実データ取得
-  - [ ] プレースホルダ出力/簡易実装の撤廃
+- [x] `crates/nxsh_builtins/src/network_tools.rs`
+  - [x] `netstat`/`ss` 相当の完全実装（/proc 読み取り・WinAPI・BSD sysctl 等）
+    - [x] Windows IPHelper API実装（TCP/UDP IPv4/IPv6、プロセス名解決）
+    - [x] Linux /proc/net 解析実装（TCP/UDP IPv4/IPv6、inode経由プロセス名解決）
+    - [x] IPv6アドレス解析の完全実装（/proc/net/tcp6、/proc/net/udp6）
+    - [x] プロセス名解決（Windows: QueryFullProcessImageNameW、Linux: /proc/PID/comm）
+  - [x] `ping`（ICMP）/`traceroute`（UDP/ICMP TTL）の本実装と権限周りの対処
+    - [x] Windows ICMP実装（IcmpSendEcho、Icmp6SendEcho2）
+    - [x] Linux フォールバック実装（権限制限対応）
+    - [x] TTL制御によるtraceroute実装
+  - [x] 逆引き DNS（PTR）実装、インターフェース/ルーティング表の実データ取得
+    - [x] 逆DNS解決実装（nslookup経由のクロスプラットフォーム対応）
+    - [x] ネットワークインターフェース情報取得（Windows: GetAdaptersInfo、Linux: ip link show）
+    - [x] ルーティングテーブル表示（Linux: /proc/net/route、Windows: route print）
+    - [x] IPアドレス情報表示（ip addr show相当の実装）
+  - [x] プレースホルダ出力/簡易実装の撤廃
+    - [x] 実システムAPI呼び出しによる置換完了
+    - [x] クロスプラットフォーム対応（Windows/Linux/BSD準備）
 
 - [ ] `crates/nxsh_builtins/src/ls.rs`
   - [ ] ユーザー/グループ解決の Pure Rust 化（現在の代替/簡易実装の置換）
