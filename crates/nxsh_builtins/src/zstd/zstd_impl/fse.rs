@@ -188,17 +188,17 @@ impl FseEncTable {
             }
         }
 
-        // Build base values for compatibility with old interface
+        // Build base values for compatibility with old interface - these are starting state indices for each symbol
         let mut base = vec![0u16; alphabet];
         for (sym, &count) in counts.iter().enumerate() {
             if count > 0 {
-                let count_u32 = count as u32;
-                let max_bits_out = if count == 1 {
-                    table_log
-                } else {
-                    table_log - (31 - (count_u32 - 1).leading_zeros()) as u8
-                };
-                base[sym] = (count_u32 << max_bits_out) as u16;
+                // Find first state index for this symbol
+                for (state, &table_sym) in symbol_table.iter().enumerate() {
+                    if table_sym as usize == sym {
+                        base[sym] = state as u16;
+                        break;
+                    }
+                }
             }
         }
 
