@@ -31,12 +31,19 @@
     - [x] マルチスレッド（フレーム分割・並列化）
     - [x] フレームチェックサム（XXH64 下位32bit）
     - [x] ストアモード最適化（RAW/RLE ブロック）
+    - [x] 辞書サポート（DictID、読み込み/適用）
+      - [x] ZstdDictionary構造体とファイル読み込み機能
+      - [x] マジックナンバー検証とID抽出
+      - [x] LZ77マッチングでの辞書活用（find_matches_with_dict）
+      - [x] シーケンストークン化での辞書統合（tokenize_full_with_dict）
+    - [x] 適応的圧縮パラメータ（レベル1-22に基づく最適化）
+    - [x] インテリジェントマルチスレッディング（動的チャンク最適化）
     - [ ] 実圧縮（LZ/リテラル/シーケンス符号化: Huffman/FSE）
       - [x] リテラル: Raw/RLE/Huffman（単一ストリーム, 直接 weights ヘッダ）
       - [ ] リテラル: 4 ストリーム + Jump_Table（FSE 圧縮 weights 含む）
       - [ ] シーケンス: Predefined_Mode（LL/ML/OF）
       - [ ] シーケンス: FSE_Compressed_Mode（Repeat/RLE 含む）
-    - [ ] 辞書（DictID、読み込み/適用/訓練）
+    - [ ] 辞書訓練（自動学習機能）
   - [x] RAW ブロックのみのストアモード・フォールバック解消
   - [x] CLI 互換オプションの網羅実装（互換エイリアス含む）
 
