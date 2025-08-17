@@ -5,8 +5,6 @@
 use std::io::Write;
 use std::collections::HashMap;
 use nxsh_core::{ShellContext, ShellResult, ShellError, ExecutionResult};
-#[cfg(feature = "advanced-regex")]
-use regex::{Regex, RegexBuilder};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter};
 use std::path::Path;
@@ -27,11 +25,29 @@ pub struct SedOptions {
 }
 
 #[derive(Debug, Clone)]
+pub enum SedAddress {
+    Line(usize),
+    LastLine,
+    Pattern(String),
+    Range(Box<SedAddress>, Box<SedAddress>),
+    None,
+}
+
+#[derive(Debug, Clone)]
+pub struct SedCommand {
+    pub address: SedAddress,
+    pub operation: SedOperation,
+}
+
+#[derive(Debug, Clone)]
 pub enum SedOperation {
     Substitute {
-        pattern: Regex,
+        pattern: String,
         replacement: String,
-        flags: SubstituteFlags,
+        global: bool,
+        print: bool,
+        ignore_case: bool,
+        extended_regex: bool,
     },
     Delete,
     Print,
@@ -50,17 +66,17 @@ pub enum SedOperation {
     Write(String),
 }
 
-/// Sed builtin command
 #[derive(Debug, Clone)]
-pub struct SedCommand;
-
-#[derive(Debug, Clone)]
-pub struct SubstituteFlags {
-    pub global: bool,
-    pub print: bool,
-    pub write_file: Option<String>,
-    pub occurrence: Option<usize>,
-    pub ignore_case: bool,
+pub struct SedState {
+    pub pattern_space: String,
+    pub hold_space: String,
+    pub line_number: usize,
+    pub total_lines: Option<usize>,
+    pub quit: bool,
+    pub substitution_made: bool,
+    pub suppress_output: bool,
+    pub labels: HashMap<String, usize>,
+    pub range_states: Vec<bool>, // Track active ranges for each command
 }
 
 impl SedBuiltin {
@@ -92,7 +108,7 @@ impl SedBuiltin {
         }
 
         // スクリプト文字列を統合 (-e / 位置引数 + -f ファイル)
-        let mut all_commands: Vec<SedOperation> = Vec::new();
+        let mut all_commands: Vec<SedCommand> = Vec::new();
         for expr in &options.script {
             let parsed = parse_sed_script(expr, options.extended_regex)?;
             all_commands.extend(parsed);
@@ -125,19 +141,6 @@ impl SedBuiltin {
     #[allow(dead_code)]
     fn usage(&self) -> &'static str {
         "sed - stream editor for filtering and transforming text\n\nUSAGE:\n    sed [OPTIONS] -e 'script' [-e 'script']... [-f scriptfile]... [file...]\n\nCommon options:\n  -n, --quiet, --silent     suppress automatic printing of pattern space\n  -e, --expression=SCRIPT   add the script to the commands to be executed\n  -f, --file=SCRIPTFILE     add the contents of SCRIPTFILE to the commands\n  -i[SUF], --in-place[=SUF] edit files in place (makes backup if SUF supplied)\n  -r, -E, --regexp-extended use extended regular expressions\n  -s, --separate            consider files as separate rather than one continuous stream\n  -z, --null-data           separate lines by NUL characters\n\nBasic commands:\n  s/REGEX/REPL/[FLAGS]      substitute\n  d                          delete pattern space; start next cycle\n  p                          print pattern space\n  a TEXT                     append text after each line\n  i TEXT                     insert text before each line\n  c TEXT                     change (replace) the pattern space\n  n                          read/append next line to pattern space\n  q                          immediately quit sed\n\nFLAGS for s///: g (global), p (print), i (ignore-case), 1..9 (occurrence)"
-    }
-}
-
-impl SedCommand {
-    /// Create a new sed command instance
-    pub fn new() -> Self {
-        SedCommand
-    }
-}
-
-impl Default for SedCommand {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -201,29 +204,220 @@ fn parse_sed_args(args: &[String]) -> ShellResult<SedOptions> {
     Ok(options)
 }
 
-fn parse_sed_script(script: &str, extended_regex: bool) -> ShellResult<Vec<SedOperation>> {
+// Simple regex implementation for basic pattern matching
+fn simple_regex_match(pattern: &str, text: &str, ignore_case: bool) -> bool {
+    if pattern.is_empty() {
+        return true;
+    }
+    
+    let pattern_to_match = if ignore_case { pattern.to_lowercase() } else { pattern.to_string() };
+    let text_to_match = if ignore_case { text.to_lowercase() } else { text.to_string() };
+    
+    // Handle basic regex patterns
+    if pattern_to_match == ".*" || pattern_to_match == "." {
+        return true;
+    }
+    
+    // Simple wildcard matching
+    if pattern_to_match.contains('*') {
+        let parts: Vec<&str> = pattern_to_match.split('*').collect();
+        if parts.len() == 2 {
+            let prefix = parts[0];
+            let suffix = parts[1];
+            return text_to_match.starts_with(prefix) && text_to_match.ends_with(suffix);
+        }
+    }
+    
+    // Exact string matching
+    text_to_match.contains(&pattern_to_match)
+}
+
+fn simple_regex_replace(pattern: &str, replacement: &str, text: &str, global: bool, ignore_case: bool) -> String {
+    if pattern.is_empty() {
+        return text.to_string();
+    }
+    
+    // Simple wildcard and regex support
+    if pattern == ".*" {
+        return replacement.to_string();
+    }
+    
+    // If pattern contains special regex characters, treat as literal by default
+    if pattern.contains(['[', ']', '(', ')', '{', '}', '+', '?', '^', '$']) && 
+       !pattern.contains('*') && !pattern.contains('.') {
+        // Literal string replacement
+        if global {
+            return text.replace(pattern, replacement);
+        } else {
+            return text.replacen(pattern, replacement, 1);
+        }
+    }
+    
+    // Simple wildcard patterns  
+    if pattern.contains('*') {
+        let parts: Vec<&str> = pattern.split('*').collect();
+        if parts.len() == 2 {
+            let prefix = parts[0];
+            let suffix = parts[1];
+            
+            if ignore_case {
+                let text_lower = text.to_lowercase();
+                let prefix_lower = prefix.to_lowercase();
+                let suffix_lower = suffix.to_lowercase();
+                
+                if text_lower.starts_with(&prefix_lower) && text_lower.ends_with(&suffix_lower) {
+                    return format!("{}{}{}", prefix, replacement, suffix);
+                }
+            } else {
+                if text.starts_with(prefix) && text.ends_with(suffix) {
+                    return format!("{}{}{}", prefix, replacement, suffix);
+                }
+            }
+        }
+    }
+    
+    // Direct replacement
+    let search_text = if ignore_case { text.to_lowercase() } else { text.to_string() };
+    let search_pattern = if ignore_case { pattern.to_lowercase() } else { pattern.to_string() };
+    
+    if global {
+        if ignore_case {
+            // Case-insensitive global replacement
+            let mut result = text.to_string();
+            let mut pos = 0;
+            while let Some(found) = result[pos..].to_lowercase().find(&search_pattern) {
+                let actual_pos = pos + found;
+                result.replace_range(actual_pos..actual_pos + pattern.len(), replacement);
+                pos = actual_pos + replacement.len();
+            }
+            result
+        } else {
+            text.replace(pattern, replacement)
+        }
+    } else {
+        if ignore_case {
+            if let Some(found) = search_text.find(&search_pattern) {
+                let mut result = text.to_string();
+                result.replace_range(found..found + pattern.len(), replacement);
+                result
+            } else {
+                text.to_string()
+            }
+        } else {
+            text.replacen(pattern, replacement, 1)
+        }
+    }
+}
+
+fn parse_sed_script(script: &str, extended_regex: bool) -> ShellResult<Vec<SedCommand>> {
     let mut commands = Vec::new();
     let lines: Vec<&str> = script.lines().collect();
     
     for line in lines {
-        let line = line.trim();
+        let mut line = line.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
         
-        let command = parse_sed_command(line, extended_regex)?;
-        commands.push(command);
+        // Remove surrounding quotes if present
+        if (line.starts_with('\'') && line.ends_with('\'')) || (line.starts_with('"') && line.ends_with('"')) {
+            line = &line[1..line.len()-1];
+        }
+        
+        // Parse address and command
+        let (address, operation) = parse_sed_command_with_address(line, extended_regex)?;
+        commands.push(SedCommand { address, operation });
     }
     
     Ok(commands)
 }
 
+fn parse_sed_command_with_address(cmd: &str, extended_regex: bool) -> ShellResult<(SedAddress, SedOperation)> {
+    let cmd = cmd.trim();
+    
+    // Parse address part
+    let (address, operation_part) = parse_address(cmd)?;
+    
+    // Parse operation
+    let operation = parse_sed_command(operation_part, extended_regex)?;
+    
+    Ok((address, operation))
+}
+
+fn parse_address(cmd: &str) -> ShellResult<(SedAddress, &str)> {
+    let cmd = cmd.trim();
+    
+    // No address specified
+    if cmd.is_empty() {
+        return Ok((SedAddress::None, cmd));
+    }
+    
+    // Pattern address: /pattern/command
+    if cmd.starts_with('/') {
+        if let Some(end_pos) = cmd[1..].find('/') {
+            let pattern = cmd[1..end_pos + 1].to_string();
+            let operation_part = &cmd[end_pos + 2..];
+            return Ok((SedAddress::Pattern(pattern), operation_part));
+        }
+    }
+    
+    // Line number address: 123command
+    let mut i = 0;
+    while i < cmd.len() && cmd.chars().nth(i).unwrap().is_ascii_digit() {
+        i += 1;
+    }
+    
+    if i > 0 {
+        let line_num: usize = cmd[..i].parse().map_err(|_| 
+            ShellError::command_not_found("Invalid line number"))?;
+        let operation_part = &cmd[i..];
+        return Ok((SedAddress::Line(line_num), operation_part));
+    }
+    
+    // $ address (last line)
+    if cmd.starts_with('$') {
+        return Ok((SedAddress::LastLine, &cmd[1..]));
+    }
+    
+    // Range address: addr1,addr2command
+    if let Some(comma_pos) = cmd.find(',') {
+        let addr1_str = &cmd[..comma_pos];
+        let rest = &cmd[comma_pos + 1..];
+        
+        let (addr1, _) = parse_address(addr1_str)?;
+        
+        // Find end of second address
+        let mut addr2_end = 0;
+        if rest.starts_with('/') {
+            if let Some(end_pos) = rest[1..].find('/') {
+                addr2_end = end_pos + 2;
+            }
+        } else if rest.starts_with('$') {
+            addr2_end = 1;
+        } else {
+            while addr2_end < rest.len() && rest.chars().nth(addr2_end).unwrap().is_ascii_digit() {
+                addr2_end += 1;
+            }
+        }
+        
+        if addr2_end > 0 {
+            let addr2_str = &rest[..addr2_end];
+            let operation_part = &rest[addr2_end..];
+            let (addr2, _) = parse_address(addr2_str)?;
+            return Ok((SedAddress::Range(Box::new(addr1), Box::new(addr2)), operation_part));
+        }
+    }
+    
+    // No address found, treat whole string as operation
+    Ok((SedAddress::None, cmd))
+}
+
 fn parse_sed_command(cmd: &str, extended_regex: bool) -> ShellResult<SedOperation> {
     let cmd = cmd.trim();
     
-    if let Some(rest) = cmd.strip_prefix('s') {
-        // reconstruct full command for substitute parser (needs leading 's')
-        parse_substitute_command(&format!("s{rest}"), extended_regex)
+    if cmd.starts_with('s') {
+        // Pass full command including 's' to substitute parser
+        parse_substitute_command(cmd, extended_regex)
     } else if cmd == "d" {
         Ok(SedOperation::Delete)
     } else if cmd == "p" {
@@ -260,70 +454,68 @@ fn parse_sed_command(cmd: &str, extended_regex: bool) -> ShellResult<SedOperatio
     } else if let Some(rest) = cmd.strip_prefix('w') {
         Ok(SedOperation::Write(rest.trim().to_string()))
     } else {
-        Err(ShellError::command_not_found(&format!("Unknown sed command: {cmd}")))
+        Err(ShellError::command_not_found(&format!("Unknown sed command: '{cmd}' (length: {})", cmd.len())))
     }
 }
 
-fn parse_substitute_command(cmd: &str, _extended_regex: bool) -> ShellResult<SedOperation> {
-    #[cfg(not(feature = "advanced-regex"))]
-    {
-        return Err(ShellError::new(nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::UnsupportedFeature), "sed substitute: advanced-regex feature disabled"));
-    }
-    #[cfg(feature = "advanced-regex")]
-    {
+fn parse_substitute_command(cmd: &str, extended_regex: bool) -> ShellResult<SedOperation> {
     if cmd.len() < 4 {
         return Err(ShellError::command_not_found("Invalid substitute command"));
     }
     
-    let delimiter = cmd.chars().nth(1).unwrap();
-    let parts: Vec<&str> = cmd[2..].split(delimiter).collect();
-    
-    if parts.len() < 2 {
-        return Err(ShellError::command_not_found("Invalid substitute command format"));
+    let chars: Vec<char> = cmd.chars().collect();
+    if chars[0] != 's' {
+        return Err(ShellError::command_not_found("Substitute command must start with 's'"));
     }
     
-    let pattern_str = parts[0];
-    let replacement = parts[1].to_string();
-    let flags_str = if parts.len() > 2 { parts[2] } else { "" };
+    let delimiter = chars[1];
+    let mut pattern = String::new();
+    let mut replacement = String::new();
+    let mut flags_str = String::new();
+    let mut state = 0; // 0: pattern, 1: replacement, 2: flags
     
-    let mut regex_builder = RegexBuilder::new(pattern_str);
+    for &c in &chars[2..] {
+        if c == delimiter {
+            state += 1;
+            if state > 2 { break; }
+        } else {
+            match state {
+                0 => pattern.push(c),
+                1 => replacement.push(c),
+                2 => flags_str.push(c),
+                _ => break,
+            }
+        }
+    }
     
-    let mut flags = SubstituteFlags {
-        global: false,
-        print: false,
-        write_file: None,
-        occurrence: None,
-        ignore_case: false,
-    };
+    let mut global = false;
+    let mut print = false;
+    let mut ignore_case = false;
     
     for flag_char in flags_str.chars() {
         match flag_char {
-            'g' => flags.global = true,
-            'p' => flags.print = true,
-            'i' | 'I' => {
-                flags.ignore_case = true;
-                regex_builder.case_insensitive(true);
-            }
+            'g' => global = true,
+            'p' => print = true,
+            'i' | 'I' => ignore_case = true,
             '1'..='9' => {
-                let occurrence = flag_char.to_digit(10).unwrap() as usize;
-                flags.occurrence = Some(occurrence);
+                // For now, just treat numeric flags as global
+                global = true;
             }
             _ => {} // Ignore unknown flags
         }
     }
     
-    let pattern = regex_builder.build()
-        .map_err(|e| ShellError::command_not_found(&format!("Invalid regex pattern: {e}")))?;
-    
     Ok(SedOperation::Substitute {
         pattern,
         replacement,
-        flags,
+        global,
+        print,
+        ignore_case,
+        extended_regex,
     })
-    }
 }
 
-fn process_sed_file(file_path: &str, commands: &[SedOperation], options: &SedOptions) -> ShellResult<()> {
+fn process_sed_file(file_path: &str, commands: &[SedCommand], options: &SedOptions) -> ShellResult<()> {
     let path = Path::new(file_path);
     let input_file = File::open(path)
         .map_err(|e| ShellError::file_not_found(&format!("Cannot open {file_path}: {e}")))?;
@@ -354,26 +546,40 @@ fn process_sed_file(file_path: &str, commands: &[SedOperation], options: &SedOpt
     Ok(())
 }
 
+impl SedState {
+    fn new() -> Self {
+        SedState {
+            pattern_space: String::new(),
+            hold_space: String::new(),
+            line_number: 0,
+            total_lines: None,
+            quit: false,
+            substitution_made: false,
+            suppress_output: false,
+            labels: HashMap::new(),
+            range_states: Vec::new(),
+        }
+    }
+}
+
 fn process_sed_stream<R: BufRead, W: Write>(
     reader: &mut R,
     writer: &mut W,
-    commands: &[SedOperation],
+    commands: &[SedCommand],
     options: &SedOptions,
 ) -> ShellResult<()> {
-    // pattern_space は最初の読み込み後に生成することで初期不要代入を避ける
-    let mut pattern_space: String; 
-    let mut hold_space = String::new();
-    let mut _line_number = 0; // placeholder until address range logic uses it
-    let mut quit = false;
-    let mut labels: HashMap<String, usize> = HashMap::new();
+    let mut state = SedState::new();
+    state.range_states = vec![false; commands.len()];
     
     // Build label map
     for (i, command) in commands.iter().enumerate() {
-        if let SedOperation::Label(label) = command {
-            labels.insert(label.clone(), i);
+        if let SedOperation::Label(label) = &command.operation {
+            state.labels.insert(label.clone(), i);
         }
     }
     
+    // First pass to count lines for $ address
+    let mut all_lines = Vec::new();
     let separator = if options.null_data { b'\0' } else { b'\n' };
     let mut buffer = Vec::new();
     
@@ -389,117 +595,127 @@ fn process_sed_stream<R: BufRead, W: Write>(
             buffer.pop();
         }
         
-    // Convert buffer to pattern_space after reading to avoid unused init warning
-    pattern_space = String::from_utf8_lossy(&buffer).to_string();
-    _line_number += 1; // keep increment so future address/range features can rely on it
+        all_lines.push(String::from_utf8_lossy(&buffer).to_string());
+    }
+    
+    state.total_lines = Some(all_lines.len());
+    
+    // Process each line
+    for (line_idx, line_content) in all_lines.iter().enumerate() {
+        state.pattern_space = line_content.clone();
+        state.line_number = line_idx + 1;
+        state.substitution_made = false;
+        state.suppress_output = false;
         
         let mut command_index = 0;
-        let mut substitution_made = false;
         
-        while command_index < commands.len() && !quit {
-            match &commands[command_index] {
-                SedOperation::Substitute { pattern, replacement, flags } => {
-                    let result = if flags.global {
-                        pattern.replace_all(&pattern_space, replacement.as_str())
-                    } else if let Some(occurrence) = flags.occurrence {
-                        // Replace specific occurrence
-                        let mut count = 0;
-                        pattern.replace(&pattern_space, |_: &regex::Captures| {
-                            count += 1;
-                            if count == occurrence {
-                                replacement.as_str()
-                            } else {
-                                ""
-                            }
-                        })
-                    } else {
-                        pattern.replace(&pattern_space, replacement.as_str())
-                    };
+        while command_index < commands.len() && !state.quit {
+            let command = &commands[command_index];
+            
+            // Check if address matches
+            let current_range_state = state.range_states[command_index];
+            let mut new_range_state = current_range_state;
+            if !address_matches(&command.address, &state, &mut new_range_state) {
+                state.range_states[command_index] = new_range_state;
+                command_index += 1;
+                continue;
+            }
+            state.range_states[command_index] = new_range_state;
+
+            match &command.operation {
+                SedOperation::Substitute { 
+                    pattern, 
+                    replacement, 
+                    global, 
+                    print, 
+                    ignore_case, 
+                    extended_regex: _ 
+                } => {
+                    // Enhanced string replacement with simple regex
+                    let result = simple_regex_replace(pattern, replacement, &state.pattern_space, *global, *ignore_case);
                     
-                    if result != pattern_space {
-                        pattern_space = result.to_string();
-                        substitution_made = true;
+                    if result != state.pattern_space {
+                        state.pattern_space = result;
+                        state.substitution_made = true;
                         
-                        if flags.print && !options.quiet {
-                            writeln!(writer, "{pattern_space}")?;
+                        if *print && !options.quiet {
+                            writeln!(writer, "{}", state.pattern_space)?;
                         }
                     }
                 }
                 SedOperation::Delete => {
                     // Skip to next line without printing
-                    command_index = commands.len();
-                    continue;
+                    state.suppress_output = true;
+                    break;
                 }
                 SedOperation::Print => {
-                    writeln!(writer, "{pattern_space}")?;
+                    writeln!(writer, "{}", state.pattern_space)?;
                 }
                 SedOperation::Append(text) => {
-                    if !options.quiet {
-                        writeln!(writer, "{pattern_space}")?;
+                    if !options.quiet && !state.suppress_output {
+                        writeln!(writer, "{}", state.pattern_space)?;
                     }
                     writeln!(writer, "{text}")?;
-                    command_index = commands.len();
-                    continue;
+                    state.suppress_output = true;
                 }
                 SedOperation::Insert(text) => {
                     writeln!(writer, "{text}")?;
-                    if !options.quiet {
-                        writeln!(writer, "{pattern_space}")?;
+                    if !options.quiet && !state.suppress_output {
+                        writeln!(writer, "{}", state.pattern_space)?;
                     }
-                    command_index = commands.len();
-                    continue;
+                    state.suppress_output = true;
                 }
                 SedOperation::Change(text) => {
                     writeln!(writer, "{text}")?;
-                    command_index = commands.len();
-                    continue;
+                    state.suppress_output = true;
+                    break;
                 }
                 SedOperation::Next => {
-                    if !options.quiet {
-                        writeln!(writer, "{pattern_space}")?;
+                    if !options.quiet && !state.suppress_output {
+                        writeln!(writer, "{}", state.pattern_space)?;
                     }
                     break; // Read next line
                 }
                 SedOperation::Quit => {
-                    if !options.quiet {
-                        writeln!(writer, "{pattern_space}")?;
+                    if !options.quiet && !state.suppress_output {
+                        writeln!(writer, "{}", state.pattern_space)?;
                     }
-                    quit = true;
+                    state.quit = true;
                     break;
                 }
                 SedOperation::Hold => {
-                    hold_space = pattern_space.clone();
+                    state.hold_space = state.pattern_space.clone();
                 }
                 SedOperation::Get => {
-                    pattern_space = hold_space.clone();
+                    state.pattern_space = state.hold_space.clone();
                 }
                 SedOperation::Exchange => {
-                    std::mem::swap(&mut pattern_space, &mut hold_space);
+                    std::mem::swap(&mut state.pattern_space, &mut state.hold_space);
                 }
                 SedOperation::Label(_) => {
-                    // Labels are processed during execution, skip
+                    // Labels are no-ops during execution
                 }
-                SedOperation::Branch(label) => {
-                    if let Some(label) = label {
-                        if let Some(&target) = labels.get(label) {
+                SedOperation::Branch(Some(label)) => {
+                    if let Some(&target) = state.labels.get(label) {
+                        command_index = target;
+                        continue;
+                    }
+                }
+                SedOperation::Branch(None) => {
+                    // Branch to end of script
+                    break;
+                }
+                SedOperation::Test(Some(label)) => {
+                    if state.substitution_made {
+                        if let Some(&target) = state.labels.get(label) {
                             command_index = target;
                             continue;
                         }
-                    } else {
-                        // Branch to end
-                        break;
                     }
                 }
-                SedOperation::Test(label) => {
-                    if substitution_made {
-                        if let Some(label) = label {
-                            if let Some(&target) = labels.get(label) {
-                                command_index = target;
-                                continue;
-                            }
-                        } else {
-                            break;
-                        }
+                SedOperation::Test(None) => {
+                    if state.substitution_made {
+                        break;
                     }
                 }
                 SedOperation::Read(filename) => {
@@ -508,22 +724,21 @@ fn process_sed_stream<R: BufRead, W: Write>(
                     }
                 }
                 SedOperation::Write(filename) => {
-                    let mut file = OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(filename)
-                        .map_err(|e| ShellError::file_not_found(&format!("Cannot write to {filename}: {e}")))?;
-                    writeln!(file, "{pattern_space}")?;
+                    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(filename) {
+                        writeln!(file, "{}", state.pattern_space)?;
+                    }
                 }
             }
+            
             command_index += 1;
         }
         
-        if !options.quiet && command_index >= commands.len() {
-            writeln!(writer, "{pattern_space}")?;
+        // Print pattern space unless suppressed
+        if !options.quiet && !state.suppress_output && !state.quit {
+            writeln!(writer, "{}", state.pattern_space)?;
         }
         
-        if quit {
+        if state.quit {
             break;
         }
     }
@@ -538,5 +753,220 @@ pub fn sed_cli(args: &[String]) -> anyhow::Result<()> {
     match builtin.execute(&mut ctx, args) {
         Ok(_) => Ok(()),
         Err(e) => Err(anyhow::anyhow!("sed command failed: {}", e)),
+    }
+}
+
+fn address_matches(address: &SedAddress, state: &SedState, range_state: &mut bool) -> bool {
+    match address {
+        SedAddress::None => true,
+        SedAddress::Line(line_num) => state.line_number == *line_num,
+        SedAddress::LastLine => {
+            if let Some(total) = state.total_lines {
+                state.line_number == total
+            } else {
+                false
+            }
+        }
+        SedAddress::Pattern(pattern) => {
+            // Enhanced pattern matching with simple regex
+            simple_regex_match(pattern, &state.pattern_space, false)
+        }
+        SedAddress::Range(start, end) => {
+            // Range matching with state tracking
+            if !*range_state && address_matches(start, state, &mut false) {
+                *range_state = true;
+            }
+            
+            if *range_state {
+                if address_matches(end, state, &mut false) {
+                    *range_state = false;
+                    return true; // Include the end line
+                }
+                return true;
+            }
+            
+            false
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufReader, Cursor};
+
+    #[test]
+    fn test_sed_substitute_basic() {
+        let commands = vec![SedCommand {
+            address: SedAddress::None,
+            operation: SedOperation::Substitute {
+                pattern: "hello".to_string(),
+                replacement: "hi".to_string(),
+                global: false,
+                print: false,
+                ignore_case: false,
+                extended_regex: false,
+            },
+        }];
+        
+        let input = "hello world\nhello there";
+        let mut reader = BufReader::new(Cursor::new(input));
+        let mut output = Vec::new();
+        let options = SedOptions {
+            in_place: false,
+            backup_suffix: None,
+            quiet: false,
+            extended_regex: false,
+            separate_files: false,
+            null_data: false,
+            script: Vec::new(),
+            script_files: Vec::new(),
+            files: Vec::new(),
+        };
+        
+        let result = process_sed_stream(&mut reader, &mut output, &commands, &options);
+        assert!(result.is_ok());
+        
+        let output_str = String::from_utf8(output).unwrap();
+        assert!(output_str.contains("hi world"));
+        assert!(output_str.contains("hi there"));
+    }
+
+    #[test]
+    fn test_sed_substitute_global() {
+        let commands = vec![SedCommand {
+            address: SedAddress::None,
+            operation: SedOperation::Substitute {
+                pattern: "a".to_string(),
+                replacement: "X".to_string(),
+                global: true,
+                print: false,
+                ignore_case: false,
+                extended_regex: false,
+            },
+        }];
+        
+        let input = "banana";
+        let mut reader = BufReader::new(Cursor::new(input));
+        let mut output = Vec::new();
+        let options = SedOptions {
+            in_place: false,
+            backup_suffix: None,
+            quiet: false,
+            extended_regex: false,
+            separate_files: false,
+            null_data: false,
+            script: Vec::new(),
+            script_files: Vec::new(),
+            files: Vec::new(),
+        };
+        
+        let result = process_sed_stream(&mut reader, &mut output, &commands, &options);
+        assert!(result.is_ok());
+        
+        let output_str = String::from_utf8(output).unwrap();
+        assert_eq!(output_str.trim(), "bXnXnX");
+    }
+
+    #[test]
+    fn test_sed_delete() {
+        let commands = vec![SedCommand {
+            address: SedAddress::Line(2),
+            operation: SedOperation::Delete,
+        }];
+        
+        let input = "line1\nline2\nline3";
+        let mut reader = BufReader::new(Cursor::new(input));
+        let mut output = Vec::new();
+        let options = SedOptions {
+            in_place: false,
+            backup_suffix: None,
+            quiet: false,
+            extended_regex: false,
+            separate_files: false,
+            null_data: false,
+            script: Vec::new(),
+            script_files: Vec::new(),
+            files: Vec::new(),
+        };
+        
+        let result = process_sed_stream(&mut reader, &mut output, &commands, &options);
+        assert!(result.is_ok());
+        
+        let output_str = String::from_utf8(output).unwrap();
+        assert!(output_str.contains("line1"));
+        assert!(!output_str.contains("line2"));
+        assert!(output_str.contains("line3"));
+    }
+
+    #[test]
+    fn test_sed_pattern_address() {
+        let commands = vec![SedCommand {
+            address: SedAddress::Pattern("test".to_string()),
+            operation: SedOperation::Substitute {
+                pattern: "a".to_string(),
+                replacement: "X".to_string(),
+                global: false,
+                print: false,
+                ignore_case: false,
+                extended_regex: false,
+            },
+        }];
+        
+        let input = "hello world\ntest abc\nother line";
+        let mut reader = BufReader::new(Cursor::new(input));
+        let mut output = Vec::new();
+        let options = SedOptions {
+            in_place: false,
+            backup_suffix: None,
+            quiet: false,
+            extended_regex: false,
+            separate_files: false,
+            null_data: false,
+            script: Vec::new(),
+            script_files: Vec::new(),
+            files: Vec::new(),
+        };
+        
+        let result = process_sed_stream(&mut reader, &mut output, &commands, &options);
+        assert!(result.is_ok());
+        
+        let output_str = String::from_utf8(output).unwrap();
+        assert!(output_str.contains("hello world"));
+        assert!(output_str.contains("test Xbc"));
+        assert!(output_str.contains("other line"));
+    }
+
+    #[test]
+    fn test_simple_regex_match() {
+        assert!(simple_regex_match("hello", "hello world", false));
+        assert!(simple_regex_match("HELLO", "hello world", true));
+        assert!(!simple_regex_match("HELLO", "hello world", false));
+        assert!(simple_regex_match(".*", "anything", false));
+        assert!(simple_regex_match("h*o", "hello", false));
+    }
+
+    #[test]
+    fn test_simple_regex_replace() {
+        assert_eq!(simple_regex_replace("hello", "hi", "hello world", false, false), "hi world");
+        assert_eq!(simple_regex_replace("l", "X", "hello", true, false), "heXXo");
+        assert_eq!(simple_regex_replace("L", "X", "hello", false, true), "heXlo");
+        assert_eq!(simple_regex_replace(".*", "replacement", "anything", false, false), "replacement");
+    }
+
+    #[test]
+    fn test_parse_sed_command() {
+        let result = parse_sed_command("s/hello/world/", false);
+        assert!(result.is_ok());
+        
+        if let Ok(operation) = result {
+            match operation {
+                SedOperation::Substitute { pattern, replacement, .. } => {
+                    assert_eq!(pattern, "hello");
+                    assert_eq!(replacement, "world");
+                }
+                _ => panic!("Expected substitute operation"),
+            }
+        }
     }
 } 

@@ -217,13 +217,13 @@ pub mod awk { use anyhow::{Result, anyhow};
 #[cfg(any(feature = "super-min", not(feature = "advanced-regex")))]
 pub use awk::awk_cli;
 
-#[cfg(all(not(feature = "super-min"), feature = "advanced-regex"))]
+#[cfg(not(feature = "super-min"))]
 pub mod sed;
-#[cfg(all(not(feature = "super-min"), feature = "advanced-regex"))]
+#[cfg(not(feature = "super-min"))]
 pub use sed::sed_cli;
-#[cfg(any(feature = "super-min", not(feature = "advanced-regex")))]
+#[cfg(feature = "super-min")]
 pub mod sed { use anyhow::{Result, anyhow}; pub fn sed_cli(_: &[String]) -> Result<()> { Err(anyhow!("sed disabled in this build")) } }
-#[cfg(any(feature = "super-min", not(feature = "advanced-regex")))]
+#[cfg(feature = "super-min")]
 pub use sed::sed_cli;
 
 pub mod tr;

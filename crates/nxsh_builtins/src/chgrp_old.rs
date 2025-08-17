@@ -21,16 +21,18 @@ use nix::unistd::{Group, Gid};
 
 #[cfg(windows)]
 use windows::Win32::{
-    Foundation::BOOL,
+    Foundation::{HANDLE, PSID},
     Security::{
-        LookupAccountNameW,
+        GetNamedSecurityInfoW, SetNamedSecurityInfoW, LookupAccountNameW,
+        SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, GROUP_SECURITY_INFORMATION,
         SID_NAME_USE,
     },
+    System::SystemServices::SECURITY_MAX_SID_SIZE,
 };
 
 pub fn chgrp_cli(args: &[String]) -> Result<()> {
     // Parse arguments first to handle our enhanced options
-    let parsed_args = parse_chgrp_args(args)?;
+    let mut parsed_args = parse_chgrp_args(args)?;
     
     // If using advanced features, try system chgrp first
     if !parsed_args.force_fallback {
@@ -176,10 +178,36 @@ fn resolve_group_to_gid(group: &str) -> Result<u32> {
 
 #[cfg(windows)]
 fn resolve_windows_group_name(group_name: &str) -> Result<u32> {
-    // On Windows, for simplicity, we'll use a hash of the group name as GID
-    // In a production implementation, you would use proper Windows security APIs
-    // to resolve group names to SIDs and extract RIDs
-    Ok(simple_hash(group_name))
+    use windows::core::PWSTR;
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    
+    let wide_name: Vec<u16> = OsStr::new(group_name).encode_wide().chain(std::iter::once(0)).collect();
+    let mut sid = [0u8; SECURITY_MAX_SID_SIZE as usize];
+    let mut sid_size = SECURITY_MAX_SID_SIZE;
+    let mut domain = [0u16; 256];
+    let mut domain_size = 256;
+    let mut use_type = SID_NAME_USE(0);
+
+    unsafe {
+        let result = LookupAccountNameW(
+            None,
+            PWSTR(wide_name.as_ptr() as *mut u16),
+            Some(sid.as_mut_ptr() as PSID),
+            &mut sid_size,
+            Some(domain.as_mut_ptr()),
+            &mut domain_size,
+            &mut use_type,
+        );
+
+        if result.as_bool() {
+            // For simplicity, return a hash of the group name as GID
+            // In a real implementation, you'd extract the RID from the SID
+            Ok(simple_hash(group_name))
+        } else {
+            Err(anyhow!("Failed to lookup Windows group: {}", group_name))
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -243,6 +271,12 @@ fn change_file_group(file_path: &str, gid: u32) -> Result<()> {
 
 #[cfg(windows)]
 fn change_windows_file_group(file_path: &str, _gid: u32) -> Result<()> {
+    use windows::core::PWSTR;
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+
+    let wide_path: Vec<u16> = OsStr::new(file_path).encode_wide().chain(std::iter::once(0)).collect();
+    
     // For a complete implementation, you would:
     // 1. Get the current security descriptor
     // 2. Modify the group SID
@@ -308,10 +342,35 @@ fn print_chgrp_help() {
     println!("Examples:");
     println!("  chgrp staff /u        Change the group of /u to 'staff'");
     println!("  chgrp -R staff /u     Change the group of /u and subfiles to 'staff'");
-    println!("  chgrp 1000 file.txt   Change the group of file.txt to GID 1000");
+    println!("  println!("  chgrp 1000 file.txt   Change the group of file.txt to GID 1000");
     println!();
     println!("GROUP can be either a symbolic group name or a numeric group ID (GID).");
     println!();
+    println!("Report chgrp bugs to <bugs@nexusshell.org>");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::{self, File};
+    use std::io::Write;");
+    println!();
+    println!("GROUP can be either a symbolic group name or a numeric group ID (GID).");
+    println!();
+    println!("Report chgrp bugs to <bugs@nexusshell.org>");
+}builtin  Echange group ownership of files.
+//!
+//! Primary behaviour:
+//! 1. Execute system `chgrp` binary for full flag coverage.
+//! 2. Fallback: accept numeric GID and call `libc::chown` with uid=-1.
+//!    Recursive and symbolic modes are not supported in the fallback.
+//!
+//! Example fallback: `chgrp 1000 file.txt`.
+
+use anyhow::{anyhow, Result};
+use std::{path::Path, process::Command};
+use which::which;
+
     println!("Report chgrp bugs to <bugs@nexusshell.org>");
 }
 

@@ -284,6 +284,11 @@ bit-vec = "0.6"
 # Platform-specific dependencies - Pure Rust only
 [target.'cfg(windows)'.dependencies]
 whoami = "1.6"
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_SystemServices",
+] }
 
 [target.'cfg(unix)'.dependencies]
 # Unix-specific dependencies
