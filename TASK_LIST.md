@@ -14,7 +14,7 @@
   - [x] レガシーベクターフォールバック動作の撤廃
   - [x] 進捗UI（`progress-ui`）と統合した堅牢な進行表示
 
-- [ ] `crates/nxsh_builtins/src/timedatectl.rs`
+- [x] `crates/nxsh_builtins/src/timedatectl.rs`
   - [x] NTP クライアントの本実装（送受時刻スタンプ、オフセット/遅延/ジッタ/ストラタム計算）
   - [x] タイムゾーンDB/夏時間判定の実装（最小ビルドの UTC 限定スタブ排除）
   - [x] 外部 `ntpdate/chrony/date` フォールバック依存の削減/撤廃
@@ -91,7 +91,8 @@
   - [ ] クロスプラットフォームなグループ照合の完全化
 
 - [ ] `crates/nxsh_builtins/src/wc.rs`
-  - [ ] 未実装フラグ（例: `--files0-from`）の実装、GNU 互換の細部挙動
+  - [x] `--files0-from` の実装（GNU 互換、テスト追加）
+  - [ ] GNU 互換の細部挙動の整備（境界ケース/出力整形/ロケール）
 
 - [ ] `crates/nxsh_builtins/src/cat.rs`
   - [ ] URL スキーム拡張（ftp/file/data 等）、HTTP/HTTPS 以外の未対応解消
@@ -146,12 +147,17 @@
 - [ ] `crates/nxsh_builtins/src/lib.rs`
   - [ ] `super-min` 構成時の egrep 等スタブ整理と機能提供方針の確立
 
-- [ ] i18n スタブ解消
-  - [ ] `at.rs`/`date.rs`/`cat.rs`/`timedatectl.rs` などでの i18n スタブ/フォールバックの本実装
+- [x] i18n スタブ解消
+  - [x] `at.rs` の i18n/フォールバック実装
+  - [x] `date.rs` の i18n/フォールバック実装
+  - [x] `cat.rs` の i18n/フォールバック実装
+  - [x] `timedatectl.rs` の i18n/フォールバック実装
+  - [x] ロケール（ja/ko/pt/ru/zh/en/es/fr/it/de）に必要キー追加とフォールバック整備
 
 - [ ] テスト関連/その他
   - [ ] `crates/nxsh_builtins/src/echo.rs` のテストで示される `stdout.collect()` 相当の検証パス実装
   - [ ] `crates/nxsh_core/src/builtins/testutils.rs` の最小 `echo` を本番相当の実装/注入に置換
+  - [x] `timedatectl` の NTP タイムスタンプテストを修正（正確なエポック変換）
 
 
 
