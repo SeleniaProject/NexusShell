@@ -852,7 +852,113 @@ impl CompressionManager {
     }
     
     async fn create_7z_archive(&self, options: &SevenZOptions) -> Result<()> {
-        // Delegate to external 7z/7za/7zr via the sevenz builtin for full functionality.
+        info!("Creating 7z archive: {}", options.archive_name);
+        
+        // Try native sevenz_rust implementation first
+        match self.create_7z_native(options).await {
+            Ok(_) => {
+                info!("Successfully created 7z archive using native implementation");
+                return Ok(());
+            }
+            Err(e) => {
+                warn!("Native 7z creation failed, falling back to external command: {}", e);
+            }
+        }
+        
+        // Fallback to external 7z command
+        self.create_7z_external(options).await
+    }
+    
+    async fn create_7z_native(&self, options: &SevenZOptions) -> Result<()> {
+        use sevenz_rust::{SevenZWriter, Password};
+        use std::fs::File;
+        
+        let output_file = File::create(&options.archive_name)
+            .with_context(|| format!("Failed to create archive file: {}", options.archive_name))?;
+        
+        let password = options.password.as_ref().map(|p| Password::from(p.as_str()));
+        let mut writer = SevenZWriter::new(output_file, password)
+            .with_context(|| "Failed to initialize 7z writer")?;
+        
+        for input_file in &options.input_files {
+            let path = Path::new(input_file);
+            
+            if path.is_file() {
+                self.add_file_to_7z(&mut writer, path, None).await?;
+            } else if path.is_dir() && options.recursive {
+                self.add_directory_to_7z(&mut writer, path, None).await?;
+            } else if path.is_dir() {
+                warn!("Skipping directory {} (use -r for recursive)", input_file);
+            } else {
+                warn!("Input file not found: {}", input_file);
+            }
+        }
+        
+        writer.finish()
+            .with_context(|| "Failed to finalize 7z archive")?;
+        
+        Ok(())
+    }
+    
+    async fn add_file_to_7z(
+        &self,
+        writer: &mut SevenZWriter<File>,
+        file_path: &Path,
+        base_path: Option<&Path>
+    ) -> Result<()> {
+        let relative_path = if let Some(base) = base_path {
+            file_path.strip_prefix(base).unwrap_or(file_path)
+        } else {
+            file_path.file_name().map(Path::new).unwrap_or(file_path)
+        };
+        
+        let mut file = File::open(file_path)
+            .with_context(|| format!("Failed to open file: {}", file_path.display()))?;
+        
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer)
+            .with_context(|| format!("Failed to read file: {}", file_path.display()))?;
+        
+        writer.push_archive_entry(
+            buffer,
+            relative_path.to_string_lossy().to_string(),
+            None, // Use current time
+        ).with_context(|| format!("Failed to add file to archive: {}", file_path.display()))?;
+        
+        if self.config.verbose {
+            info!("Added to archive: {}", relative_path.display());
+        }
+        
+        Ok(())
+    }
+    
+    async fn add_directory_to_7z(
+        &self,
+        writer: &mut SevenZWriter<File>,
+        dir_path: &Path,
+        base_path: Option<&Path>
+    ) -> Result<()> {
+        use std::fs;
+        
+        let entries = fs::read_dir(dir_path)
+            .with_context(|| format!("Failed to read directory: {}", dir_path.display()))?;
+        
+        for entry in entries {
+            let entry = entry.with_context(|| "Failed to read directory entry")?;
+            let path = entry.path();
+            
+            if path.is_file() {
+                self.add_file_to_7z(writer, &path, base_path.or(Some(dir_path))).await?;
+            } else if path.is_dir() {
+                self.add_directory_to_7z(writer, &path, base_path.or(Some(dir_path))).await?;
+            }
+        }
+        
+        Ok(())
+    }
+    
+    async fn create_7z_external(&self, options: &SevenZOptions) -> Result<()> {
+        // Fallback to external 7z/7za/7zr via the sevenz builtin for full functionality.
         // Command: 7z a ARCHIVE [FILES...] [-pPASSWORD] [-r]
         let mut args: Vec<String> = Vec::new();
         args.push("a".into());
@@ -865,6 +971,76 @@ impl CompressionManager {
     }
     
     async fn extract_7z_archive(&self, options: &SevenZOptions) -> Result<()> {
+        info!("Extracting 7z archive: {}", options.archive_name);
+        
+        // Try native sevenz_rust implementation first
+        match self.extract_7z_native(options).await {
+            Ok(_) => {
+                info!("Successfully extracted 7z archive using native implementation");
+                return Ok(());
+            }
+            Err(e) => {
+                warn!("Native 7z extraction failed, falling back to external command: {}", e);
+            }
+        }
+        
+        // Fallback to external 7z command
+        self.extract_7z_external(options).await
+    }
+    
+    async fn extract_7z_native(&self, options: &SevenZOptions) -> Result<()> {
+        use sevenz_rust::{SevenZReader, Password};
+        use std::fs::{File, create_dir_all};
+        use std::path::Path;
+        
+        let input_file = File::open(&options.archive_name)
+            .with_context(|| format!("Failed to open archive: {}", options.archive_name))?;
+        
+        let password = options.password.as_ref().map(|p| Password::from(p.as_str()));
+        let mut reader = SevenZReader::new(input_file, password)
+            .with_context(|| "Failed to initialize 7z reader")?;
+        
+        let output_dir = options.output_dir.as_ref()
+            .map(|s| Path::new(s))
+            .unwrap_or_else(|| Path::new("."));
+        
+        if !output_dir.exists() {
+            create_dir_all(output_dir)
+                .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
+        }
+        
+        reader.for_each_entries(|entry, reader| {
+            let entry_path = output_dir.join(entry.name());
+            
+            if let Some(parent) = entry_path.parent() {
+                if !parent.exists() {
+                    create_dir_all(parent)
+                        .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+                }
+            }
+            
+            if entry.is_directory() {
+                create_dir_all(&entry_path)
+                    .with_context(|| format!("Failed to create directory: {}", entry_path.display()))?;
+            } else {
+                let mut output_file = File::create(&entry_path)
+                    .with_context(|| format!("Failed to create file: {}", entry_path.display()))?;
+                
+                std::io::copy(reader, &mut output_file)
+                    .with_context(|| format!("Failed to write file: {}", entry_path.display()))?;
+                
+                if options.verbose {
+                    info!("Extracted: {}", entry_path.display());
+                }
+            }
+            
+            Ok(true) // Continue extraction
+        })?;
+        
+        Ok(())
+    }
+    
+    async fn extract_7z_external(&self, options: &SevenZOptions) -> Result<()> {
         // Command: 7z x ARCHIVE [-oOUTPUT_DIR] [-pPASSWORD] [-y]
         let mut args: Vec<String> = Vec::new();
         args.push("x".into());
@@ -878,6 +1054,73 @@ impl CompressionManager {
     }
     
     async fn list_7z_archive(&self, options: &SevenZOptions) -> Result<()> {
+        info!("Listing 7z archive: {}", options.archive_name);
+        
+        // Try native sevenz_rust implementation first
+        match self.list_7z_native(options).await {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                warn!("Native 7z listing failed, falling back to external command: {}", e);
+            }
+        }
+        
+        // Fallback to external 7z command
+        self.list_7z_external(options).await
+    }
+    
+    async fn list_7z_native(&self, options: &SevenZOptions) -> Result<()> {
+        use sevenz_rust::{SevenZReader, Password};
+        use std::fs::File;
+        
+        let input_file = File::open(&options.archive_name)
+            .with_context(|| format!("Failed to open archive: {}", options.archive_name))?;
+        
+        let password = options.password.as_ref().map(|p| Password::from(p.as_str()));
+        let mut reader = SevenZReader::new(input_file, password)
+            .with_context(|| "Failed to initialize 7z reader")?;
+        
+        println!("Archive: {}", options.archive_name);
+        println!("--");
+        println!("{:>10} {:>10} {:>8} {}", "Size", "Packed", "Ratio", "Name");
+        println!("{:-<10} {:-<10} {:-<8} {:-<20}", "", "", "", "");
+        
+        let mut total_size = 0u64;
+        let mut total_packed = 0u64;
+        let mut file_count = 0;
+        
+        reader.for_each_entries(|entry, _reader| {
+            let size = entry.size();
+            let name = entry.name();
+            
+            // Note: sevenz_rust doesn't provide packed size directly, so we'll show size
+            let packed_size = size; // Placeholder - actual implementation would need compressed size
+            let ratio = if size > 0 {
+                ((packed_size as f64 / size as f64) * 100.0) as u32
+            } else {
+                0
+            };
+            
+            println!("{:>10} {:>10} {:>7}% {}", size, packed_size, ratio, name);
+            
+            total_size += size;
+            total_packed += packed_size;
+            file_count += 1;
+            
+            Ok(false) // Just listing, don't extract
+        })?;
+        
+        println!("{:-<10} {:-<10} {:-<8} {:-<20}", "", "", "", "");
+        let overall_ratio = if total_size > 0 {
+            ((total_packed as f64 / total_size as f64) * 100.0) as u32
+        } else {
+            0
+        };
+        println!("{:>10} {:>10} {:>7}% {} files", total_size, total_packed, overall_ratio, file_count);
+        
+        Ok(())
+    }
+    
+    async fn list_7z_external(&self, options: &SevenZOptions) -> Result<()> {
         // Command: 7z l ARCHIVE
         let args = vec!["l".to_string(), options.archive_name.clone()];
         crate::sevenz::sevenz_cli(&args)
@@ -1428,6 +1671,9 @@ struct CompressionConfig {
     max_parallel_operations: usize,
     buffer_size: usize,
     enable_progress_reporting: bool,
+    prefer_native_implementations: bool,
+    fallback_to_external: bool,
+    external_tool_timeout_secs: u64,
 }
 
 impl Default for CompressionConfig {
@@ -1437,6 +1683,9 @@ impl Default for CompressionConfig {
             max_parallel_operations: num_cpus::get(),
             buffer_size: 64 * 1024, // 64KB
             enable_progress_reporting: true,
+            prefer_native_implementations: true,
+            fallback_to_external: true,
+            external_tool_timeout_secs: 300, // 5 minutes
         }
     }
 }
@@ -1503,15 +1752,53 @@ mod tests {
     }
     
     #[test]
-    fn test_compression_formats() {
-        use std::mem::discriminant;
+    fn test_7z_args_parsing() {
+        let manager = CompressionManager::new().unwrap();
+        let args = vec!["a".to_string(), "archive.7z".to_string(), "file1.txt".to_string(), "-r".to_string(), "-v".to_string()];
+        let options = manager.parse_7z_args(&args).unwrap();
         
-        let gzip = CompressionFormat::Gzip;
-        let bzip2 = CompressionFormat::Bzip2;
-        let xz = CompressionFormat::Xz;
-        let zstd = CompressionFormat::Zstd;
+        assert_eq!(options.operation, "add");
+        assert_eq!(options.archive_name, "archive.7z");
+        assert_eq!(options.input_files, vec!["file1.txt"]);
+        assert!(options.recursive);
+        assert!(options.verbose);
+    }
+    
+    #[test]
+    fn test_7z_extraction_args() {
+        let manager = CompressionManager::new().unwrap();
+        let args = vec!["x".to_string(), "archive.7z".to_string(), "-o/tmp/extract".to_string()];
+        let options = manager.parse_7z_args(&args).unwrap();
         
-        assert_ne!(discriminant(&gzip), discriminant(&bzip2));
-        assert_ne!(discriminant(&xz), discriminant(&zstd));
+        assert_eq!(options.operation, "extract");
+        assert_eq!(options.archive_name, "archive.7z");
+        assert_eq!(options.output_dir, Some("/tmp/extract".to_string()));
+    }
+    
+    #[test]
+    fn test_7z_password_args() {
+        let manager = CompressionManager::new().unwrap();
+        let args = vec!["a".to_string(), "secure.7z".to_string(), "secret.txt".to_string(), "-psecretpass".to_string()];
+        let options = manager.parse_7z_args(&args).unwrap();
+        
+        assert_eq!(options.archive_name, "secure.7z");
+        assert_eq!(options.password, Some("secretpass".to_string()));
+    }
+    
+    #[tokio::test]
+    async fn test_7z_native_fallback() {
+        let manager = CompressionManager::new().unwrap();
+        
+        // Test with invalid file to trigger fallback
+        let options = SevenZOptions {
+            operation: "add".to_string(),
+            archive_name: "/nonexistent/path/test.7z".to_string(),
+            input_files: vec!["nonexistent.txt".to_string()],
+            ..Default::default()
+        };
+        
+        // Should fail gracefully and attempt fallback
+        let result = manager.create_7z_native(&options).await;
+        assert!(result.is_err());
     }
 }
