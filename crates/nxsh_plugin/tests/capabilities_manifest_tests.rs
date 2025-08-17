@@ -1,5 +1,8 @@
 use nxsh_plugin::{PluginManager, PluginMetadata};
 use std::collections::HashMap;
+use std::sync::Mutex;
+
+static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn base_meta() -> PluginMetadata {
     PluginMetadata {
@@ -22,6 +25,7 @@ fn base_meta() -> PluginMetadata {
 
 #[test]
 fn rejects_when_capabilities_required_and_missing() {
+    let _guard = ENV_LOCK.lock().unwrap();
     std::env::set_var("NXSH_CAP_MANIFEST_REQUIRED", "1");
     let manager = PluginManager::new();
     let invalid = base_meta();
@@ -31,6 +35,7 @@ fn rejects_when_capabilities_required_and_missing() {
 
 #[test]
 fn accepts_when_capabilities_present() {
+    let _guard = ENV_LOCK.lock().unwrap();
     std::env::set_var("NXSH_CAP_MANIFEST_REQUIRED", "1");
     let manager = PluginManager::new();
     let mut valid = base_meta();

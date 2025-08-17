@@ -245,6 +245,8 @@ impl TestFramework {
                     });
                 }
             }
+
+            // impl Default moved to module scope
             
             report.benchmark_results.push(bench_result);
         }
@@ -682,7 +684,7 @@ impl TestFramework {
             Ok(Err(e)) => {
                 result.status = TestStatus::Failed;
                 result.failure_reason = Some(e.to_string());
-                result.output = format!("Test failed: {}", e);
+                result.output = format!("Test failed: {e}");
             },
             Err(_) => {
                 result.status = TestStatus::Failed;
@@ -764,7 +766,7 @@ impl TestFramework {
                     test_name: integration_test.name.clone(),
                     passed: false,
                     execution_time: Duration::default(),
-                    error_message: Some(format!("Prerequisite '{}' not met", prerequisite)),
+                        error_message: Some(format!("Prerequisite '{prerequisite}' not met")),
                     output: String::new(),
                 });
             }
@@ -816,7 +818,7 @@ impl TestFramework {
             .unwrap_or(0.0);
         
         if coverage < 80.0 {
-            recommendations.push(format!("Increase test coverage from {:.1}% to at least 80%", coverage));
+            recommendations.push(format!("Increase test coverage from {coverage:.1}% to at least 80%"));
         }
 
         if recommendations.is_empty() {
@@ -890,6 +892,10 @@ impl TestFramework {
                 .unwrap_or_default()
                 .as_secs())
     }
+}
+
+impl Default for TestFramework {
+    fn default() -> Self { Self::new() }
 }
 
 // Supporting types and structures
@@ -1048,6 +1054,10 @@ impl UnitTestRunner {
     }
 }
 
+impl Default for UnitTestRunner {
+    fn default() -> Self { Self::new() }
+}
+
 impl TestRunner for UnitTestRunner {
     fn name(&self) -> &str {
         "Unit Test Runner"
@@ -1078,6 +1088,10 @@ impl IntegrationTestRunner {
     }
 }
 
+impl Default for IntegrationTestRunner {
+    fn default() -> Self { Self::new() }
+}
+
 impl TestRunner for IntegrationTestRunner {
     fn name(&self) -> &str {
         "Integration Test Runner"
@@ -1106,6 +1120,10 @@ impl PerformanceTestRunner {
     pub fn new() -> Self {
         Self
     }
+}
+
+impl Default for PerformanceTestRunner {
+    fn default() -> Self { Self::new() }
 }
 
 impl TestRunner for PerformanceTestRunner {
@@ -1145,7 +1163,6 @@ impl CoverageAnalyzer {
             total_lines: 0,
         }
     }
-
     pub fn generate_report(&self) -> Result<CoverageReport> {
         let coverage_percentage = if self.total_lines > 0 {
             (self.covered_lines.len() as f64 / self.total_lines as f64) * 100.0
@@ -1178,7 +1195,6 @@ impl MetricsCollector {
             metrics: HashMap::new(),
         }
     }
-
     pub fn record_metric(&mut self, name: &str, value: f64) {
         self.metrics.insert(name.to_string(), value);
     }
@@ -1186,6 +1202,14 @@ impl MetricsCollector {
     pub fn get_metric(&self, name: &str) -> Option<f64> {
         self.metrics.get(name).copied()
     }
+}
+
+impl Default for CoverageAnalyzer {
+    fn default() -> Self { Self::new() }
+}
+
+impl Default for MetricsCollector {
+    fn default() -> Self { Self::new() }
 }
 
 // Configuration

@@ -538,6 +538,7 @@ impl ComponentRegistry {
     }
     
     /// Get a unique identifier for a function reference
+    #[allow(dead_code)]
     fn get_function_id(&self, func: &wasmi::Func) -> String {
         // Create a unique identifier based on function properties
         // In a real implementation, this would use function metadata

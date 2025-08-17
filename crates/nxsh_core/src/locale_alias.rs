@@ -74,7 +74,7 @@ pub fn apply_locale_aliases(ctx: &ShellContext) {
     // 2) User config: ~/.nxsh/aliases/<locale>.toml
     if let Some(mut home) = home_dir_fallback() {
         home.push(".nxsh"); home.push("aliases");
-        home.push(format!("{}.toml", norm));
+    home.push(format!("{norm}.toml"));
         if let Some(map) = read_alias_toml(&home) {
             for (k, v) in map { let _ = ctx.set_alias(k, v); }
             return;

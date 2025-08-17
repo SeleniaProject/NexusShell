@@ -336,106 +336,97 @@ impl HolidayDatabase {
 
     fn load_jp_holidays(&mut self) {
         let current_year = chrono::Utc::now().year();
-        let mut jp_holidays = Vec::new();
-
+    let jp_holidays = vec![
         // Japanese national holidays
-        jp_holidays.push(Holiday {
+        Holiday {
             name: "元日 (New Year's Day)".to_string(),
             date: NaiveDate::from_ymd_opt(current_year, 1, 1).unwrap(),
             region: "JP".to_string(),
             holiday_type: HolidayType::National,
-        });
-
-        jp_holidays.push(Holiday {
+        },
+        Holiday {
             name: "建国記念の日 (National Foundation Day)".to_string(),
             date: NaiveDate::from_ymd_opt(current_year, 2, 11).unwrap(),
             region: "JP".to_string(),
             holiday_type: HolidayType::National,
-        });
-
-        jp_holidays.push(Holiday {
+        },
+        Holiday {
             name: "天皇誕生日 (Emperor's Birthday)".to_string(),
             date: NaiveDate::from_ymd_opt(current_year, 2, 23).unwrap(),
             region: "JP".to_string(),
             holiday_type: HolidayType::National,
-        });
-
-        jp_holidays.push(Holiday {
+        },
+        Holiday {
             name: "憲法記念日 (Constitution Memorial Day)".to_string(),
             date: NaiveDate::from_ymd_opt(current_year, 5, 3).unwrap(),
             region: "JP".to_string(),
             holiday_type: HolidayType::National,
-        });
-
-        jp_holidays.push(Holiday {
+        },
+        Holiday {
             name: "こどもの日 (Children's Day)".to_string(),
             date: NaiveDate::from_ymd_opt(current_year, 5, 5).unwrap(),
             region: "JP".to_string(),
             holiday_type: HolidayType::National,
-        });
+        },
+    ];
 
         self.holidays.insert("JP".to_string(), jp_holidays);
     }
 
     fn load_gb_holidays(&mut self) {
         let current_year = chrono::Utc::now().year();
-        let mut gb_holidays = Vec::new();
-
-        gb_holidays.push(Holiday {
+    let gb_holidays = vec![
+        Holiday {
             name: "New Year's Day".to_string(),
             date: NaiveDate::from_ymd_opt(current_year, 1, 1).unwrap(),
             region: "GB".to_string(),
             holiday_type: HolidayType::National,
-        });
-
-        gb_holidays.push(Holiday {
+        },
+        Holiday {
             name: "Christmas Day".to_string(),
             date: NaiveDate::from_ymd_opt(current_year, 12, 25).unwrap(),
             region: "GB".to_string(),
             holiday_type: HolidayType::National,
-        });
-
-        gb_holidays.push(Holiday {
+        },
+        Holiday {
             name: "Boxing Day".to_string(),
             date: NaiveDate::from_ymd_opt(current_year, 12, 26).unwrap(),
             region: "GB".to_string(),
             holiday_type: HolidayType::National,
-        });
+        },
+    ];
 
         self.holidays.insert("GB".to_string(), gb_holidays);
     }
 
     fn load_de_holidays(&mut self) {
         let current_year = chrono::Utc::now().year();
-        let mut de_holidays = Vec::new();
-
-        de_holidays.push(Holiday {
+    let de_holidays = vec![
+        Holiday {
             name: "Neujahr (New Year's Day)".to_string(),
             date: NaiveDate::from_ymd_opt(current_year, 1, 1).unwrap(),
             region: "DE".to_string(),
             holiday_type: HolidayType::National,
-        });
-
-        de_holidays.push(Holiday {
+        },
+        Holiday {
             name: "Tag der Deutschen Einheit (German Unity Day)".to_string(),
             date: NaiveDate::from_ymd_opt(current_year, 10, 3).unwrap(),
             region: "DE".to_string(),
             holiday_type: HolidayType::National,
-        });
-
-        de_holidays.push(Holiday {
+        },
+        Holiday {
             name: "Weihnachtstag (Christmas Day)".to_string(),
             date: NaiveDate::from_ymd_opt(current_year, 12, 25).unwrap(),
             region: "DE".to_string(),
             holiday_type: HolidayType::National,
-        });
-
-        de_holidays.push(Holiday {
+        },
+        Holiday {
             name: "2. Weihnachtstag (Boxing Day)".to_string(),
             date: NaiveDate::from_ymd_opt(current_year, 12, 26).unwrap(),
             region: "DE".to_string(),
             holiday_type: HolidayType::National,
-        });
+        },
+    ];
 
         self.holidays.insert("DE".to_string(), de_holidays);
     }
@@ -955,7 +946,7 @@ impl DateManager {
         #[cfg(feature = "i18n")]
         {
             if tz_name == "local" { return Ok(chrono_tz::UTC); }
-            return tz_name.parse::<Tz>().map_err(|_| anyhow!(t!("date.error.invalid_timezone", "tz" => tz_name)));
+            tz_name.parse::<Tz>().map_err(|_| anyhow!(t!("date.error.invalid_timezone", "tz" => tz_name)))
         }
         #[cfg(not(feature = "i18n"))]
         {
@@ -1292,7 +1283,7 @@ pub async fn date_cli(args: &[String]) -> Result<()> {
                 // Special mode to list holidays for current year
                 let manager = DateManager::new(DateConfig::default(), I18n::new());
                 let holiday_list = manager.list_holidays(None, None)?;
-                println!("{}", holiday_list);
+                println!("{holiday_list}");
                 return Ok(());
             }
             "--holiday-regions" => {

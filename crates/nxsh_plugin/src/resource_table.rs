@@ -17,6 +17,7 @@ use uuid::Uuid;
 use log::{info, warn, error, debug};
 
 /// Pure Rust resource table with memory tracking and lifecycle management
+#[allow(dead_code)]
 pub struct ResourceTable {
     /// Resource storage by ID
     resources: Arc<RwLock<HashMap<ResourceId, Box<dyn ResourceEntry>>>>,

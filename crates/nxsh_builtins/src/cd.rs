@@ -292,7 +292,7 @@ impl CdCommand {
             if auto_load_env {
                 // Safe, best-effort loading: parsing errors are warned and do not abort directory change
                 if let Err(e) = self.load_env_file(&env_file, ctx) {
-                    eprintln!("Warning: Failed to load .env file: {}", e);
+                    eprintln!("Warning: Failed to load .env file: {e}");
                 }
             }
         }
@@ -313,7 +313,7 @@ impl CdCommand {
             if auto_source_dir_config {
                 // Pass the directory path; the loader will discover known files and load as variables
                 if let Err(e) = self.source_dir_config(path, ctx) {
-                    eprintln!("Warning: Failed to source directory config: {}", e);
+                    eprintln!("Warning: Failed to source directory config: {e}");
                 }
             }
         }
@@ -432,12 +432,14 @@ mod tests {
     use nxsh_core::context::ShellContext;
     use std::env;
     use tempfile::TempDir;
+    use serial_test::serial;
 
     // Serialize current_dir mutations across tests to avoid race conditions
     static CWD_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
     fn cwd_lock() -> &'static std::sync::Mutex<()> { CWD_LOCK.get_or_init(|| std::sync::Mutex::new(())) }
 
     #[test]
+    #[serial]
     fn test_cd_to_home() {
         let mut shell_ctx = ShellContext::new();
         shell_ctx.set_var("HOME", "/tmp");
@@ -447,6 +449,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_cd_with_relative_path() {
         let _g = cwd_lock().lock().unwrap();
         let temp_dir = TempDir::new().unwrap();
@@ -465,6 +468,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_cd_to_nonexistent_directory() {
         let mut shell_ctx = ShellContext::new();
         let result = cd_cli(&["cd".to_string(), "/nonexistent/directory".to_string()], &mut shell_ctx);
@@ -473,6 +477,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_cd_with_dash() {
         let _g = cwd_lock().lock().unwrap();
         let temp_dir1 = TempDir::new().unwrap();
@@ -490,6 +495,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_cd_auto_load_env() {
         let _g = cwd_lock().lock().unwrap();
         let temp_dir = TempDir::new().unwrap();
@@ -514,6 +520,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_cd_auto_source_dir_config() {
         let _g = cwd_lock().lock().unwrap();
         let temp_dir = TempDir::new().unwrap();
@@ -546,6 +553,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_cd_env_parsing_with_comments() {
         let _g = cwd_lock().lock().unwrap();
         let temp_dir = TempDir::new().unwrap();

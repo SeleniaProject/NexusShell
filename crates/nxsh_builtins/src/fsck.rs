@@ -786,7 +786,7 @@ async fn sign_fsck_journal(path: &str, key_path: &str) -> Result<()> {
     report.report_hash = compute_report_hash(&report);
     // Load private key (raw hex or base64, 32 bytes)
     let key_bytes = std::fs::read_to_string(key_path)
-        .with_context(|| format!("fsck: cannot read key {}", key_path))?;
+    .with_context(|| format!("fsck: cannot read key {key_path}"))?;
     let key_bytes = key_bytes.trim();
     let sk_bytes: Vec<u8> = if let Ok(hex_bytes) = hex::decode(key_bytes) { hex_bytes } else {
         general_purpose::STANDARD.decode(key_bytes).context("fsck: invalid key (expected hex/base64 of 32 bytes)")?
@@ -800,7 +800,7 @@ async fn sign_fsck_journal(path: &str, key_path: &str) -> Result<()> {
     report.public_key_hint = Some(hex::encode(verifying_key.to_bytes()));
     // Persist back
     let out = serde_json::to_vec_pretty(&report)?;
-    std::fs::write(path, out).with_context(|| format!("fsck: failed to write signed journal {}", path))?;
+    std::fs::write(path, out).with_context(|| format!("fsck: failed to write signed journal {path}"))?;
     println!("fsck: journal signed (pubhint={})", report.public_key_hint.as_deref().unwrap_or(""));
     Ok(())
 }
@@ -820,7 +820,7 @@ async fn verify_fsck_journal(path: &str, pub_path: &str) -> Result<()> {
     let sig_b64 = report.signature.as_ref().ok_or_else(|| anyhow!("fsck: journal has no signature"))?;
     let sig_bytes = general_purpose::STANDARD.decode(sig_b64).context("fsck: invalid base64 signature")?;
     let sig = Signature::from_slice(&sig_bytes).map_err(|_| anyhow!("fsck: invalid signature format"))?;
-    let pk_bytes_raw = std::fs::read_to_string(pub_path).with_context(|| format!("fsck: cannot read pubkey {}", pub_path))?;
+    let pk_bytes_raw = std::fs::read_to_string(pub_path).with_context(|| format!("fsck: cannot read pubkey {pub_path}"))?;
     let pk_bytes_raw = pk_bytes_raw.trim();
     let pk_bytes: Vec<u8> = if let Ok(hex_bytes) = hex::decode(pk_bytes_raw) { hex_bytes } else { general_purpose::STANDARD.decode(pk_bytes_raw).context("fsck: invalid pubkey (expected hex/base64 of 32 bytes)")? };
     if pk_bytes.len() != 32 { return Err(anyhow!("fsck: invalid pubkey length (need 32 bytes)")); }
@@ -1108,6 +1108,6 @@ fn create_shadow_image(device: &str, output: Option<&str>) -> Result<()> {
 #[cfg(not(unix))]
 fn create_shadow_image(_device: &str, output: Option<&str>) -> Result<()> {
     let out = output.unwrap_or(".nxsh/fsck_shadow.img");
-    println!("fsck: create-shadow is not supported on this platform (requested output: {})", out);
+    println!("fsck: create-shadow is not supported on this platform (requested output: {out})");
     Ok(())
 }

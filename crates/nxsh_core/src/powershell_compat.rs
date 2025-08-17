@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 /// PowerShell compatibility mode for NexusShell
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct PowerShellCompat {
     cmdlets: HashMap<String, CmdletInfo>,
     aliases: HashMap<String, String>,
@@ -83,6 +84,8 @@ impl PowerShellCompat {
         }
     }
 
+    
+
     /// PowerShell pipeline support
     pub fn execute_pipeline(&mut self, pipeline: &str) -> Result<Vec<PowerShellObject>> {
         let commands: Vec<&str> = pipeline.split(" | ").collect();
@@ -130,13 +133,13 @@ impl PowerShellCompat {
         
         // Replace $variable patterns
         for (name, var) in &self.variables {
-            let pattern = format!("${}", name);
+                let pattern = format!("${name}");
             result = result.replace(&pattern, &var.value);
         }
         
         // Replace ${variable} patterns
         for (name, var) in &self.variables {
-            let pattern = format!("${{{}}}", name);
+                let pattern = format!("${{{name}}}");
             result = result.replace(&pattern, &var.value);
         }
         
@@ -161,9 +164,8 @@ impl PowerShellCompat {
             Ok(PowerShellObject::Boolean(false))
         } else if expression == "$null" {
             Ok(PowerShellObject::Null)
-        } else if expression.starts_with('$') {
+        } else if let Some(var_name) = expression.strip_prefix('$') {
             // Variable reference
-            let var_name = &expression[1..];
             if let Some(var) = self.variables.get(var_name) {
                 Ok(PowerShellObject::String(var.value.clone()))
             } else {
@@ -196,7 +198,7 @@ impl PowerShellCompat {
 
     // Cmdlet implementations
     fn get_child_item(&mut self, args: Vec<String>) -> Result<CommandResult> {
-        let path = args.get(0).map(|s| s.as_str()).unwrap_or(".");
+    let path = args.first().map(|s| s.as_str()).unwrap_or(".");
         let entries = std::fs::read_dir(path)?;
         
         let mut objects = Vec::new();
@@ -251,7 +253,7 @@ impl PowerShellCompat {
         })
     }
 
-    fn get_process(&mut self, args: Vec<String>) -> Result<CommandResult> {
+    fn get_process(&mut self, _args: Vec<String>) -> Result<CommandResult> {
         // Platform-specific process listing would be implemented here
         let processes = vec![
             PowerShellObject::ProcessInfo {
@@ -279,7 +281,7 @@ impl PowerShellCompat {
 
     fn write_host(&mut self, args: Vec<String>) -> Result<CommandResult> {
         let output = args.join(" ");
-        println!("{}", output);
+    println!("{output}");
         
         Ok(CommandResult {
             success: true,
@@ -433,33 +435,33 @@ impl PowerShellCompat {
     }
 
     // Pipeline helper methods (simplified implementations)
-    fn filter_objects(&self, objects: Vec<PowerShellObject>, args: &[String]) -> Result<Vec<PowerShellObject>> {
+    fn filter_objects(&self, objects: Vec<PowerShellObject>, _args: &[String]) -> Result<Vec<PowerShellObject>> {
         // Simple filtering - real implementation would parse PowerShell filter expressions
         Ok(objects) // Placeholder
     }
 
-    fn select_object_properties(&self, objects: Vec<PowerShellObject>, args: &[String]) -> Result<Vec<PowerShellObject>> {
+    fn select_object_properties(&self, objects: Vec<PowerShellObject>, _args: &[String]) -> Result<Vec<PowerShellObject>> {
         // Property selection - real implementation would handle complex property paths
         Ok(objects) // Placeholder
     }
 
-    fn sort_objects(&self, mut objects: Vec<PowerShellObject>, args: &[String]) -> Result<Vec<PowerShellObject>> {
+    fn sort_objects(&self, mut objects: Vec<PowerShellObject>, _args: &[String]) -> Result<Vec<PowerShellObject>> {
         // Simple sorting - real implementation would handle multiple properties and custom comparers
-        objects.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+        objects.sort_by_key(|a| a.to_string());
         Ok(objects)
     }
 
-    fn transform_objects(&self, objects: Vec<PowerShellObject>, args: &[String]) -> Result<Vec<PowerShellObject>> {
+    fn transform_objects(&self, objects: Vec<PowerShellObject>, _args: &[String]) -> Result<Vec<PowerShellObject>> {
         // Object transformation - real implementation would execute PowerShell script blocks
         Ok(objects) // Placeholder
     }
 
-    fn group_objects(&self, objects: Vec<PowerShellObject>, args: &[String]) -> Result<Vec<PowerShellObject>> {
+    fn group_objects(&self, objects: Vec<PowerShellObject>, _args: &[String]) -> Result<Vec<PowerShellObject>> {
         // Object grouping - real implementation would group by specified properties
         Ok(objects) // Placeholder
     }
 
-    fn measure_objects(&self, objects: Vec<PowerShellObject>, args: &[String]) -> Result<Vec<PowerShellObject>> {
+    fn measure_objects(&self, objects: Vec<PowerShellObject>, _args: &[String]) -> Result<Vec<PowerShellObject>> {
         // Object measurement - count, sum, average, etc.
         let count = objects.len();
         Ok(vec![PowerShellObject::Integer(count as i64)])
@@ -493,7 +495,7 @@ impl PowerShellCompat {
                 let mut map = HashMap::new();
                 map.insert("Name".to_string(), PowerShellObject::String(alias.clone()));
                 map.insert("AliasTo".to_string(), PowerShellObject::String(target.clone()));
-                map.insert("Description".to_string(), PowerShellObject::String(format!("Alias to {}", target)));
+                map.insert("Description".to_string(), PowerShellObject::String(format!("Alias to {target}")));
                 objs.push(PowerShellObject::HashTable(map));
             }
             Ok(CommandResult { success: true, output: String::new(), objects: objs })
@@ -512,7 +514,7 @@ impl PowerShellCompat {
                 map.insert("AliasTo".to_string(), PowerShellObject::String(target.clone()));
                 return Ok(CommandResult { success: true, output: String::new(), objects: vec![PowerShellObject::HashTable(map)] });
             }
-            Ok(CommandResult { success: false, output: format!("{} not found", name), objects: vec![] })
+            Ok(CommandResult { success: false, output: format!("{name} not found"), objects: vec![] })
         }
     }
     fn get_help(&mut self, args: Vec<String>) -> Result<CommandResult> {
@@ -528,9 +530,9 @@ impl PowerShellCompat {
             return Ok(CommandResult { success: true, output: txt, objects: vec![] });
         }
         if let Some(target) = self.aliases.get(name) {
-            return Ok(CommandResult { success: true, output: format!("Alias: {} -> {}", name, target), objects: vec![] });
+            return Ok(CommandResult { success: true, output: format!("Alias: {name} -> {target}"), objects: vec![] });
         }
-        Ok(CommandResult { success: false, output: format!("Help not found for {}", name), objects: vec![] })
+    Ok(CommandResult { success: false, output: format!("Help not found for {name}"), objects: vec![] })
     }
     fn measure_object(&mut self, _args: Vec<String>) -> Result<CommandResult> { Ok(CommandResult::default()) }
     fn sort_object(&mut self, _args: Vec<String>) -> Result<CommandResult> { Ok(CommandResult::default()) }
@@ -541,6 +543,10 @@ impl PowerShellCompat {
     fn out_string(&mut self, _args: Vec<String>) -> Result<CommandResult> { Ok(CommandResult::default()) }
     fn out_file(&mut self, _args: Vec<String>) -> Result<CommandResult> { Ok(CommandResult::default()) }
     fn read_host(&mut self, _args: Vec<String>) -> Result<CommandResult> { Ok(CommandResult::default()) }
+}
+
+impl Default for PowerShellCompat {
+    fn default() -> Self { Self::new() }
 }
 
 // Supporting types and structures
@@ -659,26 +665,26 @@ pub enum PowerShellObject {
     Null,
 }
 
-impl ToString for PowerShellObject {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for PowerShellObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PowerShellObject::String(s) => s.clone(),
-            PowerShellObject::Integer(i) => i.to_string(),
-            PowerShellObject::Float(f) => f.to_string(),
-            PowerShellObject::Boolean(b) => b.to_string(),
+            PowerShellObject::String(s) => write!(f, "{s}"),
+            PowerShellObject::Integer(i) => write!(f, "{i}"),
+            PowerShellObject::Float(fl) => write!(f, "{fl}"),
+            PowerShellObject::Boolean(b) => write!(f, "{b}"),
             PowerShellObject::Array(arr) => {
                 let items: Vec<String> = arr.iter().map(|obj| obj.to_string()).collect();
-                format!("[{}]", items.join(", "))
+                write!(f, "[{}]", items.join(", "))
             },
             PowerShellObject::HashTable(map) => {
                 let items: Vec<String> = map.iter()
-                    .map(|(k, v)| format!("{}={}", k, v.to_string()))
+                    .map(|(k, v)| format!("{k}={v}"))
                     .collect();
-                format!("{{{}}}", items.join("; "))
+                write!(f, "{{{}}}", items.join("; "))
             },
-            PowerShellObject::FileInfo { name, .. } => name.clone(),
-            PowerShellObject::ProcessInfo { name, id, .. } => format!("{} ({})", name, id),
-            PowerShellObject::Null => String::new(),
+            PowerShellObject::FileInfo { name, .. } => write!(f, "{name}"),
+            PowerShellObject::ProcessInfo { name, id, .. } => write!(f, "{name} ({id})"),
+            PowerShellObject::Null => Ok(()),
         }
     }
 }
@@ -690,11 +696,11 @@ impl PowerShellObject {
         match self {
             PowerShellObject::String(s) => {
                 let esc = s.replace('"', "\\\"");
-                format!("{{\"String\":\"{}\"}}", esc)
+                format!("{{\"String\":\"{esc}\"}}")
             },
-            PowerShellObject::Integer(i) => format!("{{\"Integer\":{}}}", i),
-            PowerShellObject::Float(f) => format!("{{\"Float\":{}}}", f),
-            PowerShellObject::Boolean(b) => format!("{{\"Boolean\":{}}}", b),
+            PowerShellObject::Integer(i) => format!("{{\"Integer\":{i}}}"),
+            PowerShellObject::Float(f) => format!("{{\"Float\":{f}}}"),
+            PowerShellObject::Boolean(b) => format!("{{\"Boolean\":{b}}}"),
             PowerShellObject::Null => "{\"Null\":null}".to_string(),
             PowerShellObject::Array(arr) => {
                 let parts: Vec<String> = arr.iter().map(|o| o.to_json_line()).collect();
@@ -706,10 +712,10 @@ impl PowerShellObject {
                 format!("{{\"HashTable\":{{{}}}}}", parts.join(","))
             },
             PowerShellObject::FileInfo { name, full_path, size, is_directory, .. } => {
-                format!("{{\"FileInfo\":{{\"name\":\"{}\",\"path\":\"{}\",\"size\":{},\"dir\":{}}}}}", name, full_path, size, is_directory)
+                format!("{{\"FileInfo\":{{\"name\":\"{name}\",\"path\":\"{full_path}\",\"size\":{size},\"dir\":{is_directory}}}}}")
             },
             PowerShellObject::ProcessInfo { name, id, cpu, memory, status } => {
-                format!("{{\"ProcessInfo\":{{\"name\":\"{}\",\"id\":{},\"cpu\":{},\"mem\":{},\"status\":\"{}\"}}}}", name, id, cpu, memory, status)
+                format!("{{\"ProcessInfo\":{{\"name\":\"{name}\",\"id\":{id},\"cpu\":{cpu},\"mem\":{memory},\"status\":\"{status}\"}}}}")
             },
         }
     }

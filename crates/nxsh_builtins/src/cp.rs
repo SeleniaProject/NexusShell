@@ -445,7 +445,7 @@ fn set_file_times(path: &Path, accessed: SystemTime, modified: SystemTime) -> Re
 
         fn to_filetime(t: SystemTime) -> FILETIME {
             let dur = t.duration_since(UNIX_EPOCH).unwrap_or_default();
-            let mut intervals = (dur.as_secs() as u64) * 10_000_000 + (dur.subsec_nanos() as u64) / 100;
+            let mut intervals = dur.as_secs() * 10_000_000 + (dur.subsec_nanos() as u64) / 100;
             intervals += 11644473600u64 * 10_000_000; // Unix -> Windows epoch offset
             FILETIME { dwLowDateTime: intervals as u32, dwHighDateTime: (intervals >> 32) as u32 }
         }

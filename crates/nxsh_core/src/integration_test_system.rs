@@ -166,14 +166,14 @@ impl IntegrationTestSystem {
 
         // 全テスト完了を待機
         let mut all_results = Vec::new();
-        while let Some(result) = join_set.join_next().await {
+    while let Some(result) = join_set.join_next().await {
             match result {
                 Ok(Ok(results)) => all_results.extend(results),
                 Ok(Err(e)) => {
-                    eprintln!("❌ Test execution error: {}", e);
+            eprintln!("❌ Test execution error: {e}");
                 }
                 Err(e) => {
-                    eprintln!("❌ Task join error: {}", e);
+            eprintln!("❌ Task join error: {e}");
                 }
             }
         }
@@ -212,7 +212,7 @@ impl IntegrationTestSystem {
 
         // Cargoテストコマンド実行
         let output = TokioCommand::new("cargo")
-            .args(&["test", "--all-crates", "--", "--test-threads", "1"])
+            .args(["test", "--all-crates", "--", "--test-threads", "1"])
             .current_dir(".")
             .output()
             .await?;
@@ -233,7 +233,7 @@ impl IntegrationTestSystem {
             category: TestCategory::Unit,
             status,
             duration,
-            output: format!("{}\n{}", stdout, stderr),
+            output: format!("{stdout}\n{stderr}"),
             error_message: if !output.status.success() {
                 Some(stderr.to_string())
             } else {
@@ -245,7 +245,7 @@ impl IntegrationTestSystem {
         results.push(result.clone());
         self.test_results.write().await.push(result);
 
-        println!("   ✅ Unit tests completed in {:?}", duration);
+    println!("   ✅ Unit tests completed in {duration:?}");
         Ok(results)
     }
 
@@ -283,7 +283,7 @@ impl IntegrationTestSystem {
                 category: TestCategory::Integration,
                 status: if test_result.is_ok() { TestStatus::Passed } else { TestStatus::Failed },
                 duration,
-                output: format!("Integration test: {}", test_name),
+                output: format!("Integration test: {test_name}"),
                 error_message: test_result.err().map(|e| e.to_string()),
                 timestamp: chrono::Utc::now(),
             };
@@ -293,7 +293,7 @@ impl IntegrationTestSystem {
         }
 
         let total_duration = start_time.elapsed();
-        println!("   ✅ Integration tests completed in {:?}", total_duration);
+    println!("   ✅ Integration tests completed in {total_duration:?}");
         Ok(results)
     }
 
@@ -316,7 +316,7 @@ impl IntegrationTestSystem {
         // メモリ使用量テスト
         let memory_usage = self.measure_memory_usage().await?;
 
-        let performance_metrics = PerformanceMetrics {
+    let performance_metrics = PerformanceMetrics {
             startup_time: avg_startup,
             command_execution_time: response_times.values().sum::<Duration>() / response_times.len() as u32,
             memory_usage,
@@ -330,6 +330,8 @@ impl IntegrationTestSystem {
         let startup_pass = avg_startup <= self.config.max_startup_time;
         let memory_pass = memory_usage <= self.config.max_memory_usage;
 
+        let commands_count = performance_metrics.response_times.len();
+        let mem_mb = memory_usage / 1024 / 1024;
         let result = TestResult {
             test_id: Uuid::new_v4().to_string(),
             test_name: "Performance Benchmarks".to_string(),
@@ -337,10 +339,7 @@ impl IntegrationTestSystem {
             status: if startup_pass && memory_pass { TestStatus::Passed } else { TestStatus::Failed },
             duration: start_time.elapsed(),
             output: format!(
-                "Startup: {:?}, Memory: {}MB, Commands: {} tested",
-                avg_startup,
-                memory_usage / 1024 / 1024,
-                performance_metrics.response_times.len()
+                "Startup: {avg_startup:?}, Memory: {mem_mb}MB, Commands: {commands_count} tested"
             ),
             error_message: if !startup_pass || !memory_pass {
                 Some(format!(
@@ -359,7 +358,7 @@ impl IntegrationTestSystem {
         self.test_results.write().await.push(result);
 
         let total_duration = start_time.elapsed();
-        println!("   ✅ Performance tests completed in {:?}", total_duration);
+    println!("   ✅ Performance tests completed in {total_duration:?}");
         Ok(results)
     }
 
@@ -397,7 +396,7 @@ impl IntegrationTestSystem {
                 category: TestCategory::Security,
                 status: if test_result.is_ok() { TestStatus::Passed } else { TestStatus::Failed },
                 duration,
-                output: format!("Security test: {}", test_name),
+                output: format!("Security test: {test_name}"),
                 error_message: test_result.err().map(|e| e.to_string()),
                 timestamp: chrono::Utc::now(),
             };
@@ -407,7 +406,7 @@ impl IntegrationTestSystem {
         }
 
         let total_duration = start_time.elapsed();
-        println!("   ✅ Security tests completed in {:?}", total_duration);
+    println!("   ✅ Security tests completed in {total_duration:?}");
         Ok(results)
     }
 
@@ -438,7 +437,7 @@ impl IntegrationTestSystem {
                 category: TestCategory::Compatibility,
                 status: if test_result.is_ok() { TestStatus::Passed } else { TestStatus::Failed },
                 duration: Duration::from_millis(100), // 簡略化
-                output: format!("Compatibility test: {}", test_name),
+                output: format!("Compatibility test: {test_name}"),
                 error_message: test_result.err().map(|e| e.to_string()),
                 timestamp: chrono::Utc::now(),
             };
@@ -448,7 +447,7 @@ impl IntegrationTestSystem {
         }
 
         let total_duration = start_time.elapsed();
-        println!("   ✅ Compatibility tests completed in {:?}", total_duration);
+    println!("   ✅ Compatibility tests completed in {total_duration:?}");
         Ok(results)
     }
 
@@ -486,7 +485,7 @@ impl IntegrationTestSystem {
                 category: TestCategory::EndToEnd,
                 status: if test_result.is_ok() { TestStatus::Passed } else { TestStatus::Failed },
                 duration,
-                output: format!("E2E scenario: {}", scenario_name),
+                output: format!("E2E scenario: {scenario_name}"),
                 error_message: test_result.err().map(|e| e.to_string()),
                 timestamp: chrono::Utc::now(),
             };
@@ -496,7 +495,7 @@ impl IntegrationTestSystem {
         }
 
         let total_duration = start_time.elapsed();
-        println!("   ✅ End-to-End tests completed in {:?}", total_duration);
+    println!("   ✅ End-to-End tests completed in {total_duration:?}");
         Ok(results)
     }
 
@@ -529,7 +528,7 @@ impl IntegrationTestSystem {
             category: TestCategory::Stress,
             status: status.clone(),
             duration: start_time.elapsed(),
-            output: format!("Stress test executed for {:?}", stress_duration),
+            output: format!("Stress test executed for {stress_duration:?}"),
             error_message: if status != TestStatus::Passed {
                 Some("Stress test failed or timed out".to_string())
             } else {
@@ -542,7 +541,7 @@ impl IntegrationTestSystem {
         self.test_results.write().await.push(result);
 
         let total_duration = start_time.elapsed();
-        println!("   ✅ Stress tests completed in {:?}", total_duration);
+    println!("   ✅ Stress tests completed in {total_duration:?}");
         Ok(results)
     }
 
@@ -614,7 +613,7 @@ impl IntegrationTestSystem {
             
             // Measure actual command execution time
             let output = TokioCommand::new(cmd)
-                .args(&args)
+                .args(args)
                 .output()
                 .await;
                 
@@ -655,7 +654,7 @@ impl IntegrationTestSystem {
         #[cfg(target_os = "windows")]
         {
             let output = TokioCommand::new("powershell")
-                .args(&["-Command", "Get-Process -Id $PID | Select-Object WorkingSet64"])
+                .args(["-Command", "Get-Process -Id $PID | Select-Object WorkingSet64"])
                 .output()
                 .await;
                 
@@ -674,8 +673,9 @@ impl IntegrationTestSystem {
         // Method 3: Use ps command (Unix-like systems)
         #[cfg(unix)]
         {
+            let pid = std::process::id().to_string();
             let output = TokioCommand::new("ps")
-                .args(&["-o", "rss=", "-p", &std::process::id().to_string()])
+                .args(["-o", "rss=", "-p", pid.as_str()])
                 .output()
                 .await;
                 
@@ -722,8 +722,9 @@ impl IntegrationTestSystem {
         }
         
         // Method 2: Try top command
+        let pid = std::process::id().to_string();
         if let Ok(output) = TokioCommand::new("top")
-            .args(&["-b", "-n1", "-p", &std::process::id().to_string()])
+            .args(["-b", "-n1", "-p", pid.as_str()])
             .output()
             .await
         {
@@ -734,8 +735,9 @@ impl IntegrationTestSystem {
         }
         
         // Method 3: Try ps command
+        let pid = std::process::id().to_string();
         if let Ok(output) = TokioCommand::new("ps")
-            .args(&["-o", "pcpu=", "-p", &std::process::id().to_string()])
+            .args(["-o", "pcpu=", "-p", pid.as_str()])
             .output()
             .await
         {
@@ -882,7 +884,7 @@ impl IntegrationTestSystem {
             });
         }
 
-        while let Some(_) = join_set.join_next().await {
+        while (join_set.join_next().await).is_some() {
             // Continue stress testing
         }
 
@@ -895,7 +897,7 @@ impl IntegrationTestSystem {
         let json = serde_json::to_string_pretty(report)?;
         file.write_all(json.as_bytes())?;
         
-        println!("   📄 Test report generated: {:?}", report_path);
+    println!("   📄 Test report generated: {report_path:?}");
         Ok(())
     }
 }

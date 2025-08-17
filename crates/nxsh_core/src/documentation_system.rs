@@ -33,6 +33,10 @@ impl std::fmt::Debug for DocumentationSystem {
     }
 }
 
+impl Default for DocumentationSystem {
+    fn default() -> Self { Self::new() }
+}
+
 impl DocumentationSystem {
     pub fn new() -> Self {
         let mut system = Self {
@@ -50,6 +54,7 @@ impl DocumentationSystem {
         system.configure_output_formats();
         system
     }
+    // methods continue below
 
     /// Generate comprehensive API documentation
     pub fn generate_api_documentation(&mut self, source_path: &Path) -> Result<ApiDocumentationReport> {
@@ -86,7 +91,7 @@ impl DocumentationSystem {
                     self.index_module_documentation(&module_docs)?;
                 },
                 Err(e) => {
-                    report.warnings.push(format!("Failed to parse {}: {}", rust_file.display(), e));
+                    report.warnings.push(format!("Failed to parse {}: {e}", rust_file.display()));
                 }
             }
         }
@@ -133,7 +138,7 @@ impl DocumentationSystem {
                     report.output_files.extend(guide_files);
                 },
                 Err(e) => {
-                    eprintln!("Failed to generate user guide {}: {}", guide_name, e);
+                    eprintln!("Failed to generate user guide {guide_name}: {e}");
                 }
             }
         }
@@ -153,15 +158,15 @@ impl DocumentationSystem {
                     report.output_files.extend(tutorial_files);
                 },
                 Err(e) => {
-                    eprintln!("Failed to generate tutorial {}: {}", tutorial_name, e);
+                    eprintln!("Failed to generate tutorial {tutorial_name}: {e}");
                 }
             }
         }
 
         // Generate command reference
         let command_ref_files = self.generate_command_reference()?;
-        report.reference_pages.extend(command_ref_files.iter().map(|s| s.to_string()));
-        report.output_files.extend(command_ref_files.into_iter().map(|s| PathBuf::from(s)));
+    report.reference_pages.extend(command_ref_files.iter().map(ToString::to_string));
+    report.output_files.extend(command_ref_files.into_iter().map(PathBuf::from));
 
         report.end_time = Some(SystemTime::now());
         Ok(report)
@@ -184,23 +189,23 @@ impl DocumentationSystem {
 
         // Generate architecture documentation
         let arch_docs = self.generate_architecture_documentation()?;
-        report.architecture_docs.extend(arch_docs.iter().map(|s| s.to_string()));
-        report.output_files.extend(arch_docs.into_iter().map(|s| PathBuf::from(s)));
+    report.architecture_docs.extend(arch_docs.iter().map(ToString::to_string));
+    report.output_files.extend(arch_docs.into_iter().map(PathBuf::from));
 
         // Generate contribution guidelines
         let contrib_files = self.generate_contribution_guidelines()?;
-        report.contribution_guides.extend(contrib_files.iter().map(|s| s.to_string()));
-        report.output_files.extend(contrib_files.into_iter().map(|s| PathBuf::from(s)));
+    report.contribution_guides.extend(contrib_files.iter().map(ToString::to_string));
+    report.output_files.extend(contrib_files.into_iter().map(PathBuf::from));
 
         // Generate coding standards
         let standards_files = self.generate_coding_standards()?;
-        report.code_standards.extend(standards_files.iter().map(|s| s.to_string()));
-        report.output_files.extend(standards_files.into_iter().map(|s| PathBuf::from(s)));
+    report.code_standards.extend(standards_files.iter().map(ToString::to_string));
+    report.output_files.extend(standards_files.into_iter().map(PathBuf::from));
 
         // Generate build and development instructions
         let build_files = self.generate_build_instructions()?;
-        report.build_instructions.extend(build_files.iter().map(|s| s.to_string()));
-        report.output_files.extend(build_files.into_iter().map(|s| PathBuf::from(s)));
+    report.build_instructions.extend(build_files.iter().map(ToString::to_string));
+    report.output_files.extend(build_files.into_iter().map(PathBuf::from));
 
         report.end_time = Some(SystemTime::now());
         Ok(report)
@@ -370,6 +375,7 @@ impl DocumentationSystem {
         ];
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn scan_rust_files(&self, path: &Path) -> Result<Vec<PathBuf>> {
         let mut rust_files = Vec::new();
         
@@ -446,14 +452,14 @@ impl DocumentationSystem {
         
         // Generate HTML documentation
         let html_content = self.render_module_html(module_docs)?;
-        let html_path = PathBuf::from(format!("docs/api/{}.html", module_docs.module_name));
+    let html_path = PathBuf::from(format!("docs/api/{}.html", module_docs.module_name));
         fs::create_dir_all(html_path.parent().unwrap())?;
         fs::write(&html_path, html_content)?;
         output_files.push(html_path);
 
         // Generate Markdown documentation
         let md_content = self.render_module_markdown(module_docs)?;
-        let md_path = PathBuf::from(format!("docs/api/{}.md", module_docs.module_name));
+    let md_path = PathBuf::from(format!("docs/api/{}.md", module_docs.module_name));
         fs::write(&md_path, md_content)?;
         output_files.push(md_path);
 
@@ -462,14 +468,14 @@ impl DocumentationSystem {
 
     fn render_module_html(&self, module_docs: &ModuleDocumentation) -> Result<String> {
         let mut html = String::from("<!DOCTYPE html>\n<html>\n<head>\n");
-        html.push_str(&format!("<title>{} - NexusShell API</title>\n", module_docs.module_name));
+    html.push_str(&format!("<title>{} - NexusShell API</title>\n", module_docs.module_name));
         html.push_str("<style>\nbody { font-family: Arial, sans-serif; margin: 40px; }\n");
         html.push_str("h1 { color: #333; }\nh2 { color: #666; }\n");
         html.push_str(".function { margin: 20px 0; padding: 10px; border-left: 3px solid #007acc; }\n");
         html.push_str("</style>\n</head>\n<body>\n");
         
-        html.push_str(&format!("<h1>Module: {}</h1>\n", module_docs.module_name));
-        html.push_str(&format!("<p>{}</p>\n", module_docs.description));
+    html.push_str(&format!("<h1>Module: {}</h1>\n", module_docs.module_name));
+    html.push_str(&format!("<p>{}</p>\n", module_docs.description));
         
         html.push_str("<h2>Functions</h2>\n");
         for func in &module_docs.functions {
@@ -537,7 +543,8 @@ impl DocumentationSystem {
             report.functions_documented,
             report.types_documented,
             report.modules_documented.iter()
-                .map(|m| format!("- [{}](api/{}.html)", m, m))
+                .map(|m| format!("- [{m}](api/{m}.html)"))
+                .map(|m| format!("- [{m}](api/{m}.html)"))
                 .collect::<Vec<_>>()
                 .join("\n")
         );
@@ -548,8 +555,7 @@ impl DocumentationSystem {
         // Convert markdown to HTML for index
         let html_content = format!(
             "<!DOCTYPE html>\n<html>\n<head><title>NexusShell API Documentation</title></head>\n\
-             <body>\n<pre>{}</pre>\n</body>\n</html>",
-            index_content
+             <body>\n<pre>{index_content}</pre>\n</body>\n</html>"
         );
         
         fs::write(&index_path, html_content)?;
@@ -566,11 +572,10 @@ impl DocumentationSystem {
 
         for (name, description) in examples.clone() {
             let example_content = format!(
-                "# {}\n\n```rust\n// Example code for {}\nfn main() {{\n    println!(\"Example\");\n}}\n```",
-                description, name
+                "# {description}\n\n```rust\n// Example code for {name}\nfn main() {{\n    println!(\"Example\");\n}}\n```"
             );
             
-            let example_path = PathBuf::from(format!("docs/examples/{}.md", name));
+            let example_path = PathBuf::from(format!("docs/examples/{name}.md"));
             fs::create_dir_all(example_path.parent().unwrap())?;
             fs::write(example_path, example_content)?;
         }
@@ -585,10 +590,11 @@ impl DocumentationSystem {
             "advanced_features" => self.generate_advanced_features_guide()?,
             "configuration" => self.generate_configuration_guide()?,
             "troubleshooting" => self.generate_troubleshooting_guide()?,
-            _ => format!("# {}\n\nContent for {} guide.", guide_name, guide_name),
+            _ => format!("# {guide_name}\n\nContent for {guide_name} guide."),
         };
 
-        let guide_path = PathBuf::from(format!("docs/user/{}.md", guide_name));
+    let _guide_path = PathBuf::from(format!("docs/user/{guide_name}.md"));
+    let guide_path = PathBuf::from(format!("docs/user/{guide_name}.md"));
         fs::create_dir_all(guide_path.parent().unwrap())?;
         fs::write(&guide_path, guide_content)?;
         
@@ -688,6 +694,14 @@ bg %2
 # Define function
 function greet() {
     echo "Hello, $1!"
+}
+
+impl Default for DocumentationSystem {
+    fn default() -> Self { Self::new() }
+}
+
+impl Default for DocumentationSystem {
+    fn default() -> Self { Self::new() }
 }
 
 # Use closure
@@ -835,10 +849,11 @@ timeout = 30
             "custom_builtins" => self.generate_custom_builtins_tutorial()?,
             "performance_tuning" => self.generate_performance_tuning_tutorial()?,
             "security_configuration" => self.generate_security_config_tutorial()?,
-            _ => format!("# Tutorial: {}\n\nTutorial content for {}.", tutorial_name, tutorial_name),
+            _ => format!("# Tutorial: {tutorial_name}\n\nTutorial content for {tutorial_name}."),
         };
 
-        let tutorial_path = PathBuf::from(format!("docs/tutorials/{}.md", tutorial_name));
+    let _tutorial_path = PathBuf::from(format!("docs/tutorials/{tutorial_name}.md"));
+    let tutorial_path = PathBuf::from(format!("docs/tutorials/{tutorial_name}.md"));
         fs::create_dir_all(tutorial_path.parent().unwrap())?;
         fs::write(&tutorial_path, tutorial_content)?;
         
@@ -1063,7 +1078,7 @@ harden --apply-recommendations
 
     fn generate_command_reference(&self) -> Result<Vec<String>> {
         // Generate command reference documentation
-        let commands = vec![
+        let commands = [
             ("ls", "List directory contents"),
             ("cd", "Change directory"),
             ("pwd", "Print working directory"),
@@ -1074,10 +1089,10 @@ harden --apply-recommendations
         ];
 
         let reference_content = commands.iter()
-            .map(|(cmd, desc)| format!("## {}\n\n{}\n\n", cmd, desc))
+            .map(|(cmd, desc)| format!("## {cmd}\n\n{desc}\n\n"))
             .collect::<String>();
 
-        let content = format!("# Command Reference\n\n{}", reference_content);
+        let content = format!("# Command Reference\n\n{reference_content}");
         
         let ref_path = PathBuf::from("docs/reference/commands.md");
         fs::create_dir_all(ref_path.parent().unwrap())?;
@@ -1394,6 +1409,7 @@ cargo build --target x86_64-pc-windows-gnu --release
         Ok(())
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn find_files_with_extension(&self, dir: &str, extension: &str) -> Result<Vec<PathBuf>> {
         let mut files = Vec::new();
         let path = Path::new(dir);
@@ -1441,8 +1457,8 @@ cargo build --target x86_64-pc-windows-gnu --release
 
     fn extract_title_from_content(&self, content: &str) -> String {
         for line in content.lines() {
-            if line.starts_with("# ") {
-                return line[2..].to_string();
+            if let Some(stripped) = line.strip_prefix("# ") {
+                return stripped.to_string();
             }
         }
         "Untitled".to_string()
@@ -1491,6 +1507,7 @@ pub struct DocConfig {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DocumentationIndex {
     entries: HashMap<String, IndexEntry>,
 }
@@ -1501,6 +1518,10 @@ impl DocumentationIndex {
             entries: HashMap::new(),
         }
     }
+}
+
+impl Default for DocumentationIndex {
+    fn default() -> Self { Self::new() }
 }
 
 #[derive(Debug, Clone)]
@@ -1554,6 +1575,10 @@ impl SearchIndex {
     pub fn size(&self) -> usize {
         self.documents.len()
     }
+}
+
+impl Default for SearchIndex {
+    fn default() -> Self { Self::new() }
 }
 
 #[derive(Debug, Clone)]
@@ -1764,6 +1789,10 @@ impl ApiDocumentationGenerator {
     }
 }
 
+impl Default for ApiDocumentationGenerator {
+    fn default() -> Self { Self::new() }
+}
+
 impl DocumentGenerator for ApiDocumentationGenerator {
     fn generate(&self, _input: &Path) -> Result<Vec<PathBuf>> {
         // Implementation for API documentation generation
@@ -1783,6 +1812,10 @@ impl UserDocumentationGenerator {
     }
 }
 
+impl Default for UserDocumentationGenerator {
+    fn default() -> Self { Self::new() }
+}
+
 impl DocumentGenerator for UserDocumentationGenerator {
     fn generate(&self, _input: &Path) -> Result<Vec<PathBuf>> {
         // Implementation for user documentation generation
@@ -1800,6 +1833,10 @@ impl DeveloperDocumentationGenerator {
     pub fn new() -> Self {
         Self
     }
+}
+
+impl Default for DeveloperDocumentationGenerator {
+    fn default() -> Self { Self::new() }
 }
 
 impl DocumentGenerator for DeveloperDocumentationGenerator {

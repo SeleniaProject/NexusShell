@@ -1,3 +1,5 @@
+type RuleFn = std::sync::Arc<dyn Fn(&SecurityAuditor) -> Result<Vec<AuditFinding>> + Send + Sync>;
+type ScanFn = std::sync::Arc<dyn Fn(&AuditScope) -> Result<ScanResult> + Send + Sync>;
 use crate::compat::Result;
 use std::{
     collections::HashMap,
@@ -9,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 /// Comprehensive security audit and compliance system
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct SecurityAuditor {
     audit_rules: Vec<AuditRule>,
     compliance_frameworks: HashMap<String, ComplianceFramework>,
@@ -60,7 +63,7 @@ impl SecurityAuditor {
                         self.log_audit_event(AuditEvent {
                             timestamp: SystemTime::now(),
                             event_type: AuditEventType::Error,
-                            description: format!("Failed to execute audit rule {}: {}", rule.name, e),
+                            description: format!("Failed to execute audit rule {}: {e}", rule.name),
                             severity: AuditSeverity::Medium,
                         });
                     }
@@ -85,7 +88,7 @@ impl SecurityAuditor {
                         self.log_audit_event(AuditEvent {
                             timestamp: SystemTime::now(),
                             event_type: AuditEventType::Warning,
-                            description: format!("Vulnerability scan failed: {}", e),
+                            description: format!("Vulnerability scan failed: {e}"),
                             severity: AuditSeverity::Low,
                         });
                     }
@@ -407,10 +410,8 @@ impl SecurityAuditor {
     }
 
     fn scan_file_permissions(&self, _target: &str) -> Result<Vec<Vulnerability>> {
-        let mut vulnerabilities = Vec::new();
-        
         // Check for world-writable files
-        vulnerabilities.push(Vulnerability {
+        let vulnerabilities = vec![Vulnerability {
             id: "VULN-001".to_string(),
             title: "World-writable files detected".to_string(),
             description: "Files with world-write permissions pose security risks".to_string(),
@@ -418,15 +419,13 @@ impl SecurityAuditor {
             cvss_score: Some(5.5),
             affected_assets: vec!["config files".to_string()],
             remediation: "Remove world-write permissions: chmod o-w <file>".to_string(),
-        });
+        }];
 
         Ok(vulnerabilities)
     }
 
     fn scan_configuration_issues(&self, _target: &str) -> Result<Vec<Vulnerability>> {
-        let mut vulnerabilities = Vec::new();
-        
-        vulnerabilities.push(Vulnerability {
+        let vulnerabilities = vec![Vulnerability {
             id: "VULN-002".to_string(),
             title: "Weak encryption settings".to_string(),
             description: "Configuration uses weak encryption algorithms".to_string(),
@@ -434,15 +433,13 @@ impl SecurityAuditor {
             cvss_score: Some(7.5),
             affected_assets: vec!["configuration files".to_string()],
             remediation: "Update to use strong encryption (AES-256)".to_string(),
-        });
+        }];
 
         Ok(vulnerabilities)
     }
 
     fn scan_network_security(&self, _target: &str) -> Result<Vec<Vulnerability>> {
-        let mut vulnerabilities = Vec::new();
-        
-        vulnerabilities.push(Vulnerability {
+        let vulnerabilities = vec![Vulnerability {
             id: "VULN-003".to_string(),
             title: "Unencrypted network communication".to_string(),
             description: "Network traffic is not encrypted".to_string(),
@@ -450,13 +447,13 @@ impl SecurityAuditor {
             cvss_score: Some(8.0),
             affected_assets: vec!["network connections".to_string()],
             remediation: "Enable TLS/SSL for all network communications".to_string(),
-        });
+        }];
 
         Ok(vulnerabilities)
     }
 
     fn calculate_risk_score(&self, report: &SecurityAuditReport) -> f64 {
-        let mut score = 0.0;
+        let mut score: f64 = 0.0;
         
         // Weight findings by severity
         for finding in &report.findings {
@@ -482,7 +479,7 @@ impl SecurityAuditor {
         }
         
         // Normalize to 0-100 scale with explicit type
-        (score as f64).min(100.0) as f64
+    score.min(100.0)
     }
 
     fn calculate_vulnerability_risk(&self, vulnerabilities: &[Vulnerability]) -> RiskLevel {
@@ -578,7 +575,7 @@ audit_file = "/var/log/nxsh/audit.log"
             report.risk_score, 
             report.findings.len(),
             report.recommendations.iter()
-                .map(|r| format!("<li>{}</li>", r))
+                .map(|r| format!("<li>{r}</li>"))
                 .collect::<Vec<_>>()
                 .join("")
         ))
@@ -602,6 +599,10 @@ audit_file = "/var/log/nxsh/audit.log"
                 .unwrap_or_default()
                 .as_secs())
     }
+}
+
+impl Default for SecurityAuditor {
+    fn default() -> Self { Self::new() }
 }
 
 // Supporting types and structures
@@ -641,7 +642,7 @@ pub struct AuditRule {
     pub category: AuditCategory,
     pub severity: AuditSeverity,
     #[doc = "Function stored as Arc for cloneability"]
-    pub check_function: std::sync::Arc<dyn Fn(&SecurityAuditor) -> Result<Vec<AuditFinding>> + Send + Sync>,
+    pub check_function: RuleFn,
 }
 
 impl std::fmt::Debug for AuditRule {
@@ -737,7 +738,7 @@ pub struct VulnerabilityScanner {
     pub description: String,
     pub scanner_type: ScannerType,
     #[doc = "Function stored as Arc for cloneability"]
-    pub scan_function: std::sync::Arc<dyn Fn(&AuditScope) -> Result<ScanResult> + Send + Sync>,
+    pub scan_function: ScanFn,
 }
 
 impl std::fmt::Debug for VulnerabilityScanner {
@@ -902,21 +903,14 @@ pub struct SystemInfo {
 }
 
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct SecurityPolicies {
     pub password_policy: PasswordPolicy,
     pub network_policy: NetworkPolicy,
     pub file_access_policy: FileAccessPolicy,
 }
 
-impl Default for SecurityPolicies {
-    fn default() -> Self {
-        Self {
-            password_policy: PasswordPolicy::default(),
-            network_policy: NetworkPolicy::default(),
-            file_access_policy: FileAccessPolicy::default(),
-        }
-    }
-}
+// Default is derived above for SecurityPolicies
 
 #[derive(Debug, Clone)]
 pub struct PasswordPolicy {
@@ -977,6 +971,7 @@ impl Default for FileAccessPolicy {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct SecurityMonitor {
     audit_log: Arc<Mutex<Vec<AuditEvent>>>,
     monitoring_active: bool,

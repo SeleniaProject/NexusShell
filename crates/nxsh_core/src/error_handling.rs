@@ -85,7 +85,7 @@ impl ErrorHandlingSystem {
                         std::thread::sleep(std::time::Duration::from_millis(*delay_ms));
                     }
                     
-                    return Ok(ErrorResult::Retry);
+                    Ok(ErrorResult::Retry)
                 } else {
                     // First attempt
                     self.retry_policies.insert(retry_key, RetryPolicy {
@@ -102,7 +102,7 @@ impl ErrorHandlingSystem {
                         std::thread::sleep(std::time::Duration::from_millis(*delay_ms));
                     }
                     
-                    return Ok(ErrorResult::Retry);
+                    Ok(ErrorResult::Retry)
                 }
             },
             
@@ -184,7 +184,7 @@ impl ErrorHandlingSystem {
         self.error_stack.push(error_info);
     // In minimal mode `Error` is `ShellError`; we can't call `.context()` on it directly.
     // Just wrap by creating a new internal error embedding original message.
-    crate::compat::anyhow(format!("Error propagated with additional context: {}", error))
+    crate::compat::anyhow(format!("Error propagated with additional context: {error}"))
     }
 
     /// Get error statistics
@@ -290,14 +290,15 @@ impl ErrorHandlingSystem {
             .as_secs();
 
         match level {
-            LogLevel::Debug => println!("[DEBUG:{}] {}: {}", timestamp, error.error_type, error.message),
-            LogLevel::Info => println!("[INFO:{}] {}: {}", timestamp, error.error_type, error.message),
-            LogLevel::Warn => println!("[WARN:{}] {}: {}", timestamp, error.error_type, error.message),
-            LogLevel::Error => eprintln!("[ERROR:{}] {}: {}", timestamp, error.error_type, error.message),
-            LogLevel::Fatal => eprintln!("[FATAL:{}] {}: {}", timestamp, error.error_type, error.message),
+            LogLevel::Debug => println!("[DEBUG:{timestamp}] {}: {}", error.error_type, error.message),
+            LogLevel::Info => println!("[INFO:{timestamp}] {}: {}", error.error_type, error.message),
+            LogLevel::Warn => println!("[WARN:{timestamp}] {}: {}", error.error_type, error.message),
+            LogLevel::Error => eprintln!("[ERROR:{timestamp}] {}: {}", error.error_type, error.message),
+            LogLevel::Fatal => eprintln!("[FATAL:{timestamp}] {}: {}", error.error_type, error.message),
         }
     }
 }
+impl Default for ErrorHandlingSystem { fn default() -> Self { Self::new() } }
 
 /// Error handler configuration
 #[derive(Debug, Clone)]
@@ -419,7 +420,7 @@ pub mod macros {
     macro_rules! nxsh_assert {
         ($condition:expr, $message:expr) => {
             if !$condition {
-                return Err(crate::anyhow!("Assertion failed: {}", $message));
+                    return Err($crate::anyhow!("Assertion failed: {}", $message));
             }
         };
     }

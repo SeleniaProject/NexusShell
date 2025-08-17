@@ -97,7 +97,7 @@ fn display_windows_current_user() -> ShellResult<ExecutionResult> {
     
     // Try to get SID using whoami command
     let sid_result = Command::new("whoami")
-        .args(&["/user", "/fo", "csv", "/nh"])
+    .args(["/user", "/fo", "csv", "/nh"])
         .output();
         
     let user_sid = if let Ok(output) = sid_result {
@@ -109,7 +109,7 @@ fn display_windows_current_user() -> ShellResult<ExecutionResult> {
     
     // Get primary group info
     let group_result = Command::new("whoami")
-        .args(&["/groups", "/fo", "csv", "/nh"])
+    .args(["/groups", "/fo", "csv", "/nh"])
         .output();
         
     let primary_group = if let Ok(output) = group_result {
@@ -131,22 +131,22 @@ fn display_windows_user_info(username: &str) -> ShellResult<ExecutionResult> {
     use std::process::Command;
     
     let query_result = Command::new("net")
-        .args(&["user", username])
+    .args(["user", username])
         .output();
         
     match query_result {
         Ok(output) if output.status.success() => {
             let output_str = String::from_utf8_lossy(&output.stdout);
             if output_str.contains("User name") {
-                println!("uid=1000({}) gid=1000(Users) groups=1000(Users)", username);
+                println!("uid=1000({username}) gid=1000(Users) groups=1000(Users)");
                 Ok(ExecutionResult::success(0))
             } else {
-                println!("id: '{}': no such user", username);
+                println!("id: '{username}': no such user");
                 Ok(ExecutionResult::failure(1))
             }
         }
         _ => {
-            println!("id: '{}': no such user", username);
+            println!("id: '{username}': no such user");
             Ok(ExecutionResult::failure(1))
         }
     }

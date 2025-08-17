@@ -72,7 +72,7 @@ impl Default for NamespaceConfig {
 }
 
 /// Statistics for namespace operations
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NamespaceStatistics {
     /// Total modules loaded
     pub modules_loaded: u64,
@@ -90,19 +90,7 @@ pub struct NamespaceStatistics {
     pub symbol_failures: u64,
 }
 
-impl Default for NamespaceStatistics {
-    fn default() -> Self {
-        Self {
-            modules_loaded: 0,
-            imports_resolved: 0,
-            symbol_lookups: 0,
-            cache_hits: 0,
-            cache_misses: 0,
-            import_failures: 0,
-            symbol_failures: 0,
-        }
-    }
-}
+// Default is derived
 
 /// A namespace containing modules and symbols
 #[derive(Debug, Clone)]
@@ -393,7 +381,7 @@ impl NamespaceSystem {
             .and_then(|s| s.to_str())
             .ok_or_else(|| ShellError::new(
                 ErrorKind::RuntimeError(RuntimeErrorKind::PathNotFound),
-                format!("Invalid module path: {:?}", path),
+                format!("Invalid module path: {path:?}"),
             ))?
             .to_string();
 
@@ -409,10 +397,10 @@ impl NamespaceSystem {
         self.statistics.cache_misses += 1;
 
         // Read module file
-        let content = std::fs::read_to_string(path)
+    let content = std::fs::read_to_string(path)
             .map_err(|e| ShellError::new(
                 ErrorKind::IoError(IoErrorKind::FileReadError),
-                format!("Failed to read module file {:?}: {}", path, e),
+        format!("Failed to read module file {path:?}: {e}"),
             ))?;
 
         // Parse module content (simplified)
@@ -609,7 +597,7 @@ impl NamespaceSystem {
         self.statistics.imports_resolved += 1;
 
         // Check cache first
-        let cache_key = format!("{}::{:?}", module_name, import);
+    let cache_key = format!("{module_name}::{import:?}");
         if self.config.enable_caching {
             if let Some(cached) = self.import_cache.read().unwrap().get(&cache_key) {
                 debug!("Import resolution found in cache");
@@ -735,7 +723,7 @@ impl NamespaceSystem {
                             Ok(ImportResolution {
                                 success: false,
                                 symbols: HashMap::new(),
-                                error: Some(format!("Symbol '{}' is not public", original)),
+                                error: Some(format!("Symbol '{original}' is not public")),
                                 warnings: vec![],
                             })
                         }
@@ -743,7 +731,7 @@ impl NamespaceSystem {
                         Ok(ImportResolution {
                             success: false,
                             symbols: HashMap::new(),
-                            error: Some(format!("Symbol '{}' not found", original)),
+                            error: Some(format!("Symbol '{original}' not found")),
                             warnings: vec![],
                         })
                     }
@@ -753,7 +741,7 @@ impl NamespaceSystem {
             Ok(ImportResolution {
                 success: false,
                 symbols: HashMap::new(),
-                error: Some(format!("Module '{}' not found", module_name)),
+                error: Some(format!("Module '{module_name}' not found")),
                 warnings: vec![],
             })
         }
@@ -773,7 +761,7 @@ impl NamespaceSystem {
         Ok(ImportResolution {
             success: false,
             symbols: HashMap::new(),
-            error: Some(format!("External imports not yet supported: {}", crate_name)),
+            error: Some(format!("External imports not yet supported: {crate_name}")),
             warnings: vec![],
         })
     }
@@ -852,7 +840,7 @@ impl NamespaceSystem {
         } else {
             Err(ShellError::new(
                 ErrorKind::RuntimeError(RuntimeErrorKind::FileNotFound),
-                format!("Module '{}' not found", module_name),
+                format!("Module '{module_name}' not found"),
             ))
         }
     }
@@ -866,7 +854,7 @@ impl NamespaceSystem {
         } else {
             Err(ShellError::new(
                 ErrorKind::RuntimeError(RuntimeErrorKind::FileNotFound),
-                format!("Module '{}' not found", module_name),
+                format!("Module '{module_name}' not found"),
             ))
         }
     }
@@ -896,7 +884,7 @@ impl NamespaceSystem {
         
         // Remove from cache
         self.module_cache.write().unwrap().remove(module_name);
-        self.import_cache.write().unwrap().retain(|k, _| !k.starts_with(&format!("{}::", module_name)));
+    self.import_cache.write().unwrap().retain(|k, _| !k.starts_with(&format!("{module_name}::")));
         
         // Find module path and reload
         let path_opt = {
@@ -906,7 +894,7 @@ impl NamespaceSystem {
             } else {
                 return Err(ShellError::new(
                     ErrorKind::RuntimeError(RuntimeErrorKind::FileNotFound),
-                    format!("Module '{}' not found", module_name),
+                    format!("Module '{module_name}' not found"),
                 ));
             }
         };
@@ -917,7 +905,7 @@ impl NamespaceSystem {
         } else {
             return Err(ShellError::new(
                 ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
-                format!("Module '{}' has no associated file path", module_name),
+                format!("Module '{module_name}' has no associated file path"),
             ));
         }
         

@@ -18,8 +18,8 @@ pub fn let_cli(exprs: &[String], ctx: &ShellContext) -> Result<()> {
     let (lhs_raw, rhs_raw) = joined.split_at(eq_pos);
     let rhs = &rhs_raw[1..]; // skip '='
     let lhs_trim = lhs_raw.trim_end();
-    let (var, op_add) = if lhs_trim.ends_with('+') {
-        (&lhs_trim[..lhs_trim.len()-1], true)
+    let (var, op_add) = if let Some(stripped) = lhs_trim.strip_suffix('+') {
+        (stripped, true)
     } else { (lhs_trim, false) };
     let var = var.trim();
     if var.is_empty() || !var.chars().next().unwrap().is_ascii_alphabetic() { bail!("invalid variable name") }

@@ -38,7 +38,7 @@ pub async fn hdparm_cli(args: &[String]) -> Result<()> {
     }
 
     #[cfg(not(unix))]
-    { let _ = &dev; println!("hdparm: benchmarking not supported on this platform"); return Ok(()); }
+    { let _ = &dev; println!("hdparm: benchmarking not supported on this platform"); Ok(()) }
     #[cfg(unix)] {
         if test_cached { cached_test(&dev)?; }
         if test_buffered { buffered_test(&dev)?; }

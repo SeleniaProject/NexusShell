@@ -235,11 +235,11 @@ fn generate_crash_id() -> String {
     thread_rng().fill_bytes(&mut rand_bytes);
 
     let mut hasher = Sha256::new();
-    hasher.update(&secs.to_be_bytes());
-    hasher.update(&nanos.to_be_bytes());
-    hasher.update(&pid.to_be_bytes());
-    hasher.update(&counter.to_be_bytes());
-    hasher.update(&rand_bytes);
+    hasher.update(secs.to_be_bytes());
+    hasher.update(nanos.to_be_bytes());
+    hasher.update(pid.to_be_bytes());
+    hasher.update(counter.to_be_bytes());
+    hasher.update(rand_bytes);
     let digest = hasher.finalize();
     // 64ビットにトリム
     let bytes = &digest[..8];
@@ -252,7 +252,7 @@ fn collect_system_info() -> Result<SystemInfo> {
         use sysinfo::{System, SystemExt};
         let mut sys = System::new();
         sys.refresh_system();
-        return Ok(SystemInfo {
+    return Ok(SystemInfo {
             os: sys.name().unwrap_or_else(|| "Unknown".to_string()),
             arch: std::env::consts::ARCH.to_string(),
             hostname: hostname::get()
@@ -267,7 +267,7 @@ fn collect_system_info() -> Result<SystemInfo> {
     }
     #[cfg(not(feature = "system-info"))]
     {
-        return Ok(SystemInfo {
+    Ok(SystemInfo {
             os: std::env::consts::OS.to_string(),
             arch: std::env::consts::ARCH.to_string(),
             hostname: hostname::get()
@@ -275,7 +275,7 @@ fn collect_system_info() -> Result<SystemInfo> {
                 .unwrap_or_else(|_| "unknown".to_string()),
             uptime: 0,
             load_average: None,
-        });
+    })
     }
 }
 
@@ -290,7 +290,7 @@ fn collect_process_info() -> Result<ProcessInfo> {
         let (memory_usage, cpu_usage, process_uptime) = if let Some(process) = current_process {
             (process.memory() * 1024, process.cpu_usage() as f64, process.run_time())
         } else { (0, 0.0, 0) };
-        return Ok(ProcessInfo {
+    return Ok(ProcessInfo {
             pid,
             ppid: current_process.and_then(|p| p.parent().map(|pid| pid.as_u32())),
             command_line: std::env::args().collect(),
@@ -305,7 +305,7 @@ fn collect_process_info() -> Result<ProcessInfo> {
     #[cfg(not(feature = "system-info"))]
     {
         let pid = std::process::id();
-        return Ok(ProcessInfo {
+    Ok(ProcessInfo {
             pid,
             ppid: None,
             command_line: std::env::args().collect(),
@@ -315,7 +315,7 @@ fn collect_process_info() -> Result<ProcessInfo> {
             process_uptime: 0,
             memory_usage: 0,
             cpu_usage: 0.0,
-        });
+    })
     }
 }
 
@@ -335,7 +335,7 @@ fn collect_memory_info() -> Result<MemoryInfo> {
     }
     #[cfg(not(feature = "system-info"))]
     {
-        return Ok(MemoryInfo { total_memory: 0, available_memory: 0, used_memory: 0, swap_total: 0, swap_used: 0 });
+    Ok(MemoryInfo { total_memory: 0, available_memory: 0, used_memory: 0, swap_total: 0, swap_used: 0 })
     }
 }
 

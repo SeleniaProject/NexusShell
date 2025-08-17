@@ -152,11 +152,8 @@ trait PackageManager {
 }
 
 struct AptManager;
-struct YumManager;
-struct PacmanManager;
-struct BrewManager;
 struct ChocolateyManager;
-struct ScoopManager;
+// Unused managers removed to satisfy dead_code lints; add back when implemented.
 
 impl PackageManager for AptManager {
     fn name(&self) -> &str { "apt" }

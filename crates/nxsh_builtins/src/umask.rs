@@ -26,7 +26,7 @@ pub fn umask_cli(args: &[String]) -> Result<()> {
         }
         // Accept but ignore setting
         println!("umask: setting ignored on Windows");
-        return Ok(());
+    Ok(())
     }
     #[cfg(unix)]
     {

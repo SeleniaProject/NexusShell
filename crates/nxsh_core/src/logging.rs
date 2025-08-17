@@ -66,13 +66,14 @@ impl IoWrite for CombinedWriter {
     fn flush(&mut self) -> std::io::Result<()> {
         let mut err = false;
         if let Some(f) = &mut self.file { if f.flush().is_err() { err = true; } }
-        if self.console { if std::io::stdout().flush().is_err() { err = true; } }
+    if self.console  && std::io::stdout().flush().is_err() { err = true; }
         if err { if let Some(s) = &self.stats { s.write_errors.fetch_add(1, Ordering::Relaxed); } }
         Ok(())
     }
 }
 
 /// Structured logging system with tracing support
+#[allow(dead_code)] // 一部フィールドは将来のローテーション制御用で現状のビルドでは未参照
 pub struct LoggingSystem {
     config: LoggingConfig,
     statistics: Arc<LoggingStatistics>,
@@ -363,14 +364,13 @@ impl LoggingSystem {
             let entry = entry?;
             let path = entry.path();
             
-            if path.is_file() && path.extension().map_or(false, |ext| ext == "log") {
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "log") {
                 if let Ok(metadata) = entry.metadata() {
                     if let Ok(modified) = metadata.modified() {
-                        if modified < cutoff_time {
-                            if fs::remove_file(&path).is_ok() {
-                                files_removed += 1;
-                                nxsh_log_debug!(?path, "Removed old log file");
-                            }
+                        if modified < cutoff_time
+                            && fs::remove_file(&path).is_ok() {
+                            files_removed += 1;
+                            nxsh_log_debug!(?path, "Removed old log file");
                         }
                     }
                 }

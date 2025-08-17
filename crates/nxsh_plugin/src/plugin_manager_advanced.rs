@@ -427,6 +427,7 @@ pub struct PluginSearchResult {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct CachedPlugin {
     metadata: PluginMetadata,
     cached_at: SystemTime,

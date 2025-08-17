@@ -68,7 +68,7 @@ fn compute_checksum_stream<R: Read>(reader: &mut R, algorithm: &str) -> Result<(
                 size += n;
             }
             let crc = hasher.finalize();
-            Ok((format!("{}", crc), size))
+            Ok((format!("{crc}"), size))
         }
         "md5" => {
             let mut hasher = md5::Context::new();
@@ -81,7 +81,7 @@ fn compute_checksum_stream<R: Read>(reader: &mut R, algorithm: &str) -> Result<(
                 size += n;
             }
             let digest = hasher.compute();
-            Ok((format!("{:x}", digest), size))
+            Ok((format!("{digest:x}"), size))
         }
         "sha1" => {
             use sha1::{Digest, Sha1};
@@ -95,7 +95,7 @@ fn compute_checksum_stream<R: Read>(reader: &mut R, algorithm: &str) -> Result<(
                 size += n;
             }
             let out = hasher.finalize();
-            Ok((format!("{:x}", out), size))
+            Ok((format!("{out:x}"), size))
         }
         "sha256" => {
             use sha2::digest::Digest;
@@ -109,8 +109,8 @@ fn compute_checksum_stream<R: Read>(reader: &mut R, algorithm: &str) -> Result<(
                 size += n;
             }
             let out = hasher.finalize();
-            Ok((format!("{:x}", out), size))
+            Ok((format!("{out:x}"), size))
         }
-        _ => Err(anyhow::anyhow!("Unsupported algorithm: {}", algorithm)),
+    _ => Err(anyhow::anyhow!("Unsupported algorithm: {algorithm}")),
     }
 }

@@ -1044,7 +1044,7 @@ mod filesystem_copy_tests {
         
         for i in 0..file_count {
             let src_file = create_test_file(&content);
-            let dst_path = _temp_dir.path().join(format!("copy_{}.txt", i));
+            let dst_path = _temp_dir.path().join(format!("copy_{i}.txt"));
             
             let bytes_copied = fs.copy(src_file.path(), &dst_path)
                 .expect("Failed to copy in performance test");
@@ -1071,10 +1071,10 @@ mod filesystem_copy_tests {
         for size in test_sizes {
             let content = vec![0x55u8; size];
             let src_file = create_test_file(&content);
-            let dst_path = temp_dir.path().join(format!("chunk_test_{}.bin", size));
+            let dst_path = temp_dir.path().join(format!("chunk_test_{size}.bin"));
             
             let bytes_copied = fs.copy(src_file.path(), &dst_path)
-                .expect(&format!("Failed to copy file of size {}", size));
+                .unwrap_or_else(|_| panic!("Failed to copy file of size {size}"));
             
             assert_eq!(bytes_copied, size as u64);
             assert_eq!(read_file_content(&dst_path), content);

@@ -46,7 +46,7 @@ pub fn cleanup() -> ShellResult<()> {
 /// Get terminal size for layout calculations.
 pub fn get_terminal_size() -> ShellResult<(u16, u16)> {
     let (width, height) = crossterm::terminal::size()
-        .map_err(|e| nxsh_core::ShellError::io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+        .map_err(|e| nxsh_core::ShellError::io(std::io::Error::other(e)))?;
     Ok((width, height))
 }
 
@@ -73,13 +73,13 @@ pub fn supports_color() -> bool {
 /// Clear the terminal screen.
 pub fn clear_screen() -> ShellResult<()> {
     crossterm::execute!(std::io::stdout(), crossterm::terminal::Clear(crossterm::terminal::ClearType::All))
-        .map_err(|e| nxsh_core::ShellError::io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+        .map_err(|e| nxsh_core::ShellError::io(std::io::Error::other(e)))?;
     Ok(())
 }
 
 /// Move cursor to position.
 pub fn move_cursor(x: u16, y: u16) -> ShellResult<()> {
     crossterm::execute!(std::io::stdout(), crossterm::cursor::MoveTo(x, y))
-        .map_err(|e| nxsh_core::ShellError::io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+        .map_err(|e| nxsh_core::ShellError::io(std::io::Error::other(e)))?;
     Ok(())
 }

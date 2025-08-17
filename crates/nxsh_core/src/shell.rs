@@ -92,7 +92,7 @@ impl Shell {
     /// Execute a script file by path. The file is read as UTF-8 text.
     pub fn run_script_file<P: AsRef<Path>>(&mut self, path: P) -> ShellResult<ExecutionResult> {
         let content = std::fs::read_to_string(&path)
-            .map_err(|e| ShellError::new(ErrorKind::IoError(crate::error::IoErrorKind::FileReadError), format!("{}", e)))?;
+            .map_err(|e| ShellError::new(ErrorKind::IoError(crate::error::IoErrorKind::FileReadError), format!("{e}")))?;
         self.eval_program(&content)
     }
 
@@ -111,10 +111,10 @@ impl Shell {
             }
 
             line.clear();
-            let n = stdin.read_line(&mut line).await.map_err(|e| {
+        let n = stdin.read_line(&mut line).await.map_err(|e| {
                 ShellError::new(
                     ErrorKind::IoError(crate::error::IoErrorKind::FileReadError),
-                    format!("stdin read error: {}", e),
+            format!("stdin read error: {e}"),
                 )
             })?;
 
@@ -137,7 +137,7 @@ impl Shell {
                     self.context.set_exit_status(result.exit_code);
                 }
                 Err(err) => {
-                    let _ = writeln!(self.context.stderr, "nxsh: {}", err);
+                    let _ = writeln!(self.context.stderr, "nxsh: {err}");
                     let _ = self.context.stderr.flush();
                     self.context.set_exit_status(1);
                 }
@@ -170,6 +170,10 @@ impl Shell {
         io::stdout().flush()?;
         Ok(())
     }
+}
+
+impl Default for Shell {
+    fn default() -> Self { Self::new() }
 }
 
 #[cfg(test)]

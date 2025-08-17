@@ -415,7 +415,7 @@ fn follow_files(
 
         let mut any_changes = false;
 
-    for (_i, state) in file_states.iter_mut().enumerate() {
+    for state in file_states.iter_mut() {
             match follow_single_file(state, options, show_headers && files.len() > 1) {
                 Ok(changed) => {
                     if changed {

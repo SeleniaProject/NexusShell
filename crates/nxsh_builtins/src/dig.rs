@@ -184,7 +184,7 @@ fn run_internal_dig(options: &DigOptions) -> Result<()> {
     
     if !options.short {
         // Print header similar to dig
-        println!("; <<>> dig 1.0 (NexusShell internal) <<>> {} {}", 
+            println!("; <<>> dig 1.0 (NexusShell internal) <<>> {} {}", 
                 options.domain, format_record_type(options.record_type));
         println!(";; global options: +cmd");
     }
@@ -198,7 +198,7 @@ fn run_internal_dig(options: &DigOptions) -> Result<()> {
             Ok(response) => {
                 if options.short {
                     for name in response.iter() {
-                        println!("{}", name);
+                        println!("{name}");
                     }
                 } else {
                     print_reverse_response(&options.domain, &response);
@@ -216,7 +216,7 @@ fn run_internal_dig(options: &DigOptions) -> Result<()> {
                         if options.short {
                             for ip in response.iter() {
                                 if ip.is_ipv4() {
-                                    println!("{}", ip);
+                                    println!("{ip}");
                                 }
                             }
                         } else {
@@ -233,7 +233,7 @@ fn run_internal_dig(options: &DigOptions) -> Result<()> {
                         if options.short {
                             for ip in response.iter() {
                                 if ip.is_ipv6() {
-                                    println!("{}", ip);
+                                    println!("{ip}");
                                 }
                             }
                         } else {
@@ -325,12 +325,12 @@ fn print_lookup_response<T: std::fmt::Display>(domain: &str, record_type: &str, 
     println!(";; flags: qr rd ra; QUERY: 1, ANSWER: {}, AUTHORITY: 0, ADDITIONAL: 0", records.len());
     println!();
     println!(";; QUESTION SECTION:");
-    println!(";{}\t\tIN\t{}", domain, record_type);
+    println!(";{domain}\t\tIN\t{record_type}");
     println!();
     println!(";; ANSWER SECTION:");
     
     for record in records {
-        println!("{}\t300\tIN\t{}\t{}", domain, record_type, record);
+    println!("{domain}\t300\tIN\t{record_type}\t{record}");
     }
 }
 
@@ -340,12 +340,12 @@ fn print_reverse_response(ip: &str, response: &trust_dns_resolver::lookup::Rever
     println!(";; flags: qr rd ra; QUERY: 1, ANSWER: {}, AUTHORITY: 0, ADDITIONAL: 0", response.iter().count());
     println!();
     println!(";; QUESTION SECTION:");
-    println!(";{}.in-addr.arpa.\t\tIN\tPTR", ip);
+    println!(";{ip}.in-addr.arpa.\t\tIN\tPTR");
     println!();
     println!(";; ANSWER SECTION:");
     
     for name in response.iter() {
-        println!("{}.in-addr.arpa.\t300\tIN\tPTR\t{}", ip, name);
+    println!("{ip}.in-addr.arpa.\t300\tIN\tPTR\t{name}");
     }
 }
 

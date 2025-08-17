@@ -1,3 +1,7 @@
+#![allow(unused_imports)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::unnecessary_min_or_max)]
+#![allow(clippy::manual_range_contains)]
 //! `timedatectl` builtin  Eworld-class time and date management with advanced features.
 //!
 //! This implementation provides complete timedatectl functionality with professional features:
@@ -519,10 +523,9 @@ impl TimedatectlManager {
                     if len == 0 { return None; }
                     Some(String::from_utf16_lossy(&buf[..len]))
                 }
-                if let Some(s) = utf16_to_string(unsafe { &*(&dtzi.TimeZoneKeyName as *const _ as *const [u16; 128]) }) { Some(s) }
-                else if let Some(s) = utf16_to_string(unsafe { &*(&dtzi.StandardName as *const _ as *const [u16; 32]) }) { Some(s) }
-                else if let Some(s) = utf16_to_string(unsafe { &*(&dtzi.DaylightName as *const _ as *const [u16; 32]) }) { Some(s) }
-                else { None }
+                if let Some(s) = utf16_to_string(&dtzi.TimeZoneKeyName) { Some(s) }
+                else if let Some(s) = utf16_to_string(&dtzi.StandardName) { Some(s) }
+                else { utf16_to_string(&dtzi.DaylightName) }
             };
             if let Some(s) = name { res.push(s); }
             index += 1;
@@ -655,7 +658,7 @@ impl TimedatectlManager {
         let _ = self.event_sender.send(TimedatectlEvent::NTPServerAdded(address.clone()));
 
         // Log the change
-        self.log_event(&format!("NTP server added by user {user}: {server}")).await?;
+        self.log_event(&format!("NTP server added by user {user}: {address}:{port}")).await?;
 
         Ok(())
     }
@@ -1509,7 +1512,7 @@ impl TimedatectlManager {
                 Err(e) => {
                     last_error = Some(e);
                     if attempt < 3 {
-                        tokio::time::sleep(Duration::from_millis(500 * attempt as u64)).await;
+                        tokio::time::sleep(Duration::from_millis(500 * attempt)).await;
                     }
                 }
             }
@@ -1680,7 +1683,7 @@ pub(crate) fn compute_timesync_summary(sync_status: &TimeSyncStatus) -> TimeSync
 
             // Prefer smallest absolute offset; fallback to delay
             let metric_ns = if let Some(o) = srv.offset { o.as_nanos() } else { srv.delay.map(|d| d.as_nanos()).unwrap_or(u128::MAX) };
-            if best_metric_ns.map_or(true, |m| metric_ns < m) {
+            if best_metric_ns.is_none_or(|m| metric_ns < m) {
                 best_metric_ns = Some(metric_ns);
                 best_server_address = Some(srv.address.clone());
             }
@@ -2695,14 +2698,14 @@ impl TimedatectlManager {
             Some(String::from_utf16_lossy(&buf[..len]))
         }
         // Safety: fields are POD arrays
-        if let Some(s) = utf16_to_string(unsafe { &*(&dtzi.TimeZoneKeyName as *const _ as *const [u16; 128]) }) {
+    if let Some(s) = utf16_to_string(&dtzi.TimeZoneKeyName) {
             if !s.is_empty() { return Ok(s); }
         }
         // Fallback to StandardName/DaylightName
-        if let Some(s) = utf16_to_string(unsafe { &*(&dtzi.StandardName as *const _ as *const [u16; 32]) }) {
+    if let Some(s) = utf16_to_string(&dtzi.StandardName) {
             if !s.is_empty() { return Ok(s); }
         }
-        if let Some(s) = utf16_to_string(unsafe { &*(&dtzi.DaylightName as *const _ as *const [u16; 32]) }) {
+    if let Some(s) = utf16_to_string(&dtzi.DaylightName) {
             if !s.is_empty() { return Ok(s); }
         }
         Err(anyhow!("Failed to get timezone name"))

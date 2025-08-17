@@ -7,7 +7,7 @@ use chrono::{DateTime, Local, TimeZone};
 // Examples: "ja-JP" -> "ja", "pt_BR" -> "pt", "EN" -> "en".
 fn lang_code(langid: &str) -> String {
     let lower = langid.to_ascii_lowercase();
-    let mut it = lower.split(|c| c == '-' || c == '_');
+    let mut it = lower.split(['-', '_']);
     it.next().unwrap_or("en").to_string()
 }
 
@@ -34,7 +34,7 @@ pub fn format_integer_locale(value: i64, langid: &str) -> String {
 
 pub fn format_float_locale(value: f64, precision: usize, langid: &str) -> String {
     let code = lang_code(langid);
-    let s = format!("{:.*}", precision, value);
+    let s = format!("{value:.precision$}");
     if let Some(dot) = s.find('.') {
         let (int_part, frac_part) = s.split_at(dot);
         let int_val: i64 = int_part.parse().unwrap_or(0);

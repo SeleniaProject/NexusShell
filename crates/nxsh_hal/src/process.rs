@@ -750,16 +750,16 @@ mod process_handle_tests {
 
         let mut cmd = if cfg!(windows) {
             let mut c = Command::new("cmd");
-            c.args(&["/C", &command_str]);
+            c.args(["/C", &command_str]);
             c
         } else {
             let mut c = Command::new("sh");
-            c.args(&["-c", &command_str]);
+            c.args(["-c", &command_str]);
             c
         };
 
         let child = cmd.spawn()
-            .map_err(|e| format!("Failed to spawn test process: {}", e))?;
+            .map_err(|e| format!("Failed to spawn test process: {e}"))?;
         Ok(ProcessHandle::new(child, command_str))
     }
 
@@ -773,16 +773,16 @@ mod process_handle_tests {
 
         let mut cmd = if cfg!(windows) {
             let mut c = Command::new("cmd");
-            c.args(&["/C", &command_str]);
+            c.args(["/C", &command_str]);
             c
         } else {
             let mut c = Command::new("sh");
-            c.args(&["-c", &command_str]);
+            c.args(["-c", &command_str]);
             c
         };
 
         let child = cmd.spawn()
-            .map_err(|e| format!("Failed to spawn long-running process: {}", e))?;
+            .map_err(|e| format!("Failed to spawn long-running process: {e}"))?;
         Ok(ProcessHandle::new(child, command_str))
     }
 
@@ -791,7 +791,7 @@ mod process_handle_tests {
         let handle = match create_test_process(100) {
             Ok(h) => h,
             Err(e) => {
-                eprintln!("Skipping test: Failed to create test process: {}", e);
+                eprintln!("Skipping test: Failed to create test process: {e}");
                 return;
             }
         };
@@ -808,7 +808,7 @@ mod process_handle_tests {
         let mut handle = match create_long_running_process() {
             Ok(h) => h,
             Err(e) => {
-                eprintln!("Skipping test: Failed to create long-running process: {}", e);
+                eprintln!("Skipping test: Failed to create long-running process: {e}");
                 return;
             }
         };
@@ -821,11 +821,13 @@ mod process_handle_tests {
             }
             Ok(Some(_)) => {
                 eprintln!("Warning: Process exited too quickly");
-                return; // Skip test if process exits immediately
+                // Skip test if process exits immediately
+                return;
             }
             Err(e) => {
-                eprintln!("Warning: try_wait failed: {}", e);
-                return; // Skip test if try_wait fails
+                eprintln!("Warning: try_wait failed: {e}");
+                // Skip test if try_wait fails
+                return;
             }
         }
         
@@ -839,7 +841,7 @@ mod process_handle_tests {
         let mut handle = match create_test_process(50) {
             Ok(h) => h,
             Err(e) => {
-                eprintln!("Skipping test: Failed to create test process: {}", e);
+                eprintln!("Skipping test: Failed to create test process: {e}");
                 return;
             }
         };
@@ -863,7 +865,7 @@ mod process_handle_tests {
                     }
                     _ => {
                         eprintln!("Warning: Unexpected process status after completion: {:?}", handle.info().status);
-                        return; // Skip validation if status is unexpected
+                        // Skip validation if status is unexpected
                     }
                 }
             }
@@ -876,13 +878,13 @@ mod process_handle_tests {
                     }
                     _ => {
                         eprintln!("Warning: Process should have completed by now");
-                        return; // Skip test if process doesn't complete
+                        // Skip test if process doesn't complete
                     }
                 }
             }
             Err(e) => {
-                eprintln!("Warning: try_wait failed: {}", e);
-                return; // Skip test if try_wait fails
+                eprintln!("Warning: try_wait failed: {e}");
+                // Skip test if try_wait fails
             }
         }
     }
@@ -892,7 +894,7 @@ mod process_handle_tests {
         let mut handle = match create_test_process(100) {
             Ok(h) => h,
             Err(e) => {
-                eprintln!("Skipping test: Failed to create test process: {}", e);
+                eprintln!("Skipping test: Failed to create test process: {e}");
                 return;
             }
         };
@@ -917,7 +919,7 @@ mod process_handle_tests {
                     }
                     _ => {
                         eprintln!("Warning: Unexpected process status after wait: {:?}", handle.info().status);
-                        return; // Skip validation if status is unexpected  
+                        // Skip validation if status is unexpected  
                     }
                 }
                 
@@ -926,8 +928,8 @@ mod process_handle_tests {
                 assert!(handle.kill().is_err());
             }
             Err(e) => {
-                eprintln!("Warning: wait failed: {}", e);
-                return; // Skip test if wait fails
+                eprintln!("Warning: wait failed: {e}");
+                // Skip test if wait fails
             }
         }
     }
@@ -937,14 +939,14 @@ mod process_handle_tests {
         let mut handle = match create_long_running_process() {
             Ok(h) => h,
             Err(e) => {
-                eprintln!("Skipping test: Failed to create long-running process: {}", e);
+                eprintln!("Skipping test: Failed to create long-running process: {e}");
                 return;
             }
         };
         
         // Kill the process
         if let Err(e) = handle.kill() {
-            eprintln!("Warning: Failed to kill process: {}", e);
+            eprintln!("Warning: Failed to kill process: {e}");
             return;
         }
         
@@ -1014,7 +1016,7 @@ mod process_handle_tests {
         let mut handle = match create_test_process(50) {
             Ok(h) => h,
             Err(e) => {
-                eprintln!("Skipping test: Failed to create test process: {}", e);
+                eprintln!("Skipping test: Failed to create test process: {e}");
                 return;
             }
         };
@@ -1035,7 +1037,7 @@ mod process_handle_tests {
                 eprintln!("Warning: try_wait returned Some for completed process");
             }
             Err(e) => {
-                eprintln!("Warning: try_wait failed on completed process: {}", e);
+                eprintln!("Warning: try_wait failed on completed process: {e}");
             }
         }
     }

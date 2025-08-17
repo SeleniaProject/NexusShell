@@ -61,7 +61,7 @@ pub fn logstats_cli(args: &[String]) -> Result<()> {
     }
 
     let out = render_output_string(&map, mode);
-    print!("{}", out);
+    print!("{out}");
 
     Ok(())
 }
@@ -147,12 +147,12 @@ fn render_prometheus_to_string(map: &BTreeMap<String, u64>) -> String {
     for (k, v) in map.iter() {
         let metric = format!("nxsh_log_{}", sanitize_metric_name(k));
         if let Some((mtype, help)) = metric_meta(k) {
-            out.push_str(&format!("# HELP {} {}\n", metric, help));
-            out.push_str(&format!("# TYPE {} {}\n", metric, mtype));
+            out.push_str(&format!("# HELP {metric} {help}\n"));
+            out.push_str(&format!("# TYPE {metric} {mtype}\n"));
         } else {
-            out.push_str(&format!("# TYPE {} gauge\n", metric));
+            out.push_str(&format!("# TYPE {metric} gauge\n"));
         }
-        out.push_str(&format!("{} {}\n", metric, v));
+    out.push_str(&format!("{metric} {v}\n"));
     }
     out
 }
@@ -192,7 +192,7 @@ fn sanitize_metric_name(name: &str) -> String {
     }
     // Ensure name does not start with a digit
     if out.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
-        format!("m_{}", out)
+    format!("m_{out}")
     } else {
         out
     }

@@ -61,7 +61,7 @@ pub struct ProcessInfo {
 }
 
 /// Memory usage statistics
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryUsage {
     pub resident: u64,
     pub virt_mem: u64,
@@ -191,7 +191,7 @@ impl CrashHandler {
             .create(true)
             .append(true)
             .open(&report_path)
-            .with_context(|| format!("Failed to open crash report file: {:?}", report_path))?;
+            .with_context(|| format!("Failed to open crash report file: {report_path:?}"))?;
 
         let mut report_file = self.report_file.lock().unwrap();
         *report_file = Some(BufWriter::new(file));
@@ -215,7 +215,7 @@ impl CrashHandler {
             let crash_event = match Self::create_crash_event_from_panic(panic_info, &config_guard) {
                 Ok(event) => event,
                 Err(e) => {
-                    eprintln!("Failed to create crash event: {}", e);
+                    eprintln!("Failed to create crash event: {e}");
                     return;
                 }
             };
@@ -244,7 +244,7 @@ impl CrashHandler {
             if let Ok(mut file) = report_file.lock() {
                 if let Some(ref mut writer) = *file {
                     if let Ok(json) = serde_json::to_string(&crash_event) {
-                        let _ = writeln!(writer, "{}", json);
+                        let _ = writeln!(writer, "{json}");
                         let _ = writer.flush();
                     }
                 }
@@ -258,7 +258,7 @@ impl CrashHandler {
             
             if config_guard.collect_backtrace {
                 if let Some(ref backtrace) = crash_event.backtrace {
-                    eprintln!("Backtrace:\n{}", backtrace);
+                    eprintln!("Backtrace:\n{backtrace}");
                 }
             }
 
@@ -474,7 +474,7 @@ impl CrashHandler {
         }
 
         let file = File::open(&report_path)
-            .with_context(|| format!("Failed to open crash report file: {:?}", report_path))?;
+            .with_context(|| format!("Failed to open crash report file: {report_path:?}"))?;
         
         let reader = BufReader::new(file);
         let mut reports = self.crash_reports.lock().unwrap();
@@ -584,17 +584,7 @@ impl Default for CrashStats {
     }
 }
 
-impl Default for MemoryUsage {
-    fn default() -> Self {
-        Self {
-            resident: 0,
-            virt_mem: 0,
-            shared: 0,
-            heap: 0,
-            stack: 0,
-        }
-    }
-}
+// Default for MemoryUsage is derived above
 
 #[cfg(test)]
 mod tests {

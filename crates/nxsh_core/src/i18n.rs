@@ -92,19 +92,19 @@ impl I18nManager {
 
     /// Load translations for a locale
     pub fn load_locale(&self, locale: &str) -> crate::error::ShellResult<()> {
-        let locale_file = self.locale_dir.join(format!("{}.ftl", locale));
+    let locale_file = self.locale_dir.join(format!("{locale}.ftl"));
         
         if !locale_file.exists() {
             return Err(crate::error::ShellError::new(
                 crate::error::ErrorKind::IoError(crate::error::IoErrorKind::NotFound),
-                format!("Locale file not found: {:?}", locale_file)
+                format!("Locale file not found: {locale_file:?}")
             ));
         }
 
         let content = std::fs::read_to_string(&locale_file)
             .map_err(|e| crate::error::ShellError::new(
                 crate::error::ErrorKind::IoError(crate::error::IoErrorKind::FileReadError),
-                format!("Failed to read locale file: {}", e)
+                format!("Failed to read locale file: {e}")
             ))?;
 
         let translations = self.parse_fluent_file(&content)?;
@@ -113,7 +113,7 @@ impl I18nManager {
             trans.insert(locale.to_string(), translations);
         }
 
-        debug!("Loaded translations for locale: {}", locale);
+    debug!("Loaded translations for locale: {locale}");
         Ok(())
     }
 
@@ -275,7 +275,7 @@ impl I18nManager {
         if !self.supported_locales.contains(&locale.to_string()) {
             return Err(crate::error::ShellError::new(
                 crate::error::ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
-                format!("Unsupported locale: {}", locale)
+                format!("Unsupported locale: {locale}")
             ));
         }
 
@@ -362,7 +362,7 @@ impl I18nManager {
         let mut result = message.to_string();
         
         // Handle format specifiers like {date:yyyy-MM-dd}
-        let format_pattern = format!("{{{}:", key);
+    let format_pattern = format!("{{{key}:");
         if let Some(start) = result.find(&format_pattern) {
             if let Some(end) = result[start..].find('}') {
                 let full_placeholder = &result[start..start + end + 1];
@@ -375,7 +375,7 @@ impl I18nManager {
         }
         
         // Handle pluralization like {count|item|items}
-        let plural_pattern = format!("{{{}|", key);
+    let plural_pattern = format!("{{{key}|");
         if let Some(start) = result.find(&plural_pattern) {
             if let Some(end) = result[start..].find('}') {
                 let full_placeholder = &result[start..start + end + 1];
@@ -389,7 +389,7 @@ impl I18nManager {
                     let count: i32 = value.parse().unwrap_or(0);
                     let chosen_form = if count == 1 { singular } else { plural };
                     
-                    result = result.replace(full_placeholder, &format!("{} {}", value, chosen_form));
+                    result = result.replace(full_placeholder, &format!("{value} {chosen_form}"));
                 }
             }
         }
@@ -442,7 +442,7 @@ impl I18nManager {
         match self.current_locale.as_str() {
             // German locale: 1.234,56 (space as thousands separator, comma as decimal)
             "de-DE" => {
-                let formatted = format!("{:.precision$}", number, precision = precision);
+                let formatted = format!("{number:.precision$}");
                 let (integer, decimal) = if formatted.contains('.') {
                     let parts: Vec<&str> = formatted.split('.').collect();
                     (parts[0], parts.get(1).map_or("", |v| v))
@@ -455,12 +455,12 @@ impl I18nManager {
                 if decimal.is_empty() || precision == 0 {
                     integer_with_sep
                 } else {
-                    format!("{},{}", integer_with_sep, decimal)
+                    format!("{integer_with_sep},{decimal}")
                 }
             }
             // French locale: 1 234,56 (space as thousands separator, comma as decimal)
             "fr-FR" => {
-                let formatted = format!("{:.precision$}", number, precision = precision);
+                let formatted = format!("{number:.precision$}");
                 let (integer, decimal) = if formatted.contains('.') {
                     let parts: Vec<&str> = formatted.split('.').collect();
                     (parts[0], parts.get(1).map_or("", |v| v))
@@ -472,12 +472,12 @@ impl I18nManager {
                 if decimal.is_empty() || precision == 0 {
                     integer_with_sep
                 } else {
-                    format!("{},{}", integer_with_sep, decimal)
+                    format!("{integer_with_sep},{decimal}")
                 }
             }
             // Spanish/Italian locale: 1.234,56 (dot as thousands separator, comma as decimal)
             "es-ES" | "it-IT" => {
-                let formatted = format!("{:.precision$}", number, precision = precision);
+                let formatted = format!("{number:.precision$}");
                 let (integer, decimal) = if formatted.contains('.') {
                     let parts: Vec<&str> = formatted.split('.').collect();
                     (parts[0], parts.get(1).map_or("", |v| v))
@@ -489,12 +489,12 @@ impl I18nManager {
                 if decimal.is_empty() || precision == 0 {
                     integer_with_sep
                 } else {
-                    format!("{},{}", integer_with_sep, decimal)
+                    format!("{integer_with_sep},{decimal}")
                 }
             }
             // Portuguese (Brazil): 1.234,56 
             "pt-BR" => {
-                let formatted = format!("{:.precision$}", number, precision = precision);
+                let formatted = format!("{number:.precision$}");
                 let (integer, decimal) = if formatted.contains('.') {
                     let parts: Vec<&str> = formatted.split('.').collect();
                     (parts[0], parts.get(1).map_or("", |v| v))
@@ -506,12 +506,12 @@ impl I18nManager {
                 if decimal.is_empty() || precision == 0 {
                     integer_with_sep
                 } else {
-                    format!("{},{}", integer_with_sep, decimal)
+                    format!("{integer_with_sep},{decimal}")
                 }
             }
             // Russian locale: 1 234,56 (space as thousands separator, comma as decimal)
             "ru-RU" => {
-                let formatted = format!("{:.precision$}", number, precision = precision);
+                let formatted = format!("{number:.precision$}");
                 let (integer, decimal) = if formatted.contains('.') {
                     let parts: Vec<&str> = formatted.split('.').collect();
                     (parts[0], parts.get(1).map_or("", |v| v))
@@ -523,12 +523,12 @@ impl I18nManager {
                 if decimal.is_empty() || precision == 0 {
                     integer_with_sep
                 } else {
-                    format!("{},{}", integer_with_sep, decimal)
+                    format!("{integer_with_sep},{decimal}")
                 }
             }
             // Japanese locale: 1,234.56 (comma as thousands separator, dot as decimal)
             "ja-JP" => {
-                let formatted = format!("{:.precision$}", number, precision = precision);
+                let formatted = format!("{number:.precision$}");
                 let (integer, decimal) = if formatted.contains('.') {
                     let parts: Vec<&str> = formatted.split('.').collect();
                     (parts[0], parts.get(1).map_or("", |v| v))
@@ -540,12 +540,12 @@ impl I18nManager {
                 if decimal.is_empty() || precision == 0 {
                     integer_with_sep
                 } else {
-                    format!("{}.{}", integer_with_sep, decimal)
+                    format!("{integer_with_sep}.{decimal}")
                 }
             }
             // Chinese locale: 1,234.56 
             "zh-CN" => {
-                let formatted = format!("{:.precision$}", number, precision = precision);
+                let formatted = format!("{number:.precision$}");
                 let (integer, decimal) = if formatted.contains('.') {
                     let parts: Vec<&str> = formatted.split('.').collect();
                     (parts[0], parts.get(1).map_or("", |v| v))
@@ -557,12 +557,12 @@ impl I18nManager {
                 if decimal.is_empty() || precision == 0 {
                     integer_with_sep
                 } else {
-                    format!("{}.{}", integer_with_sep, decimal)
+                    format!("{integer_with_sep}.{decimal}")
                 }
             }
             // Korean locale: 1,234.56
             "ko-KR" => {
-                let formatted = format!("{:.precision$}", number, precision = precision);
+                let formatted = format!("{number:.precision$}");
                 let (integer, decimal) = if formatted.contains('.') {
                     let parts: Vec<&str> = formatted.split('.').collect();
                     (parts[0], parts.get(1).map_or("", |v| v))
@@ -574,12 +574,12 @@ impl I18nManager {
                 if decimal.is_empty() || precision == 0 {
                     integer_with_sep
                 } else {
-                    format!("{}.{}", integer_with_sep, decimal)
+                    format!("{integer_with_sep}.{decimal}")
                 }
             }
             // Default (US/English): 1,234.56 (comma as thousands separator, dot as decimal)
             _ => {
-                let formatted = format!("{:.precision$}", number, precision = precision);
+                let formatted = format!("{number:.precision$}");
                 let (integer, decimal) = if formatted.contains('.') {
                     let parts: Vec<&str> = formatted.split('.').collect();
                     (parts[0], parts.get(1).map_or("", |v| v))
@@ -591,7 +591,7 @@ impl I18nManager {
                 if decimal.is_empty() || precision == 0 {
                     integer_with_sep
                 } else {
-                    format!("{}.{}", integer_with_sep, decimal)
+                    format!("{integer_with_sep}.{decimal}")
                 }
             }
         }
@@ -603,7 +603,7 @@ impl I18nManager {
         let chars: Vec<char> = integer.chars().collect();
         
         // Handle negative numbers
-        let (sign, digits) = if chars.get(0) == Some(&'-') {
+    let (sign, digits) = if chars.first() == Some(&'-') {
             ("-", &chars[1..])
         } else {
             ("", &chars[..])
@@ -739,7 +739,7 @@ impl I18nManager {
 
     /// Validate locale file
     pub fn validate_locale_file(&self, locale: &str) -> crate::error::ShellResult<bool> {
-        let locale_file = self.locale_dir.join(format!("{}.ftl", locale));
+    let locale_file = self.locale_dir.join(format!("{locale}.ftl"));
         
         if !locale_file.exists() {
             return Ok(false);
@@ -748,7 +748,7 @@ impl I18nManager {
         let content = std::fs::read_to_string(&locale_file)
             .map_err(|e| crate::error::ShellError::new(
                 crate::error::ErrorKind::IoError(crate::error::IoErrorKind::FileReadError),
-                format!("Failed to read locale file: {}", e)
+                format!("Failed to read locale file: {e}")
             ))?;
 
         // Validate Fluent file syntax
@@ -783,7 +783,7 @@ impl I18nManager {
                 } else {
                     // End of multiline value
                     if brace_depth != 0 {
-                        errors.push(format!("Line {}: Unmatched braces in multiline value for key '{}'", line_num + 1, current_key));
+                        errors.push(format!("Line {}: Unmatched braces in multiline value for key '{current_key}'", line_num + 1));
                     }
                     current_key.clear();
                     in_multiline = false;
@@ -836,7 +836,7 @@ impl I18nManager {
         
         // Check final state
         if in_multiline && brace_depth != 0 {
-            errors.push(format!("End of file: Unmatched braces in multiline value for key '{}'", current_key));
+            errors.push(format!("End of file: Unmatched braces in multiline value for key '{current_key}'"));
         }
         
         if errors.is_empty() {
@@ -915,7 +915,7 @@ impl I18nManager {
         let mut report = HashMap::new();
         
         for locale in &self.supported_locales {
-            let locale_file = self.locale_dir.join(format!("{}.ftl", locale));
+            let locale_file = self.locale_dir.join(format!("{locale}.ftl"));
             
             if locale_file.exists() {
                 if let Ok(content) = std::fs::read_to_string(&locale_file) {
@@ -1109,12 +1109,13 @@ impl I18nManager {
         }
         
         let formatted_size = if unit_index == 0 {
-            format!("{}", size as u64)
+            let v = size as u64;
+            format!("{v}")
         } else {
             self.format_number_with_precision(size, 1)
         };
         
-        format!("{} {}", formatted_size, units[unit_index])
+        format!("{formatted_size} {}", units[unit_index])
     }
     
     /// Format duration according to locale
@@ -1126,56 +1127,56 @@ impl I18nManager {
         match self.current_locale.as_str() {
             "ja-JP" => {
                 if hours > 0 {
-                    format!("{}時間{}分{}秒", hours, minutes, secs)
+                    format!("{hours}時間{minutes}分{secs}秒")
                 } else if minutes > 0 {
-                    format!("{}分{}秒", minutes, secs)
+                    format!("{minutes}分{secs}秒")
                 } else {
-                    format!("{}秒", secs)
+                    format!("{secs}秒")
                 }
             }
             "zh-CN" => {
                 if hours > 0 {
-                    format!("{}小时{}分{}秒", hours, minutes, secs)
+                    format!("{hours}小时{minutes}分{secs}秒")
                 } else if minutes > 0 {
-                    format!("{}分{}秒", minutes, secs)
+                    format!("{minutes}分{secs}秒")
                 } else {
-                    format!("{}秒", secs)
+                    format!("{secs}秒")
                 }
             }
             "ko-KR" => {
                 if hours > 0 {
-                    format!("{}시간 {}분 {}초", hours, minutes, secs)
+                    format!("{hours}시간 {minutes}분 {secs}초")
                 } else if minutes > 0 {
-                    format!("{}분 {}초", minutes, secs)
+                    format!("{minutes}분 {secs}초")
                 } else {
-                    format!("{}초", secs)
+                    format!("{secs}초")
                 }
             }
             "de-DE" => {
                 if hours > 0 {
-                    format!("{}h {}m {}s", hours, minutes, secs)
+                    format!("{hours}h {minutes}m {secs}s")
                 } else if minutes > 0 {
-                    format!("{}m {}s", minutes, secs)
+                    format!("{minutes}m {secs}s")
                 } else {
-                    format!("{}s", secs)
+                    format!("{secs}s")
                 }
             }
             "fr-FR" => {
                 if hours > 0 {
-                    format!("{}h {}min {}s", hours, minutes, secs)
+                    format!("{hours}h {minutes}min {secs}s")
                 } else if minutes > 0 {
-                    format!("{}min {}s", minutes, secs)
+                    format!("{minutes}min {secs}s")
                 } else {
-                    format!("{}s", secs)
+                    format!("{secs}s")
                 }
             }
             _ => {
                 if hours > 0 {
-                    format!("{}h {}m {}s", hours, minutes, secs)
+                    format!("{hours}h {minutes}m {secs}s")
                 } else if minutes > 0 {
-                    format!("{}m {}s", minutes, secs)
+                    format!("{minutes}m {secs}s")
                 } else {
-                    format!("{}s", secs)
+                    format!("{secs}s")
                 }
             }
         }
@@ -1217,12 +1218,12 @@ impl I18nManager {
     pub fn get_plural(&self, key: &str, count: i64) -> String {
         let plural_form = self.get_plural_form(count);
         let plural_key = match plural_form {
-            PluralForm::Zero => format!("{}.zero", key),
-            PluralForm::One => format!("{}.one", key),
-            PluralForm::Two => format!("{}.two", key),
-            PluralForm::Few => format!("{}.few", key),
-            PluralForm::Many => format!("{}.many", key),
-            PluralForm::Other => format!("{}.other", key),
+            PluralForm::Zero => format!("{key}.zero"),
+            PluralForm::One => format!("{key}.one"),
+            PluralForm::Two => format!("{key}.two"),
+            PluralForm::Few => format!("{key}.few"),
+            PluralForm::Many => format!("{key}.many"),
+            PluralForm::Other => format!("{key}.other"),
         };
         
         let message = self.get(&plural_key);

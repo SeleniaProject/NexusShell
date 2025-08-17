@@ -17,7 +17,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tracing::{error, info};
-use chrono::{Timelike, Datelike};
+// use chrono::Datelike; // moved to local scopes where required
 
 /// スケジューラー設定
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +41,7 @@ pub struct SchedulerConfig {
 }
 
 /// 高度なジョブスケジューラー
+#[allow(dead_code)] // 高度なスケジューラは未配線
 pub struct AdvancedJobScheduler {
     config: SchedulerConfig,
     jobs: Arc<AsyncRwLock<HashMap<String, ScheduledJob>>>,
@@ -191,6 +192,7 @@ impl PartialOrd for QueuedJob {
 
 /// 実行中のジョブ
 #[derive(Debug)]
+#[allow(dead_code)] // 実験的機能
 struct RunningJob {
     /// ジョブID
     job_id: String,
@@ -415,9 +417,7 @@ impl AdvancedJobScheduler {
                             let running_job = RunningJob { job_id: queued_job.job_id.clone(), started_at: Instant::now(), handle, pid: None };
                             running_jobs.write().await.insert(queued_job.job_id.clone(), running_job);
                             continue;
-                        } else {
-                            if let Ok(mut q) = wqueue.lock() { q.push_back(queued_job); }
-                        }
+                        } else if let Ok(mut q) = wqueue.lock() { q.push_back(queued_job); }
                     }
                     tokio::time::sleep(Duration::from_millis(5)).await;
                 }
@@ -450,8 +450,7 @@ impl AdvancedJobScheduler {
         // 次回実行時刻を計算
         let next_run = self.calculate_next_run(&job.schedule).await?;
         // Normalize nice range
-        if job.nice < -20 { job.nice = -20; }
-        if job.nice > 19 { job.nice = 19; }
+    job.nice = job.nice.clamp(-20, 19);
         
         // キューに追加
         {
@@ -485,7 +484,7 @@ impl AdvancedJobScheduler {
         
         let job = ScheduledJob {
             id: job_id.clone(),
-            name: format!("At job: {}", command),
+            name: format!("At job: {command}"),
             command: command.clone(),
             args: Vec::new(),
             working_dir: std::env::current_dir()
@@ -516,7 +515,7 @@ impl AdvancedJobScheduler {
         
         let job = ScheduledJob {
             id: job_id.clone(),
-            name: format!("Cron job: {}", command),
+            name: format!("Cron job: {command}"),
             command: command.clone(),
             args: Vec::new(),
             working_dir: std::env::current_dir()
@@ -549,7 +548,7 @@ impl AdvancedJobScheduler {
         let nr = SystemTime::now() + Duration::from_secs(interval_secs.max(1));
         let job = ScheduledJob {
             id: job_id.clone(),
-            name: format!("Interval job: {}", command),
+            name: format!("Interval job: {command}"),
             command: command.clone(),
             args: Vec::new(),
             working_dir: std::env::current_dir().unwrap_or_default().to_string_lossy().to_string(),
@@ -704,13 +703,13 @@ impl AdvancedJobScheduler {
     
     /// スケジュールされたジョブを処理
     async fn process_scheduled_jobs(
-        jobs: &Arc<AsyncRwLock<HashMap<String, ScheduledJob>>>,
+        _jobs: &Arc<AsyncRwLock<HashMap<String, ScheduledJob>>>,
         queue: &Arc<AsyncRwLock<BinaryHeap<Reverse<QueuedJob>>>>,
-        running_jobs: &Arc<AsyncRwLock<HashMap<String, RunningJob>>>,
-        job_history: &Arc<AsyncRwLock<VecDeque<JobHistoryEntry>>>,
-        semaphore: &Arc<Semaphore>,
-        config: &SchedulerConfig,
-        workers: &Vec<(usize, Arc<Mutex<VecDeque<QueuedJob>>>)>,
+        _running_jobs: &Arc<AsyncRwLock<HashMap<String, RunningJob>>>,
+        _job_history: &Arc<AsyncRwLock<VecDeque<JobHistoryEntry>>>,
+        _semaphore: &Arc<Semaphore>,
+        _config: &SchedulerConfig,
+    workers: &[(usize, Arc<Mutex<VecDeque<QueuedJob>>>)],
     ) -> Result<()> {
         let now = SystemTime::now();
         let mut jobs_to_execute = Vec::new();
@@ -765,6 +764,7 @@ impl AdvancedJobScheduler {
     }
     
     /// ジョブを実行
+    #[allow(clippy::too_many_arguments)] // Context struct planned; keeping signature stable for call sites/tests
     async fn execute_job(
         job_id: &str,
         scheduled_time: SystemTime,
@@ -946,7 +946,7 @@ impl AdvancedJobScheduler {
     /// minute hour day month weekday
     /// - Each field supports: '*' | '*/N' | 'A-B' | 'A-B/N' | 'A,B,C' | single number
     /// - Weekday: 0-6 (0=Sun)
-    /// Strategy: iterate minute-by-minute up to a reasonable horizon (e.g., 1 year) and pick first match.
+    ///   Strategy: iterate minute-by-minute up to a reasonable horizon (e.g., 1 year) and pick first match.
     async fn parse_cron_expression_static(cron_expression: &str) -> Result<SystemTime> {
         use chrono::{Datelike, Timelike};
         let parts: Vec<&str> = cron_expression.split_whitespace().collect();
@@ -1020,7 +1020,7 @@ impl AdvancedJobScheduler {
             if match_min(m) && match_hour(h) && match_day(d) && match_month(mo) && match_wday(wd) {
                 return Ok(SystemTime::UNIX_EPOCH + Duration::from_secs(t.timestamp() as u64));
             }
-            t = t + chrono::Duration::minutes(1);
+            t += chrono::Duration::minutes(1);
         }
         Ok(SystemTime::now() + Duration::from_secs(3600))
     }

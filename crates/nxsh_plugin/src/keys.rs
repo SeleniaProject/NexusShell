@@ -83,7 +83,7 @@ pub fn rotate_trusted_keys_if_requested() -> std::io::Result<(Option<String>, Op
         let new_com = std::env::var("NXSH_NEW_COMMUNITY_PUBKEY").ok();
         if new_off.is_none() && new_com.is_none() { return Ok((None, None)); }
     #[cfg(feature = "plugin-management")]
-    let home = dirs::home_dir().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "no home dir"))?;
+    let home = dirs::home_dir().ok_or_else(|| std::io::Error::other("no home dir"))?;
     #[cfg(not(feature = "plugin-management"))]
     let home: std::path::PathBuf = std::env::var_os("HOME").map(Into::into).unwrap_or_else(|| std::path::PathBuf::from("."));
         let keys_dir = home.join(".nxsh").join("keys");
@@ -97,7 +97,7 @@ pub fn rotate_trusted_keys_if_requested() -> std::io::Result<(Option<String>, Op
             if let Some(ref o) = old { if o == new_val { return Ok(old); } }
             if path.exists() {
                 let ts = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
-                let bak = path.with_extension(format!("pub.bak.{}", ts));
+                let bak = path.with_extension(format!("pub.bak.{ts}"));
                 let _ = std::fs::copy(path, &bak);
             }
             let tmp = path.with_extension("pub.tmp");

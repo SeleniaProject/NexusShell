@@ -1,7 +1,7 @@
 use std::io::{self, Read, Write};
 
 use super::bitstream::BitWriter;
-use super::seq::{tokenize_sequences, Seq};
+use super::seq::Seq;
 
 #[derive(Debug, Clone, Copy)]
 pub struct FullZstdOptions {

@@ -122,7 +122,7 @@ fn unescape_string(s: &str) -> String {
                 let mut val: u32 = (c as u8 - b'0') as u32;
                 for _ in 0..2 {
                     if let Some(&d) = chars.peek() {
-                        if d >= '0' && d <= '7' {
+                        if ('0'..='7').contains(&d) {
                             chars.next();
                             val = val * 8 + (d as u8 - b'0') as u32;
                         } else { break; }
@@ -689,10 +689,9 @@ fn parse_line_pattern_prefix(line: &str) -> Option<(AwkPattern, &str)> {
     let pos1 = after.find('/')?;
     let pat1 = &after[..pos1];
     let rest = after[pos1+1..].trim_start();
-    if rest.starts_with(',') {
-        let rest2 = rest[1..].trim_start();
-        if rest2.starts_with('/') {
-            let after2 = &rest2[1..];
+    if let Some(rest2) = rest.strip_prefix(',') {
+        let rest2 = rest2.trim_start();
+        if let Some(after2) = rest2.strip_prefix('/') {
             if let Some(pos2) = after2.find('/') {
                 let pat2 = &after2[..pos2];
                 let action_part = after2[pos2+1..].trim_start();
@@ -764,8 +763,8 @@ fn parse_print_args(src: &str) -> ShellResult<Vec<AwkExpression>> {
     let mut result: Vec<AwkExpression> = Vec::new();
     let mut current = String::new();
     let mut in_str = false;
-    let mut chars = src.trim().chars().peekable();
-    while let Some(ch) = chars.next() {
+    let chars = src.trim().chars().peekable();
+    for ch in chars {
         match ch {
             '"' => {
                 current.push(ch);
@@ -885,11 +884,50 @@ fn parse_full_expr(src: &str) -> ShellResult<AwkExpression> {
             let c = b[i] as char;
             if c.is_whitespace() { i += 1; continue; }
             // strings
-            if c == '"' { let mut j = i+1; let mut esc=false; while j < b.len() { let ch=b[j] as char; if esc { esc=false; j+=1; continue; } if ch=='\\' { esc=true; j+=1; continue; } if ch=='"' { j+=1; break; } j+=1; } v.push(Tok{ s: s[i..j].to_string() }); i=j; continue; }
+            if c == '"' {
+                let mut j = i + 1;
+                let mut esc = false;
+                while j < b.len() {
+                    let ch = b[j] as char;
+                    if esc {
+                        esc = false;
+                        j += 1;
+                        continue;
+                    }
+                    if ch == '\\' {
+                        esc = true;
+                        j += 1;
+                        continue;
+                    }
+                    if ch == '"' {
+                        j += 1;
+                        break;
+                    }
+                    j += 1;
+                }
+                v.push(Tok { s: s[i..j].to_string() });
+                i = j;
+                continue;
+            }
             // numbers
-            if c.is_ascii_digit() || (c=='.' && i+1<b.len() && (b[i+1] as char).is_ascii_digit()) { let mut j=i+1; while j<b.len() && ((b[j] as char).is_ascii_digit() || b[j] as char=='.') { j+=1; } v.push(Tok{ s: s[i..j].to_string() }); i=j; continue; }
+            if c.is_ascii_digit() || (c == '.' && i + 1 < b.len() && (b[i + 1] as char).is_ascii_digit()) {
+                let mut j = i + 1;
+                while j < b.len() && ((b[j] as char).is_ascii_digit() || (b[j] as char) == '.') { j += 1; }
+                v.push(Tok { s: s[i..j].to_string() });
+                i = j;
+                continue;
+            }
             // identifiers
-            if c.is_ascii_alphabetic() || c=='_' { let mut j=i+1; while j<b.len() { let ch=b[j] as char; if ch.is_ascii_alphanumeric()||ch=='_' { j+=1; } else { break; } } v.push(Tok{ s: s[i..j].to_string() }); i=j; continue; }
+            if c.is_ascii_alphabetic() || c == '_' {
+                let mut j = i + 1;
+                while j < b.len() {
+                    let ch = b[j] as char;
+                    if ch.is_ascii_alphanumeric() || ch == '_' { j += 1; } else { break; }
+                }
+                v.push(Tok { s: s[i..j].to_string() });
+                i = j;
+                continue;
+            }
             // two-char ops
             if i+1<b.len() {
                 let two = &s[i..i+2];
@@ -944,9 +982,72 @@ fn parse_full_expr(src: &str) -> ShellResult<AwkExpression> {
         Ok(AwkExpression::String(String::new()))
     }
     fn parse_power(p: &mut P) -> ShellResult<AwkExpression> { let mut left = parse_primary(p)?; while p.eat("**") { let r = parse_primary(p)?; left = AwkExpression::Binary(Box::new(left), BinaryOp::Power, Box::new(r)); } Ok(left) }
-    fn parse_mul(p: &mut P) -> ShellResult<AwkExpression> { let mut left = parse_power(p)?; loop { if p.eat("*") { let r=parse_power(p)?; left=AwkExpression::Binary(Box::new(left), BinaryOp::Mul, Box::new(r)); continue; } if p.eat("/") { let r=parse_power(p)?; left=AwkExpression::Binary(Box::new(left), BinaryOp::Div, Box::new(r)); continue; } if p.eat("%") { let r=parse_power(p)?; left=AwkExpression::Binary(Box::new(left), BinaryOp::Mod, Box::new(r)); continue; } break; } Ok(left) }
-    fn parse_add(p: &mut P) -> ShellResult<AwkExpression> { let mut left = parse_mul(p)?; loop { if p.eat("+") { let r=parse_mul(p)?; left=AwkExpression::Binary(Box::new(left), BinaryOp::Add, Box::new(r)); continue; } if p.eat("-") { let r=parse_mul(p)?; left=AwkExpression::Binary(Box::new(left), BinaryOp::Sub, Box::new(r)); continue; } break; } Ok(left) }
-    fn parse_cmp(p: &mut P) -> ShellResult<AwkExpression> { let mut left = parse_add(p)?; loop { if p.eat("<") { let r=parse_add(p)?; left=AwkExpression::Binary(Box::new(left), BinaryOp::Lt, Box::new(r)); continue; } if p.eat("<=") { let r=parse_add(p)?; left=AwkExpression::Binary(Box::new(left), BinaryOp::Le, Box::new(r)); continue; } if p.eat(">") { let r=parse_add(p)?; left=AwkExpression::Binary(Box::new(left), BinaryOp::Gt, Box::new(r)); continue; } if p.eat(">=") { let r=parse_add(p)?; left=AwkExpression::Binary(Box::new(left), BinaryOp::Ge, Box::new(r)); continue; } break; } Ok(left) }
+    fn parse_mul(p: &mut P) -> ShellResult<AwkExpression> {
+        let mut left = parse_power(p)?;
+        loop {
+            if p.eat("*") {
+                let r = parse_power(p)?;
+                left = AwkExpression::Binary(Box::new(left), BinaryOp::Mul, Box::new(r));
+                continue;
+            }
+            if p.eat("/") {
+                let r = parse_power(p)?;
+                left = AwkExpression::Binary(Box::new(left), BinaryOp::Div, Box::new(r));
+                continue;
+            }
+            if p.eat("%") {
+                let r = parse_power(p)?;
+                left = AwkExpression::Binary(Box::new(left), BinaryOp::Mod, Box::new(r));
+                continue;
+            }
+            break;
+        }
+        Ok(left)
+    }
+    fn parse_add(p: &mut P) -> ShellResult<AwkExpression> {
+        let mut left = parse_mul(p)?;
+        loop {
+            if p.eat("+") {
+                let r = parse_mul(p)?;
+                left = AwkExpression::Binary(Box::new(left), BinaryOp::Add, Box::new(r));
+                continue;
+            }
+            if p.eat("-") {
+                let r = parse_mul(p)?;
+                left = AwkExpression::Binary(Box::new(left), BinaryOp::Sub, Box::new(r));
+                continue;
+            }
+            break;
+        }
+        Ok(left)
+    }
+    fn parse_cmp(p: &mut P) -> ShellResult<AwkExpression> {
+        let mut left = parse_add(p)?;
+        loop {
+            if p.eat("<") {
+                let r = parse_add(p)?;
+                left = AwkExpression::Binary(Box::new(left), BinaryOp::Lt, Box::new(r));
+                continue;
+            }
+            if p.eat("<=") {
+                let r = parse_add(p)?;
+                left = AwkExpression::Binary(Box::new(left), BinaryOp::Le, Box::new(r));
+                continue;
+            }
+            if p.eat(">") {
+                let r = parse_add(p)?;
+                left = AwkExpression::Binary(Box::new(left), BinaryOp::Gt, Box::new(r));
+                continue;
+            }
+            if p.eat(">=") {
+                let r = parse_add(p)?;
+                left = AwkExpression::Binary(Box::new(left), BinaryOp::Ge, Box::new(r));
+                continue;
+            }
+            break;
+        }
+        Ok(left)
+    }
     fn parse_eq(p: &mut P) -> ShellResult<AwkExpression> {
         let mut left = parse_cmp(p)?;
         loop {
@@ -1162,7 +1263,7 @@ fn awk_values_equal(left: &AwkValue, right: &AwkValue) -> bool {
         (AwkValue::Number(a), AwkValue::Number(b)) => (a - b).abs() < f64::EPSILON,
         (AwkValue::String(a), AwkValue::String(b)) => a == b,
         (AwkValue::Number(n), AwkValue::String(s)) | (AwkValue::String(s), AwkValue::Number(n)) => {
-            s.parse::<f64>().map_or(false, |parsed| (parsed - n).abs() < f64::EPSILON)
+            s.parse::<f64>().is_ok_and(|parsed| (parsed - n).abs() < f64::EPSILON)
         }
         _ => false,
     }
@@ -1188,9 +1289,9 @@ fn to_string_val(val: &AwkValue) -> String {
         AwkValue::String(s) => s.clone(),
         AwkValue::Number(n) => {
             if n.fract() == 0.0 {
-                format!("{}", *n as i64)
+                format!("{:.0}", *n)
             } else {
-                format!("{}", n)
+                format!("{n}")
             }
         }
         AwkValue::Uninitialized => String::new(),
@@ -1357,7 +1458,7 @@ fn execute_awk_action_flow(action: &AwkAction, context: &mut AwkContext) -> Shel
         AwkAction::PrintF(format, expressions) => {
             // More complete printf implementation: supports %, flags (-,+,0), width, precision, and specifiers (diouxXfegsc)
             let formatted = format_awk_printf(format, expressions, context)?;
-            print!("{}", formatted);
+            print!("{formatted}");
             Ok(AwkFlow::Continue)
         }
         AwkAction::Block(actions) => {
@@ -1664,7 +1765,7 @@ fn evaluate_awk_expression(expr: &AwkExpression, context: &mut AwkContext) -> Sh
                     Ok(AwkValue::Number(to_number_val(&v).cos()))
                 }
                 "atan2" => {
-                    let a = if args.len()>0 { evaluate_awk_expression(&args[0], context)? } else { AwkValue::Number(0.0) };
+                    let a = if !args.is_empty() { evaluate_awk_expression(&args[0], context)? } else { AwkValue::Number(0.0) };
                     let b = if args.len()>1 { evaluate_awk_expression(&args[1], context)? } else { AwkValue::Number(0.0) };
                     Ok(AwkValue::Number(to_number_val(&a).atan2(to_number_val(&b))))
                 }
@@ -1855,7 +1956,7 @@ fn evaluate_awk_expression(expr: &AwkExpression, context: &mut AwkContext) -> Sh
             let lv = evaluate_awk_expression(lhs, context)?;
             #[cfg(feature = "advanced-regex")]
             {
-                return Ok(AwkValue::Number(if re.is_match(&to_string_val(&lv)) { 1.0 } else { 0.0 }));
+                Ok(AwkValue::Number(if re.is_match(&to_string_val(&lv)) { 1.0 } else { 0.0 }))
             }
             #[cfg(not(feature = "advanced-regex"))]
             {
@@ -2098,9 +2199,9 @@ fn format_awk_printf(fmt: &str, exprs: &[AwkExpression], ctx: &mut AwkContext) -
                 let w = width.unwrap_or(0);
                 if w > 0 {
                     if left_align {
-                        out.push_str(&format!("{s:<w$}", s=s, w=w));
+                        out.push_str(&format!("{s:<w$}"));
                     } else {
-                        out.push_str(&format!("{s:>w$}", s=s, w=w));
+                        out.push_str(&format!("{s:>w$}"));
                     }
                 } else {
                     out.push_str(&s);
@@ -2123,27 +2224,25 @@ fn format_awk_printf(fmt: &str, exprs: &[AwkExpression], ctx: &mut AwkContext) -
                 
                 let mut body = match spec {
                     'd' | 'i' => format!("{n}"),
-                    'u' => format!("{}", n as u64),
+                    'u' => format!("{n}") ,
                     'o' => {
-                        let formatted = format!("{:o}", n);
-                        if alternate && n != 0 { format!("0{}", formatted) } else { formatted }
+                        let formatted = format!("{n:o}");
+                        if alternate && n != 0 { format!("0{formatted}") } else { formatted }
                     },
                     'x' => {
-                        let formatted = format!("{:x}", n);
-                        if alternate && n != 0 { format!("0x{}", formatted) } else { formatted }
+                        let formatted = format!("{n:x}");
+                        if alternate && n != 0 { format!("0x{formatted}") } else { formatted }
                     },
                     'X' => {
-                        let formatted = format!("{:X}", n);
-                        if alternate && n != 0 { format!("0X{}", formatted) } else { formatted }
+                        let formatted = format!("{n:X}");
+                        if alternate && n != 0 { format!("0X{formatted}") } else { formatted }
                     },
                     _ => unreachable!(),
                 };
                 
                 // Apply precision (minimum digits)
                 if let Some(prec) = precision {
-                    if body.len() < prec {
-                        body = format!("{:0>width$}", body, width = prec);
-                    }
+                    if body.len() < prec { body = format!("{body:0>prec$}"); }
                 }
                 
                 let combined = format!("{sign}{body}");
@@ -2156,11 +2255,11 @@ fn format_awk_printf(fmt: &str, exprs: &[AwkExpression], ctx: &mut AwkContext) -
                     } else if zero_pad && !sign.is_empty() {
                         // Keep sign in front of zero padding
                         let zeros = "0".repeat(pad_len);
-                        out.push_str(&format!("{}{}{}", sign, zeros, &body));
+                        out.push_str(&format!("{sign}{zeros}{body}"));
                     } else if zero_pad {
-                        out.push_str(&format!("{combined:0>width$}", combined=combined, width=w));
+                        out.push_str(&format!("{combined:0>w$}"));
                     } else {
-                        out.push_str(&format!("{combined:>width$}", combined=combined, width=w));
+                        out.push_str(&format!("{combined:>w$}"));
                     }
                 } else {
                     out.push_str(&combined);
@@ -2184,29 +2283,29 @@ fn format_awk_printf(fmt: &str, exprs: &[AwkExpression], ctx: &mut AwkContext) -
                 let prec = precision.unwrap_or(6);
                 let body = match spec {
                     'f' | 'F' => {
-                        let formatted = format!("{n:.prec$}", n=n, prec=prec);
+                        let formatted = format!("{n:.prec$}");
                         if alternate && !formatted.contains('.') {
-                            format!("{}.", formatted)
+                            format!("{formatted}.")
                         } else {
                             formatted
                         }
                     },
-                    'e' => format!("{n:.prec$e}", n=n, prec=prec),
-                    'E' => format!("{n:.prec$E}", n=n, prec=prec),
+                    'e' => format!("{n:.prec$e}"),
+                    'E' => format!("{n:.prec$E}"),
                     'g' => {
                         // Choose fixed or exponential based on magnitude and precision
                         let exp_threshold = 10_f64.powi(prec as i32);
                         if n != 0.0 && (n >= exp_threshold || n < 1e-4) {
-                            let mut exp_str = format!("{n:.prec$e}", n=n, prec=prec);
+                            let mut exp_str = format!("{n:.prec$e}");
                             // Remove trailing zeros after decimal point for %g
                             if !alternate && exp_str.contains('.') {
                                 let (before_e, after_e) = exp_str.split_once('e').unwrap();
                                 let trimmed = before_e.trim_end_matches('0').trim_end_matches('.');
-                                exp_str = format!("{}e{}", trimmed, after_e);
+                                exp_str = format!("{trimmed}e{after_e}");
                             }
                             exp_str
                         } else {
-                            let mut fixed_str = format!("{n:.prec$}", n=n, prec=prec);
+                            let mut fixed_str = format!("{n:.prec$}");
                             // Remove trailing zeros after decimal point for %g
                             if !alternate && fixed_str.contains('.') {
                                 fixed_str = fixed_str.trim_end_matches('0').trim_end_matches('.').to_string();
@@ -2218,15 +2317,15 @@ fn format_awk_printf(fmt: &str, exprs: &[AwkExpression], ctx: &mut AwkContext) -
                         // Same as 'g' but with uppercase E
                         let exp_threshold = 10_f64.powi(prec as i32);
                         if n != 0.0 && (n >= exp_threshold || n < 1e-4) {
-                            let mut exp_str = format!("{n:.prec$E}", n=n, prec=prec);
+                            let mut exp_str = format!("{n:.prec$E}");
                             if !alternate && exp_str.contains('.') {
                                 let (before_e, after_e) = exp_str.split_once('E').unwrap();
                                 let trimmed = before_e.trim_end_matches('0').trim_end_matches('.');
-                                exp_str = format!("{}E{}", trimmed, after_e);
+                                exp_str = format!("{trimmed}E{after_e}");
                             }
                             exp_str
                         } else {
-                            let mut fixed_str = format!("{n:.prec$}", n=n, prec=prec);
+                            let mut fixed_str = format!("{n:.prec$}");
                             if !alternate && fixed_str.contains('.') {
                                 fixed_str = fixed_str.trim_end_matches('0').trim_end_matches('.').to_string();
                             }
@@ -2246,11 +2345,11 @@ fn format_awk_printf(fmt: &str, exprs: &[AwkExpression], ctx: &mut AwkContext) -
                     } else if zero_pad && !sign.is_empty() {
                         // Keep sign in front of zero padding
                         let zeros = "0".repeat(pad_len);
-                        out.push_str(&format!("{}{}{}", sign, zeros, &body));
+                        out.push_str(&format!("{sign}{zeros}{body}"));
                     } else if zero_pad {
-                        out.push_str(&format!("{combined:0>width$}", combined=combined, width=w));
+                        out.push_str(&format!("{combined:0>w$}"));
                     } else {
-                        out.push_str(&format!("{combined:>width$}", combined=combined, width=w));
+                        out.push_str(&format!("{combined:>w$}"));
                     }
                 } else {
                     out.push_str(&combined);
@@ -2266,8 +2365,8 @@ fn format_awk_printf(fmt: &str, exprs: &[AwkExpression], ctx: &mut AwkContext) -
                 let s = ch.to_string();
                 let w = width.unwrap_or(0);
                 if w > 0 {
-                    if left_align { out.push_str(&format!("{s:<w$}", s=s, w=w)); }
-                    else { out.push_str(&format!("{s:>w$}", s=s, w=w)); }
+                    if left_align { out.push_str(&format!("{s:<w$}")); }
+                    else { out.push_str(&format!("{s:>w$}")); }
                 } else { out.push(ch); }
             }
             _ => {

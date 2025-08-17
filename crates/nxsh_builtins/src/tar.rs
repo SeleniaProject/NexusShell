@@ -372,7 +372,7 @@ fn add_input_paths_to_tar<W: Write>(
 
         if file_path.is_dir() {
             for entry in WalkDir::new(file_path) {
-                let entry = match entry { Ok(e) => e, Err(e) => { eprintln!("tar: {}", e); continue; } };
+                let entry = match entry { Ok(e) => e, Err(e) => { eprintln!("tar: {e}"); continue; } };
                 let path = entry.path();
                 let rel = path.strip_prefix(file_path).unwrap_or(path);
                 if rel.as_os_str().is_empty() { // root dir itself
@@ -582,9 +582,9 @@ fn list_archive(options: &TarOptions) -> Result<()> {
                 tar::EntryType::Block | tar::EntryType::Char => {
                     let maj = header.device_major().ok().flatten().unwrap_or(0);
                     let min = header.device_minor().ok().flatten().unwrap_or(0);
-                    format!("{:>3}, {:>3}", maj, min)
+                    format!("{maj:>3}, {min:>3}")
                 }
-                _ => format!("{:>10}", size),
+                _ => format!("{size:>10}"),
             };
 
             // name with link target decorations
@@ -610,25 +610,13 @@ fn list_archive(options: &TarOptions) -> Result<()> {
                 let uid = header.uid().unwrap_or(0);
                 let gid = header.gid().unwrap_or(0);
                 println!(
-                    "{} {:>8}/{:<8} {} {} {}",
-                    permissions,
-                    uid,
-                    gid,
-                    size_field,
-                    date,
-                    name_field
+                    "{permissions} {uid:>8}/{gid:<8} {size_field} {date} {name_field}"
                 );
             } else {
                 let user = header.username()?.unwrap_or("unknown");
                 let group = header.groupname()?.unwrap_or("unknown");
                 println!(
-                    "{} {:>8}/{:<8} {} {} {}",
-                    permissions,
-                    user,
-                    group,
-                    size_field,
-                    date,
-                    name_field
+                    "{permissions} {user:>8}/{group:<8} {size_field} {date} {name_field}"
                 );
             }
         } else {

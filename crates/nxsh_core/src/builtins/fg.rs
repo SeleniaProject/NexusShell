@@ -35,20 +35,19 @@ impl Builtin for FgBuiltin {
                 .id
         } else {
             let job_spec = &args[0];
-            if job_spec.starts_with('%') {
+            if let Some(job_num_str) = job_spec.strip_prefix('%') {
                 // Parse job number
-                let job_num_str = &job_spec[1..];
                 job_num_str.parse::<u32>()
                     .map_err(|_| crate::error::ShellError::new(
                         crate::error::ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
-                        format!("fg: invalid job specification: {}", job_spec)
+                        format!("fg: invalid job specification: {job_spec}")
                     ))?
             } else {
                 // Assume it's a job number without %
                 job_spec.parse::<u32>()
                     .map_err(|_| crate::error::ShellError::new(
                         crate::error::ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
-                        format!("fg: invalid job specification: {}", job_spec)
+                        format!("fg: invalid job specification: {job_spec}")
                     ))?
             }
         };
@@ -57,7 +56,7 @@ impl Builtin for FgBuiltin {
         if job_manager_guard.get_job(job_id)?.is_none() {
             return Err(crate::error::ShellError::new(
                 crate::error::ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
-                format!("fg: job {} not found", job_id)
+                format!("fg: job {job_id} not found")
             ));
         }
 
@@ -68,9 +67,9 @@ impl Builtin for FgBuiltin {
         let job = job_manager_guard.get_job(job_id)?
             .ok_or_else(|| crate::error::ShellError::new(
                 crate::error::ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
-                format!("fg: job {} not found after move", job_id)
+                format!("fg: job {job_id} not found after move")
             ))?;
-        let output = format!("{}", job.description);
+    let output = job.description.to_string();
         
         // Wait for job completion
         drop(job_manager_guard); // Release lock before waiting

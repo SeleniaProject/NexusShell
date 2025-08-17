@@ -23,7 +23,7 @@ pub async fn smartctl_cli(args: &[String]) -> Result<()> {
     }
 
     #[cfg(not(unix))]
-    { println!("smartctl: unsupported on this platform"); return Ok(()); }
+    { println!("smartctl: unsupported on this platform"); Ok(()) }
     #[cfg(unix)] {
         if which::which("smartctl").is_err() { println!("smartctl: external 'smartctl' command not found. Install smartmontools."); return Ok(()); }
         let mut cmd = Command::new("smartctl");

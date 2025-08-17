@@ -310,7 +310,7 @@ impl ShellError {
     pub fn io(err: std::io::Error) -> Self {
         Self::new(
             ErrorKind::SystemError(SystemErrorKind::SystemCallError),
-            format!("I/O error: {}", err)
+            format!("I/O error: {err}")
         )
     }
 
@@ -318,7 +318,7 @@ impl ShellError {
     pub fn command_not_found(command: &str) -> Self {
         Self::new(
             ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound),
-            format!("Command not found: {}", command)
+            format!("Command not found: {command}")
         )
     }
 
@@ -375,23 +375,20 @@ impl ShellError {
     pub fn is_recoverable(&self) -> bool {
         match &self.kind {
             ErrorKind::ParseError(_) => true,
-            ErrorKind::RuntimeError(kind) => match kind {
+            ErrorKind::RuntimeError(kind) => matches!(
+                kind,
                 RuntimeErrorKind::CommandNotFound
-                | RuntimeErrorKind::FileNotFound
-                | RuntimeErrorKind::DirectoryNotFound
-                | RuntimeErrorKind::InvalidArgument
-                | RuntimeErrorKind::VariableNotFound
-                | RuntimeErrorKind::FunctionNotFound
-                | RuntimeErrorKind::AliasNotFound => true,
-                _ => false,
-            },
-            ErrorKind::IoError(kind) => match kind {
-                IoErrorKind::NotFound
-                | IoErrorKind::PermissionError
-                | IoErrorKind::InvalidPath
-                | IoErrorKind::AlreadyExists => true,
-                _ => false,
-            },
+                    | RuntimeErrorKind::FileNotFound
+                    | RuntimeErrorKind::DirectoryNotFound
+                    | RuntimeErrorKind::InvalidArgument
+                    | RuntimeErrorKind::VariableNotFound
+                    | RuntimeErrorKind::FunctionNotFound
+                    | RuntimeErrorKind::AliasNotFound
+            ),
+            ErrorKind::IoError(kind) => matches!(
+                kind,
+                IoErrorKind::NotFound | IoErrorKind::PermissionError | IoErrorKind::InvalidPath | IoErrorKind::AlreadyExists
+            ),
             ErrorKind::SecurityError(_) => false,
             ErrorKind::SystemError(_) => false,
             ErrorKind::PluginError(_) => true,
@@ -496,14 +493,14 @@ impl fmt::Display for ShellError {
                 if !first {
                     write!(f, ", ")?;
                 }
-                write!(f, "{}: {}", key, value)?;
+                write!(f, "{key}: {value}")?;
                 first = false;
             }
             write!(f, ")")?;
         }
 
         if let Some(ref inner) = self.inner {
-            write!(f, "\nCaused by: {}", inner)?;
+            write!(f, "\nCaused by: {inner}")?;
         }
 
         Ok(())
@@ -513,17 +510,17 @@ impl fmt::Display for ShellError {
 impl fmt::Display for ErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ErrorKind::ParseError(kind) => write!(f, "Parse error: {:?}", kind),
-            ErrorKind::RuntimeError(kind) => write!(f, "Runtime error: {:?}", kind),
-            ErrorKind::IoError(kind) => write!(f, "I/O error: {:?}", kind),
-            ErrorKind::SecurityError(kind) => write!(f, "Security error: {:?}", kind),
-            ErrorKind::SystemError(kind) => write!(f, "System error: {:?}", kind),
-            ErrorKind::PluginError(kind) => write!(f, "Plugin error: {:?}", kind),
-            ErrorKind::ConfigError(kind) => write!(f, "Configuration error: {:?}", kind),
-            ErrorKind::NetworkError(kind) => write!(f, "Network error: {:?}", kind),
-            ErrorKind::CryptoError(kind) => write!(f, "Cryptography error: {:?}", kind),
-            ErrorKind::SerializationError(kind) => write!(f, "Serialization error: {:?}", kind),
-            ErrorKind::InternalError(kind) => write!(f, "Internal error: {:?}", kind),
+            ErrorKind::ParseError(kind) => write!(f, "Parse error: {kind:?}"),
+            ErrorKind::RuntimeError(kind) => write!(f, "Runtime error: {kind:?}"),
+            ErrorKind::IoError(kind) => write!(f, "I/O error: {kind:?}"),
+            ErrorKind::SecurityError(kind) => write!(f, "Security error: {kind:?}"),
+            ErrorKind::SystemError(kind) => write!(f, "System error: {kind:?}"),
+            ErrorKind::PluginError(kind) => write!(f, "Plugin error: {kind:?}"),
+            ErrorKind::ConfigError(kind) => write!(f, "Configuration error: {kind:?}"),
+            ErrorKind::NetworkError(kind) => write!(f, "Network error: {kind:?}"),
+            ErrorKind::CryptoError(kind) => write!(f, "Cryptography error: {kind:?}"),
+            ErrorKind::SerializationError(kind) => write!(f, "Serialization error: {kind:?}"),
+            ErrorKind::InternalError(kind) => write!(f, "Internal error: {kind:?}"),
         }
     }
 }
@@ -705,7 +702,7 @@ impl ShellError {
     pub fn file_not_found(path: &str) -> Self {
         ShellError::new(
             ErrorKind::RuntimeError(RuntimeErrorKind::FileNotFound),
-            format!("File '{}' not found", path),
+            format!("File '{path}' not found"),
         )
         .with_context("path", path.to_string())
     }
@@ -713,7 +710,7 @@ impl ShellError {
     pub fn permission_denied(resource: &str) -> Self {
         ShellError::new(
             ErrorKind::RuntimeError(RuntimeErrorKind::PermissionDenied),
-            format!("Permission denied accessing '{}'", resource),
+            format!("Permission denied accessing '{resource}'"),
         )
         .with_context("resource", resource.to_string())
     }
@@ -729,7 +726,7 @@ impl ShellError {
     pub fn type_mismatch(expected: &str, actual: &str) -> Self {
         ShellError::new(
             ErrorKind::RuntimeError(RuntimeErrorKind::TypeMismatch),
-            format!("Type mismatch: expected {}, got {}", expected, actual),
+            format!("Type mismatch: expected {expected}, got {actual}"),
         )
         .with_context("expected", expected.to_string())
         .with_context("actual", actual.to_string())

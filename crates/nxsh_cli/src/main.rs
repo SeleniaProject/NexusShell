@@ -83,7 +83,7 @@ fn run_busybox_mode() -> anyhow::Result<()> {
         Ok(_) => Ok(()),
         Err(e) => {
             use nxsh_core::error::{ErrorKind, RuntimeErrorKind};
-            eprintln!("{}: {}", command, e);
+            eprintln!("{command}: {e}");
             let not_found = e.contains_kind(&ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound));
             let code = if not_found {127} else {1};
             std::process::exit(code);
@@ -97,7 +97,7 @@ fn print_busybox_help() {
     let mut list = names.into_iter().collect::<Vec<_>>();
     list.sort();
     let mut line = String::new();
-    for name in list { if line.len() + name.len() + 1 > 78 { println!("{}", line); line.clear(); } line.push_str(name); line.push(' ');} if !line.is_empty() { println!("{}", line); }
+    for name in list { if line.len() + name.len() + 1 > 78 { println!("{line}"); line.clear(); } line.push_str(name); line.push(' ');} if !line.is_empty() { println!("{line}"); }
 }
 
 /// Fast help display without clap overhead

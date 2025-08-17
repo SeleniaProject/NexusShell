@@ -85,18 +85,18 @@ impl Builtin for KillBuiltin {
                         match mgr.get_job(*job_id) {
                             Ok(Some(job)) => {
                                 // prefer group-based signal
-                                let send_res = mgr.send_signal_to_process_group(job.pgid, sig.clone());
+                                let send_res = mgr.send_signal_to_process_group(job.pgid, sig);
                                 if send_res.is_ok() { Ok(()) } else {
                                     // fall back: try each process pid best-effort
                                     for p in job.processes.iter() { let _ = execute_kill_target(p.pid, options.signal); }
                                     Ok(())
                                 }
                             }
-                            Ok(None) => Err(ShellError::command_not_found(&format!("Job {} not found", job_id))),
+                            Ok(None) => Err(ShellError::command_not_found(&format!("Job {job_id} not found"))),
                             Err(e) => Err(e),
                         }
                     });
-                    if let Err(e) = res { return Err(e); }
+                    res?
                 }
                 KillTarget::ProcessName(name) => {
                     let pids = find_processes_by_name(name)?;

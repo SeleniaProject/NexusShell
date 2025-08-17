@@ -10,6 +10,10 @@ pub struct MacroSystem {
     builtin_macros: HashMap<String, BuiltinMacro>,
 }
 
+impl Default for MacroSystem {
+    fn default() -> Self { Self::new() }
+}
+
 impl MacroSystem {
     pub fn new() -> Self {
         let mut system = Self {
@@ -26,7 +30,7 @@ impl MacroSystem {
     /// Define a new macro
     pub fn define_macro(&mut self, name: String, macro_def: Macro) -> Result<()> {
         if self.builtin_macros.contains_key(&name) {
-            return Err(crate::compat::anyhow(format!("Cannot redefine builtin macro '{}'", name)));
+            return Err(crate::compat::anyhow(format!("Cannot redefine builtin macro '{name}'")));
         }
         
         self.macros.insert(name, macro_def);
@@ -75,7 +79,7 @@ impl MacroSystem {
                 
                 // Replace parameters with arguments
                 for (param, arg) in parameters.iter().zip(args.iter()) {
-                    result = result.replace(&format!("${}", param), arg);
+                    result = result.replace(&format!("${param}"), arg);
                 }
 
                 Ok(result)
@@ -136,7 +140,7 @@ impl MacroSystem {
                 
                 let file_path = &args[0];
                 std::fs::read_to_string(file_path)
-                    .with_context(|| format!("Failed to read file: {}", file_path))
+                    .with_context(|| format!("Failed to read file: {file_path}"))
             },
             
             BuiltinMacro::Concat => {
@@ -170,8 +174,8 @@ impl MacroSystem {
             BuiltinMacro::Date => {
                 #[cfg(feature = "heavy-time")]
                 {
-                    let format = args.get(0).map(|s| s.as_str()).unwrap_or("%Y-%m-%d %H:%M:%S");
-                    return Ok(chrono::Local::now().format(format).to_string());
+                    let format = args.first().map(|s| s.as_str()).unwrap_or("%Y-%m-%d %H:%M:%S");
+                    Ok(chrono::Local::now().format(format).to_string())
                 }
                 #[cfg(not(feature = "heavy-time"))]
                 {
@@ -179,7 +183,7 @@ impl MacroSystem {
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_secs())
                         .unwrap_or(0);
-                    return Ok(secs.to_string());
+                    Ok(secs.to_string())
                 }
             },
             
@@ -194,25 +198,27 @@ impl MacroSystem {
         let mut result = String::new();
         let mut chars = text.chars().peekable();
         
+        // Use a single mutable iterator so we can safely call peek/next as needed.
         while let Some(ch) = chars.next() {
             if ch == '$' && chars.peek() == Some(&'{') {
-                chars.next(); // consume '{'
-                
+                // consume '{'
+                let _ = chars.next();
+
                 let mut macro_call = String::new();
                 let mut brace_count = 1;
-                
-                while let Some(ch) = chars.next() {
-                    if ch == '{' {
+
+                for inner_ch in chars.by_ref() {
+                    if inner_ch == '{' {
                         brace_count += 1;
-                    } else if ch == '}' {
+                    } else if inner_ch == '}' {
                         brace_count -= 1;
                         if brace_count == 0 {
                             break;
                         }
                     }
-                    macro_call.push(ch);
+                    macro_call.push(inner_ch);
                 }
-                
+
                 // Parse macro call
                 let (macro_name, args) = self.parse_macro_call(&macro_call)?;
                 let expanded = self.expand_macro(&macro_name, args)?;
@@ -254,7 +260,7 @@ impl MacroSystem {
         
         // Replace numbered arguments $0, $1, $2, etc.
         for (i, arg) in args.iter().enumerate() {
-            result = result.replace(&format!("${}", i), arg);
+            result = result.replace(&format!("${i}"), arg);
         }
         
         // Process nested macros
@@ -314,7 +320,7 @@ impl MacroSystem {
                 MacroStatement::Text(text) => {
                     let mut expanded = text.clone();
                     for (param, value) in bindings {
-                        expanded = expanded.replace(&format!("${}", param), value);
+                        expanded = expanded.replace(&format!("${param}"), value);
                     }
                     result.push_str(&expanded);
                 },
@@ -324,7 +330,7 @@ impl MacroSystem {
                         .map(|arg| {
                             let mut expanded = arg.clone();
                             for (param, value) in bindings {
-                                expanded = expanded.replace(&format!("${}", param), value);
+                                expanded = expanded.replace(&format!("${param}"), value);
                             }
                             expanded
                         })
@@ -371,15 +377,13 @@ impl MacroSystem {
                 description: builtin.description(),
                 parameters: builtin.parameters(),
             })
-        } else if let Some(user_macro) = self.macros.get(name) {
-            Some(MacroInfo {
+        } else {
+            self.macros.get(name).map(|user_macro| MacroInfo {
                 name: name.to_string(),
                 macro_type: MacroType::User,
                 description: "User-defined macro".to_string(),
                 parameters: user_macro.parameters(),
             })
-        } else {
-            None
         }
     }
 
@@ -506,6 +510,9 @@ pub enum MacroType {
     User,
 }
 
+#[cfg(feature = "heavy-time")]
+use chrono;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -601,7 +608,3 @@ mod tests {
         assert!(macros.iter().any(|m| m.name == "env"));
     }
 }
-
-// External dependency for date formatting
-#[cfg(feature = "heavy-time")]
-use chrono;

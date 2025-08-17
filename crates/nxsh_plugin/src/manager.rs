@@ -241,18 +241,21 @@ impl PluginManager {
             return Err(anyhow::anyhow!("Plugin name cannot be empty"));
         }
 
-        // Enforce capabilities manifest policy: capabilities must be present when required
-        // Environment toggle NXSH_CAP_MANIFEST_REQUIRED=1 enforces mandatory capabilities declaration.
-        if std::env::var("NXSH_CAP_MANIFEST_REQUIRED").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false) {
-            if metadata.capabilities.is_empty() {
-                return Err(anyhow::anyhow!("Capabilities manifest is required but missing (metadata.capabilities)"));
-            }
+        // Enforce capabilities manifest policy when required by config or env
+        let caps_required_cfg = self.config.capabilities_manifest_required;
+        let caps_required_env = std::env::var("NXSH_CAP_MANIFEST_REQUIRED")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        if (caps_required_cfg || caps_required_env) && metadata.capabilities.is_empty() {
+            return Err(anyhow::anyhow!(
+                "Capabilities manifest is required but missing (metadata.capabilities)"
+            ));
         }
 
         // Additional strict policy: if metadata.exports is non-empty but capabilities are empty,
         // hint that at least one capability should be declared. This is a soft warning elevated to
         // error only when NXSH_CAP_MANIFEST_REQUIRED is set.
-        if metadata.exports.len() > 0 && metadata.capabilities.is_empty() {
+            if !metadata.exports.is_empty() && metadata.capabilities.is_empty() {
             // Currently do not error unless env requires it; tests rely on env gate.
         }
 
@@ -547,6 +550,7 @@ impl PluginManager {
 
 /// Information about a loaded plugin
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct LoadedPluginInfo {
     id: String,
     metadata: PluginMetadata,
@@ -564,6 +568,7 @@ pub enum PluginType {
 
 /// Plugin registry entry
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct PluginRegistryEntry {
     id: String,
     metadata: PluginMetadata,

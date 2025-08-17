@@ -31,7 +31,7 @@ impl fmt::Display for StreamType {
             StreamType::Byte => write!(f, "byte"),
             StreamType::Text => write!(f, "text"),
             StreamType::Json => write!(f, "json"),
-            StreamType::Object(name) => write!(f, "object:{}", name),
+            StreamType::Object(name) => write!(f, "object:{name}"),
             StreamType::Mixed => write!(f, "mixed"),
             StreamType::Error => write!(f, "error"),
         }
@@ -81,7 +81,7 @@ impl StreamData {
             StreamData::Text(text) => Ok(text.as_bytes().to_vec()),
             StreamData::Json(value) => {
                 let json_str = serde_json::to_string(value)
-                    .map_err(|e| ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::ConversionError), format!("JSON serialization failed: {}", e)))?;
+                    .map_err(|e| ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::ConversionError), format!("JSON serialization failed: {e}")))?;
                 Ok(json_str.into_bytes())
             }
             StreamData::Object { data, .. } => Ok(data.clone()),
@@ -100,7 +100,7 @@ impl StreamData {
                             StreamData::Text(s) => serde_json::Value::String(s.clone()),
                             StreamData::Json(j) => j.clone(),
                             StreamData::Bytes(b) => serde_json::Value::String(String::from_utf8_lossy(b).to_string()),
-                            _ => serde_json::Value::String(format!("{:?}", v)),
+                            _ => serde_json::Value::String(format!("{v:?}")),
                         };
                         (k.clone(), value)
                     })
@@ -108,7 +108,7 @@ impl StreamData {
                     .into();
                 
                 let json_str = serde_json::to_string(&json_value)
-                    .map_err(|e| ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::ConversionError), format!("Record serialization failed: {}", e)))?;
+                    .map_err(|e| ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::ConversionError), format!("Record serialization failed: {e}")))?;
                 Ok(json_str.into_bytes())
             }
             StreamData::Error(msg) => Ok(msg.as_bytes().to_vec()),
@@ -122,7 +122,7 @@ impl StreamData {
             StreamData::Bytes(bytes) => Ok(String::from_utf8_lossy(bytes).to_string()),
             StreamData::Json(value) => {
                 serde_json::to_string_pretty(value)
-                    .map_err(|e| ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::ConversionError), format!("JSON serialization failed: {}", e)))
+                    .map_err(|e| ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::ConversionError), format!("JSON serialization failed: {e}")))
             }
             StreamData::Object { type_name, data } => {
                 Ok(format!("{}({})", type_name, String::from_utf8_lossy(data)))
@@ -452,13 +452,13 @@ impl StreamConverter {
                     StreamData::Json(v) => Ok(StreamData::Json(v)),
                     StreamData::Text(s) => {
                         let value: serde_json::Value = serde_json::from_str(&s)
-                            .map_err(|e| ShellError::new(ErrorKind::ParseError(crate::error::ParseErrorKind::SyntaxError), format!("JSON parse error: {}", e)))?;
+                            .map_err(|e| ShellError::new(ErrorKind::ParseError(crate::error::ParseErrorKind::SyntaxError), format!("JSON parse error: {e}")))?;
                         Ok(StreamData::Json(value))
                     }
                     StreamData::Bytes(b) => {
                         let text = String::from_utf8_lossy(&b);
                         let value: serde_json::Value = serde_json::from_str(&text)
-                            .map_err(|e| ShellError::new(ErrorKind::ParseError(crate::error::ParseErrorKind::SyntaxError), format!("JSON parse error: {}", e)))?;
+                            .map_err(|e| ShellError::new(ErrorKind::ParseError(crate::error::ParseErrorKind::SyntaxError), format!("JSON parse error: {e}")))?;
                         Ok(StreamData::Json(value))
                     }
                     _ => Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::ConversionError), "Cannot convert to JSON")),

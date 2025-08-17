@@ -51,7 +51,7 @@ fn bench_completion_engine(c: &mut Criterion) {
 
     // Test various inputs
     for input in &["ls", "git", "c", "echo"] {
-        group.bench_function(&format!("fast_completion_{}", input), |b| {
+        group.bench_function(format!("fast_completion_{input}"), |b| {
             b.iter(|| {
                 let completions = fast_engine.get_completions_fast(input).unwrap();
                 assert!(!completions.is_empty());
@@ -79,8 +79,8 @@ fn bench_completion_engine(c: &mut Criterion) {
             let start = std::time::Instant::now();
             let _completions = fast_engine.get_completions_fast("ls").unwrap();
             let duration = start.elapsed();
-            assert!(duration < Duration::from_millis(1), 
-                "Fast completion took {:?}, should be < 1ms", duration);
+            assert!(duration < Duration::from_millis(1),
+                "Fast completion took {duration:?}, should be < 1ms");
         });
     });
 
@@ -267,8 +267,8 @@ fn bench_hal_integration(c: &mut Criterion) {
             let duration = start.elapsed();
             
             // Assert SPEC.md performance target: completion < 1ms
-            assert!(duration < Duration::from_millis(1), 
-                "Completion performance target failed: {:?} >= 1ms", duration);
+            assert!(duration < Duration::from_millis(1),
+                "Completion performance target failed: {duration:?} >= 1ms");
             
             assert!(!completions.is_empty());
         });

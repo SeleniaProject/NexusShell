@@ -31,12 +31,12 @@ fn main() -> anyhow::Result<()> {
     let schema_path = themes_dir.join("theme-schema.json");
     
     if !themes_dir.exists() {
-        println!("❌ themes ディレクトリが見つかりません: {:?}", themes_dir);
+        println!("❌ themes ディレクトリが見つかりません: {themes_dir:?}");
         return Ok(());
     }
     
     if !schema_path.exists() {
-        println!("❌ スキーマファイルが見つかりません: {:?}", schema_path);
+        println!("❌ スキーマファイルが見つかりません: {schema_path:?}");
         return Ok(());
     }
 
@@ -57,7 +57,7 @@ fn main() -> anyhow::Result<()> {
         })
         .collect();
     
-    theme_files.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+    theme_files.sort_by_key(|a| a.file_name());
     
     println!("検証中のテーマ数: {}", theme_files.len());
     println!();
@@ -71,7 +71,7 @@ fn main() -> anyhow::Result<()> {
         let theme_name = path.file_stem().unwrap().to_string_lossy();
         total_themes += 1;
         
-        print!("📄 {} ... ", theme_name);
+    print!("📄 {theme_name} ... ");
         
         match validator.validate_theme_file(&path) {
             Ok(result) => {
@@ -81,7 +81,7 @@ fn main() -> anyhow::Result<()> {
                         valid_themes += 1;
                         total_warnings += result.warnings.len();
                         for warning in &result.warnings {
-                            println!("    ⚠️  {}", warning);
+                            println!("    ⚠️  {warning}");
                         }
                         rows.push(Row { name: theme_name.to_string(), valid: true, warnings: result.warnings.len(), errors: 0 });
                     } else {
@@ -93,14 +93,14 @@ fn main() -> anyhow::Result<()> {
                     println!("❌ 無効（エラー {}個）", result.errors.len());
                     total_errors += result.errors.len();
                     for error in &result.errors {
-                        println!("    ❌ {}", error);
+                        println!("    ❌ {error}");
                     }
                     rows.push(Row { name: theme_name.to_string(), valid: false, warnings: result.warnings.len(), errors: result.errors.len() });
                     invalid_themes += 1;
                 }
             }
             Err(e) => {
-                println!("💥 検証失敗: {}", e);
+                println!("💥 検証失敗: {e}");
                 total_errors += 1;
                 rows.push(Row { name: theme_name.to_string(), valid: false, warnings: 0, errors: 1 });
                 invalid_themes += 1;
@@ -111,11 +111,11 @@ fn main() -> anyhow::Result<()> {
     // サマリー表示
     println!();
     println!("=== 検証結果サマリー ===");
-    println!("総テーマ数: {}", total_themes);
-    println!("有効テーマ数: {}", valid_themes);
+    println!("総テーマ数: {total_themes}");
+    println!("有効テーマ数: {valid_themes}");
     println!("無効テーマ数: {}", total_themes - valid_themes);
-    println!("総警告数: {}", total_warnings);
-    println!("総エラー数: {}", total_errors);
+    println!("総警告数: {total_warnings}");
+    println!("総エラー数: {total_errors}");
     
     let success_rate = if total_themes > 0 {
         (valid_themes as f64 / total_themes as f64) * 100.0
@@ -123,7 +123,7 @@ fn main() -> anyhow::Result<()> {
         0.0
     };
     
-    println!("成功率: {:.1}%", success_rate);
+    println!("成功率: {success_rate:.1}%");
     
     if valid_themes == total_themes {
         println!("🎉 すべてのテーマが検証に合格しました！");
@@ -175,7 +175,7 @@ fn main() -> anyhow::Result<()> {
                 println!("📝 Wrote JSON report: {}", path.display());
             }
             other => {
-                println!("⚠️  Unknown --out-format '{}', skip writing report.", other);
+                println!("⚠️  Unknown --out-format '{other}', skip writing report.");
             }
         }
     }

@@ -37,6 +37,7 @@ pub struct NativePluginRuntime {
     capability_manager: CapabilityManager,
     
     /// Runtime configuration
+    #[allow(dead_code)]
     config: PluginConfig,
     
     /// Plugin registry for metadata tracking
@@ -123,6 +124,7 @@ pub struct PluginRegistrar {
     pub author: *const std::ffi::c_char,
 }
 
+#[allow(dead_code)]
 impl NativePluginRuntime {
     /// Create a new native plugin runtime with default configuration
     pub fn new() -> Result<Self> {

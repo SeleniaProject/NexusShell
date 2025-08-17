@@ -35,20 +35,19 @@ impl Builtin for BgBuiltin {
                 .id
         } else {
             let job_spec = &args[0];
-            if job_spec.starts_with('%') {
+            if let Some(job_num_str) = job_spec.strip_prefix('%') {
                 // Parse job number
-                let job_num_str = &job_spec[1..];
                 job_num_str.parse::<u32>()
                     .map_err(|_| crate::error::ShellError::new(
                         crate::error::ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
-                        format!("bg: invalid job specification: {}", job_spec)
+                        format!("bg: invalid job specification: {job_spec}")
                     ))?
             } else {
                 // Assume it's a job number without %
                 job_spec.parse::<u32>()
                     .map_err(|_| crate::error::ShellError::new(
                         crate::error::ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
-                        format!("bg: invalid job specification: {}", job_spec)
+                        format!("bg: invalid job specification: {job_spec}")
                     ))?
             }
         };
@@ -57,14 +56,14 @@ impl Builtin for BgBuiltin {
         let job = job_manager_guard.get_job(job_id)?
             .ok_or_else(|| crate::error::ShellError::new(
                 crate::error::ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
-                format!("bg: job {} not found", job_id)
+                format!("bg: job {job_id} not found")
             ))?;
 
         // Check if job is stopped
         if !job.is_stopped() {
             return Err(crate::error::ShellError::new(
                 crate::error::ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
-                format!("bg: job {} is not stopped", job_id)
+                format!("bg: job {job_id} is not stopped")
             ));
         }
 

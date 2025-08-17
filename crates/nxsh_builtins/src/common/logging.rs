@@ -371,11 +371,7 @@ pub fn create_log_entry(level: Level, message: &str, fields: HashMap<String, ser
 
 /// Log an internationalized informational message.
 pub fn info_i18n(msg_ja: &str, msg_en: &str) {
-    if is_lang_ja() {
-        info!("{}", msg_ja);
-    } else {
-        info!("{}", msg_en);
-    }
+    if is_lang_ja() { info!("{msg_ja}"); } else { info!("{msg_en}"); }
 }
 
 /// Log with structured data

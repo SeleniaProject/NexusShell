@@ -39,8 +39,8 @@ pub fn curl_cli(args: &[String]) -> Result<()> {
 
     #[cfg(not(feature = "net-http"))]
     {
-        return Err(anyhow!(
+        Err(anyhow!(
             "curl: internal HTTP disabled (built without 'net-http' feature); install system curl or rebuild with --features net-http"
-        ));
+        ))
     }
 }

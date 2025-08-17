@@ -58,7 +58,7 @@ impl Default for PatternMatchingConfig {
 }
 
 /// Statistics for pattern matching operations
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PatternMatchingStatistics {
     /// Total number of pattern matches attempted
     pub matches_attempted: u64,
@@ -76,19 +76,7 @@ pub struct PatternMatchingStatistics {
     pub total_time_ns: u64,
 }
 
-impl Default for PatternMatchingStatistics {
-    fn default() -> Self {
-        Self {
-            matches_attempted: 0,
-            matches_successful: 0,
-            matches_failed: 0,
-            guard_evaluations: 0,
-            cache_hits: 0,
-            cache_misses: 0,
-            total_time_ns: 0,
-        }
-    }
-}
+// Default is derived above
 
 /// Compiled pattern for efficient matching
 #[derive(Debug, Clone)]
@@ -227,7 +215,7 @@ impl PatternMatchingEngine {
         };
 
         // Check pattern cache
-        let pattern_key = format!("{:?}", pattern); // Simplified key generation
+    let pattern_key = format!("{pattern:?}"); // Simplified key generation
         let compiled_pattern = if self.config.pattern_caching {
             if let Some(cached) = self.pattern_cache.get(&pattern_key) {
                 self.statistics.cache_hits += 1;
@@ -338,7 +326,7 @@ impl PatternMatchingEngine {
         if self.config.warn_unreachable {
             let unreachable = self.find_unreachable_patterns(arms)?;
             for index in unreachable {
-                warnings.push(format!("Pattern in arm {} is unreachable", index));
+                warnings.push(format!("Pattern in arm {index} is unreachable"));
             }
         }
 
@@ -381,7 +369,7 @@ impl PatternMatchingEngine {
         bytecode.push(PatternInstruction::Success);
 
         Ok(CompiledPattern {
-            pattern: unsafe { std::mem::transmute(pattern.clone()) }, // Lifetime hack for simplicity
+            pattern: unsafe { std::mem::transmute::<Pattern<'_>, Pattern<'_>>(pattern.clone()) }, // Lifetime hack for simplicity
             bytecode,
             bindings,
             is_refutable,
@@ -389,6 +377,7 @@ impl PatternMatchingEngine {
     }
 
     /// Recursively compile pattern into bytecode
+    #[allow(clippy::only_used_in_recursion)]
     fn compile_pattern_recursive(
         &self,
         pattern: &Pattern,
@@ -452,7 +441,7 @@ impl PatternMatchingEngine {
             },
             Pattern::Guard { pattern, condition } => {
                 self.compile_pattern_recursive(pattern, bytecode, bindings, is_refutable)?;
-                bytecode.push(PatternInstruction::EvaluateGuard(unsafe { std::mem::transmute(condition.as_ref().clone()) }));
+                bytecode.push(PatternInstruction::EvaluateGuard(unsafe { std::mem::transmute::<AstNode<'_>, AstNode<'_>>(condition.as_ref().clone()) }));
                 *is_refutable = true;
             },
             Pattern::Binding { name, pattern } => {
@@ -489,7 +478,7 @@ impl PatternMatchingEngine {
             },
             Pattern::Range { start, end } => {
                 // Range patterns need special handling
-                bytecode.push(PatternInstruction::MatchLiteral(format!("{}..{}", start, end)));
+                bytecode.push(PatternInstruction::MatchLiteral(format!("{start}..{end}")));
                 *is_refutable = true;
             },
             _ => {
@@ -675,23 +664,23 @@ impl PatternMatchingEngine {
             PatternValue::Boolean(b) => b.to_string(),
             PatternValue::Null => "null".to_string(),
             PatternValue::Type(t) => t.clone(),
-            _ => format!("{:?}", value),
+            _ => format!("{value:?}"),
         }
     }
 
     /// Check if value matches expected type
     fn check_value_type(&self, value: &PatternValue, type_name: &str) -> bool {
-        match (value, type_name) {
-            (PatternValue::String(_), "string") => true,
-            (PatternValue::Number(_), "number") => true,
-            (PatternValue::Integer(_), "int") => true,
-            (PatternValue::Boolean(_), "bool") => true,
-            (PatternValue::Array(_), "array") => true,
-            (PatternValue::Object(_), "object") => true,
-            (PatternValue::Tuple(_), "tuple") => true,
-            (PatternValue::Null, "null") => true,
-            _ => false,
-        }
+        matches!(
+            (value, type_name),
+            (PatternValue::String(_), "string")
+                | (PatternValue::Number(_), "number")
+                | (PatternValue::Integer(_), "int")
+                | (PatternValue::Boolean(_), "bool")
+                | (PatternValue::Array(_), "array")
+                | (PatternValue::Object(_), "object")
+                | (PatternValue::Tuple(_), "tuple")
+                | (PatternValue::Null, "null")
+        )
     }
 
     /// Get current statistics
@@ -744,7 +733,9 @@ pub fn create_pattern_from_string(pattern_str: &str) -> Pattern<'static> {
     } else if pattern_str == "*" {
         Pattern::Wildcard
     } else {
-        Pattern::Literal(unsafe { std::mem::transmute(pattern_str) })
+        // Allocate and leak to obtain a 'static str for the lifetime-agnostic Pattern
+        let leaked: &'static str = Box::leak(pattern_str.to_string().into_boxed_str());
+        Pattern::Literal(leaked)
     }
 }
 

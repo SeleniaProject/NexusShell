@@ -49,7 +49,7 @@ where
     E: core::fmt::Display + Send + Sync + 'static,
 {
     fn context<C: core::fmt::Display>(self, context: C) -> Result<T> {
-        self.map_err(|e| anyhow(format!("{}: {}", context, e)))
+    self.map_err(|e| anyhow(format!("{context}: {e}")))
     }
     fn with_context<F, C>(self, f: F) -> Result<T>
     where

@@ -13,7 +13,12 @@ pub struct Lowerer {
 
 impl Lowerer {
     pub fn new() -> Self { Self { reg_counter: 0, var_env: std::collections::HashMap::new(), in_closure: false } }
+}
 
+impl Default for Lowerer {
+    fn default() -> Self { Self::new() }
+}
+impl Lowerer {
     fn fresh_reg(&mut self) -> MirRegister { let id = self.reg_counter; self.reg_counter += 1; MirRegister::new(id) }
 
     pub fn lower_program(mut self, ast: &AstNode) -> MirProgram {
@@ -60,7 +65,7 @@ impl Lowerer {
                 let entry_block = f.entry_block;
                 // ネスト関数は独立した Lowerer で環境をリセットして lower する
                 let mut nested = Lowerer::new();
-                nested.lower_node_prog(&body, prog, &mut f, entry_block);
+                nested.lower_node_prog(body, prog, &mut f, entry_block);
                 if let Some(bblk) = f.get_block_mut(entry_block) {
                     if !matches!(bblk.instructions.last(), Some(MirInstruction::Return { .. }) | Some(MirInstruction::ClosureReturn { .. })) {
                         bblk.instructions.push(MirInstruction::Return { value: Some(MirValue::Null) });
@@ -158,7 +163,7 @@ impl Lowerer {
                     if let Some(orig) = saved_env.get(*c) { MirValue::Register(orig.clone()) } else { MirValue::String(c.to_string()) }
                 }).collect();
                 if let Some(block) = func.get_block_mut(current_block) {
-                    block.instructions.push(MirInstruction::ClosureCreate { dest: dest.clone(), func_block: body_block, captures: capture_vals, capture_regs, param_regs: param_regs, param_names });
+                    block.instructions.push(MirInstruction::ClosureCreate { dest: dest.clone(), func_block: body_block, captures: capture_vals, capture_regs, param_regs, param_names });
                 }
                 // 環境復元 (クロージャスコープ脱出)
                 self.var_env = saved_env;
@@ -172,7 +177,7 @@ impl Lowerer {
             AstNode::MacroInvocation { name, .. } => {
                 let reg = self.fresh_reg();
                 if let Some(block) = func.get_block_mut(current_block) {
-                    block.instructions.push(MirInstruction::LoadImmediate { dest: reg.clone(), value: MirValue::String(format!("macro:{}", name)) });
+                    block.instructions.push(MirInstruction::LoadImmediate { dest: reg.clone(), value: MirValue::String(format!("macro:{name}")) });
                 }
                 Some(reg)
             }

@@ -732,17 +732,17 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
 
         #[cfg(windows)]
         {
-            if !options.numeric_ids {
-                if !options.long_no_owner || (!options.long_no_group && !options.no_group) {
-                    if let Some((owner, group)) = get_windows_owner_group(&entry.path) {
-                        if !options.long_no_owner {
-                            max_user = max_user.max(owner.len());
-                        }
-                        if !options.long_no_group && !options.no_group {
-                            max_group = max_group.max(group.len());
-                        }
-                        continue;
+            if !options.numeric_ids
+                && (!options.long_no_owner || (!options.long_no_group && !options.no_group))
+            {
+                if let Some((owner, group)) = get_windows_owner_group(&entry.path) {
+                    if !options.long_no_owner {
+                        max_user = max_user.max(owner.len());
                     }
+                    if !options.long_no_group && !options.no_group {
+                        max_group = max_group.max(group.len());
+                    }
+                    continue;
                 }
             }
         }
@@ -1248,7 +1248,7 @@ fn get_windows_owner_group(path: &Path) -> Option<(String, String)> {
             let name = String::from_utf16(&name_buf).ok()?;
             let domain = if !domain_buf.is_empty() { Some(String::from_utf16(&domain_buf).ok()?) } else { None };
             Some(match domain {
-                Some(d) if !d.is_empty() => format!("{}\\{}", d, name),
+                Some(d) if !d.is_empty() => format!("{d}\\{name}"),
                 _ => name,
             })
         }

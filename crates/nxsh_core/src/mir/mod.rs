@@ -55,15 +55,15 @@ pub enum MirValue {
 impl fmt::Display for MirValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            MirValue::Integer(i) => write!(f, "{}", i),
-            MirValue::Float(fl) => write!(f, "{}", fl),
-            MirValue::String(s) => write!(f, "\"{}\"", s),
-            MirValue::Boolean(b) => write!(f, "{}", b),
+            MirValue::Integer(i) => write!(f, "{i}"),
+            MirValue::Float(fl) => write!(f, "{fl}"),
+            MirValue::String(s) => write!(f, "\"{s}\""),
+            MirValue::Boolean(b) => write!(f, "{b}"),
             MirValue::Array(arr) => {
                 write!(f, "[")?;
                 for (i, item) in arr.iter().enumerate() {
                     if i > 0 { write!(f, ", ")?; }
-                    write!(f, "{}", item)?;
+                    write!(f, "{item}")?;
                 }
                 write!(f, "]")
             },
@@ -71,11 +71,11 @@ impl fmt::Display for MirValue {
                 write!(f, "{{")?;
                 for (i, (key, value)) in obj.iter().enumerate() {
                     if i > 0 { write!(f, ", ")?; }
-                    write!(f, "\"{}\": {}", key, value)?;
+                    write!(f, "\"{key}\": {value}")?;
                 }
                 write!(f, "}}")
             },
-            MirValue::Register(reg) => write!(f, "{}", reg),
+            MirValue::Register(reg) => write!(f, "{reg}"),
             MirValue::Null => write!(f, "null"),
         }
     }
@@ -270,20 +270,20 @@ impl fmt::Display for MirInstruction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             MirInstruction::LoadImmediate { dest, value } => 
-                write!(f, "{} = load {}", dest, value),
+                write!(f, "{dest} = load {value}"),
             MirInstruction::Move { dest, src } => 
-                write!(f, "{} = move {}", dest, src),
+                write!(f, "{dest} = move {src}"),
             MirInstruction::Load { dest, source } => 
-                write!(f, "{} = load ${}", dest, source),
+                write!(f, "{dest} = load ${source}"),
             MirInstruction::Store { dest, value } => 
-                write!(f, "store ${}, {}", dest, value),
+                write!(f, "store ${dest}, {value}"),
             MirInstruction::Add { dest, left, right } => 
-                write!(f, "{} = add {}, {}", dest, left, right),
+                write!(f, "{dest} = add {left}, {right}"),
             MirInstruction::Call { dest, function, args } => {
-                write!(f, "{} = call {}(", dest, function)?;
+                write!(f, "{dest} = call {function}(")?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 { write!(f, ", ")?; }
-                    write!(f, "{}", arg)?;
+                    write!(f, "{arg}")?;
                 }
                 write!(f, ")")
             },
@@ -292,15 +292,15 @@ impl fmt::Display for MirInstruction {
             MirInstruction::OrSC { dest, left, right, skip } =>
                 write!(f, "r{} = {:?} ||(sc,skip={}) {:?}", dest.id(), left, skip, right),
             MirInstruction::Jump { target } => 
-                write!(f, "jump {}", target),
+                write!(f, "jump {target}"),
             MirInstruction::Return { value } => {
                 if let Some(val) = value {
-                    write!(f, "return {}", val)
+            write!(f, "return {val}")
                 } else {
                     write!(f, "return")
                 }
             },
-            _ => write!(f, "{:?}", self), // Fallback for remaining instructions
+        _ => write!(f, "{self:?}"), // Fallback for remaining instructions
         }
     }
 }
@@ -353,7 +353,7 @@ impl fmt::Display for MirBasicBlock {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "block_{}:", self.id)?;
         for instruction in &self.instructions {
-            writeln!(f, "    {}", instruction)?;
+            writeln!(f, "    {instruction}")?;
         }
         Ok(())
     }
@@ -408,10 +408,8 @@ impl MirFunction {
     }
     
     pub fn get_block_mut(&mut self, id: u32) -> Option<&mut MirBasicBlock> {
-        if !self.blocks.contains_key(&id) {
-            self.blocks.insert(id, MirBasicBlock::new(id));
-        }
-        self.blocks.get_mut(&id)
+    self.blocks.entry(id).or_insert_with(|| MirBasicBlock::new(id));
+    self.blocks.get_mut(&id)
     }
     
     pub fn create_block(&mut self) -> u32 {
@@ -431,7 +429,7 @@ impl fmt::Display for MirFunction {
         
         for &block_id in block_ids {
             if let Some(block) = self.blocks.get(&block_id) {
-                write!(f, "{}", block)?;
+                write!(f, "{block}")?;
             }
         }
         Ok(())
@@ -490,21 +488,21 @@ impl Default for MirProgram {
 
 impl fmt::Display for MirProgram {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "MIR Program (optimization level: {})", self.optimization_level)?;
+    writeln!(f, "MIR Program (optimization level: {})", self.optimization_level)?;
         writeln!(f, "============================================")?;
         
         // Display constants
         if !self.constants.is_empty() {
             writeln!(f, "\nConstants:")?;
             for (name, value) in &self.constants {
-                writeln!(f, "  {} = {}", name, value)?;
+                writeln!(f, "  {name} = {value}")?;
             }
         }
         
         // Display functions
         writeln!(f, "\nFunctions:")?;
-        for (_name, function) in &self.functions {
-            writeln!(f, "\n{}", function)?;
+        for function in self.functions.values() {
+            writeln!(f, "\n{function}")?;
         }
         
         Ok(())
@@ -513,6 +511,7 @@ impl fmt::Display for MirProgram {
 
 /// MIR Execution Engine - High-performance virtual machine for shell operations
 #[derive(Debug)]
+#[allow(dead_code)] // MIR 実行機構は試験的で現在未使用のメンバあり
 pub struct MirExecutor {
     /// Register file for virtual machine
     registers: Vec<MirValue>,
@@ -526,6 +525,7 @@ pub struct MirExecutor {
 
 /// Call frame for function calls
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // コールフレーム詳細はデバッガ用で未参照
 struct CallFrame {
     function_name: String,
     local_variables: HashMap<String, MirValue>,
@@ -558,9 +558,9 @@ impl std::fmt::Display for MirError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MirError::DivByZero => write!(f, "division by zero"),
-            MirError::RegexCompile(p,e) => write!(f, "regex compile failed for pattern '{}': {}", p, e),
-            MirError::TypeMismatch(msg) => write!(f, "type mismatch: {}", msg),
-            MirError::Runtime(msg) => write!(f, "runtime error: {}", msg),
+            MirError::RegexCompile(p,e) => write!(f, "regex compile failed for pattern '{p}': {e}"),
+            MirError::TypeMismatch(msg) => write!(f, "type mismatch: {msg}"),
+            MirError::Runtime(msg) => write!(f, "runtime error: {msg}"),
         }
     }
 }
@@ -583,6 +583,7 @@ impl MirError {
     }
 }
 
+#[allow(dead_code)] // ユーザ関数系は現行パスで未使用
 impl MirExecutor {
     /// Create a new MIR executor
     pub fn new() -> Self {
@@ -625,6 +626,7 @@ impl MirExecutor {
     }
 
     /// Execute a single function
+    #[allow(clippy::only_used_in_recursion)]
     fn execute_function(&mut self, function: &MirFunction, args: Vec<MirValue>) -> Result<MirValue, MirError> {
         self.stats.function_calls += 1;
         
@@ -656,7 +658,7 @@ impl MirExecutor {
         
         loop {
             let block = function.get_block(current_block_id)
-                .ok_or_else(|| MirError::Runtime(format!("Block {} not found", current_block_id)))?;
+                .ok_or_else(|| MirError::Runtime(format!("Block {current_block_id} not found")))?;
             
             let result = self.execute_block(block);
             
@@ -922,7 +924,7 @@ impl MirExecutor {
             MirValue::Register(reg) => {
                 let id = reg.id() as usize;
                 if id >= self.registers.len() {
-                    return Err(MirError::Runtime(format!("Register {} out of bounds", id)));
+                    return Err(MirError::Runtime(format!("Register {id} out of bounds")));
                 }
                 Ok(self.registers[id].clone())
             }
@@ -934,7 +936,7 @@ impl MirExecutor {
     fn set_register(&mut self, reg: &MirRegister, value: MirValue) -> Result<(), MirError> {
         let id = reg.id() as usize;
         if id >= self.registers.len() {
-            return Err(MirError::Runtime(format!("Register {} out of bounds", id)));
+            return Err(MirError::Runtime(format!("Register {id} out of bounds")));
         }
         self.registers[id] = value;
         Ok(())
@@ -944,7 +946,7 @@ impl MirExecutor {
     fn get_register(&self, reg: &MirRegister) -> Result<MirValue, MirError> {
         let id = reg.id() as usize;
         if id >= self.registers.len() {
-            return Err(MirError::Runtime(format!("Register {} out of bounds", id)));
+            return Err(MirError::Runtime(format!("Register {id} out of bounds")));
         }
         Ok(self.registers[id].clone())
     }
@@ -964,7 +966,7 @@ impl MirExecutor {
                             Ok(MirValue::Integer(a / b))
                         }
                     }
-                    _ => Err(MirError::Runtime(format!("Unknown arithmetic operation: {}", op))),
+                    _ => Err(MirError::Runtime(format!("Unknown arithmetic operation: {op}"))),
                 }
             }
             (MirValue::Float(a), MirValue::Float(b)) => {
@@ -979,13 +981,13 @@ impl MirExecutor {
                             Ok(MirValue::Float(a / b))
                         }
                     }
-                    _ => Err(MirError::Runtime(format!("Unknown arithmetic operation: {}", op))),
+                    _ => Err(MirError::Runtime(format!("Unknown arithmetic operation: {op}"))),
                 }
             }
             (MirValue::String(a), MirValue::String(b)) if op == "add" => {
-                Ok(MirValue::String(format!("{}{}", a, b)))
+                Ok(MirValue::String(format!("{a}{b}")))
             }
-            _ => Err(MirError::TypeMismatch(format!("Invalid operands for arithmetic operation: {} {:?} {:?}", op, left, right))),
+            _ => Err(MirError::TypeMismatch(format!("Invalid operands for arithmetic operation: {op} {left:?} {right:?}"))),
         }
     }
 
@@ -1000,7 +1002,7 @@ impl MirExecutor {
                     "le" => Ok(a <= b),
                     "gt" => Ok(a > b),
                     "ge" => Ok(a >= b),
-                    _ => Err(MirError::Runtime(format!("Unknown comparison operation: {}", op))),
+                    _ => Err(MirError::Runtime(format!("Unknown comparison operation: {op}"))),
                 }
             }
             (MirValue::Float(a), MirValue::Float(b)) => {
@@ -1011,7 +1013,7 @@ impl MirExecutor {
                     "le" => Ok(a <= b),
                     "gt" => Ok(a > b),
                     "ge" => Ok(a >= b),
-                    _ => Err(MirError::Runtime(format!("Unknown comparison operation: {}", op))),
+                    _ => Err(MirError::Runtime(format!("Unknown comparison operation: {op}"))),
                 }
             }
             (MirValue::String(a), MirValue::String(b)) => {
@@ -1022,17 +1024,17 @@ impl MirExecutor {
                     "le" => Ok(a <= b),
                     "gt" => Ok(a > b),
                     "ge" => Ok(a >= b),
-                    _ => Err(MirError::Runtime(format!("Unknown comparison operation: {}", op))),
+                    _ => Err(MirError::Runtime(format!("Unknown comparison operation: {op}"))),
                 }
             }
             (MirValue::Boolean(a), MirValue::Boolean(b)) => {
                 match op {
                     "eq" => Ok(a == b),
                     "ne" => Ok(a != b),
-                    _ => Err(MirError::TypeMismatch(format!("Invalid comparison operation for booleans: {}", op))),
+                    _ => Err(MirError::TypeMismatch(format!("Invalid comparison operation for booleans: {op}"))),
                 }
             }
-            _ => Err(MirError::TypeMismatch(format!("Invalid operands for comparison: {} {:?} {:?}", op, left, right))),
+            _ => Err(MirError::TypeMismatch(format!("Invalid operands for comparison: {op} {left:?} {right:?}"))),
         }
     }
 
@@ -1115,7 +1117,7 @@ impl MirExecutor {
         // Use std::env::current_dir for actual implementation
         match std::env::current_dir() {
             Ok(path) => Ok(MirValue::String(path.to_string_lossy().to_string())),
-            Err(e) => Err(MirError::Runtime(format!("pwd error: {}", e))),
+            Err(e) => Err(MirError::Runtime(format!("pwd error: {e}"))),
         }
     }
     
@@ -1129,7 +1131,7 @@ impl MirExecutor {
         
         match std::env::set_current_dir(&target_dir) {
             Ok(()) => Ok(MirValue::Integer(0)), // Success
-            Err(e) => Err(MirError::Runtime(format!("cd error: {}", e))),
+            Err(e) => Err(MirError::Runtime(format!("cd error: {e}"))),
         }
     }
 
@@ -1141,7 +1143,7 @@ impl MirExecutor {
             use std::env;
             let username = env::var("USERNAME").unwrap_or_else(|_| "unknown".to_string());
             let _domain = env::var("USERDOMAIN").unwrap_or_else(|_| "WORKGROUP".to_string());
-            println!("uid=1000({}) gid=1000({}) groups=1000({})", username, username, username);
+            println!("uid=1000({username}) gid=1000({username}) groups=1000({username})");
             Ok(MirValue::Integer(0))
         }
         
@@ -1172,7 +1174,7 @@ impl MirExecutor {
             let filename = self.value_to_string(&arg);
             match std::fs::read_to_string(&filename) {
                 Ok(file_content) => content.push_str(&file_content),
-                Err(e) => return Err(MirError::Runtime(format!("cat: {}: {}", filename, e))),
+                Err(e) => return Err(MirError::Runtime(format!("cat: {filename}: {e}"))),
             }
         }
         Ok(MirValue::String(content))
@@ -1440,17 +1442,15 @@ impl MirExecutor {
         match std::fs::read_dir(&path) {
             Ok(entries) => {
                 let mut results = Vec::new();
-                for entry in entries {
-                    if let Ok(entry) = entry {
-                        let name = entry.file_name().to_string_lossy().to_string();
-                        if pattern == "*" || name.contains(&pattern) {
-                            results.push(MirValue::String(entry.path().to_string_lossy().to_string()));
-                        }
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if pattern == "*" || name.contains(&pattern) {
+                        results.push(MirValue::String(entry.path().to_string_lossy().to_string()));
                     }
                 }
                 Ok(MirValue::Array(results))
             }
-            Err(e) => Err(MirError::Runtime(format!("find: {}: {}", path, e))),
+            Err(e) => Err(MirError::Runtime(format!("find: {path}: {e}"))),
         }
     }
     
@@ -1465,7 +1465,7 @@ impl MirExecutor {
         
         let mut results = Vec::new();
         for line in input.lines() {
-            let _combined_args = vec![MirValue::String(line.to_string())];
+            let _combined_args = [MirValue::String(line.to_string())];
             // Use external command execution for xargs
             match std::process::Command::new(&command)
                 .arg(line)
@@ -1477,10 +1477,10 @@ impl MirExecutor {
                         results.push(MirValue::String(stdout));
                     } else {
                         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                        return Err(MirError::Runtime(format!("xargs: {}: {}", command, stderr)));
+                        return Err(MirError::Runtime(format!("xargs: {command}: {stderr}")));
                     }
                 }
-                Err(e) => return Err(MirError::Runtime(format!("xargs: {}: {}", command, e))),
+                Err(e) => return Err(MirError::Runtime(format!("xargs: {command}: {e}"))),
             }
         }
         
@@ -1751,7 +1751,7 @@ impl MirExecutor {
             "reduce" => self.builtin_reduce(args),
             _ => {
                 // Function not found - this would be an error in a real implementation
-                Err(MirError::Runtime(format!("Function '{}' not found", function_name)))
+                Err(MirError::Runtime(format!("Function '{function_name}' not found")))
             }
         }
     }
@@ -1765,7 +1765,7 @@ impl MirExecutor {
         use MirInstruction::*;
         while !visited.contains(&current_block_id) {
             visited.insert(current_block_id);
-            let block = func.blocks.get(&current_block_id).ok_or_else(|| MirError::Runtime(format!("block {} missing", current_block_id)))?;
+            let block = func.blocks.get(&current_block_id).ok_or_else(|| MirError::Runtime(format!("block {current_block_id} missing")))?;
             let mut ip: usize = 0;
             while ip < block.instructions.len() {
                 let inst = &block.instructions[ip];
@@ -2174,6 +2174,7 @@ impl MirExecutor {
     }
     
     /// High-performance sum function (demonstrates array processing)
+    #[allow(clippy::only_used_in_recursion)]
     fn builtin_sum(&mut self, args: Vec<MirValue>) -> Result<MirValue, MirError> {
         if args.is_empty() {
             return Ok(MirValue::Integer(0));
@@ -2360,7 +2361,7 @@ impl MirExecutor {
                         (MirValue::Float(a), MirValue::Float(b)) => MirValue::Float(a + b),
                         (MirValue::Integer(a), MirValue::Float(b)) => MirValue::Float(*a as f64 + b),
                         (MirValue::Float(a), MirValue::Integer(b)) => MirValue::Float(a + *b as f64),
-                        (MirValue::String(a), MirValue::String(b)) => MirValue::String(format!("{}{}", a, b)),
+                        (MirValue::String(a), MirValue::String(b)) => MirValue::String(format!("{a}{b}")),
                         _ => return Err(MirError::TypeMismatch("add reduction requires compatible types".into())),
                     }
                 }
@@ -2422,10 +2423,10 @@ impl MirExecutor {
                     Ok(MirValue::String(stdout))
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                    Err(MirError::Runtime(format!("{}: {}", command, stderr)))
+                    Err(MirError::Runtime(format!("{command}: {stderr}")))
                 }
             }
-            Err(e) => Err(MirError::Runtime(format!("{}: command not found: {}", command, e))),
+            Err(e) => Err(MirError::Runtime(format!("{command}: command not found: {e}"))),
         }
     }
     fn execute_shell_command(&mut self, command: &str, args: Vec<MirValue>) -> Result<MirValue, MirError> {
@@ -2437,7 +2438,7 @@ impl MirExecutor {
                 MirValue::Float(f) => f.to_string(),
                 MirValue::Boolean(b) => b.to_string(),
                 MirValue::Array(arr) => {
-                    arr.iter().map(|v| format!("{:?}", v)).collect::<Vec<_>>().join(" ")
+                    arr.iter().map(|v| format!("{v:?}")).collect::<Vec<_>>().join(" ")
                 }
                 MirValue::Object(_) => "[object]".to_string(),
                 MirValue::Null => "".to_string(),

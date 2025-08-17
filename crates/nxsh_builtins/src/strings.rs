@@ -1,4 +1,5 @@
 use anyhow::{Result, anyhow};
+use std::str::FromStr;
 use std::io::{self, Read};
 use std::fs::File;
 
@@ -20,8 +21,10 @@ pub enum Encoding {
     Utf8,
 }
 
-impl Encoding {
-    pub fn from_str(s: &str) -> Result<Self> {
+impl FromStr for Encoding {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
             "s" | "ascii" => Ok(Self::Ascii),
             "S" | "latin1" => Ok(Self::Latin1),
@@ -30,10 +33,12 @@ impl Encoding {
             "L" | "utf32le" => Ok(Self::Utf32Le),
             "B" | "utf32be" => Ok(Self::Utf32Be),
             "u" | "utf8" => Ok(Self::Utf8),
-            _ => Err(anyhow!("Unsupported encoding: {}", s)),
+            _ => Err(format!("Unsupported encoding: {s}")),
         }
     }
+}
 
+impl Encoding {
     pub fn char_size(&self) -> usize {
         match self {
             Self::Ascii | Self::Latin1 | Self::Utf8 => 1,
@@ -62,7 +67,7 @@ pub fn strings_cli(args: &[String]) -> Result<()> {
             }
             "-e" | "--encoding" => {
                 if i + 1 < args.len() {
-                    encoding = Encoding::from_str(&args[i + 1])?;
+                    encoding = args[i + 1].parse::<Encoding>().map_err(|e| anyhow!(e))?;
                     i += 1;
                 }
             }
@@ -177,7 +182,7 @@ fn extract_latin1_strings(data: &[u8], min_length: usize, print_filename: bool, 
     
     for &byte in data {
         // Latin-1 printable characters (0x20-0x7E and 0xA0-0xFF, excluding control chars)
-    if (byte >= 0x20 && byte <= 0x7E) || byte >= 0xA0 {
+        if (0x20..=0x7E).contains(&byte) || (0xA0..=u8::MAX).contains(&byte) {
             current_string.push(byte);
         } else {
             if current_string.len() >= min_length {
@@ -213,7 +218,7 @@ fn extract_utf16_strings(data: &[u8], min_length: usize, print_filename: bool, f
         };
         
         // Check if it's a printable character (basic check)
-        if (code_unit >= 0x20 && code_unit <= 0x7E) || (code_unit >= 0xA0 && code_unit < 0xD800) || (code_unit >= 0xE000) {
+    if (0x20..=0x7E).contains(&code_unit) || (0xA0..0xD800).contains(&code_unit) || (0xE000..=u16::MAX).contains(&code_unit) {
             current_string.push(code_unit);
         } else {
             if current_string.len() >= min_length {
@@ -345,8 +350,7 @@ fn decode_utf8_char(data: &[u8]) -> Option<(char, usize)> {
     }
     
     let mut code_point = code_point;
-    for i in 1..expected_len {
-        let byte = data[i];
+    for &byte in data.iter().take(expected_len).skip(1) {
         if byte & 0xC0 != 0x80 {
             return None; // Invalid continuation byte
         }
@@ -358,9 +362,9 @@ fn decode_utf8_char(data: &[u8]) -> Option<(char, usize)> {
 
 fn print_result(string: &str, print_filename: bool, filename: Option<&str>) {
     if print_filename && filename.is_some() {
-        println!("{}: {}", filename.unwrap(), string);
+        println!("{}: {string}", filename.unwrap());
     } else {
-        println!("{}", string);
+    println!("{string}");
     }
 }
 
@@ -370,18 +374,18 @@ mod tests {
 
     #[test]
     fn test_encoding_from_str() {
-        assert!(matches!(Encoding::from_str("s").unwrap(), Encoding::Ascii));
-        assert!(matches!(Encoding::from_str("ascii").unwrap(), Encoding::Ascii));
-        assert!(matches!(Encoding::from_str("S").unwrap(), Encoding::Latin1));
-        assert!(matches!(Encoding::from_str("latin1").unwrap(), Encoding::Latin1));
-        assert!(matches!(Encoding::from_str("l").unwrap(), Encoding::Utf16Le));
-        assert!(matches!(Encoding::from_str("utf16le").unwrap(), Encoding::Utf16Le));
-        assert!(matches!(Encoding::from_str("b").unwrap(), Encoding::Utf16Be));
-        assert!(matches!(Encoding::from_str("utf16be").unwrap(), Encoding::Utf16Be));
-        assert!(matches!(Encoding::from_str("u").unwrap(), Encoding::Utf8));
-        assert!(matches!(Encoding::from_str("utf8").unwrap(), Encoding::Utf8));
+    assert!(matches!("s".parse::<Encoding>().unwrap(), Encoding::Ascii));
+    assert!(matches!("ascii".parse::<Encoding>().unwrap(), Encoding::Ascii));
+    assert!(matches!("S".parse::<Encoding>().unwrap(), Encoding::Latin1));
+    assert!(matches!("latin1".parse::<Encoding>().unwrap(), Encoding::Latin1));
+    assert!(matches!("l".parse::<Encoding>().unwrap(), Encoding::Utf16Le));
+    assert!(matches!("utf16le".parse::<Encoding>().unwrap(), Encoding::Utf16Le));
+    assert!(matches!("b".parse::<Encoding>().unwrap(), Encoding::Utf16Be));
+    assert!(matches!("utf16be".parse::<Encoding>().unwrap(), Encoding::Utf16Be));
+    assert!(matches!("u".parse::<Encoding>().unwrap(), Encoding::Utf8));
+    assert!(matches!("utf8".parse::<Encoding>().unwrap(), Encoding::Utf8));
         
-        assert!(Encoding::from_str("invalid").is_err());
+    assert!("invalid".parse::<Encoding>().is_err());
     }
 
     #[test]

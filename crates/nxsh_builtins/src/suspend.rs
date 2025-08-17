@@ -13,7 +13,7 @@ pub fn suspend_cli(_args: &[String]) -> Result<()> {
     }
     #[cfg(windows)]
     {
-        return Err(anyhow!("suspend: unsupported on this platform"));
+    Err(anyhow!("suspend: unsupported on this platform"))
     }
 }
 

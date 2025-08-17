@@ -120,7 +120,7 @@ impl StartupReport {
         if !self.checkpoints.is_empty() {
             println!("Checkpoints:");
             for (name, time) in &self.checkpoints {
-                println!("  {}: {}ms", name, time);
+                println!("  {name}: {time}ms");
             }
         }
     }
@@ -156,17 +156,13 @@ impl LazyInitializer {
     where
         F: FnOnce() -> R,
     {
-        if self.config.lazy_loading && !self.is_initialized(component) {
+        // Initialize when either not yet initialized under lazy mode, or when lazy loading is disabled.
+    if !self.is_initialized(component) || !self.config.lazy_loading {
             let result = initializer();
             self.mark_initialized(component);
-            Some(result)
-        } else if !self.config.lazy_loading {
-            let result = initializer();
-            self.mark_initialized(component);
-            Some(result)
-        } else {
-            None
+            return Some(result);
         }
+        None
     }
 }
 
@@ -174,6 +170,7 @@ impl LazyInitializer {
 static STARTUP_OPTIMIZER: OnceLock<StartupOptimizer> = OnceLock::new();
 
 /// Main startup optimization system
+#[allow(dead_code)]
 pub struct StartupOptimizer {
     config: StartupConfig,
     timer: StartupTimer,
@@ -268,6 +265,10 @@ impl OptimizedModuleLoader {
     }
 }
 
+impl Default for OptimizedModuleLoader {
+    fn default() -> Self { Self::new() }
+}
+
 pub trait ModuleInitializer: Send + Sync {
     fn initialize(&self) -> crate::compat::Result<()>;
     fn name(&self) -> &str;
@@ -283,7 +284,7 @@ pub fn execute_fast_path_command(cmd: &str) -> Option<crate::compat::Result<()>>
         }
         cmd if cmd.starts_with("echo ") => {
             let text = &cmd[5..];
-            println!("{}", text);
+            println!("{text}");
             Some(Ok(()))
         }
         "pwd" => {

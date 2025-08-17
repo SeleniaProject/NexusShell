@@ -59,7 +59,7 @@ impl ClosureSystem {
             return self.call_function(&function, args);
         }
         
-    Err(crate::compat::anyhow(format!("Function or closure '{}' not found", name)))
+    Err(crate::compat::anyhow(format!("Function or closure '{name}' not found")))
     }
 
     /// Call a closure with captured environment
@@ -229,7 +229,7 @@ impl ClosureSystem {
                     (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
                     (Value::Integer(a), Value::Float(b)) => Ok(Value::Float(*a as f64 + b)),
                     (Value::Float(a), Value::Integer(b)) => Ok(Value::Float(a + *b as f64)),
-                    (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
+                    (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{a}{b}"))),
                     _ => Err(crate::anyhow!("Cannot add these types"))
                 }
             } else {
@@ -294,7 +294,7 @@ impl ClosureSystem {
                 (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
                 (Value::Integer(a), Value::Float(b)) => Ok(Value::Float(*a as f64 + b)),
                 (Value::Float(a), Value::Integer(b)) => Ok(Value::Float(a + *b as f64)),
-                (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
+                (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{a}{b}"))),
                 _ => Err(crate::anyhow!("Cannot add these types"))
             },
             BinaryOperator::Subtract => match (left, right) {
@@ -367,6 +367,10 @@ impl ClosureSystem {
             _ => true,
         }
     }
+}
+
+impl Default for ClosureSystem {
+    fn default() -> Self { Self::new() }
 }
 
 /// Closure definition
@@ -476,6 +480,10 @@ impl ExecutionContext {
     }
 }
 
+impl Default for ExecutionContext {
+    fn default() -> Self { Self::new() }
+}
+
 /// Execution scope
 #[derive(Debug, Clone)]
 pub struct ExecutionScope {
@@ -488,6 +496,10 @@ impl ExecutionScope {
             variables: HashMap::new(),
         }
     }
+}
+
+impl Default for ExecutionScope {
+    fn default() -> Self { Self::new() }
 }
 
 /// Expression types for closures

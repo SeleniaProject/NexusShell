@@ -9,7 +9,7 @@ pub fn find_matches(input: &[u8], window_log: u8, min_match: usize) -> Vec<(usiz
 	let mut i = 0usize;
 	let mut res = Vec::new();
 	while i + min_match <= input.len() {
-		let start = if i > window { i - window } else { 0 };
+		let start = i.saturating_sub(window);
 		let mut best_len = 0usize;
 		let mut best_dist = 0usize;
 		let look_max = input.len() - i;

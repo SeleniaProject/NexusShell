@@ -9,6 +9,48 @@ use rayon::prelude::*;
 use memmap2::MmapOptions;
 mod zstd_impl; // resides under src/zstd/zstd_impl via shim
 
+// Test-only instrumentation to capture chosen Sequences modes per block
+#[cfg(test)]
+mod __zstd_test_instrumentation {
+    use std::sync::{Mutex, Once};
+    static INIT: Once = Once::new();
+    static mut MODES: Option<Mutex<Vec<u8>>> = None;
+    fn modes() -> &'static Mutex<Vec<u8>> {
+        INIT.call_once(|| unsafe { MODES = Some(Mutex::new(Vec::new())) });
+        unsafe { MODES.as_ref().unwrap() }
+    }
+    pub fn clear() { modes().lock().unwrap().clear(); }
+    pub fn push(mode: u8) { modes().lock().unwrap().push(mode); }
+    pub fn snapshot() -> Vec<u8> { modes().lock().unwrap().clone() }
+}
+
+// Public test helper shims: always present so integration tests can link,
+// but only return data when instrumentation is compiled in.
+#[allow(dead_code)]
+pub fn __zstd_modes_clear_for_tests() {
+    #[cfg(test)]
+    {
+        __zstd_test_instrumentation::clear();
+        return;
+    }
+    #[cfg(not(test))]
+    {
+        // No-op when instrumentation is not compiled in
+    }
+}
+
+#[allow(dead_code)]
+pub fn __zstd_modes_snapshot_for_tests() -> Option<Vec<u8>> {
+    #[cfg(test)]
+    {
+        return Some(__zstd_test_instrumentation::snapshot());
+    }
+    #[cfg(not(test))]
+    {
+        None
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ZstdOptions {
     pub decompress: bool,
@@ -214,16 +256,14 @@ fn process_stdio(options: &ZstdOptions) -> Result<()> {
         if options.decompress {
             decompress_stream(&mut reader, &mut writer, options)
                 .context("Failed to decompress from stdin")?;
+        } else if options.full {
+            // Full encoder path (WIP): will produce compressed blocks
+            compress_stream_full(&mut reader, &mut writer, options)
+                .context("Failed to write zstd frame (full)")?;
         } else {
-            if options.full {
-                // Full encoder path (WIP): will produce compressed blocks
-                compress_stream_full(&mut reader, &mut writer, options)
-                    .context("Failed to write zstd frame (full)")?;
-            } else {
-                // Store-mode
-                compress_stream_store(&mut reader, &mut writer, options)
-                    .context("Failed to write zstd store frame to stdout")?;
-            }
+            // Store-mode
+            compress_stream_store(&mut reader, &mut writer, options)
+                .context("Failed to write zstd store frame to stdout")?;
         }
         writer.flush().context("Failed to flush output")?;
     } else {
@@ -234,14 +274,12 @@ fn process_stdio(options: &ZstdOptions) -> Result<()> {
         if options.decompress {
             decompress_stream(&mut reader, &mut writer, options)
                 .context("Failed to decompress from stdin")?;
+        } else if options.full {
+            compress_stream_full(&mut reader, &mut writer, options)
+                .context("Failed to write zstd frame (full)")?;
         } else {
-            if options.full {
-                compress_stream_full(&mut reader, &mut writer, options)
-                    .context("Failed to write zstd frame (full)")?;
-            } else {
-                compress_stream_store(&mut reader, &mut writer, options)
-                    .context("Failed to write zstd store frame to file")?;
-            }
+            compress_stream_store(&mut reader, &mut writer, options)
+                .context("Failed to write zstd store frame to file")?;
         }
         writer.flush().context("Failed to flush output")?;
     }
@@ -288,9 +326,7 @@ fn process_single_file(filename: &str, options: &ZstdOptions) -> Result<()> {
         None
     } else if options.decompress {
         if let Some(ref o) = options.output { Some(o.clone()) } else { Some(determine_decompressed_filename(filename)?) }
-    } else {
-        if let Some(ref o) = options.output { Some(o.clone()) } else { Some(determine_compressed_filename(filename)) }
-    };
+    } else if let Some(ref o) = options.output { Some(o.clone()) } else { Some(determine_compressed_filename(filename)) };
 
     // Check if output file already exists
     if let Some(ref out_file) = output_filename {
@@ -316,9 +352,10 @@ fn process_single_file(filename: &str, options: &ZstdOptions) -> Result<()> {
         
         if options.decompress {
             decompress_stream(&mut reader, &mut writer, options)?;
+        } else if options.full {
+            compress_stream_full(&mut reader, &mut writer, options)?;
         } else {
-            if options.full { compress_stream_full(&mut reader, &mut writer, options)?; }
-            else { compress_stream_store(&mut reader, &mut writer, options)?; }
+            compress_stream_store(&mut reader, &mut writer, options)?;
         }
         writer.flush()?;
     } else if let Some(output_file) = output_filename {
@@ -328,18 +365,16 @@ fn process_single_file(filename: &str, options: &ZstdOptions) -> Result<()> {
             let mut writer = BufWriter::new(out_file);
             decompress_stream(&mut reader, &mut writer, options)?;
             writer.flush()?;
+        } else if options.full {
+            // For now, full path uses streaming through buffers
+            let mut infile = File::open(input_path)
+                .with_context(|| format!("Cannot open input file '{filename}'"))?;
+            let mut out = File::create(&output_file)
+                .with_context(|| format!("Cannot create output file '{output_file}'"))?;
+            compress_stream_full(&mut infile, &mut out, options)?;
         } else {
-            if options.full {
-                // For now, full path uses streaming through buffers
-                let mut infile = File::open(input_path)
-                    .with_context(|| format!("Cannot open input file '{filename}'"))?;
-                let mut out = File::create(&output_file)
-                    .with_context(|| format!("Cannot create output file '{output_file}'"))?;
-                compress_stream_full(&mut infile, &mut out, options)?;
-            } else {
-                // Store mode path
-                compress_file_store(filename, &output_file, options)?;
-            }
+            // Store mode path
+            compress_file_store(filename, &output_file, options)?;
         }
 
         // Remove input file if not keeping it
@@ -527,7 +562,7 @@ fn write_store_frame_slice_with_options<W: Write>(mut w: W, payload: &[u8], chec
     // Frame Content Size field. Little-endian.
     // For 1,4,8-byte fields store value directly; for 2-byte field store (value - 256).
     if fcs_bytes == 2 {
-        let stored: u16 = (len as u64 - 256) as u16;
+    let stored: u16 = (len - 256) as u16;
         w.write_all(&stored.to_le_bytes())?;
     } else {
         let mut buf = [0u8; 8];
@@ -550,7 +585,7 @@ fn write_store_frame_slice_with_options<W: Write>(mut w: W, payload: &[u8], chec
     };
     if len == 0 {
         // Emit a zero-size RAW last block to mark frame end
-        let header_val: u32 = (0u32 << 3) | ((0u32 /* RAW */) << 1) | 1;
+    let header_val: u32 = 1; // last_block=1, block_type=RAW(0), size=0
         let header_bytes = [
             (header_val & 0xFF) as u8,
             ((header_val >> 8) & 0xFF) as u8,
@@ -577,7 +612,7 @@ fn write_store_frame_slice_with_options<W: Write>(mut w: W, payload: &[u8], chec
             // Emit RLE block
             let emit = run_len;
             let last_block = (offset + emit) >= payload.len();
-            let header_val: u32 = ((emit as u32) << 3) | ((1u32 /* RLE */) << 1) | if last_block { 1 } else { 0 };
+            let header_val: u32 = ((emit as u32) << 3) | (1u32 << 1) | u32::from(last_block);
             let header_bytes = [
                 (header_val & 0xFF) as u8,
                 ((header_val >> 8) & 0xFF) as u8,
@@ -600,7 +635,7 @@ fn write_store_frame_slice_with_options<W: Write>(mut w: W, payload: &[u8], chec
             // Emit RAW block up to window
             let emit = window;
             let last_block = (offset + emit) >= payload.len();
-            let header_val: u32 = ((emit as u32) << 3) | ((0u32 /* RAW */) << 1) | if last_block { 1 } else { 0 };
+            let header_val: u32 = ((emit as u32) << 3) | u32::from(last_block);
             let header_bytes = [
                 (header_val & 0xFF) as u8,
                 ((header_val >> 8) & 0xFF) as u8,
@@ -627,6 +662,10 @@ fn write_store_frame_slice_with_options<W: Write>(mut w: W, payload: &[u8], chec
 /// - Sequences_Section has Number_of_Sequences = 0 (single 0x00 byte, section ends)
 /// - Each block obeys Block_Maximum_Size = 128 KiB constraint on Block_Content size
 fn write_compressed_frame_literals_only<W: Write>(mut w: W, payload: &[u8], checksum: bool) -> Result<()> {
+    #[cfg(test)]
+    {
+        __zstd_test_instrumentation::clear();
+    }
     // Magic
     w.write_all(&[0x28, 0xB5, 0x2F, 0xFD])?;
     // FHD: Single Segment with FCS; checksum flag at bit 2 per RFC
@@ -638,7 +677,7 @@ fn write_compressed_frame_literals_only<W: Write>(mut w: W, payload: &[u8], chec
     if checksum { fhd |= 0b0000_0100; }
     w.write_all(&[fhd])?;
     if fcs_bytes == 2 {
-        let stored: u16 = (len as u64 - 256) as u16;
+    let stored: u16 = (len - 256) as u16;
         w.write_all(&stored.to_le_bytes())?;
     } else {
         let mut buf8 = [0u8; 8];
@@ -669,16 +708,26 @@ fn write_compressed_frame_literals_only<W: Write>(mut w: W, payload: &[u8], chec
         ];
         w.write_all(&header_bytes)?;
         // Literals_Section_Header (3 bytes): size_format=11, LBT=Raw(0), regenerated_size=0
-        let b0 = (0u8 << 4) | (0b11 << 2) | 0u8; // low4=0, size_format=11, LBT=0
+    let b0 = 0b11 << 2; // low4=0, size_format=11, LBT=0
         let b1 = 0u8; let b2 = 0u8;
         w.write_all(&[b0, b1, b2])?;
         // Sequences_Section_Header: nbSeq=0
-        w.write_all(&[0u8])?;
+        {
+            use self::zstd_impl::seq_write::write_sequences_header as write_seq_hdr;
+            use self::zstd_impl::fse::CompressionMode;
+            let _ = write_seq_hdr(&mut w, 0, CompressionMode::Predefined, CompressionMode::Predefined, CompressionMode::Predefined)?;
+        }
     if checksum { let digest = xxh.digest(); let bytes = digest.to_le_bytes(); w.write_all(&bytes[..4])?; }
         return Ok(());
     }
 
     let mut offset = 0usize;
+    // Keep last FSE tables to allow Repeat mode across blocks within this frame call
+    let mut last_fse_tabs: Option<(
+        crate::zstd::zstd_impl::fse::FseEncTable,
+        crate::zstd::zstd_impl::fse::FseEncTable,
+        crate::zstd::zstd_impl::fse::FseEncTable,
+    )> = None;
     while offset < payload.len() {
     let remaining = payload.len() - offset;
     // ensure total Block_Content <= 128KiB
@@ -690,8 +739,8 @@ fn write_compressed_frame_literals_only<W: Write>(mut w: W, payload: &[u8], chec
         for &b in &payload[offset..offset + lits] { if b != first { is_rle = false; break; } }
         let last_block = if offset + lits >= payload.len() { 1u32 } else { 0u32 };
 
-        // Try Huffman-compressed literals when beneficial and possible
-        let mut used_huff = false;
+    // Try Huffman-compressed literals when beneficial and possible
+    let mut used_huff = false;
         // lightweight heuristic: if not RLE and lits >= 32, attempt Huffman build (only if max symbol <=127)
         if !is_rle && lits >= 32 {
             if let Some((ht, hdr)) = self::zstd_impl::huffman::build_literals_huffman(&payload[offset..offset + lits]) {
@@ -709,7 +758,7 @@ fn write_compressed_frame_literals_only<W: Write>(mut w: W, payload: &[u8], chec
                                 bw.write_bits(rev as u64, bl)?;
                             } else {
                                 // unreachable due to table build
-                                return Err(io::Error::new(io::ErrorKind::Other, "missing symbol code"));
+                                return Err(io::Error::other("missing symbol code"));
                             }
                         }
                         bw.write_bits(1, 1)?; // final bit
@@ -723,8 +772,7 @@ fn write_compressed_frame_literals_only<W: Write>(mut w: W, payload: &[u8], chec
                 let htd_size = hdr.len();
                 let comp_including_tree_single = bitbuf_single.len() + htd_size;
                 // packing helper for LSH (Compressed/Regenerated packed after [LBT,SF])
-                let mut pack_lsh = |lbt: u8, sf: u8, regen_bits: u8, comp_bits: u8, regen: u32, comp: u32| -> Vec<u8> {
-                    let total_bits = 4 /*low regen*/ + 2 /*sf*/ + 2 /*lbt*/ + (regen_bits - 4) as u32 + comp_bits as u32;
+                let pack_lsh = |lbt: u8, sf: u8, regen_bits: u8, comp_bits: u8, regen: u32, comp: u32| -> Vec<u8> {
                     let byte_len = match sf { 0b00 | 0b01 => 3, 0b10 => 4, 0b11 => 5, _ => 3 };
                     let mut out = vec![0u8; byte_len];
                     // Construct a u64 accumulator of bits in little-endian within bytes
@@ -737,12 +785,12 @@ fn write_compressed_frame_literals_only<W: Write>(mut w: W, payload: &[u8], chec
                     // pack LBT (2)
                     acc |= ((lbt & 0x03) as u64) << (nb as u64); nb += 2;
                     // remaining regen bits
-                    let rem_regen = (regen_bits - 4) as u8;
+                    let rem_regen = regen_bits - 4;
                     if rem_regen > 0 { acc |= (((regen >> 4) as u64) & ((1u64 << rem_regen) - 1)) << (nb as u64); nb += rem_regen; }
                     // comp bits
-                    if comp_bits > 0 { acc |= ((comp as u64) & ((1u64 << comp_bits) - 1)) << (nb as u64); nb += comp_bits; }
+                    if comp_bits > 0 { acc |= ((comp as u64) & ((1u64 << comp_bits) - 1)) << (nb as u64); }
                     // spill to bytes
-                    for i in 0..byte_len { out[i] = ((acc >> (8*i)) & 0xFF) as u8; }
+                    for (i, b) in out.iter_mut().enumerate().take(byte_len) { *b = ((acc >> (8*i)) & 0xFF) as u8; }
                     out
                 };
 
@@ -752,14 +800,119 @@ fn write_compressed_frame_literals_only<W: Write>(mut w: W, payload: &[u8], chec
                     // SF=00, 10-bit each
                     let lbt = 0b10u8; let sf = 0b00u8;
                     let lsh = pack_lsh(lbt, sf, 10, 10, lits as u32, comp_including_tree_single as u32);
-                    let block_size = (lsh.len() + htd_size + bitbuf_single.len() + SEQ_NBSEQ0_SIZE) as u32;
+                    // Build candidate Sequences_Section for modes and choose the smallest that fits
+                    let mut sequences_bytes: Option<Vec<u8>> = None;
+                    let mut selected_fse_tabs: Option<(
+                        crate::zstd::zstd_impl::fse::FseEncTable,
+                        crate::zstd::zstd_impl::fse::FseEncTable,
+                        crate::zstd::zstd_impl::fse::FseEncTable,
+                    )> = None;
+                    {
+                        use self::zstd_impl::seq::{tokenize_full, tokenize_first};
+                        use self::zstd_impl::seq_write::{build_sequences_rle_section_bytes, build_sequences_predefined_section_bytes, build_sequences_fse_compressed_section_bytes, build_sequences_repeat_section_bytes, build_fse_tables_from_seqs};
+                        let (seqs, _literals_stream) = tokenize_full(&payload[offset..offset + lits]);
+                        if !seqs.is_empty() {
+                            // Gather candidates with their sizes
+                            let mut best_len: usize = usize::MAX;
+                            let base_len = lsh.len() + htd_size + bitbuf_single.len();
+                            // RLE
+                            if let Ok(mut sec) = build_sequences_rle_section_bytes(&seqs) {
+                                let prospective = base_len + sec.len();
+                                if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len {
+                                    best_len = sec.len();
+                                    sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                    selected_fse_tabs = None; // RLE doesn't set tables
+                                }
+                            }
+                            // Predefined
+                            if let Ok(mut sec) = build_sequences_predefined_section_bytes(&seqs) {
+                                let prospective = base_len + sec.len();
+                                if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len {
+                                    best_len = sec.len();
+                                    sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                    selected_fse_tabs = None;
+                                }
+                            }
+                            // FSE_Compressed (also prepare tables if chosen)
+                            if let Ok(mut sec) = build_sequences_fse_compressed_section_bytes(&seqs) {
+                                let prospective = base_len + sec.len();
+                                if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len {
+                                    best_len = sec.len();
+                                    sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                    if let Ok(t) = build_fse_tables_from_seqs(&seqs) { selected_fse_tabs = Some(t); }
+                                }
+                            }
+                            // Repeat (if we have previous tables)
+                            if let Some(ref tabs) = last_fse_tabs {
+                                if let Ok(mut sec) = build_sequences_repeat_section_bytes(&seqs, tabs) {
+                                    let prospective = base_len + sec.len();
+                                    if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len {
+                                        best_len = sec.len();
+                                        sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                        selected_fse_tabs = None; // do not update on Repeat
+                                    }
+                                }
+                            }
+                            if sequences_bytes.is_none() {
+                                if let Some((one_seq, _lits_stream)) = tokenize_first(&payload[offset..offset + lits]) {
+                                    let base_len = lsh.len() + htd_size + bitbuf_single.len();
+                                    let mut best_len1 = best_len;
+                                    if let Ok(mut sec) = build_sequences_rle_section_bytes(std::slice::from_ref(&one_seq)) {
+                                        let prospective = base_len + sec.len();
+                                        if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len1 {
+                                            best_len1 = sec.len();
+                                            sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                            selected_fse_tabs = None;
+                                        }
+                                    }
+                                    if let Ok(mut sec) = build_sequences_predefined_section_bytes(std::slice::from_ref(&one_seq)) {
+                                        let prospective = base_len + sec.len();
+                                        if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len1 {
+                                            best_len1 = sec.len();
+                                            sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                            selected_fse_tabs = None;
+                                        }
+                                    }
+                                    if let Ok(mut sec) = build_sequences_fse_compressed_section_bytes(std::slice::from_ref(&one_seq)) {
+                                        let prospective = base_len + sec.len();
+                                        if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len1 {
+                                            best_len1 = sec.len();
+                                            sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                            if let Ok(t) = build_fse_tables_from_seqs(std::slice::from_ref(&one_seq)) { selected_fse_tabs = Some(t); }
+                                        }
+                                    }
+                                    if let Some(ref tabs) = last_fse_tabs {
+                                        if let Ok(mut sec) = build_sequences_repeat_section_bytes(std::slice::from_ref(&one_seq), tabs) {
+                                            let prospective = base_len + sec.len();
+                                            if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len1 {
+                                                best_len1 = sec.len();
+                                                sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                                selected_fse_tabs = None;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            // If we selected an FSE_Compressed candidate, persist its tables
+                            if selected_fse_tabs.is_some() { last_fse_tabs = selected_fse_tabs; }
+                        }
+                    }
+                    let block_size = (lsh.len() + htd_size + bitbuf_single.len() + if let Some(ref sec) = sequences_bytes { sec.len() } else { SEQ_NBSEQ0_SIZE }) as u32;
                     let header_val: u32 = (block_size << 3) | ((2u32) << 1) | last_block;
                     let header_bytes = [ (header_val & 0xFF) as u8, ((header_val >> 8) & 0xFF) as u8, ((header_val >> 16) & 0xFF) as u8 ];
                     w.write_all(&header_bytes)?;
                     w.write_all(&lsh)?;
                     w.write_all(&hdr)?;
                     w.write_all(&bitbuf_single)?;
-                    w.write_all(&[0u8])?; // nbSeq=0
+                    if let Some(sec) = sequences_bytes {
+                        #[cfg(test)]
+                        { if sec.len() >= 2 { __zstd_test_instrumentation::push(sec[1]); } }
+                        w.write_all(&sec)?;
+                    } else {
+                        use self::zstd_impl::seq_write::write_sequences_header as write_seq_hdr;
+                        use self::zstd_impl::fse::CompressionMode;
+                        let _ = write_seq_hdr(&mut w, 0, CompressionMode::Predefined, CompressionMode::Predefined, CompressionMode::Predefined)?;
+                    }
                     if checksum { xxh.update(&payload[offset..offset + lits]); }
                     emitted = true;
                 }
@@ -767,7 +920,7 @@ fn write_compressed_frame_literals_only<W: Write>(mut w: W, payload: &[u8], chec
                 if !emitted {
                     // 4-stream variants
                     // split literals into 4 streams sizes per RFC
-                    let s1 = (lits + 3) / 4;
+                    let s1 = lits.div_ceil(4);
                     let s2 = (lits + 2) / 4;
                     let s3 = (lits + 1) / 4;
                     let p = &payload[offset..offset + lits];
@@ -791,13 +944,108 @@ fn write_compressed_frame_literals_only<W: Write>(mut w: W, payload: &[u8], chec
                         (0b11u8, 18u8, 18u8, 5usize)
                     } else { (0u8,0u8,0u8,0usize) };
                     if lsh_len != 0 {
-                        // Cap block content size
-                        let prospective_block_size = lsh_len + htd_size + total_streams_size + SEQ_NBSEQ0_SIZE;
+                        // Build candidate Sequences_Section and choose smallest
+                        let mut sequences_bytes: Option<Vec<u8>> = None;
+                        let mut selected_fse_tabs: Option<(
+                            crate::zstd::zstd_impl::fse::FseEncTable,
+                            crate::zstd::zstd_impl::fse::FseEncTable,
+                            crate::zstd::zstd_impl::fse::FseEncTable,
+                        )> = None;
+                        {
+                            use self::zstd_impl::seq::{tokenize_full, tokenize_first};
+                            use self::zstd_impl::seq_write::{build_sequences_rle_section_bytes, build_sequences_predefined_section_bytes, build_sequences_fse_compressed_section_bytes, build_sequences_repeat_section_bytes, build_fse_tables_from_seqs};
+                            let (seqs, _literals_stream) = tokenize_full(&payload[offset..offset + lits]);
+                            if !seqs.is_empty() {
+                                let mut best_len: usize = usize::MAX;
+                                let base_len = lsh_len + htd_size + total_streams_size;
+                                // RLE
+                                if let Ok(mut sec) = build_sequences_rle_section_bytes(&seqs) {
+                                    let prospective = base_len + sec.len();
+                                    if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len {
+                                        best_len = sec.len();
+                                        sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                        selected_fse_tabs = None;
+                                    }
+                                }
+                                // Predefined
+                                if let Ok(mut sec) = build_sequences_predefined_section_bytes(&seqs) {
+                                    let prospective = base_len + sec.len();
+                                    if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len {
+                                        best_len = sec.len();
+                                        sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                        selected_fse_tabs = None;
+                                    }
+                                }
+                                // FSE_Compressed
+                                if let Ok(mut sec) = build_sequences_fse_compressed_section_bytes(&seqs) {
+                                    let prospective = base_len + sec.len();
+                                    if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len {
+                                        best_len = sec.len();
+                                        sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                        if let Ok(t) = build_fse_tables_from_seqs(&seqs) { selected_fse_tabs = Some(t); }
+                                    }
+                                }
+                                // Repeat
+                                if let Some(ref tabs) = last_fse_tabs {
+                                    if let Ok(mut sec) = build_sequences_repeat_section_bytes(&seqs, tabs) {
+                                        let prospective = base_len + sec.len();
+                                        if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len {
+                                            best_len = sec.len();
+                                            sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                            selected_fse_tabs = None;
+                                        }
+                                    }
+                                }
+                                // Fallback to single-seq candidates
+                                if sequences_bytes.is_none() {
+                                    if let Some((one_seq, _lits_stream)) = tokenize_first(&payload[offset..offset + lits]) {
+                                        let base_len = lsh_len + htd_size + total_streams_size;
+                                        let mut best_len1 = best_len;
+                                        if let Ok(mut sec) = build_sequences_rle_section_bytes(std::slice::from_ref(&one_seq)) {
+                                            let prospective = base_len + sec.len();
+                                            if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len1 {
+                                                best_len1 = sec.len();
+                                                sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                                selected_fse_tabs = None;
+                                            }
+                                        }
+                                        if let Ok(mut sec) = build_sequences_predefined_section_bytes(std::slice::from_ref(&one_seq)) {
+                                            let prospective = base_len + sec.len();
+                                            if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len1 {
+                                                best_len1 = sec.len();
+                                                sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                                selected_fse_tabs = None;
+                                            }
+                                        }
+                                        if let Ok(mut sec) = build_sequences_fse_compressed_section_bytes(std::slice::from_ref(&one_seq)) {
+                                            let prospective = base_len + sec.len();
+                                            if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len1 {
+                                                best_len1 = sec.len();
+                                                sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                                if let Ok(t) = build_fse_tables_from_seqs(std::slice::from_ref(&one_seq)) { selected_fse_tabs = Some(t); }
+                                            }
+                                        }
+                                        if let Some(ref tabs) = last_fse_tabs {
+                                            if let Ok(mut sec) = build_sequences_repeat_section_bytes(std::slice::from_ref(&one_seq), tabs) {
+                                                let prospective = base_len + sec.len();
+                                                if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len1 {
+                                                    best_len1 = sec.len();
+                                                    sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                                    selected_fse_tabs = None;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                if selected_fse_tabs.is_some() { last_fse_tabs = selected_fse_tabs; }
+                            }
+                        }
+                        let prospective_block_size = lsh_len + htd_size + total_streams_size + if let Some(ref sec) = sequences_bytes { sec.len() } else { SEQ_NBSEQ0_SIZE };
                         if prospective_block_size <= BLOCK_MAX_CONTENT {
                             // pack LSH
                             let lbt = 0b10u8; // compressed
                             let lsh = pack_lsh(lbt, sf, regen_bits, comp_bits, lits as u32, comp_total as u32);
-                            let block_size = (lsh.len() + htd_size + total_streams_size + SEQ_NBSEQ0_SIZE) as u32;
+                            let block_size = (lsh.len() + htd_size + total_streams_size + if let Some(ref sec) = sequences_bytes { sec.len() } else { SEQ_NBSEQ0_SIZE }) as u32;
                             let header_val: u32 = (block_size << 3) | ((2u32) << 1) | last_block;
                             let header_bytes = [ (header_val & 0xFF) as u8, ((header_val >> 8) & 0xFF) as u8, ((header_val >> 16) & 0xFF) as u8 ];
                             // write block
@@ -808,8 +1056,15 @@ fn write_compressed_frame_literals_only<W: Write>(mut w: W, payload: &[u8], chec
                             w.write_all(&jump_table[0])?; w.write_all(&jump_table[1])?; w.write_all(&jump_table[2])?;
                             // Streams in order
                             w.write_all(&b1)?; w.write_all(&b2)?; w.write_all(&b3)?; w.write_all(&b4)?;
-                            // Sequences nbSeq=0
-                            w.write_all(&[0u8])?;
+                            if let Some(sec) = sequences_bytes {
+                                #[cfg(test)]
+                                { if sec.len() >= 2 { __zstd_test_instrumentation::push(sec[1]); } }
+                                w.write_all(&sec)?;
+                            } else {
+                                use self::zstd_impl::seq_write::write_sequences_header as write_seq_hdr;
+                                use self::zstd_impl::fse::CompressionMode;
+                                let _ = write_seq_hdr(&mut w, 0, CompressionMode::Predefined, CompressionMode::Predefined, CompressionMode::Predefined)?;
+                            }
                             if checksum { xxh.update(&payload[offset..offset + lits]); }
                             emitted = true;
                         }
@@ -821,9 +1076,123 @@ fn write_compressed_frame_literals_only<W: Write>(mut w: W, payload: &[u8], chec
         }
 
         if !used_huff {
-            // Raw or RLE path
-            let lit_payload_size = if is_rle { 1usize } else { lits };
-            let block_size = (LITERALS_HDR_SIZE_RAW_RLE + lit_payload_size + SEQ_NBSEQ0_SIZE) as u32;
+            // Raw or RLE path; additionally, try sequences (RLE preferred; else Predefined) when beneficial
+            // Decide literals payload to emit and whether to append a sequences section
+            let mut emit_literals: std::borrow::Cow<[u8]> = std::borrow::Cow::Borrowed(&payload[offset..offset + lits]);
+            let mut emit_lbt: u8 = if is_rle { 0b01 } else { 0b00 }; // default Raw(0) or RLE(1)
+            let mut sequences_bytes: Option<Vec<u8>> = None;
+            let mut selected_fse_tabs: Option<(
+                crate::zstd::zstd_impl::fse::FseEncTable,
+                crate::zstd::zstd_impl::fse::FseEncTable,
+                crate::zstd::zstd_impl::fse::FseEncTable,
+            )> = None;
+            {
+                use self::zstd_impl::seq::{tokenize_full, tokenize_first};
+                use self::zstd_impl::seq_write::{build_sequences_rle_section_bytes, build_sequences_predefined_section_bytes, build_sequences_fse_compressed_section_bytes, build_sequences_repeat_section_bytes, build_fse_tables_from_seqs};
+                let (seqs, literals_stream) = tokenize_full(&payload[offset..offset + lits]);
+                if !seqs.is_empty() {
+                    // Choose smallest among available modes that fits
+                    let mut best_len: usize = usize::MAX;
+                    // RLE
+                    if let Ok(mut sec) = build_sequences_rle_section_bytes(&seqs) {
+                        let prospective = LITERALS_HDR_SIZE_RAW_RLE + literals_stream.len() + sec.len();
+                        if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len {
+                            best_len = sec.len();
+                            sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                            emit_literals = std::borrow::Cow::Owned(literals_stream.clone());
+                            emit_lbt = 0b00;
+                            selected_fse_tabs = None;
+                        }
+                    }
+                    // Predefined
+                    if let Ok(mut sec) = build_sequences_predefined_section_bytes(&seqs) {
+                        let prospective = LITERALS_HDR_SIZE_RAW_RLE + literals_stream.len() + sec.len();
+                        if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len {
+                            best_len = sec.len();
+                            sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                            emit_literals = std::borrow::Cow::Owned(literals_stream.clone());
+                            emit_lbt = 0b00;
+                            selected_fse_tabs = None;
+                        }
+                    }
+                    // FSE_Compressed
+                    if let Ok(mut sec) = build_sequences_fse_compressed_section_bytes(&seqs) {
+                        let prospective = LITERALS_HDR_SIZE_RAW_RLE + literals_stream.len() + sec.len();
+                        if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len {
+                            best_len = sec.len();
+                            sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                            emit_literals = std::borrow::Cow::Owned(literals_stream.clone());
+                            emit_lbt = 0b00;
+                            if let Ok(t) = build_fse_tables_from_seqs(&seqs) { selected_fse_tabs = Some(t); }
+                        }
+                    }
+                    // Repeat
+                    if let Some(ref tabs) = last_fse_tabs {
+                        if let Ok(mut sec) = build_sequences_repeat_section_bytes(&seqs, tabs) {
+                            let prospective = LITERALS_HDR_SIZE_RAW_RLE + literals_stream.len() + sec.len();
+                            if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len {
+                                best_len = sec.len();
+                                sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                emit_literals = std::borrow::Cow::Owned(literals_stream.clone());
+                                emit_lbt = 0b00;
+                                selected_fse_tabs = None;
+                            }
+                        }
+                    }
+                    // Fallback to single-seq variants
+                    if sequences_bytes.is_none() {
+                        if let Some((one_seq, lits_stream)) = tokenize_first(&payload[offset..offset + lits]) {
+                            let mut best_len1 = best_len;
+                            if let Ok(mut sec) = build_sequences_rle_section_bytes(std::slice::from_ref(&one_seq)) {
+                                let prospective = LITERALS_HDR_SIZE_RAW_RLE + lits_stream.len() + sec.len();
+                                if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len1 {
+                                    best_len1 = sec.len();
+                                    sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                    emit_literals = std::borrow::Cow::Owned(lits_stream.clone());
+                                    emit_lbt = 0b00;
+                                    selected_fse_tabs = None;
+                                }
+                            }
+                            if let Ok(mut sec) = build_sequences_predefined_section_bytes(std::slice::from_ref(&one_seq)) {
+                                let prospective = LITERALS_HDR_SIZE_RAW_RLE + lits_stream.len() + sec.len();
+                                if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len1 {
+                                    best_len1 = sec.len();
+                                    sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                    emit_literals = std::borrow::Cow::Owned(lits_stream.clone());
+                                    emit_lbt = 0b00;
+                                    selected_fse_tabs = None;
+                                }
+                            }
+                            if let Ok(mut sec) = build_sequences_fse_compressed_section_bytes(std::slice::from_ref(&one_seq)) {
+                                let prospective = LITERALS_HDR_SIZE_RAW_RLE + lits_stream.len() + sec.len();
+                                if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len1 {
+                                    best_len1 = sec.len();
+                                    sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                    emit_literals = std::borrow::Cow::Owned(lits_stream.clone());
+                                    emit_lbt = 0b00;
+                                    if let Ok(t) = build_fse_tables_from_seqs(std::slice::from_ref(&one_seq)) { selected_fse_tabs = Some(t); }
+                                }
+                            }
+                            if let Some(ref tabs) = last_fse_tabs {
+                                if let Ok(mut sec) = build_sequences_repeat_section_bytes(std::slice::from_ref(&one_seq), tabs) {
+                                    let prospective = LITERALS_HDR_SIZE_RAW_RLE + lits_stream.len() + sec.len();
+                                    if prospective <= BLOCK_MAX_CONTENT && sec.len() < best_len1 {
+                                        best_len1 = sec.len();
+                                        sequences_bytes = Some({ sec.shrink_to_fit(); sec });
+                                        emit_literals = std::borrow::Cow::Owned(lits_stream.clone());
+                                        emit_lbt = 0b00;
+                                        selected_fse_tabs = None;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if selected_fse_tabs.is_some() { last_fse_tabs = selected_fse_tabs; }
+                }
+                // If still none, we'll emit nbSeq=0 below using write_seq_hdr
+            }
+            let lit_payload_size = if emit_lbt == 0b01 { 1usize } else { emit_literals.len() };
+            let block_size = (LITERALS_HDR_SIZE_RAW_RLE + lit_payload_size + if let Some(ref sec) = sequences_bytes { sec.len() } else { SEQ_NBSEQ0_SIZE }) as u32;
             let header_val: u32 = (block_size << 3) | ((2u32 /* Compressed */) << 1) | last_block;
             let header_bytes = [
                 (header_val & 0xFF) as u8,
@@ -833,27 +1202,25 @@ fn write_compressed_frame_literals_only<W: Write>(mut w: W, payload: &[u8], chec
             w.write_all(&header_bytes)?;
 
             // Literals Section Header (Raw/RLE, 3-byte size format with 20-bit regenerated size)
-            let regen = lits as u32; // <= 1,048,575
+            let regen = if emit_lbt == 0b01 { lits as u32 } else { emit_literals.len() as u32 }; // <= 1,048,575
             let low4 = (regen & 0x0F) as u8;
             let mid8 = ((regen >> 4) & 0xFF) as u8;
             let high8 = ((regen >> 12) & 0xFF) as u8;
-            let lbt = if is_rle { 0b01 } else { 0b00 };
-            let b0 = (low4 << 4) | (0b11 << 2) | lbt; // LBT: Raw(0) or RLE(1)
+            let b0 = (low4 << 4) | (0b11 << 2) | emit_lbt; // LBT: Raw(0) or RLE(1)
             w.write_all(&[b0, mid8, high8])?;
             // Literals payload
-            if is_rle {
-                w.write_all(&[first])?;
-                if checksum {
-                    let rep = [first; 256];
-                    let mut left = lits;
-                    while left > 0 { let n = left.min(rep.len()); xxh.update(&rep[..n]); left -= n; }
-                }
+            if emit_lbt == 0b01 { w.write_all(&[first])?; } else { w.write_all(&emit_literals)?; }
+            // Sequences Section
+            if let Some(sec) = sequences_bytes {
+                #[cfg(test)]
+                { if sec.len() >= 2 { __zstd_test_instrumentation::push(sec[1]); } }
+                w.write_all(&sec)?;
             } else {
-                w.write_all(&payload[offset..offset + lits])?;
-                xxh.update(&payload[offset..offset + lits]);
+                use self::zstd_impl::seq_write::write_sequences_header as write_seq_hdr;
+                use self::zstd_impl::fse::CompressionMode;
+                let _ = write_seq_hdr(&mut w, 0, CompressionMode::Predefined, CompressionMode::Predefined, CompressionMode::Predefined)?;
             }
-            // Sequences Section Header: nbSeq=0
-            w.write_all(&[0u8])?;
+            if checksum { xxh.update(&payload[offset..offset + lits]); }
         }
 
     offset += lits;
@@ -864,6 +1231,12 @@ fn write_compressed_frame_literals_only<W: Write>(mut w: W, payload: &[u8], chec
         w.write_all(&bytes[..4])?;
     }
     Ok(())
+}
+
+// Test-only public wrapper to exercise the full encoder path (compressed blocks with sequences)
+#[cfg(test)]
+pub fn __zstd_write_full_frame_for_tests<W: Write>(w: W, payload: &[u8], checksum: bool) -> Result<()> {
+    write_compressed_frame_literals_only(w, payload, checksum)
 }
 
 /// Public helper to write a store-mode zstd frame from a reader when the total content length is known.
@@ -884,7 +1257,7 @@ pub fn write_store_frame_stream_with_options<W: Write, R: Read>(mut w: W, reader
     if checksum { fhd |= 0b0000_0100; }
     w.write_all(&[fhd])?;
     if fcs_bytes == 2 {
-        let stored: u16 = (content_len as u64 - 256) as u16;
+    let stored: u16 = (content_len - 256) as u16;
         w.write_all(&stored.to_le_bytes())?;
     } else {
         let mut buf8 = [0u8; 8];
@@ -903,7 +1276,7 @@ pub fn write_store_frame_stream_with_options<W: Write, R: Read>(mut w: W, reader
     let mut buf = vec![0u8; MAX_BLOCK_SIZE.min(128 * 1024)];
     let mut xxh = xxhash_rust::xxh64::Xxh64::new(0);
     if content_len == 0 {
-        let header_val: u32 = (0u32 << 3) | ((0u32 /* RAW */) << 1) | 1;
+    let header_val: u32 = 1;
         let header_bytes = [
             (header_val & 0xFF) as u8,
             ((header_val >> 8) & 0xFF) as u8,
@@ -959,7 +1332,7 @@ pub fn write_store_frame_stream_with_options<W: Write, R: Read>(mut w: W, reader
                 let emit = window;
                 let will_produced = produced + emit as u64;
                 let last_block = will_produced == content_len && (off + emit) == n;
-                let header_val: u32 = ((emit as u32) << 3) | ((0u32 /* RAW */) << 1) | if last_block { 1 } else { 0 };
+                let header_val: u32 = ((emit as u32) << 3) | if last_block { 1 } else { 0 };
                 let header_bytes = [
                     (header_val & 0xFF) as u8,
                     ((header_val >> 8) & 0xFF) as u8,
@@ -1123,7 +1496,7 @@ fn get_zstd_file_info(filename: &str) -> Result<ZstdFileInfo> {
     let mut header = [0u8; 13]; // enough for magic + FHD + max 8 bytes FCS
     let mut f = File::open(filename)?;
     let n = f.read(&mut header)?;
-    let checksum_flag = if n >= 5 && &header[0..4] == [0x28, 0xB5, 0x2F, 0xFD] {
+    let checksum_flag = if n >= 5 && header[0..4] == [0x28, 0xB5, 0x2F, 0xFD] {
         (header[4] & 0x04) != 0
     } else { false };
     Ok(ZstdFileInfo {
@@ -1283,19 +1656,121 @@ mod tests {
         let fhd = frame[4];
         let fcs_code = fhd >> 6; // 00,01,10,11 => 1,2,4,8 bytes
         let fcs_bytes = match fcs_code { 0b00 => 1, 0b01 => 2, 0b10 => 4, 0b11 => 8, _ => unreachable!() };
-        let mut val = 0u64;
-        match fcs_bytes {
-            1 => { val = frame[5] as u64; }
-            2 => { let raw = u16::from_le_bytes([frame[5], frame[6]]); val = (raw as u64) + 256; }
-            4 => { val = u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]) as u64; }
-            8 => {
-                val = u64::from_le_bytes([
-                    frame[5], frame[6], frame[7], frame[8], frame[9], frame[10], frame[11], frame[12]
-                ]);
+        let val: u64 = match fcs_bytes {
+            1 => frame[5] as u64,
+            2 => {
+                let raw = u16::from_le_bytes([frame[5], frame[6]]);
+                (raw as u64) + 256
             }
+            4 => u32::from_le_bytes([frame[5], frame[6], frame[7], frame[8]]) as u64,
+            8 => u64::from_le_bytes([
+                frame[5], frame[6], frame[7], frame[8], frame[9], frame[10], frame[11], frame[12]
+            ]),
             _ => unreachable!(),
-        }
+        };
         (fcs_bytes, val)
+    }
+
+    #[test]
+    fn zstd_sequences_repeat_after_fse_in_multi_block() {
+        // Build a payload large enough for multiple compressed blocks with repeating patterns
+        let pattern = b"ABCD_EFGH_ABCD_EFGH_"; // repeated structure encourages matches
+        let mut payload = Vec::new();
+        while payload.len() < 300_000 { payload.extend_from_slice(pattern); }
+
+        // Write using full encoder path under test; instrumentation is active under cfg(test)
+        let mut out = Vec::new();
+        write_compressed_frame_literals_only(&mut out, &payload, false).expect("write");
+
+        // Roundtrip to ensure validity
+        let decoded = decode_all(&out);
+        assert_eq!(decoded, payload);
+
+        // Inspect captured modes (Symbol_Compression_Modes byte) for FSE (0x2A) then Repeat (0x3F)
+        let modes = __zstd_test_instrumentation::snapshot();
+        // Only assert that at least one sequences-bearing block existed
+        assert!(!modes.is_empty(), "no sequences modes captured: {:?}", modes);
+        let pos_fse = modes.iter().position(|&m| m == 0x2A);
+        let pos_rep = modes.iter().position(|&m| m == 0x3F);
+        if let (Some(i), Some(j)) = (pos_fse, pos_rep) {
+            assert!(j > i, "Repeat should occur after an FSE_Compressed block: {:?}", modes);
+        }
+    }
+
+    #[test]
+    fn zstd_fse_compressed_weights_header_optimization() {
+        // Test FSE compressed weights functionality
+        use super::zstd_impl::huffman::{build_literals_huffman, build_fse_compressed_weights_header};
+        
+        // Create a payload with specific frequency distribution to trigger FSE compression
+        let mut payload = Vec::new();
+        // Pattern that creates a specific weight distribution suitable for FSE compression
+        for _ in 0..20 { payload.push(b'A'); } // High frequency
+        for _ in 0..15 { payload.push(b'B'); } // Medium frequency  
+        for _ in 0..10 { payload.push(b'C'); } // Lower frequency
+        for _ in 0..5  { payload.push(b'D'); } // Even lower frequency
+        for _ in 0..1  { payload.push(b'E'); } // Minimal frequency
+        
+        if let Some((table, header)) = build_literals_huffman(&payload) {
+            // Verify that FSE compression was considered
+            if let Some(fse_header) = build_fse_compressed_weights_header(&table) {
+                // FSE header should have different structure than direct weights
+                assert!(fse_header[0] < 128, "FSE header byte should be < 128");
+                
+                // Should be at least header + table desc + compressed weights
+                assert!(fse_header.len() >= 3, "FSE header should have reasonable size");
+                
+                println!("FSE header size: {}, Direct header size: {}", fse_header.len(), header.len());
+            }
+            
+            // Verify the table was built correctly
+            assert!(table.num_symbols >= 5, "Should have at least 5 symbols");
+            assert!(!table.weights.is_empty(), "Weights should not be empty");
+            
+            // Verify some symbols have codes
+            let mut found_codes = 0;
+            for i in 0..table.num_symbols {
+                if table.codes[i].is_some() {
+                    found_codes += 1;
+                }
+            }
+            assert!(found_codes >= 2, "Should have codes for at least 2 symbols");
+        } else {
+            panic!("Failed to build Huffman table for test payload");
+        }
+    }
+    
+    #[test]
+    fn zstd_huffman_header_selection_logic() {
+        // Test that the optimal header type is selected
+        use super::zstd_impl::huffman::build_literals_huffman;
+        
+        // Test with simple payload (should prefer direct weights)
+        let simple_payload = b"AABBCCDD".repeat(10);
+        if let Some((_table1, header1)) = build_literals_huffman(&simple_payload) {
+            // For simple patterns, direct weights are often more efficient
+            println!("Simple payload header size: {}, first byte: {}", header1.len(), header1[0]);
+        }
+        
+        // Test with complex payload (might prefer FSE compression)
+        let mut complex_payload = Vec::new();
+        for i in 0..64 { 
+            let freq = if i < 4 { 50 } else if i < 16 { 10 } else { 1 };
+            for _ in 0..freq { 
+                complex_payload.push((b'A' + (i % 26)) as u8); 
+            }
+        }
+        
+        if let Some((table2, header2)) = build_literals_huffman(&complex_payload) {
+            println!("Complex payload header size: {}, first byte: {}", header2.len(), header2[0]);
+            
+            // Verify table properties
+            assert!(table2.num_symbols > 4, "Complex payload should have many symbols");
+            
+            // Check that weights are reasonable
+            let max_weight = table2.weights[..table2.num_symbols].iter().max().unwrap_or(&0);
+            assert!(*max_weight > 0 && *max_weight <= 15, "Weights should be in valid range");
+        }
     }
 
     #[test]

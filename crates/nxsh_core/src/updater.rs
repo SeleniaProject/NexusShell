@@ -32,6 +32,7 @@ fn home_dir_fallback() -> Option<std::path::PathBuf> {
 }
 
 /// Comprehensive update system with delta updates and signature verification
+#[allow(dead_code)] // アップデート監視の一部は未配線
 pub struct UpdateSystem {
     config: UpdateConfig,
     update_info: Arc<RwLock<Option<UpdateInfo>>>,
@@ -639,21 +640,21 @@ impl UpdateSystem {
 
         // Verify checksum
         let file_data = fs::read(file_path)
-            .with_context(|| format!("Failed to read update file: {:?}", file_path))?;
+            .with_context(|| format!("Failed to read update file: {file_path:?}"))?;
 
     let mut hasher = Sha256::new();
     hasher.update(&file_data);
     let calculated_hash = hasher.finalize();
-    let calculated_hex = format!("{:x}", calculated_hash);
+    let calculated_hex = format!("{calculated_hash:x}");
 
-        if !expected_checksum_hex.is_empty() {
-            if expected_checksum_hex.to_ascii_lowercase() != calculated_hex {
-                return Err(crate::anyhow!(
-                    "checksum mismatch: expected {}, got {}",
-                    expected_checksum_hex,
-                    calculated_hex
-                ));
-            }
+        if !expected_checksum_hex.is_empty()
+            && expected_checksum_hex.to_ascii_lowercase() != calculated_hex
+        {
+            return Err(crate::anyhow!(
+                "checksum mismatch: expected {}, got {}",
+                expected_checksum_hex,
+                calculated_hex
+            ));
         }
 
         // Verify signature if enabled
@@ -667,7 +668,7 @@ impl UpdateSystem {
     }
 
     /// Verify cryptographic signature
-    fn verify_signature(&self, data: &[u8], signature_b64: &str, key_fingerprint: &str) -> Result<()> {
+    fn verify_signature(&self, _data: &[u8], _signature_b64: &str, key_fingerprint: &str) -> Result<()> {
         let keys = self.verification_keys.read().unwrap();
         
         let key_name = keys.fingerprint_to_name.get(key_fingerprint)
@@ -712,12 +713,12 @@ impl UpdateSystem {
             verifying_key.verify(data, &sig)
                 .map_err(|_| crate::anyhow!("signature verification failed"))?;
             info!("Signature verification completed");
-            return Ok(());
+            Ok(())
         }
         #[cfg(not(feature = "crypto-ed25519"))]
         {
             debug!(key_name = %key_name, "Signature verification skipped (feature 'crypto-ed25519' disabled)");
-            return Ok(());
+            Ok(())
         }
     }
 
@@ -800,7 +801,7 @@ impl UpdateSystem {
         // Locate current binary and read old bytes
         let current_exe = std::env::current_exe()
             .map_err(|e| crate::anyhow!("failed to locate current exe: {e}"))?;
-    let old_bytes = fs::read(&current_exe)?;
+    let _old_bytes = fs::read(&current_exe)?;
 
         // Read delta file into memory
         let delta = fs::read(delta_path)?;
@@ -813,9 +814,9 @@ impl UpdateSystem {
         // Guard for feature availability
         #[cfg(not(feature = "delta-bspatch"))]
         {
-            return Err(crate::anyhow!(
+            Err(crate::anyhow!(
                 "delta-bspatch feature disabled: rebuild with 'delta-bspatch' feature to enable bspatch"
-            ));
+            ))
         }
 
         #[cfg(feature = "delta-bspatch")]
@@ -966,7 +967,7 @@ impl UpdateSystem {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        let tmp_path = dir.join(format!("nxsh_new_{}.tmp", ts));
+    let tmp_path = dir.join(format!("nxsh_new_{ts}.tmp"));
         fs::write(&tmp_path, new_bytes)?;
 
         // On Unix, attempt atomic replacement; on Windows, use marker for next restart
@@ -996,7 +997,7 @@ impl UpdateSystem {
         let backup_path = self
             .config
             .backup_dir
-            .join(format!("nxsh-backup-{}.bin", update_id));
+            .join(format!("nxsh-backup-{update_id}.bin"));
         
         info!(path = ?backup_path, "Creating backup");
         fs::create_dir_all(&self.config.backup_dir)?;
@@ -1025,7 +1026,7 @@ impl UpdateSystem {
             std::fs::rename(&tmp, &current_exe)
                 .map_err(|e| crate::anyhow!("failed to replace current binary: {}", e))?;
         info!("Rollback completed successfully");
-            return Ok(());
+            Ok(())
         }
         #[cfg(windows)]
         {
@@ -1036,7 +1037,7 @@ impl UpdateSystem {
             let marker = dir.join("nxsh_rollback_pending.txt");
             fs::write(&marker, staged.file_name().unwrap().to_string_lossy().as_bytes())?;
             info!("Rollback staged; will be applied on next restart");
-            return Ok(());
+            Ok(())
         }
     }
 
@@ -1122,21 +1123,19 @@ impl UpdateSystem {
     fn load_verification_keys_from_files_if_present(&self) -> Result<()> {
         let path = if let Ok(p) = std::env::var("NXSH_UPDATE_KEYS_PATH") {
             std::path::PathBuf::from(p)
+        } else if let Some(mut home) = home_dir_fallback() {
+            home.push(".nxsh");
+            home.push("keys");
+            home.push("update_keys.json");
+            home
         } else {
-            if let Some(mut home) = home_dir_fallback() {
-                home.push(".nxsh");
-                home.push("keys");
-                home.push("update_keys.json");
-                home
-            } else {
-                return Ok(());
-            }
+            return Ok(());
         };
         if !path.exists() { return Ok(()); }
         let contents = std::fs::read_to_string(&path)
-            .with_context(|| format!("Failed to read {:?}", path))?;
+            .with_context(|| format!("Failed to read {path:?}"))?;
         let map: HashMap<String, String> = serde_json::from_str(&contents)
-            .with_context(|| format!("Invalid JSON in {:?}", path))?;
+            .with_context(|| format!("Invalid JSON in {path:?}"))?;
         let mut keys = self.verification_keys.write().unwrap();
         for (name, material) in map {
             let fp = compute_key_fingerprint(&material)?;
@@ -1158,15 +1157,13 @@ impl UpdateSystem {
         };
         let path = if let Ok(p) = std::env::var("NXSH_UPDATE_KEYS_PATH") {
             std::path::PathBuf::from(p)
-        } else {
-            if let Some(mut home) = home_dir_fallback() {
-                home.push(".nxsh");
-                home.push("keys");
-                let _ = std::fs::create_dir_all(&home);
-                home.push("update_keys.json");
-                home
-            } else { return Ok(()); }
-        };
+        } else if let Some(mut home) = home_dir_fallback() {
+            home.push(".nxsh");
+            home.push("keys");
+            let _ = std::fs::create_dir_all(&home);
+            home.push("update_keys.json");
+            home
+        } else { return Ok(()); };
         // Backup with epoch suffix
         if path.exists() {
             if let Ok(dur) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
@@ -1177,9 +1174,9 @@ impl UpdateSystem {
         // Write atomically via temp
         let tmp = path.with_extension("json.tmp");
         std::fs::write(&tmp, new_json.as_bytes())
-            .with_context(|| format!("Failed to write temp file for {:?}", path))?;
+            .with_context(|| format!("Failed to write temp file for {path:?}"))?;
         std::fs::rename(&tmp, &path)
-            .with_context(|| format!("Failed to replace {:?}", path))?;
+            .with_context(|| format!("Failed to replace {path:?}"))?;
         Ok(())
     }
 } 

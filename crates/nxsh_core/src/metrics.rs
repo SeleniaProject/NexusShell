@@ -1,4 +1,3 @@
-#![cfg(feature = "metrics")]
 //! Comprehensive metrics collection and monitoring for NexusShell
 //!
 //! This module provides detailed metrics collection for monitoring shell performance,
@@ -15,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 /// Comprehensive metrics system with Prometheus format support
+#[allow(dead_code)] // ランタイム集計の将来拡張用フィールドが未参照
 pub struct MetricsSystem {
     config: MetricsConfig,
     statistics: Arc<MetricsStatistics>,
@@ -540,7 +540,7 @@ impl MetricsSystem {
         let registry = self.prometheus_registry.read().unwrap();
 
         // Export counters
-        for (_, counter) in &registry.counters {
+    for counter in registry.counters.values() {
             writeln!(&mut output, "# HELP {} {}", counter.name, counter.help)?;
             writeln!(&mut output, "# TYPE {} counter", counter.name)?;
             let value = counter.value.load(Ordering::Relaxed);
@@ -549,7 +549,7 @@ impl MetricsSystem {
         }
 
         // Export gauges
-        for (_, gauge) in &registry.gauges {
+    for gauge in registry.gauges.values() {
             writeln!(&mut output, "# HELP {} {}", gauge.name, gauge.help)?;
             writeln!(&mut output, "# TYPE {} gauge", gauge.name)?;
             let value = gauge.value.load(Ordering::Relaxed) as f64;
@@ -558,7 +558,7 @@ impl MetricsSystem {
         }
 
         // Export histograms
-        for (_, histogram) in &registry.histograms {
+    for histogram in registry.histograms.values() {
             writeln!(&mut output, "# HELP {} {}", histogram.name, histogram.help)?;
             writeln!(&mut output, "# TYPE {} histogram", histogram.name)?;
             let labels = format_labels(&histogram.labels);
@@ -623,7 +623,7 @@ fn format_labels(labels: &HashMap<String, String>) -> String {
     }
     
     let label_pairs: Vec<String> = labels.iter()
-        .map(|(k, v)| format!("{}=\"{}\"", k, v))
+        .map(|(k, v)| format!("{k}=\"{v}\""))
         .collect();
     
     format!("{{{}}}", label_pairs.join(","))

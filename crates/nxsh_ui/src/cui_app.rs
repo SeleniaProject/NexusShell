@@ -796,7 +796,7 @@ impl CUIApp {
             if nxsh_builtins::is_builtin_name(&cmd_name) {
                 let exit_code = match nxsh_builtins::execute_builtin(&cmd_name, &args_vec) {
                     Ok(()) => 0,
-                    Err(e) => { eprintln!("{}", e.to_string()); 1 }
+                    Err(e) => { eprintln!("{e}"); 1 }
                 };
                 // Update last exit code and metrics consistently
                 self.last_exit_code = exit_code;
@@ -826,7 +826,7 @@ impl CUIApp {
                 match executor.execute(&ast, &mut shell_context) {
                     Ok(result) => {
                         let out = self.format_execution_result(&result);
-                        (out, result.exit_code as i32)
+                        (out, result.exit_code)
                     }
                     Err(e) => {
                         let out = self.format_execution_error(&e);

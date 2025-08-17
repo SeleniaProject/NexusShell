@@ -129,6 +129,10 @@ impl StringInterner {
     }
 }
 
+impl Default for StringInterner {
+    fn default() -> Self { Self::new() }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct InternerStats {
     pub cache_hits: u64,
@@ -144,6 +148,7 @@ pub trait Poolable {
     fn new_for_pool() -> Self;
 }
 
+#[allow(dead_code)]
 pub struct ObjectPool<T: Poolable> {
     objects: Arc<RwLock<Vec<T>>>,
     max_size: usize,

@@ -12,7 +12,7 @@ use anyhow::{anyhow, Result};
 pub async fn lsusb_cli(args: &[String]) -> Result<()> {
     if !args.is_empty() { return Err(anyhow!("lsusb: no arguments supported yet")); }
     #[cfg(not(unix))]
-    { println!("lsusb: unsupported on this platform"); return Ok(()); }
+    { println!("lsusb: unsupported on this platform"); Ok(()) }
     #[cfg(unix)] {
         // Try external command first for full feature parity
         if which::which("lsusb").is_ok() {

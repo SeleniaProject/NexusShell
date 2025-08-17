@@ -124,16 +124,16 @@ fn render_segment(
                 let yi = py as i32;
                 if xi >= 0 && yi >= 0 && (xi as u32) < img.width() && (yi as u32) < img.height() {
                     let dst = img.get_pixel_mut(xi as u32, yi as u32);
-                    let sa = coverage as f32; // 0.0..1.0
+                    let sa = coverage; // 0.0..1.0
                     let da = dst[3] as f32 / 255.0;
                     let out_a = sa + da * (1.0 - sa);
                     for c in 0..3 {
                         let sc = color[c] as f32 / 255.0;
                         let dc = dst[c] as f32 / 255.0;
                         let out_c = (sc * sa + dc * da * (1.0 - sa)) / out_a.max(1e-6);
-                        dst[c] = (out_c * 255.0).min(255.0).max(0.0) as u8;
+                        dst[c] = (out_c * 255.0).clamp(0.0, 255.0) as u8;
                     }
-                    dst[3] = (out_a * 255.0).min(255.0) as u8;
+                    dst[3] = (out_a * 255.0).clamp(0.0, 255.0) as u8;
                 }
             });
         }

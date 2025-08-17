@@ -275,7 +275,7 @@ impl StructuredLogger {
         // ログディレクトリを作成
         if let Some(parent) = config.path.parent() {
             std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create log directory: {:?}", parent))?;
+                .with_context(|| format!("Failed to create log directory: {parent:?}"))?;
         }
         
         // ローテーションファイルアペンダーを作成

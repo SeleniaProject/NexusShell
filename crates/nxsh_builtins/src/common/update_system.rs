@@ -439,7 +439,7 @@ async fn download_update(system: &UpdateSystem, manifest: &UpdateManifest) -> Re
             status.last_downloaded_path = Some(download_path.clone());
             status.installation_status = InstallationStatus::Downloaded;
         }
-        return Ok(download_path);
+    Ok(download_path)
     }
 }
 

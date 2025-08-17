@@ -1,4 +1,3 @@
-#![cfg(feature = "crypto-verification")]
 use anyhow::{Result, Context};
 use std::{
     collections::HashMap,

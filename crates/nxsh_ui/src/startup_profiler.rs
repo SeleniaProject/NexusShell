@@ -4,6 +4,7 @@ use std::time::Instant;
 /// Global startup profiler for measuring early UI milestones.
 /// Enabled when environment variable `NXSH_MEASURE_STARTUP=1` is set
 /// or the CLI passed `--measure-startup` (which sets the env var).
+#[derive(Default)]
 pub struct StartupProfiler {
     /// Process start time provided by the CLI entry.
     start_cli: Option<Instant>,
@@ -15,16 +16,7 @@ pub struct StartupProfiler {
     first_prompt_flushed: Option<Instant>,
 }
 
-impl Default for StartupProfiler {
-    fn default() -> Self {
-        Self {
-            start_cli: None,
-            cui_init_done: None,
-            first_frame_flushed: None,
-            first_prompt_flushed: None,
-        }
-    }
-}
+// Default is derived
 
 static PROFILER: OnceLock<Mutex<StartupProfiler>> = OnceLock::new();
 
@@ -142,7 +134,6 @@ fn print_complete_summary() {
     let total_ms = p.first_prompt_flushed
         .or(p.first_frame_flushed)
         .or(p.cui_init_done)
-        .and_then(|t| Some(t))
         .and_then(|t| p.start_cli.map(|s| t.duration_since(s).as_millis()));
 
     if let Some(total) = total_ms {

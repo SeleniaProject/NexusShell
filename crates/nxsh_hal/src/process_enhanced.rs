@@ -508,11 +508,13 @@ mod tests {
 
     #[test]
     fn test_process_stats() {
-        let mut stats = ProcessStats::default();
-        stats.executions = 10;
-        stats.successful_executions = 8;
-        stats.failed_executions = 2;
-        stats.total_execution_time = Duration::from_millis(1000);
+        let stats = ProcessStats {
+            executions: 10,
+            successful_executions: 8,
+            failed_executions: 2,
+            total_execution_time: Duration::from_millis(1000),
+            ..Default::default()
+        };
         
         assert!((stats.success_rate() - 0.8).abs() < 0.001);
         assert_eq!(stats.avg_execution_time(), Duration::from_millis(100));

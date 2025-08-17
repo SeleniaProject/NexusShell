@@ -521,7 +521,7 @@ fn create_matcher(patterns: Vec<String>, options: &GrepOptions) -> Result<GrepMa
         let mut builder = RegexBuilder::new(&pattern);
         builder.case_insensitive(options.ignore_case);
         let regex = builder.build().map_err(|e| anyhow!("grep: invalid regex pattern: {}", e))?;
-        return Ok(GrepMatcher { regex: Some(regex), fancy_regex: None, aho_corasick: None, fixed_patterns: Vec::new(), options: options.clone() });
+    Ok(GrepMatcher { regex: Some(regex), fancy_regex: None, aho_corasick: None, fixed_patterns: Vec::new(), options: options.clone() })
     }
 
     #[cfg(not(feature = "advanced-regex"))]
@@ -768,7 +768,7 @@ fn find_matches_in_line(line: &str, matcher: &GrepMatcher) -> Vec<(usize, usize)
                 } else if let Some(pos) = line.find(pat) { matches.push((pos, pos + pat.len())); }
             }
         }
-        return matches;
+    matches
     }
     #[cfg(not(feature = "advanced-regex"))]
     {
@@ -822,10 +822,10 @@ fn search_recursive(dir: &str, matcher: &GrepMatcher, options: &GrepOptions) -> 
     if files.len() > 10 {
         #[cfg(feature = "parallel")]
         {
-            return Ok(files
+            return files
                 .par_iter()
                 .map(|filename| search_file(filename, matcher, options))
-                .collect::<Result<Vec<_>, _>>()?);
+                .collect::<Result<Vec<_>, _>>();
         }
         // Fallback sequential when parallel disabled
         #[cfg(not(feature = "parallel"))]

@@ -31,6 +31,7 @@ impl Default for ResourceLimits {
 }
 
 /// Pure Rust WASM Plugin Loader
+#[allow(dead_code)]
 pub struct WasmPluginLoader {
     engine: Engine,
     linker: Linker<PluginHostState>,
@@ -38,6 +39,7 @@ pub struct WasmPluginLoader {
 }
 
 /// Host state passed to WASM instances
+#[allow(dead_code)]
 pub struct PluginHostState {
     registrar: PluginRegistrar,
     security_context: SecurityContext,

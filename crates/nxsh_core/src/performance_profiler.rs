@@ -1,3 +1,4 @@
+type ProfilerHook = std::sync::Arc<dyn Fn(&mut PerformanceProfiler) -> Result<()> + Send + Sync>;
 use crate::compat::Result;
 use std::{
     collections::HashMap,
@@ -9,6 +10,7 @@ use sysinfo::{SystemExt, ProcessExt, CpuExt};
 
 /// Comprehensive performance monitoring and optimization system
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct PerformanceProfiler {
     metrics: Arc<Mutex<PerformanceMetrics>>,
     optimization_rules: Vec<OptimizationRule>,
@@ -148,7 +150,7 @@ impl PerformanceProfiler {
             if avg_cpu > 80.0 {
                 analysis.cpu_bottlenecks.push(Bottleneck {
                     severity: BottleneckSeverity::High,
-                    description: format!("High CPU usage: {:.1}%", avg_cpu),
+                    description: format!("High CPU usage: {avg_cpu:.1}%"),
                     location: "System-wide".to_string(),
                     impact: "Commands may execute slowly".to_string(),
                 });
@@ -164,7 +166,7 @@ impl PerformanceProfiler {
             if peak_memory > 500_000_000 { // 500MB threshold
                 analysis.memory_bottlenecks.push(Bottleneck {
                     severity: BottleneckSeverity::Medium,
-                    description: format!("High memory usage: {} bytes", peak_memory),
+                    description: format!("High memory usage: {peak_memory} bytes"),
                     location: "Memory allocation".to_string(),
                     impact: "Potential memory pressure".to_string(),
                 });
@@ -184,7 +186,7 @@ impl PerformanceProfiler {
             if avg_duration > 100.0 { // 100ms threshold
                 analysis.cpu_bottlenecks.push(Bottleneck {
                     severity: if avg_duration > 1000.0 { BottleneckSeverity::High } else { BottleneckSeverity::Medium },
-                    description: format!("Slow command execution: {} ({:.1}ms avg)", command, avg_duration),
+                    description: format!("Slow command execution: {command} ({avg_duration:.1}ms avg)"),
                     location: command.clone(),
                     impact: "User experience degradation".to_string(),
                 });
@@ -559,6 +561,7 @@ impl PerformanceProfiler {
         ]
     }
 }
+impl Default for PerformanceProfiler { fn default() -> Self { Self::new() } }
 
 // Supporting types and structures
 
@@ -585,7 +588,7 @@ impl PerformanceMetrics {
     pub fn add_command_profile(&mut self, profile: &CommandProfile) {
         self.command_profiles
             .entry(profile.command.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(profile.clone());
     }
 
@@ -602,6 +605,7 @@ impl PerformanceMetrics {
         self.memory_samples.iter().map(|s| s.bytes_used).max()
     }
 }
+impl Default for PerformanceMetrics { fn default() -> Self { Self::new() } }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CpuSample {
@@ -706,6 +710,7 @@ impl PerformanceSnapshot {
         // Finalize snapshot data
     }
 }
+impl Default for PerformanceSnapshot { fn default() -> Self { Self::new() } }
 
 #[derive(Debug, Clone)]
 pub struct IoSample {
@@ -788,7 +793,7 @@ pub struct OptimizationRule {
     #[doc = "Function stored as Arc for cloneability"]
     pub condition: std::sync::Arc<dyn Fn(&PerformanceProfiler) -> bool + Send + Sync>,
     #[doc = "Function stored as Arc for cloneability"]
-    pub apply_optimization: std::sync::Arc<dyn Fn(&mut PerformanceProfiler) -> Result<()> + Send + Sync>,
+    pub apply_optimization: ProfilerHook,
 }
 
 impl std::fmt::Debug for OptimizationRule {

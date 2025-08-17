@@ -10,6 +10,7 @@ use log::{info, warn, debug};
 
 /// Advanced security sandbox for plugin isolation and protection
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct SecuritySandbox {
     policies: Arc<RwLock<HashMap<String, SecurityPolicy>>>,
     violations: Arc<RwLock<Vec<SecurityViolation>>>,
@@ -331,6 +332,7 @@ impl ResourceMonitor {
 
 /// Access control system
 #[derive(Debug)]
+#[allow(dead_code)]
 struct AccessController {
     access_cache: Arc<RwLock<HashMap<String, CachedPermission>>>,
 }
@@ -540,6 +542,7 @@ pub struct ResourceUsage {
 
 /// Cached permission
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct CachedPermission {
     allowed: bool,
     expires_at: SystemTime,
@@ -566,6 +569,7 @@ pub struct SecurityStats {
 
 /// Audit log entry
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct AuditLogEntry {
     plugin_id: String,
     event_type: AuditEventType,
@@ -575,6 +579,7 @@ struct AuditLogEntry {
 
 /// Audit event types
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 enum AuditEventType {
     PolicyCreated,
     OperationAllowed,

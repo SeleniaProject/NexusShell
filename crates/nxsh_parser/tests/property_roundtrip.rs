@@ -6,7 +6,7 @@ fn roundtrip(input: &str) -> bool {
     let parser = Parser::new();
     match parser.parse(input) {
         Ok(ast) => {
-            let s = format!("{}", ast);
+            let s = format!("{ast}");
             parser.parse(&s).is_ok()
         }
         Err(_) => true,

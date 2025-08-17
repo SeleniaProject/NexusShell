@@ -47,9 +47,9 @@ impl fmt::Display for JobStatus {
         match self {
             JobStatus::Running => write!(f, "Running"),
             JobStatus::Stopped => write!(f, "Stopped"),
-            JobStatus::Done(code) => write!(f, "Done ({})", code),
-            JobStatus::Terminated(sig) => write!(f, "Terminated (signal {})", sig),
-            JobStatus::Failed(msg) => write!(f, "Failed: {}", msg),
+            JobStatus::Done(code) => write!(f, "Done ({code})"),
+            JobStatus::Terminated(sig) => write!(f, "Terminated (signal {sig})"),
+            JobStatus::Failed(msg) => write!(f, "Failed: {msg}"),
             JobStatus::Waiting => write!(f, "Waiting"),
             JobStatus::Background => write!(f, "Background"),
             JobStatus::Foreground => write!(f, "Foreground"),
@@ -547,11 +547,13 @@ impl JobManager {
     /// a job after modification.
     pub fn update_job(&mut self, job: Job) -> bool {
         let mut jobs = self.jobs.write().unwrap();
-        if jobs.contains_key(&job.id) {
-            jobs.insert(job.id, job);
-            true
-        } else {
-            false
+        use std::collections::hash_map::Entry;
+        match jobs.entry(job.id) {
+            Entry::Occupied(mut e) => {
+                e.insert(job);
+                true
+            }
+            Entry::Vacant(_) => false,
         }
     }
 
@@ -605,7 +607,7 @@ impl JobManager {
             
             Ok(())
         } else {
-            Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {} not found", job_id)))
+            Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {job_id} not found")))
         }
     }
 
@@ -627,7 +629,7 @@ impl JobManager {
             
             Ok(process)
         } else {
-            Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {} not found", job_id)))
+            Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {job_id} not found")))
         }
     }
 
@@ -649,7 +651,7 @@ impl JobManager {
             
             Ok(())
         } else {
-            Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {} not found", job_id)))
+            Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {job_id} not found")))
         }
     }
 
@@ -662,7 +664,7 @@ impl JobManager {
             // Send signal to process group
             self.send_signal_to_process_group(job.pgid, signal)
         } else {
-            Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {} not found", job_id)))
+            Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {job_id} not found")))
         }
     }
 
@@ -745,11 +747,11 @@ impl JobManager {
                     // Use taskkill for termination on Windows (works across consoles)
                     let kill_flag = if signal == JobSignal::Kill { "/F" } else { "/T" };
                     Command::new("taskkill")
-                        .args(&[kill_flag, "/PID", &pgid.to_string()])
+                        .args([kill_flag, "/PID", &pgid.to_string()])
                         .output()
                         .map_err(|e| ShellError::new(
                             ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                            format!("Failed to send signal on Windows: {}", e)
+                            format!("Failed to send signal on Windows: {e}")
                         ))?;
                 }
                 JobSignal::Stop => {
@@ -757,7 +759,7 @@ impl JobManager {
                     unsafe { suspend_process_threads(pgid) }
                         .map_err(|e| ShellError::new(
                             ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                            format!("Failed to suspend process {}: {}", pgid, e)
+                            format!("Failed to suspend process {pgid}: {e}")
                         ))?;
                 }
                 JobSignal::Continue => {
@@ -765,13 +767,13 @@ impl JobManager {
                     unsafe { resume_process_threads(pgid) }
                         .map_err(|e| ShellError::new(
                             ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                            format!("Failed to resume process {}: {}", pgid, e)
+                            format!("Failed to resume process {pgid}: {e}")
                         ))?;
                 }
                 _ => {
                     return Err(ShellError::new(
                         ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                        format!("Signal {:?} not supported on Windows", signal)
+                        format!("Signal {signal:?} not supported on Windows")
                     ));
                 }
             }
@@ -853,28 +855,28 @@ impl JobManager {
                                 .stderr(Stdio::null());
                             fb.spawn().map_err(|e2| ShellError::new(
                                 ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                                format!("Failed to spawn background process (fallback echo): {}", e2)
+                                format!("Failed to spawn background process (fallback echo): {e2}")
                             ))?
                         } else if lower == "sleep" {
-                            let seconds = args.get(0).and_then(|s| s.parse::<u64>().ok()).unwrap_or(1);
+                            let seconds = args.first().and_then(|s| s.parse::<u64>().ok()).unwrap_or(1);
                             let mut fb = Command::new("powershell.exe");
-                            fb.args(["-NoProfile", "-Command", &format!("Start-Sleep -Seconds {}", seconds)])
+                            fb.args(["-NoProfile", "-Command", &format!("Start-Sleep -Seconds {seconds}")])
                                 .stdin(Stdio::null())
                                 .stdout(Stdio::null())
                                 .stderr(Stdio::null());
                             fb.spawn().map_err(|e2| ShellError::new(
                                 ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                                format!("Failed to spawn background process (fallback sleep): {}", e2)
+                                format!("Failed to spawn background process (fallback sleep): {e2}")
                             ))?
                         } else {
                             return Err(ShellError::new(
                                 ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                                format!("Failed to spawn background process: program not found")));
+                                "Failed to spawn background process: program not found".to_string()));
                         }
                     } else {
                         return Err(ShellError::new(
                             ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                            format!("Failed to spawn background process: {}", e)));
+                            format!("Failed to spawn background process: {e}")));
                     }
                 }
             };
@@ -907,7 +909,7 @@ impl JobManager {
                     let new_status = if exit_status.success() {
                         JobStatus::Done(exit_status.code().unwrap_or(0))
                     } else {
-                        JobStatus::Failed(format!("Process exited with code: {}", 
+                        JobStatus::Failed(format!("Process exited with code: {}",
                             exit_status.code().unwrap_or(-1)))
                     };
                     
@@ -935,13 +937,13 @@ impl JobManager {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error waiting for background job {}: {}", job_id, e);
+                    eprintln!("Error waiting for background job {job_id}: {e}");
                     
                     // Update job as failed
                     if let Ok(mut jobs_guard) = jobs.write() {
                         if let Some(job) = jobs_guard.get_mut(&job_id) {
                             let old_status = job.status.clone();
-                            let new_status = JobStatus::Failed(format!("Wait error: {}", e));
+                            let new_status = JobStatus::Failed(format!("Wait error: {e}"));
                             job.status = new_status.clone();
                             job.completed_at = Some(std::time::Instant::now());
                             
@@ -998,7 +1000,7 @@ impl JobManager {
                     self.send_signal_to_job(job_id, JobSignal::Continue)?;
                 }
             } else {
-                return Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {} not found", job_id)));
+                return Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {job_id} not found")));
             }
         }
 
@@ -1029,7 +1031,7 @@ impl JobManager {
                     self.send_signal_to_job(job_id, JobSignal::Continue)?;
                 }
             } else {
-                return Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {} not found", job_id)));
+                return Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {job_id} not found")));
             }
         }
 
@@ -1054,7 +1056,7 @@ impl JobManager {
                         return Ok(job.status.clone());
                     }
                 } else {
-                    return Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {} not found", job_id)));
+                    return Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {job_id} not found")));
                 }
             }
             

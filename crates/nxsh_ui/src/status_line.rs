@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use sysinfo::{System, SystemExt, CpuExt, NetworkExt};
+use sysinfo::{System, SystemExt, CpuExt};
 
 /// Snapshot of status metrics for the status line.
 #[derive(Debug, Clone)]
@@ -155,7 +155,7 @@ pub fn format_status_line(s: &StatusSnapshot, colored: bool) -> String {
 
     let mem = format!("{:.1}/{:.1}MiB", s.mem_used_mib, s.mem_total_mib);
     let (rx_s, tx_s) = (human_bps(s.net_rx_bps), human_bps(s.net_tx_bps));
-    let bat = s.battery_percent.map(|p| format!("{:.0}%", p)).unwrap_or_else(|| "N/A".to_string());
+    let bat = s.battery_percent.map(|p| format!("{p:.0}%")).unwrap_or_else(|| "N/A".to_string());
     let base = format!(
         "{cpu_l} {cpu:.0}% | {mem_l} {mem} | {net_l} ↓{rx}/↑{tx} | {bat_l} {bat}",
         cpu = s.cpu_percent, mem = mem, rx = rx_s, tx = tx_s, bat = bat
@@ -167,7 +167,7 @@ pub fn format_status_line(s: &StatusSnapshot, colored: bool) -> String {
 
 fn human_bps(v: f64) -> String {
     const K: f64 = 1024.0;
-    if v < K { format!("{:.0}B/s", v) }
+    if v < K { format!("{v:.0}B/s") }
     else if v < K*K { format!("{:.1}KiB/s", v/K) }
     else if v < K*K*K { format!("{:.1}MiB/s", v/(K*K)) }
     else { format!("{:.1}GiB/s", v/(K*K*K)) }
@@ -178,7 +178,7 @@ fn colorize(text: &str, cpu: f32) -> String {
     let (r, g, y) = ("\x1b[31m", "\x1b[32m", "\x1b[33m");
     let reset = "\x1b[0m";
     let color = if cpu >= 85.0 { r } else if cpu >= 50.0 { y } else { g };
-    format!("{}{}{}", color, text, reset)
+    format!("{color}{text}{reset}")
 }
 
 

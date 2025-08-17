@@ -246,7 +246,7 @@ impl SleepManager {
 
     async fn high_precision_sleep(&self, duration: Duration, label: &Option<String>) -> Result<()> {
         if self.config.show_progress {
-            self.sleep_with_progress(duration, &label, SleepMethod::HighPrecision).await
+            self.sleep_with_progress(duration, label, SleepMethod::HighPrecision).await
         } else {
             self.precise_sleep_internal(duration).await
         }
@@ -309,7 +309,7 @@ impl SleepManager {
 
     async fn standard_sleep(&self, duration: Duration, _label: &Option<String>) -> Result<()> {
         if self.config.show_progress {
-        self.sleep_with_progress(duration, &_label, SleepMethod::Standard).await
+    self.sleep_with_progress(duration, _label, SleepMethod::Standard).await
         } else {
             async_sleep(duration).await;
             Ok(())

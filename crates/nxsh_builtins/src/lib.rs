@@ -3,6 +3,9 @@
 //! Comprehensive collection of built-in commands with Pure Rust implementations.
 //! Maintains cross-platform compatibility and enterprise-grade functionality.
 
+// On Windows builds, many Unix-specific helpers are intentionally unused; silence dead_code there
+#![cfg_attr(windows, allow(dead_code))]
+
 use anyhow::Result;
 use clap::Parser; // for UpdateArgs::parse_from
 #[cfg(feature = "async-runtime")]
@@ -991,7 +994,7 @@ pub fn execute_builtin(command: &str, args: &[String]) -> BuiltinResult<()> {
         "cat" => cat_cli(args).map_err(shellerr_from_anyhow),
         "cp" => {
             #[cfg(all(feature = "async-runtime", not(feature = "super-min")))]
-            { return GLOBAL_RT.block_on(async { cp_cli(args).await }).map_err(shellerr_from_anyhow); }
+            { GLOBAL_RT.block_on(async { cp_cli(args).await }).map_err(shellerr_from_anyhow) }
             #[cfg(feature = "super-min")]
             { return cp_cli(args).map_err(shellerr_from_anyhow); }
             #[cfg(all(not(feature = "async-runtime"), not(feature = "super-min")))]
@@ -1031,7 +1034,7 @@ pub fn execute_builtin(command: &str, args: &[String]) -> BuiltinResult<()> {
         "uname" => uname_cli(args).map_err(shellerr_from_anyhow),
         "date" => {
             #[cfg(all(feature = "async-runtime", not(feature = "super-min")))]
-            { return GLOBAL_RT.block_on(async { date_cli(args).await }).map_err(shellerr_from_anyhow); }
+            { GLOBAL_RT.block_on(async { date_cli(args).await }).map_err(shellerr_from_anyhow) }
             #[cfg(feature = "super-min")]
             { return futures::executor::block_on(date_cli(args)).map_err(shellerr_from_anyhow); }
             #[cfg(all(not(feature = "async-runtime"), not(feature = "super-min")))]
@@ -1039,7 +1042,7 @@ pub fn execute_builtin(command: &str, args: &[String]) -> BuiltinResult<()> {
         },
         "cal" => {
             #[cfg(all(feature = "async-runtime", not(feature = "super-min")))]
-            { return GLOBAL_RT.block_on(async { cal_cli(args.to_vec()).await.map(|_| ()) }); }
+            { GLOBAL_RT.block_on(async { cal_cli(args.to_vec()).await.map(|_| ()) }) }
             #[cfg(feature = "super-min")]
             { let _ = futures::executor::block_on(cal_cli(args.to_vec())); return Ok(()); }
             #[cfg(all(not(feature = "async-runtime"), not(feature = "super-min")))]

@@ -1,3 +1,4 @@
+type I18nHook = std::sync::Arc<dyn Fn(&LanguagePack) -> Result<()> + Send + Sync>;
 use crate::compat::Result; // Removed unused Context import
 use std::{
     collections::HashMap,
@@ -10,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 /// Comprehensive internationalization and localization system  
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct InternationalizationSystem {
     language_packs: HashMap<String, LanguagePack>,
     current_locale: String,
@@ -113,7 +115,7 @@ impl InternationalizationSystem {
         }
 
         // If no message found, return the key itself
-        format!("[{}]", key)
+    format!("[{key}]")
     }
 
     /// Interpolate parameters into message template
@@ -121,7 +123,7 @@ impl InternationalizationSystem {
         let mut result = template.to_string();
         
         for (key, value) in params {
-            result = result.replace(&format!("{{{}}}", key), value);
+            result = result.replace(&format!("{{{key}}}"), value);
         }
 
         result
@@ -151,7 +153,7 @@ impl InternationalizationSystem {
             formatter.format(date, format)
         } else {
             // Fallback formatting
-            format!("{:?}", date)
+            format!("{date:?}")
         }
     }
 
@@ -161,7 +163,7 @@ impl InternationalizationSystem {
             formatter.format(number, format)
         } else {
             // Fallback formatting
-            format!("{}", number)
+            format!("{number}")
         }
     }
 
@@ -171,7 +173,7 @@ impl InternationalizationSystem {
             formatter.format(amount, currency_code)
         } else {
             // Fallback formatting
-            format!("{} {}", currency_code, amount)
+            format!("{currency_code} {amount}")
         }
     }
 
@@ -223,7 +225,7 @@ impl InternationalizationSystem {
             // Run custom validators
             for validator in &self.validators {
                 if let Err(e) = (validator.validate_function)(language_pack) {
-                    report.errors.push(format!("Validation error in '{}': {}", locale, e));
+                    report.errors.push(format!("Validation error in '{locale}': {e}"));
                     continue;
                 }
             }
@@ -250,7 +252,7 @@ impl InternationalizationSystem {
 
     /// Extract all translatable strings from source code
     pub fn extract_strings(&self, source_dirs: Vec<PathBuf>) -> Result<ExtractionReport> {
-        let mut report = ExtractionReport {
+    let mut report = ExtractionReport {
             extracted_strings: Vec::new(),
             files_processed: 0,
             total_strings: 0,
@@ -265,6 +267,7 @@ impl InternationalizationSystem {
         Ok(report)
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn extract_from_directory(&self, dir: &PathBuf, report: &mut ExtractionReport) -> Result<()> {
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
@@ -609,7 +612,7 @@ pub struct NumberFormatter {
 impl NumberFormatter {
     pub fn format(&self, number: f64, _format: NumberFormat) -> String {
         // Simplified implementation
-        format!("{}", number)
+    format!("{number}")
     }
 }
 
@@ -625,8 +628,8 @@ impl CurrencyFormatter {
     pub fn format(&self, amount: f64, currency_code: &str) -> String {
         // Simplified implementation
         match self.symbol_position {
-            CurrencySymbolPosition::Before => format!("{}{:.2}", currency_code, amount),
-            CurrencySymbolPosition::After => format!("{:.2}{}", amount, currency_code),
+            CurrencySymbolPosition::Before => format!("{currency_code}{amount:.2}"),
+            CurrencySymbolPosition::After => format!("{amount:.2}{currency_code}"),
         }
     }
 }
@@ -684,7 +687,7 @@ impl PluralForm {
 pub struct TranslationValidator {
     pub name: String,
     #[doc = "Function stored as Arc for cloneability"]
-    pub validate_function: std::sync::Arc<dyn Fn(&LanguagePack) -> Result<()> + Send + Sync>,
+    pub validate_function: I18nHook,
 }
 
 impl std::fmt::Debug for TranslationValidator {
@@ -753,7 +756,7 @@ pub enum CurrencySymbolPosition {
 
 // Report structures
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ValidationReport {
     pub total_locales: usize,
     pub validated_locales: usize,
@@ -763,7 +766,7 @@ pub struct ValidationReport {
     pub extra_keys: HashMap<String, Vec<String>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ExtractionReport {
     pub extracted_strings: Vec<ExtractedString>,
     pub files_processed: usize,
@@ -841,28 +844,9 @@ impl Default for LanguagePack {
     }
 }
 
-impl Default for ValidationReport {
-    fn default() -> Self {
-        Self {
-            total_locales: 0,
-            validated_locales: 0,
-            errors: Vec::new(),
-            warnings: Vec::new(),
-            missing_keys: HashMap::new(),
-            extra_keys: HashMap::new(),
-        }
-    }
-}
+// Default is derived above for ValidationReport
 
-impl Default for ExtractionReport {
-    fn default() -> Self {
-        Self {
-            extracted_strings: Vec::new(),
-            files_processed: 0,
-            total_strings: 0,
-        }
-    }
-}
+// Default is derived above for ExtractionReport
 
 // Integration with global context system
 impl InternationalizationSystem {
@@ -896,7 +880,7 @@ impl ContextAwareTranslator {
 
     pub fn translate(&self, key: &str) -> String {
         let full_key = if let Some(context) = &self.current_context {
-            format!("{}.{}", context, key)
+            format!("{context}.{key}")
         } else {
             key.to_string()
         };
@@ -906,7 +890,7 @@ impl ContextAwareTranslator {
 
     pub fn translate_with_params(&self, key: &str, params: HashMap<String, String>) -> String {
         let full_key = if let Some(context) = &self.current_context {
-            format!("{}.{}", context, key)
+            format!("{context}.{key}")
         } else {
             key.to_string()
         };

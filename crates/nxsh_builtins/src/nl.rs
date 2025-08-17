@@ -96,6 +96,7 @@ pub fn nl_cli(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn number_lines(
     lines: &[String],
     format: &str,

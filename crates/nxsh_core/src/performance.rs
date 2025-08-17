@@ -333,6 +333,7 @@ impl CacheEntry {
 }
 
 /// Memory pool for optimized allocations
+#[allow(dead_code)]
 struct MemoryPool {
     pools: HashMap<usize, Vec<Vec<u8>>>,
     total_size: usize,
@@ -365,13 +366,14 @@ impl MemoryPool {
         Ok(vec![0; size])
     }
     
-    fn deallocate(&mut self, buffer: Vec<u8>) -> crate::compat::Result<()> {
+    #[allow(dead_code)]
+    fn deallocate(&mut self, buffer: Vec<u8>) -> crate::compat::Result<()> {  
         let capacity = buffer.capacity();
         let pool_size = capacity.next_power_of_two();
         
         // Only pool if we have space
         if self.total_size + pool_size <= self.max_size {
-            let pool = self.pools.entry(pool_size).or_insert_with(Vec::new);
+            let pool = self.pools.entry(pool_size).or_default();
             pool.push(buffer);
             self.total_size += pool_size;
         }
@@ -387,6 +389,7 @@ impl MemoryPool {
 }
 
 /// Startup time optimization
+#[allow(dead_code)]
 struct StartupOptimizer {
     preloaded_modules: Arc<RwLock<HashMap<String, Box<dyn std::any::Any + Send + Sync>>>>,
     initialization_order: Vec<String>,
@@ -515,6 +518,7 @@ impl IoOptimizer {
 }
 
 /// CPU optimization system
+#[allow(dead_code)]
 struct CpuOptimizer {
     thread_pool: Option<tokio::runtime::Handle>,
     worker_threads: usize,
@@ -632,6 +636,10 @@ pub mod simd {
     
     /// SIMD-optimized string search
     #[target_feature(enable = "sse2")]
+    /// # Safety
+    /// Caller must ensure CPU supports SSE2 (guarded by target_feature) and that
+    /// the provided slices are valid for reads of the required widths. The function
+    /// performs unaligned loads but does not dereference beyond slice bounds.
     pub unsafe fn find_byte_simd(haystack: &[u8], needle: u8) -> Option<usize> {
         if haystack.len() < 16 {
             // Fall back to scalar search for small inputs
@@ -659,6 +667,10 @@ pub mod simd {
     
     /// SIMD-optimized memory comparison
     #[target_feature(enable = "sse2")]
+    /// # Safety
+    /// Caller must ensure CPU supports SSE2 and both slices are valid for the
+    /// performed reads. Lengths are checked; unaligned loads are used safely within
+    /// slice bounds.
     pub unsafe fn memory_equal_simd(a: &[u8], b: &[u8]) -> bool {
         if a.len() != b.len() {
             return false;

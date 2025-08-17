@@ -52,6 +52,7 @@ impl Default for RuntimeConfig {
 }
 
 /// WASI Plugin Runtime using Pure Rust wasmi
+#[allow(dead_code)]
 pub struct WasiPluginRuntime {
     engine: Engine,
     linker: Arc<RwLock<Linker<RuntimeContext>>>,
@@ -517,6 +518,7 @@ impl WasiPluginRuntime {
 
 /// Capability manager for plugin permissions
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct CapabilityManager {
     security_context: SecurityContext,
     granted_capabilities: Arc<Mutex<HashMap<String, Vec<String>>>>,

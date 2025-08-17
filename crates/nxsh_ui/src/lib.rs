@@ -4,6 +4,11 @@
 //! focusing on CUI (Character User Interface) rather than TUI (Terminal User Interface)
 //! for improved performance, reduced complexity, and better POSIX compatibility.
 
+// Allow some dead-code in UI crate as many parts are platform/feature gated or WIP
+#![allow(dead_code)]
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::blocks_in_conditions)]
+
 // Primary CUI modules - performance and simplicity focused
 pub mod app;
 pub mod cui_app;

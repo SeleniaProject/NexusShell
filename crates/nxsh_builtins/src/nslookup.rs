@@ -174,7 +174,7 @@ fn parse_record_type(type_str: &str) -> Result<RecordType> {
         "TXT" => Ok(RecordType::TXT),
         "SRV" => Ok(RecordType::SRV),
         "ANY" => Ok(RecordType::ANY),
-        _ => Err(anyhow!("Unknown record type: {}", type_str)),
+    _ => Err(anyhow!("Unknown record type: {type_str}")),
     }
 }
 
@@ -186,7 +186,7 @@ async fn perform_dns_lookup(target: &str, options: &QueryOptions) -> Result<DnsR
     let server_info = options.server.clone().unwrap_or_else(|| "default".to_string());
 
     if options.debug {
-        println!("Querying {} for {} records on server {}", target, query_type, server_info);
+        println!("Querying {target} for {query_type} records on server {server_info}");
     }
 
     let mut records = Vec::new();
@@ -195,7 +195,7 @@ async fn perform_dns_lookup(target: &str, options: &QueryOptions) -> Result<DnsR
     match query_type {
         RecordType::A => {
             let lookup = resolver.lookup_ip(target).await
-                .map_err(|e| anyhow!("DNS lookup failed: {}", e))?;
+                    .map_err(|e| anyhow!("DNS lookup failed: {e}"))?;
             
             for ip in lookup.iter() {
                 if let IpAddr::V4(ipv4) = ip {
@@ -210,7 +210,7 @@ async fn perform_dns_lookup(target: &str, options: &QueryOptions) -> Result<DnsR
         },
         RecordType::AAAA => {
             let lookup = resolver.lookup_ip(target).await
-                .map_err(|e| anyhow!("DNS lookup failed: {}", e))?;
+                    .map_err(|e| anyhow!("DNS lookup failed: {e}"))?;
             
             for ip in lookup.iter() {
                 if let IpAddr::V6(ipv6) = ip {
@@ -225,7 +225,7 @@ async fn perform_dns_lookup(target: &str, options: &QueryOptions) -> Result<DnsR
         },
         RecordType::MX => {
             let lookup = resolver.mx_lookup(target).await
-                .map_err(|e| anyhow!("MX lookup failed: {}", e))?;
+                .map_err(|e| anyhow!("MX lookup failed: {e}"))?;
             
             for mx in lookup.iter() {
                 records.push(DnsRecord {
@@ -238,7 +238,7 @@ async fn perform_dns_lookup(target: &str, options: &QueryOptions) -> Result<DnsR
         },
         RecordType::TXT => {
             let lookup = resolver.txt_lookup(target).await
-                .map_err(|e| anyhow!("TXT lookup failed: {}", e))?;
+                .map_err(|e| anyhow!("TXT lookup failed: {e}"))?;
             
             for txt in lookup.iter() {
                 let txt_data = txt.txt_data().iter()
@@ -258,7 +258,7 @@ async fn perform_dns_lookup(target: &str, options: &QueryOptions) -> Result<DnsR
             // PTR (reverse DNS) lookup
             if let Ok(ip) = target.parse::<IpAddr>() {
                 let lookup = resolver.reverse_lookup(ip).await
-                    .map_err(|e| anyhow!("PTR lookup failed: {}", e))?;
+                    .map_err(|e| anyhow!("PTR lookup failed: {e}"))?;
                 
                 for ptr in lookup.iter() {
                     records.push(DnsRecord {
@@ -274,7 +274,7 @@ async fn perform_dns_lookup(target: &str, options: &QueryOptions) -> Result<DnsR
         },
         RecordType::SOA => {
             let lookup = resolver.soa_lookup(target).await
-                .map_err(|e| anyhow!("SOA lookup failed: {}", e))?;
+                .map_err(|e| anyhow!("SOA lookup failed: {e}"))?;
             
             for soa in lookup.iter() {
                 records.push(DnsRecord {
@@ -289,7 +289,7 @@ async fn perform_dns_lookup(target: &str, options: &QueryOptions) -> Result<DnsR
         },
         RecordType::SRV => {
             let lookup = resolver.srv_lookup(target).await
-                .map_err(|e| anyhow!("SRV lookup failed: {}", e))?;
+                .map_err(|e| anyhow!("SRV lookup failed: {e}"))?;
             
             for srv in lookup.iter() {
                 records.push(DnsRecord {
@@ -303,7 +303,7 @@ async fn perform_dns_lookup(target: &str, options: &QueryOptions) -> Result<DnsR
         _ => {
             // Generic lookup for other record types
             let lookup = resolver.lookup(target, query_type).await
-                .map_err(|e| anyhow!("DNS lookup failed: {}", e))?;
+                .map_err(|e| anyhow!("DNS lookup failed: {e}"))?;
             
             for record in lookup.record_iter() {
                 if let Some(data) = record.data() {
@@ -311,7 +311,7 @@ async fn perform_dns_lookup(target: &str, options: &QueryOptions) -> Result<DnsR
                         name: target.to_string(),
                         record_type: query_type,
                         ttl: record.ttl(),
-                        data: format!("{:?}", data),
+                        data: format!("{data:?}"),
                     });
                 }
             }
@@ -370,7 +370,7 @@ async fn resolve_server_address(server: &str, port: u16) -> Result<SocketAddr> {
     }
 
     // Try to resolve hostname
-    let addr_str = format!("{}:{}", server, port);
+    let addr_str = format!("{server}:{port}");
     let mut addrs = tokio::net::lookup_host(addr_str).await
         .map_err(|e| anyhow!("Failed to resolve server address '{}': {}", server, e))?;
 
@@ -426,7 +426,7 @@ fn display_dns_response(response: &DnsResponse) {
 
     // Display additional information if available
     for (key, value) in &response.additional_info {
-        println!("{}: {}", key, value);
+        println!("{key}: {value}");
     }
 }
 

@@ -51,7 +51,7 @@ const SE_FILE_OBJECT: u32 = 1;
 fn print_find_help() {
     println!("Usage: find [PATH...] [EXPR]");
     println!("Search for files in a directory hierarchy and apply tests/actions.");
-    println!("");
+    println!();
     println!("Common options:");
     println!("  -maxdepth N           descend at most N levels of directories");
     println!("  -mindepth N           do not act on first N levels");
@@ -60,7 +60,7 @@ fn print_find_help() {
     println!("  -icase                case-insensitive name matching");
     println!("  -stats                print traversal statistics");
     println!("  -parallel, --parallel, -P  enable parallel traversal (requires 'parallel' feature)");
-    println!("");
+    println!();
     println!("Tests:");
     println!("  -name PATTERN         file name matches shell PATTERN");
     println!("  -iname PATTERN        like -name, case-insensitive");
@@ -70,13 +70,13 @@ fn print_find_help() {
     println!("  -perm MODE            permission bits match (octal)");
     println!("  -user NAME            file owner is NAME");
     println!("  -group NAME           file group is NAME");
-    println!("");
+    println!();
     println!("Actions:");
     println!("  -print                print pathname (default)");
     println!("  -print0               print with NUL terminator");
-    println!("  -exec CMD {{}} ;        execute CMD; {} is replaced by pathname", "{}");
+    println!("  -exec CMD {{}} ;        execute CMD; {{}} is replaced by pathname");
     println!("  -execdir CMD {{}} ;     like -exec, but execute in file's dir");
-    println!("");
+    println!();
     println!("Operators:");
     println!("  ! -not, -a -and, -o -or, ( EXPR ) precedence");
 }
@@ -576,7 +576,7 @@ fn get_file_group_name(path: &Path) -> Option<String> {
         let name = String::from_utf16_lossy(&name_buf[..(name_len as usize)]);
         let domain = if domain_len > 0 { Some(String::from_utf16_lossy(&domain_buf[..(domain_len as usize)])) } else { None };
         Some(match domain {
-            Some(d) if !d.is_empty() => format!("{}\\{}", d, name),
+            Some(d) if !d.is_empty() => format!("{d}\\{name}"),
             _ => name,
         })
     }
@@ -742,7 +742,7 @@ fn find_parallel(
                 if pb.exists() {
                     Some(pb)
                 } else {
-                    eprintln!("find: '{}' : No such file or directory", p);
+                    eprintln!("find: '{p}' : No such file or directory");
                     stats.errors_encountered.fetch_add(1, Ordering::Relaxed);
                     None
                 }
@@ -1379,8 +1379,8 @@ fn print_formatted(format: &str, path: &Path, metadata: &Metadata) -> Result<()>
                 chars.next();
                 match spec {
                     'p' => format_and_push(&mut result, &path.display().to_string(), &flags, width, precision),
-                    'f' => format_and_push(&mut result, &path.file_name().and_then(|n| n.to_str()).unwrap_or(""), &flags, width, precision),
-                    'h' => format_and_push(&mut result, &path.parent().and_then(|p| p.to_str()).unwrap_or(""), &flags, width, precision),
+                    'f' => format_and_push(&mut result, path.file_name().and_then(|n| n.to_str()).unwrap_or(""), &flags, width, precision),
+                    'h' => format_and_push(&mut result, path.parent().and_then(|p| p.to_str()).unwrap_or(""), &flags, width, precision),
                     'P' => {
                         // Relative path from current directory
                         let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -1388,10 +1388,13 @@ fn print_formatted(format: &str, path: &Path, metadata: &Metadata) -> Result<()>
                         format_and_push(&mut result, &relative.display().to_string(), &flags, width, precision);
                     }
                     's' => format_number(&mut result, metadata.len() as i64, &flags, width, precision),
-                    'k' => format_number(&mut result, ((metadata.len() + 1023) / 1024) as i64, &flags, width, precision),
-                    'b' => format_number(&mut result, ((metadata.len() + 511) / 512) as i64, &flags, width, precision),
+                    'k' => format_number(&mut result, metadata.len().div_ceil(1024) as i64, &flags, width, precision),
+                    'b' => {
+                        let blocks = metadata.len().div_ceil(512);
+                        format_number(&mut result, blocks as i64, &flags, width, precision)
+                    },
                     'c' => format_number(&mut result, metadata.len() as i64, &flags, width, precision),
-                    'w' => format_number(&mut result, ((metadata.len() + 1) / 2) as i64, &flags, width, precision),
+                    'w' => format_number(&mut result, metadata.len().div_ceil(2) as i64, &flags, width, precision),
                     'm' => {
                         let mode_str = if flags.alternate {
                             format!("{:04o}", metadata.get_mode() & 0o7777)
@@ -1516,13 +1519,13 @@ fn print_formatted(format: &str, path: &Path, metadata: &Metadata) -> Result<()>
                         // Sparseness ratio (file size / allocated blocks)
                         let file_size = metadata.len() as f64;
                         let block_size = 512.0;
-                        let allocated_blocks = ((file_size + block_size - 1.0) / block_size).ceil();
+                        let allocated_blocks = (file_size / block_size).ceil();
                         let sparseness = if allocated_blocks > 0.0 {
                             file_size / (allocated_blocks * block_size)
                         } else {
                             1.0
                         };
-                        format_and_push(&mut result, &format!("{:.2}", sparseness), &flags, width, precision);
+                        format_and_push(&mut result, &format!("{sparseness:.2}"), &flags, width, precision);
                     }
                     'Z' => {
                         // SELinux security context (not implemented on most systems)
@@ -1631,13 +1634,11 @@ fn format_ls_line(path: &Path, metadata: &Metadata) -> Result<String> {
     let datetime: DateTime<Local> = mtime.into();
     let time_str = datetime.format("%b %d %H:%M").to_string();
     
-    Ok(format!("{} {:3} {:8} {:8} {:8} {} {}",
-        perms,
+    Ok(format!("{perms} {:3} {:8} {:8} {:8} {time_str} {}",
         metadata.get_nlink(),
         user,
         group,
         metadata.len(),
-        time_str,
         path.display()
     ))
 }
@@ -1647,7 +1648,7 @@ fn format_fls_line(path: &Path, metadata: &Metadata) -> Result<String> {
     let inode = metadata.get_ino();
     
     // Blocks: use 512-byte blocks as per POSIX standard
-    let blocks = ((metadata.len() + 511) / 512) as u64;
+    let blocks = metadata.len().div_ceil(512);
     
     let mode = metadata.get_mode();
     let perms = format_symbolic_mode(mode);
@@ -1690,8 +1691,7 @@ fn format_fls_line(path: &Path, metadata: &Metadata) -> Result<String> {
     };
     
     // Format with proper alignment matching GNU find -fls
-    Ok(format!("{:>7} {:>7} {} {:>3} {:>8} {:>8} {:>8} {} {}",
-        inode, blocks, perms, links, user, group, size, time_str, display_path))
+    Ok(format!("{inode:>7} {blocks:>7} {perms} {links:>3} {user:>8} {group:>8} {size:>8} {time_str} {display_path}"))
 }
 
 fn execute_command(command: &[String], path: &Path, change_dir: bool) -> Result<()> {
@@ -1947,11 +1947,11 @@ fn format_and_push(result: &mut String, text: &str, flags: &PrintfFlags, width: 
     
     if let Some(w) = width {
         if flags.left_align {
-            result.push_str(&format!("{:<width$}", formatted, width = w));
+            result.push_str(&format!("{formatted:<w$}"));
         } else if flags.zero_pad && !flags.left_align {
-            result.push_str(&format!("{:0>width$}", formatted, width = w));
+            result.push_str(&format!("{formatted:0>w$}"));
         } else {
-            result.push_str(&format!("{:>width$}", formatted, width = w));
+            result.push_str(&format!("{formatted:>w$}"));
         }
     } else {
         result.push_str(&formatted);
@@ -1972,20 +1972,20 @@ fn format_number(result: &mut String, num: i64, flags: &PrintfFlags, width: Opti
     };
     
     let abs_num = num.abs();
-    let num_str = format!("{}{}", sign, abs_num);
+    let num_str = format!("{sign}{abs_num}");
     
     if let Some(w) = width {
         if flags.left_align {
-            result.push_str(&format!("{:<width$}", num_str, width = w));
+            result.push_str(&format!("{num_str:<w$}"));
         } else if flags.zero_pad && !flags.left_align {
             if !sign.is_empty() {
                 result.push_str(sign);
                 result.push_str(&format!("{:0>width$}", abs_num, width = w.saturating_sub(sign.len())));
             } else {
-                result.push_str(&format!("{:0>width$}", num_str, width = w));
+                result.push_str(&format!("{num_str:0>w$}"));
             }
         } else {
-            result.push_str(&format!("{:>width$}", num_str, width = w));
+            result.push_str(&format!("{num_str:>w$}"));
         }
     } else {
         result.push_str(&num_str);

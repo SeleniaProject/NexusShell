@@ -56,7 +56,7 @@ impl Builtin for JobsBuiltin {
                         job.id,
                         process.pid,
                         status_str,
-                        job.foreground.then_some("+").unwrap_or(" "),
+                        if job.foreground { "+" } else { " " },
                         job.description
                     ));
                 }

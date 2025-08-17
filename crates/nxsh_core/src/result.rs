@@ -143,7 +143,7 @@ impl<T> OptionExt<T> for Option<T> {
         self.ok_or_else(|| {
             ShellError::new(
                 ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::FileNotFound),
-                format!("Item '{}' not found", item),
+                format!("Item '{item}' not found"),
             )
             .with_context("item", item.to_string())
         })
@@ -153,7 +153,7 @@ impl<T> OptionExt<T> for Option<T> {
         self.ok_or_else(|| {
             ShellError::new(
                 ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::VariableNotFound),
-                format!("Variable '{}' not found", variable),
+                format!("Variable '{variable}' not found"),
             )
             .with_context("variable", variable.to_string())
         })
@@ -315,7 +315,7 @@ pub mod utils {
             Ok(result) => result,
             Err(_) => Err(ShellError::new(
                 ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::Timeout),
-                format!("Operation timed out after {:?}", timeout),
+                format!("Operation timed out after {timeout:?}"),
             )),
         }
     }

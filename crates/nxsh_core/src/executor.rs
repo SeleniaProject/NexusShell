@@ -21,9 +21,9 @@ pub(crate) fn simple_unparse(node: &AstNode) -> String {
             parts.join(" ")
         }
         AstNode::Word(w) => w.to_string(),
-        AstNode::StringLiteral { value, .. } => format!("\"{}\"", value),
+    AstNode::StringLiteral { value, .. } => format!("\"{value}\""),
         AstNode::NumberLiteral { value, .. } => value.to_string(),
-        _ => format!("#unprintable:{:?}", node),
+    _ => format!("#unprintable:{node:?}"),
     }
 }
 // use crate::macros::{MacroSystem, Macro}; // currently unused
@@ -335,9 +335,7 @@ impl Executor {
                             let (s, e) = (start as u32, end as u32);
                             if s <= e {
                                 if (s..=e).any(|u| Some(c) == char::from_u32(u)) { return true; }
-                            } else {
-                                if (e..=s).any(|u| Some(c) == char::from_u32(u)) { return true; }
-                            }
+                            } else if (e..=s).any(|u| Some(c) == char::from_u32(u)) { return true; }
                             _any = true;
                             last = chars.next();
                             continue;
@@ -350,7 +348,7 @@ impl Executor {
                 // No element matched
                 false
             }
-            fn rec(pi: usize, ni: usize, p: &[char], n: &[char], dotglob: bool) -> bool {
+            fn rec(pi: usize, ni: usize, p: &[char], n: &[char], _dotglob: bool) -> bool {
                 let mut i=pi; let mut j=ni;
                 while i < p.len() {
                     match p[i] {
@@ -358,7 +356,12 @@ impl Executor {
                             // collapse consecutive *
                             while i+1 < p.len() && p[i+1]=='*' { i+=1; }
                             if i+1==p.len() { return true; }
-                            let mut k=j; while k <= n.len() { if rec(i+1,k,&p,&n,dotglob) { return true; } if k==n.len() { break; } k+=1; }
+                            let mut k = j;
+                            while k <= n.len() {
+                                if rec(i + 1, k, p, n, false) { return true; }
+                                if k == n.len() { break; }
+                                k += 1;
+                            }
                             return false;
                         }
                         '?' => { if j>=n.len() { return false; } j+=1; i+=1; }
@@ -508,7 +511,7 @@ impl Executor {
         eprintln!("DEBUG: Registering {} builtins", builtins.len());
         for builtin in builtins {
             let name = builtin.name();
-            eprintln!("DEBUG: Registering builtin: {}", name);
+            eprintln!("DEBUG: Registering builtin: {name}");
             self.register_builtin(builtin);
         }
         eprintln!("DEBUG: Total registered builtins: {}", self.builtins.len());
@@ -632,7 +635,7 @@ impl Executor {
         let result_value = self.mir_executor.execute(&optimized_program)
             .map_err(|e| ShellError::new(
                 ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::CommandNotFound),
-                format!("MIR execution failed: {}", e)
+                format!("MIR execution failed: {e}")
             ))?;
         
         let execute_time = execute_start.elapsed().as_micros() as u64;
@@ -1203,7 +1206,7 @@ impl Executor {
         let result_value = self.mir_executor.execute(program)
             .map_err(|e| ShellError::new(
                 ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::CommandNotFound),
-                format!("MIR execution failed: {}", e)
+                format!("MIR execution failed: {e}")
             ))?;
         
         let execution_time = start_time.elapsed().as_micros() as u64;
@@ -1264,11 +1267,11 @@ impl Executor {
         }
         
         #[cfg(debug_assertions)]
-        fn debug_variant(node: &AstNode, depth: usize) {
+    fn debug_variant(node: &AstNode, _depth: usize) {
             use AstNode::*;
             #[cfg(feature = "debug_exec")]
             {
-                let indent = "  ".repeat(depth);
+                let indent = "  ".repeat(_depth);
                 let name = match node {
                     Program(_) => "Program",
                     Pipeline { .. } => "Pipeline",
@@ -1298,13 +1301,13 @@ impl Executor {
                 eprintln!("AST_DEBUG:{}{}", indent, name);
             }
             match node {
-                Program(stmts) => for s in stmts { debug_variant(s, depth+1); },
-                Pipeline { elements, .. } => for s in elements { debug_variant(s, depth+1); },
-                Subshell(inner) => debug_variant(inner, depth+1),
+                Program(stmts) => for s in stmts { debug_variant(s, _depth+1); },
+                Pipeline { elements, .. } => for s in elements { debug_variant(s, _depth+1); },
+                Subshell(inner) => debug_variant(inner, _depth+1),
                 If { condition, then_branch, else_branch, .. } => {
-                    debug_variant(condition, depth+1);
-                    debug_variant(then_branch, depth+1);
-                    if let Some(e) = else_branch { debug_variant(e, depth+1); }
+                    debug_variant(condition, _depth+1);
+                    debug_variant(then_branch, _depth+1);
+                    if let Some(e) = else_branch { debug_variant(e, _depth+1); }
                 }
                 _ => {}
             }
@@ -1379,7 +1382,7 @@ impl Executor {
             AstNode::Program(statements) => {
                 let mut result = ExecutionResult::success(0);
                 // If environment requests an immediate timeout (NXSH_TIMEOUT_MS<=1), honor it for deterministic tests
-                if std::env::var("NXSH_TIMEOUT_MS").ok().and_then(|v| v.parse::<u64>().ok()).map_or(false, |ms| ms <= 1) {
+                if std::env::var("NXSH_TIMEOUT_MS").ok().and_then(|v| v.parse::<u64>().ok()).is_some_and(|ms| ms <= 1) {
                     return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: "nxsh: execution timed out".to_string(), execution_time: start_time.elapsed().as_micros() as u64, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() });
                 }
                 // If a global deadline exists and is effectively immediate, short-circuit before executing statements
@@ -1463,7 +1466,7 @@ impl Executor {
             }
             AstNode::MacroDeclaration { name, params, body } => {
                 let mut system = context.macro_system.write().unwrap();
-                let macro_def = crate::macros::Macro::Simple { parameters: params.iter().map(|s| s.to_string()).collect(), body: format!("{:?}", body) };
+                let macro_def = crate::macros::Macro::Simple { parameters: params.iter().map(|s| s.to_string()).collect(), body: format!("{body:?}") };
                 if let Err(e) = system.define_macro(name.to_string(), macro_def) {
                     return Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), e.to_string()));
                 }
@@ -1472,7 +1475,7 @@ impl Executor {
             AstNode::MacroInvocation { name, args } => {
                 let expanded = {
                     let mut system = context.macro_system.write().unwrap();
-                    let arg_texts: Vec<String> = args.iter().map(|a| format!("{:?}", a)).collect();
+                    let arg_texts: Vec<String> = args.iter().map(|a| format!("{a:?}")).collect();
                     match system.expand_macro(name, arg_texts) {
                         Ok(e) => e,
                         Err(e) => return Ok(ExecutionResult::failure(1).with_error(format!("macro expand error: {e}").into_bytes())),
@@ -1517,13 +1520,13 @@ impl Executor {
                     Ok(r) => { exec_result = r; }
                     Err(err) => {
                         let mut handled = false;
-                        for clause in catch_clauses {
+                        if let Some(clause) = catch_clauses.first() {
                             if let Some(var) = clause.variable {
-                                context.set_var(var.to_string(), format!("{}", err));
+                                context.set_var(var.to_string(), format!("{err}"));
                             }
                             match self.execute_ast_direct(&clause.body, context) {
-                                Ok(r2) => { exec_result = r2; handled = true; break; }
-                                Err(e2) => { exec_result = ExecutionResult::from_error(e2); handled = true; break; }
+                                Ok(r2) => { exec_result = r2; handled = true; }
+                                Err(e2) => { exec_result = ExecutionResult::from_error(e2); handled = true; }
                             }
                         }
                         if !handled { return Err(err); }
@@ -1543,7 +1546,7 @@ impl Executor {
                     if p.is_variadic { name.push_str("..."); }
                     if let Some(def) = &p.default { // naive serialize
                         let s = simple_unparse(def);
-                        descs.push(format!("{}={}", name, s));
+                        descs.push(format!("{name}={s}"));
                     } else { descs.push(name); }
                 }
                 let param_meta = descs.join(",");
@@ -1614,11 +1617,9 @@ impl Executor {
                             } else if let Some(val) = evaluated_args.get(arg_idx) {
                                 context.set_var(name.clone(), val.clone());
                                 arg_idx += 1;
-                            } else {
-                                if let Some(Some(def_src)) = param_defaults.get(i) {
-                                    if !def_src.is_empty() { if let Ok(def_ast) = parse_program(def_src) { if let Ok(def_res) = self.execute_ast_direct(&def_ast, context) { context.set_var(name.clone(), def_res.stdout); } } }
-                                } else { context.set_var(name.clone(), String::new()); }
-                            }
+                            } else if let Some(Some(def_src)) = param_defaults.get(i) {
+                                if !def_src.is_empty() { if let Ok(def_ast) = parse_program(def_src) { if let Ok(def_res) = self.execute_ast_direct(&def_ast, context) { context.set_var(name.clone(), def_res.stdout); } } }
+                            } else { context.set_var(name.clone(), String::new()); }
                         }
                         // Execute body
                         let exec_res = if let Ok(ast) = parse_program(&info.body_src) { self.execute_ast_direct(&ast, context) } else { Ok(ExecutionResult::failure(1).with_error(b"closure body parse failed".to_vec())) };
@@ -1689,24 +1690,20 @@ impl Executor {
                                 if Some(i) == variadic_index {
                                     // 残り全部
                                     let rest = if arg_idx < evaluated_args.len() { evaluated_args[arg_idx..].join(" ") } else { String::new() };
-                                        context.set_var(name.clone(), rest);
-                                        break; // variadic は末尾想定
-                                } else {
-                                    if let Some(val) = evaluated_args.get(arg_idx) {
-                                        context.set_var(name.clone(), val.clone());
-                                        arg_idx += 1;
-                                    } else {
-                                        // 足りない → default を評価
-                                        if let Some(Some(def_src)) = param_defaults.get(i) {
-                                            if !def_src.is_empty() {
-                                                if let Ok(def_ast) = parse_program(def_src) {
-                                                    if let Ok(def_res) = self.execute_ast_direct(&def_ast, context) { context.set_var(name.clone(), def_res.stdout); }
-                                                }
-                                            }
-                                        } else {
-                                            context.set_var(name.clone(), "".to_string());
+                                    context.set_var(name.clone(), rest);
+                                    break; // variadic は末尾想定
+                                } else if let Some(val) = evaluated_args.get(arg_idx) {
+                                    context.set_var(name.clone(), val.clone());
+                                    arg_idx += 1;
+                                } else if let Some(Some(def_src)) = param_defaults.get(i) {
+                                    // 足りない → default を評価
+                                    if !def_src.is_empty() {
+                                        if let Ok(def_ast) = parse_program(def_src) {
+                                            if let Ok(def_res) = self.execute_ast_direct(&def_ast, context) { context.set_var(name.clone(), def_res.stdout); }
                                         }
                                     }
+                                } else {
+                                    context.set_var(name.clone(), "".to_string());
                                 }
                             }
                             // 実行 (空ボディなら no-op)
@@ -1739,7 +1736,7 @@ impl Executor {
             _ => {
                 return Err(ShellError::new(
                     ErrorKind::SystemError(crate::error::SystemErrorKind::UnsupportedOperation),
-                    format!("AST node type not supported in direct interpreter: {:?}", node)
+                    format!("AST node type not supported in direct interpreter: {node:?}")
                 ));
             }
         };
@@ -1861,7 +1858,7 @@ impl Executor {
                     match c {
                         '\\' => { escape = true; },
                         '{' => { level += 1; cur.push(c); },
-                        '}' => { if level>0 { level -= 1; } cur.push(c); },
+                        '}' => { if level>0 { level = level.saturating_sub(1); } cur.push(c); },
                         ',' if level==0 => { parts.push(cur.clone()); cur.clear(); },
                         _ => cur.push(c),
                     }
@@ -1927,7 +1924,7 @@ impl Executor {
                                 for ch in inner.chars() {
                                     match ch {
                                         '{' => lvl += 1,
-                                        '}' => { if lvl>0 { lvl -= 1; } },
+                                        '}' => { if lvl>0 { lvl = lvl.saturating_sub(1); } },
                                         ',' if lvl==0 => { has_top_level_comma = true; break; }
                                         _ => {}
                                     }
@@ -2013,7 +2010,7 @@ impl Executor {
                         Err(_) => cmd_args.push(String::new()),
                     }
                 }
-                _ => cmd_args.push(format!("{:?}", arg)),
+                _ => cmd_args.push(format!("{arg:?}")),
             }
         }
 
@@ -2200,8 +2197,8 @@ impl Executor {
         let job_id = job_manager_guard.spawn_background_job(command.to_string(), args)?;
         
         // Return immediately with job information
-        let output = format!("[{}] Background job started: {}", job_id, command);
-        println!("{}", output); // Also print to console
+    let output = format!("[{job_id}] Background job started: {command}");
+    println!("{output}"); // Also print to console
         
         Ok(ExecutionResult::success(0).with_output(output.as_bytes().to_vec()))
     }
@@ -2246,27 +2243,27 @@ impl Executor {
                             c.args(["/C", &full]);
                             fb = Some(c);
                         } else if lower == "sleep" { // map to Start-Sleep
-                            let seconds = args.get(0).and_then(|s| s.parse::<u64>().ok()).unwrap_or(1);
+                            let seconds = args.first().and_then(|s| s.parse::<u64>().ok()).unwrap_or(1);
                             let mut c = Command::new("powershell.exe");
-                            c.args(["-NoProfile", "-Command", &format!("Start-Sleep -Seconds {}", seconds)]);
+                            c.args(["-NoProfile", "-Command", &format!("Start-Sleep -Seconds {seconds}")]);
                             fb = Some(c);
                         }
                         if let Some(mut fb_cmd) = fb {
                             apply_common(&mut fb_cmd, context);
                             match fb_cmd.spawn() { Ok(c2)=> c2, Err(e2)=> return Err(ShellError::new(
                                 ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                                format!("Failed to execute command '{}': {} (fallback also failed: {})", command, e, e2)
+                                format!("Failed to execute command '{command}': {e} (fallback also failed: {e2})")
                             )) }
                         } else {
                             return Err(ShellError::new(
                                 ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                                format!("Failed to execute command '{}': {}", command, e)
+                                format!("Failed to execute command '{command}': {e}")
                             ));
                         }
                     } else {
                         return Err(ShellError::new(
                             ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                            format!("Failed to execute command '{}': {}", command, e)
+                            format!("Failed to execute command '{command}': {e}")
                         ));
                     }
                 }
@@ -2274,7 +2271,7 @@ impl Executor {
                 {
                     return Err(ShellError::new(
                         ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                        format!("Failed to execute command '{}': {}", command, e)
+                        format!("Failed to execute command '{command}': {e}")
                     ));
                 }
             }
@@ -2292,7 +2289,7 @@ impl Executor {
                 ))?,
                 None => { // timeout
                     let _ = child.kill();
-                    return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: format!("nxsh: command '{}' timed out", command), execution_time: start_time.elapsed().as_micros() as u64, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() });
+                    return Ok(ExecutionResult { exit_code: 124, stdout: String::new(), stderr: format!("nxsh: command '{command}' timed out"), execution_time: start_time.elapsed().as_micros() as u64, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics::default() });
                 }
             }
         } else {
@@ -2307,6 +2304,7 @@ impl Executor {
     }
     
     /// Execute a single command
+    #[allow(dead_code)]
     fn execute_command(&mut self, name: &str, args: &[AstNode], context: &mut ShellContext) -> ShellResult<ExecutionResult> {
         // Pre-evaluate & possibly split arguments
         fn split_fields(raw: &str, context: &ShellContext) -> Vec<String> {
@@ -2385,7 +2383,7 @@ impl Executor {
                             for ch in inner.chars() {
                                 match ch {
                                     '{' => lvl += 1,
-                                    '}' => { if lvl > 0 { lvl -= 1; } },
+                                    '}' => { if lvl > 0 { lvl = lvl.saturating_sub(1); } },
                                     ',' if lvl == 0 => { has_top_level_comma = true; break; }
                                     _ => {}
                                 }
@@ -2430,7 +2428,7 @@ impl Executor {
                 match c {
                     '\\' => { escape = true; },
                     '{' => { level += 1; current.push(c); },
-                    '}' => { if level>0 { level -=1; } current.push(c); },
+                    '}' => { if level>0 { level = level.saturating_sub(1); } current.push(c); },
                     ',' if level==0 => { parts.push(current.to_string()); current.clear(); },
                     _ => current.push(c)
                 }
@@ -2518,7 +2516,7 @@ impl Executor {
                         Err(_) => evaluated_args.push(String::new()),
                     }
                 }
-                _ => evaluated_args.push(format!("{:?}", arg)),
+                _ => evaluated_args.push(format!("{arg:?}")),
             }
         }
         if let Some(builtin) = self.builtins.get(name) {
@@ -2536,7 +2534,7 @@ impl Executor {
             }
             Err(e) => {
                 let execution_time = start_time.elapsed().as_micros() as u64;
-                Ok(ExecutionResult { exit_code: 127, stdout: String::new(), stderr: format!("nxsh: {}: command not found ({})", name, e), execution_time, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics { compile_time_us: 0, optimize_time_us: 0, execute_time_us: execution_time, instruction_count: 1, memory_usage: 0 } })
+                Ok(ExecutionResult { exit_code: 127, stdout: String::new(), stderr: format!("nxsh: {name}: command not found ({e})"), execution_time, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics { compile_time_us: 0, optimize_time_us: 0, execute_time_us: execution_time, instruction_count: 1, memory_usage: 0 } })
             }
         }
     }
@@ -2590,7 +2588,7 @@ impl Executor {
             #[cfg(feature = "powershell_compat")]
             {
                 let mut parts = Vec::new();
-                for c in commands.iter() { parts.push(format!("{:?}", c)); }
+                for c in commands.iter() { parts.push(format!("{c:?}")); }
                 let pipeline_str = parts.join(" | ");
                 let mut compat = crate::powershell_compat::PowerShellCompat::new();
                 if let Ok(objs) = compat.execute_pipeline(&pipeline_str) {
@@ -2655,6 +2653,7 @@ impl Executor {
     }
     
     /// Execute a loop
+    #[allow(dead_code)]
     fn execute_loop(&mut self, condition: &AstNode, body: &AstNode, context: &mut ShellContext) -> ShellResult<ExecutionResult> {
         let mut total_time = 0;
         let mut last_result = ExecutionResult {
@@ -2726,7 +2725,7 @@ impl Executor {
         let mut temp_script = NamedTempFile::new()
             .map_err(|e| ShellError::new(
                 ErrorKind::IoError(crate::error::IoErrorKind::Other),
-                format!("Failed to create temporary script: {}", e)
+                format!("Failed to create temporary script: {e}")
             ))?;
         
         // Convert commands to script text
@@ -2734,12 +2733,12 @@ impl Executor {
         temp_script.write_all(script_content.as_bytes())
             .map_err(|e| ShellError::new(
                 ErrorKind::IoError(crate::error::IoErrorKind::Other),
-                format!("Failed to write script: {}", e)
+                format!("Failed to write script: {e}")
             ))?;
         temp_script.flush()
             .map_err(|e| ShellError::new(
                 ErrorKind::IoError(crate::error::IoErrorKind::Other),
-                format!("Failed to flush script: {}", e)
+                format!("Failed to flush script: {e}")
             ))?;
         
         // Prepare environment variables for subshell
@@ -2749,7 +2748,7 @@ impl Executor {
         let child = Command::new(std::env::current_exe()
             .map_err(|e| ShellError::new(
                 ErrorKind::IoError(crate::error::IoErrorKind::Other),
-                format!("Failed to get current executable: {}", e)
+                format!("Failed to get current executable: {e}")
             ))?)
             .arg("--subshell")
             .arg(temp_script.path())
@@ -2761,14 +2760,14 @@ impl Executor {
             .spawn()
             .map_err(|e| ShellError::new(
                 ErrorKind::IoError(crate::error::IoErrorKind::Other),
-                format!("Failed to spawn subshell process: {}", e)
+                format!("Failed to spawn subshell process: {e}")
             ))?;
         
         // Wait for completion and collect output
         let output = child.wait_with_output()
             .map_err(|e| ShellError::new(
                 ErrorKind::IoError(crate::error::IoErrorKind::Other),
-                format!("Failed to wait for subshell: {}", e)
+                format!("Failed to wait for subshell: {e}")
             ))?;
         let execution_time = start_time.elapsed().as_micros() as u64;
         
@@ -2890,7 +2889,7 @@ impl Executor {
         
         for command in commands {
             // Convert AST node to shell command text
-            script.push_str(&self.ast_to_command_string(command)?);
+            script.push_str(&Self::ast_to_command_string(command)?);
             script.push('\n');
         }
         
@@ -2898,30 +2897,30 @@ impl Executor {
     }
 
     /// Convert single AST node to command string
-    fn ast_to_command_string(&self, node: &AstNode) -> ShellResult<String> {
+    fn ast_to_command_string(node: &AstNode) -> ShellResult<String> {
         match node {
             AstNode::Program(statements) => {
                 let mut commands = Vec::new();
                 for statement in statements {
-                    commands.push(self.ast_to_command_string(statement)?);
+                    commands.push(Self::ast_to_command_string(statement)?);
                 }
                 Ok(commands.join("; "))
             },
             AstNode::Command { name, args, .. } => {
-                let mut cmd_str = format!("{}", name);
+                let mut cmd_str = format!("{name}");
                 for arg in args {
                     cmd_str.push(' ');
-                    cmd_str.push_str(&self.ast_to_command_string(arg)?);
+                    cmd_str.push_str(&Self::ast_to_command_string(arg)?);
                 }
                 Ok(cmd_str)
             },
             AstNode::Word(word) => Ok(word.to_string()),
-            AstNode::StringLiteral { value, .. } => Ok(format!("\"{}\"", value)),
+            AstNode::StringLiteral { value, .. } => Ok(format!("\"{value}\"")),
             AstNode::NumberLiteral { value, .. } => Ok(value.to_string()),
-            AstNode::VariableExpansion { name, .. } => Ok(format!("${}", name)),
-            AstNode::Pipeline { elements, .. } => {
+            AstNode::VariableExpansion { name, .. } => Ok(format!("${name}")),
+        AstNode::Pipeline { elements, .. } => {
                 let parts: ShellResult<Vec<String>> = elements.iter()
-                    .map(|e| self.ast_to_command_string(e))
+            .map(|e| Self::ast_to_command_string(e))
                     .collect();
                 Ok(parts?.join(" | "))
             },

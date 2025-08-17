@@ -123,7 +123,6 @@ impl IoManager {
         if let Ok(mut buffers) = self.write_buffers.write() {
             let file = OpenOptions::new()
                 .create(true)
-                .write(true)
                 .append(true)
                 .open(path)?;
             let new_writer = BufWriter::with_capacity(self.buffer_size, file);
@@ -151,7 +150,6 @@ impl IoManager {
         // Create new buffered writer for appending
         let file = OpenOptions::new()
             .create(true)
-            .write(true)
             .append(true)
             .open(path)?;
         
@@ -270,6 +268,7 @@ impl IoStats {
 }
 
 /// Async I/O operations with optimization
+#[allow(dead_code)]
 pub struct AsyncIoManager {
     buffer_size: usize,
     concurrent_limit: usize,

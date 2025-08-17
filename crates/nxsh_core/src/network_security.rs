@@ -44,7 +44,7 @@ impl NetworkMonitor {
             security_policies: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-
+    // Default implementation declared at module scope below
     /// Start network monitoring
     pub fn start_monitoring(&mut self) -> Result<()> {
         if self.monitoring_enabled {
@@ -58,7 +58,7 @@ impl NetworkMonitor {
         std::thread::spawn(move || {
             let mut monitor = ConnectionMonitor::new(connections);
             if let Err(e) = monitor.run() {
-                eprintln!("Network monitoring error: {}", e);
+                eprintln!("Network monitoring error: {e}");
             }
         });
 
@@ -77,7 +77,7 @@ impl NetworkMonitor {
         // Check blacklist first
         for blocked in &self.blacklist {
             if self.matches_pattern(host, blocked) {
-                return Ok(AccessDecision::Deny(format!("Host {} is blacklisted", host)));
+                return Ok(AccessDecision::Deny(format!("Host {host} is blacklisted")));
             }
         }
 
@@ -140,7 +140,7 @@ impl NetworkMonitor {
     pub fn whitelist_host(&mut self, host: String) {
         if !self.whitelist.contains(&host) {
             self.whitelist.push(host.clone());
-            println!("Added {} to whitelist", host);
+            println!("Added {host} to whitelist");
         }
     }
 
@@ -148,7 +148,7 @@ impl NetworkMonitor {
     pub fn blacklist_host(&mut self, host: String) {
         if !self.blacklist.contains(&host) {
             self.blacklist.push(host.clone());
-            println!("Added {} to blacklist", host);
+            println!("Added {host} to blacklist");
         }
     }
 
@@ -187,7 +187,7 @@ impl NetworkMonitor {
             if self.is_suspicious_connection(conn) {
                 report.add_finding(SecurityFinding {
                     severity: FindingSeverity::Medium,
-                    description: format!("Suspicious connection detected: {}", id),
+                    description: format!("Suspicious connection detected: {id}"),
                     recommendation: "Review connection and consider blocking".to_string(),
                     connection_id: Some(id.clone()),
                 });
@@ -209,7 +209,7 @@ impl NetworkMonitor {
             if !conn.encrypted && conn.port != 80 && conn.port != 443 {
                 report.add_finding(SecurityFinding {
                     severity: FindingSeverity::High,
-                    description: format!("Unencrypted connection on port {}", conn.port),
+                    description: format!("Unencrypted connection on port {0}", conn.port),
                     recommendation: "Use encrypted connections when possible".to_string(),
                     connection_id: Some(id.clone()),
                 });
@@ -269,11 +269,11 @@ impl NetworkMonitor {
     }
 
     fn log_access_attempt(&self, host: &str, port: u16, reason: &str) {
-        println!("[NETWORK] Access to {}:{} - {}", host, port, reason);
+        println!("[NETWORK] Access to {host}:{port} - {reason}");
     }
 
     fn add_monitoring_target(&self, host: &str, port: u16) {
-        let connection_id = format!("{}:{}", host, port);
+        let connection_id = format!("{host}:{port}");
         let mut connections = self.connections.lock().unwrap();
         
         connections.entry(connection_id.clone()).or_insert_with(|| NetworkConnection {
@@ -361,6 +361,7 @@ impl TrafficAnalyzer {
         }
     }
 
+    // Default implementation declared at module scope below
     pub fn record_traffic(&self, bytes: usize, source: &str, destination: &str) {
         let mut sent = self.total_bytes_sent.lock().unwrap();
         let mut received = self.total_bytes_received.lock().unwrap();
@@ -409,6 +410,7 @@ impl ThreatDetector {
         }
     }
 
+    // Default implementation declared at module scope below
     pub fn analyze_packet(&self, data: &[u8], source: &str, destination: &str) -> Result<ThreatAnalysis> {
         let mut threat_level = ThreatLevel::Low;
         let mut description = "Normal traffic".to_string();
@@ -714,6 +716,7 @@ impl SecurityAuditReport {
         }
     }
 
+    // Default implementation declared at module scope below
     pub fn add_finding(&mut self, finding: SecurityFinding) {
         self.findings.push(finding);
     }
@@ -769,6 +772,23 @@ impl NetworkSecurityManager {
     pub fn add_policy(&self, policy: SecurityPolicy) -> crate::compat::Result<()> {
         self.monitor.add_policy(policy)
     }
+}
+
+// Default implementations (module scope)
+impl Default for NetworkMonitor {
+    fn default() -> Self { Self::new() }
+}
+
+impl Default for TrafficAnalyzer {
+    fn default() -> Self { Self::new() }
+}
+
+impl Default for ThreatDetector {
+    fn default() -> Self { Self::new() }
+}
+
+impl Default for SecurityAuditReport {
+    fn default() -> Self { Self::new() }
 }
 
 #[cfg(test)]

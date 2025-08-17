@@ -88,6 +88,7 @@ pub struct PluginSystem {
     initialized: bool,
 }
 
+#[allow(dead_code)]
 impl PluginSystem {
     fn new() -> Self {
         Self {
@@ -320,6 +321,9 @@ pub struct PluginConfig {
     pub security_policy: String,
     pub require_signatures: bool,
     pub enable_encryption: bool,
+    /// If true, require plugins to declare at least one capability (test aid; env can override)
+    #[serde(default)]
+    pub capabilities_manifest_required: bool,
 }
 
 impl Default for PluginConfig {
@@ -337,6 +341,7 @@ impl Default for PluginConfig {
             security_policy: "restrictive".to_string(),
             require_signatures: true,
             enable_encryption: true,
+            capabilities_manifest_required: false,
         }
     }
 }

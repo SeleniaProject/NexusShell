@@ -1,11 +1,11 @@
 ## ビルトイン簡略化/未実装チェックリスト
 
-- [ ] `crates/nxsh_builtins/src/awk.rs`
+- [x] `crates/nxsh_builtins/src/awk.rs`
   - [x] 簡易パーサを完全対応へ拡張（BEGIN/END、正規表現、式/配列/連想配列、ユーザー関数、条件/ループ、フィールド分割、レコード分割）
   - [x] `printf`/`print` の完全互換（フォーマット指定子/幅/精度/エスケープ）
   - [x] 簡易式評価の撤廃と本格評価器の実装（数値/文字列/ブール/比較/正規表現一致）
 
-- [ ] `crates/nxsh_builtins/src/find.rs`
+- [x] `crates/nxsh_builtins/src/find.rs`
   - [x] 式ツリー評価の完全実装（AND/OR/NOT、括弧、優先順位、短絡評価）
   - [x] 正規表現エンジンの実装/選択（Basic/Extended/Perl 相当）
   - [x] `-printf`/`-fls` 出力の完全化（現在の簡易実装を置換）
@@ -21,7 +21,7 @@
   - [x] 簡略オフセット計算の精密化（NTP 固定小数点処理）
   - [x] 完全 i18n 対応（メッセージ/書式）
 
-- [ ] `crates/nxsh_builtins/src/fsck.rs`
+- [x] `crates/nxsh_builtins/src/fsck.rs`
   - [x] FAT チェイン解析/ロストクラスタ/クロスリンク厳密検出
   - [x] `-a`（自動修復）実装とジャーナリングによる安全な書き戻し
   - [x] 簡易マーキング/naive 比較の撤廃と完全検査の導入
@@ -40,7 +40,7 @@
   - [x] RAW ブロックのみのストアモード・フォールバック解消
   - [x] CLI 互換オプションの網羅実装（互換エイリアス含む）
 
-- [ ] `crates/nxsh_builtins/src/tar.rs`
+- [x] `crates/nxsh_builtins/src/tar.rs`
   - [x] 簡易タイムスタンプ表記の本実装（時刻/権限/所有者などメタデータの厳密整形）
 
 - [ ] `crates/nxsh_builtins/src/network_tools.rs`
@@ -156,8 +156,18 @@
 
 - [ ] テスト関連/その他
   - [ ] `crates/nxsh_builtins/src/echo.rs` のテストで示される `stdout.collect()` 相当の検証パス実装
-  - [ ] `crates/nxsh_core/src/builtins/testutils.rs` の最小 `echo` を本番相当の実装/注入に置換
+  - [x] `crates/nxsh_core/src/builtins/testutils.rs` の最小 `echo` を本番相当の実装/注入に置換
+    - 実装済: -n/-e/-E と各種エスケープ（\a, \b, \c, \e, \f, \n, \r, \t, \v, \\, 8進, 16進）をサポート
+    - 影響: 既存テストは全てパス（回帰なし）
   - [x] `timedatectl` の NTP タイムスタンプテストを修正（正確なエポック変換）
+
+## グローバル品質・安定化（本スプリント）
+
+- [x] workspace 全体の Clippy（-D warnings）をゼロに（crate 横断のlint修正）
+- [x] cargo test 全緑化とフレーク抑止
+  - [x] nxsh_core: 環境変数ロックの統一（OnceLock + Mutex）と login-shell 検出の堅牢化（SSH/SHLVL ヒューリスティクス強化）
+  - [x] nxsh_plugin: capabilities manifest の必須化を「設定/環境変数」両対応に拡張（`capabilities_manifest_required` 追加、`NXSH_CAP_MANIFEST_REQUIRED` とOR）
+  - [x] PluginConfig の後方互換性確保（`#[serde(default)]` 付与）
 
 
 

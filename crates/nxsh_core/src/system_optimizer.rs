@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 /// Advanced system optimization and tuning engine
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct SystemOptimizer {
     optimization_rules: Vec<OptimizationRule>,
     performance_profiles: HashMap<String, PerformanceProfile>,
@@ -522,11 +523,11 @@ impl SystemOptimizer {
         for action in &rule.actions {
             match self.apply_optimization_action(action) {
                 Ok(()) => {
-                    application.actions_performed.push(format!("Applied: {:?}", action));
+                    application.actions_performed.push(format!("Applied: {action:?}"));
                     application.success = true;
                 },
                 Err(e) => {
-                    application.actions_performed.push(format!("Failed: {:?} - {}", action, e));
+                    application.actions_performed.push(format!("Failed: {action:?} - {e}"));
                 }
             }
         }
@@ -538,7 +539,7 @@ impl SystemOptimizer {
         match action {
             OptimizationAction::SetCpuGovernor(governor) => {
                 // Simulate setting CPU governor
-                println!("Setting CPU governor to: {}", governor);
+                println!("Setting CPU governor to: {governor}");
                 Ok(())
             },
             OptimizationAction::EnableMemoryCompression => {
@@ -548,12 +549,12 @@ impl SystemOptimizer {
             },
             OptimizationAction::SetIoScheduler(scheduler) => {
                 // Simulate setting I/O scheduler
-                println!("Setting I/O scheduler to: {}", scheduler);
+                println!("Setting I/O scheduler to: {scheduler}");
                 Ok(())
             },
             OptimizationAction::SetNetworkBufferSize(size) => {
                 // Simulate setting network buffer size
-                println!("Setting network buffer size to: {}", size);
+                println!("Setting network buffer size to: {size}");
                 Ok(())
             },
             OptimizationAction::ClearSystemCaches => {
@@ -841,6 +842,8 @@ impl SystemOptimizer {
     }
 }
 
+impl Default for SystemOptimizer { fn default() -> Self { Self::new() } }
+
 // Supporting types and structures
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -946,7 +949,7 @@ pub struct OptimizationRule {
 }
 
 impl OptimizationRule {
-    pub fn applies_to_profile(&self, profile: &OptimizationProfile) -> bool {
+    pub fn applies_to_profile(&self, _profile: &OptimizationProfile) -> bool {
         // Simplified logic - in reality would be more complex
         true
     }
