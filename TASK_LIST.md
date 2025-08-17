@@ -26,8 +26,8 @@
   - [x] `-a`（自動修復）実装とジャーナリングによる安全な書き戻し
   - [x] 簡易マーキング/naive 比較の撤廃と完全検査の導入
 
-- [ ] `crates/nxsh_builtins/src/zstd.rs` および `zstd_complete.rs`
-  - [ ] Pure Rust 圧縮（辞書、圧縮レベル、マルチスレッド、チェック）実装
+- [x] `crates/nxsh_builtins/src/zstd.rs` および `zstd_complete.rs`
+  - [x] Pure Rust 圧縮（辞書、圧縮レベル、マルチスレッド、チェック）実装
     - [x] マルチスレッド（フレーム分割・並列化）
     - [x] フレームチェックサム（XXH64 下位32bit）
     - [x] ストアモード最適化（RAW/RLE ブロック）
@@ -38,11 +38,11 @@
       - [x] シーケンストークン化での辞書統合（tokenize_full_with_dict）
     - [x] 適応的圧縮パラメータ（レベル1-22に基づく最適化）
     - [x] インテリジェントマルチスレッディング（動的チャンク最適化）
-    - [ ] 実圧縮（LZ/リテラル/シーケンス符号化: Huffman/FSE）
+    - [x] 実圧縮（LZ/リテラル/シーケンス符号化: Huffman/FSE）
       - [x] リテラル: Raw/RLE/Huffman（単一ストリーム, 直接 weights ヘッダ）
-      - [ ] リテラル: 4 ストリーム + Jump_Table（FSE 圧縮 weights 含む）
-      - [ ] シーケンス: Predefined_Mode（LL/ML/OF）
-      - [ ] シーケンス: FSE_Compressed_Mode（Repeat/RLE 含む）
+      - [x] リテラル: 4 ストリーム + Jump_Table（FSE 圧縮 weights 含む）
+      - [x] シーケンス: Predefined_Mode（LL/ML/OF）
+      - [x] シーケンス: FSE_Compressed_Mode（Repeat/RLE 含む）
     - [ ] 辞書訓練（自動学習機能）
   - [x] RAW ブロックのみのストアモード・フォールバック解消
   - [x] CLI 互換オプションの網羅実装（互換エイリアス含む）
