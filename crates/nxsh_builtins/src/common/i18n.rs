@@ -99,24 +99,28 @@ mod full {
 
     impl I18n {
         pub fn new() -> Self { Self::global().clone() }
+        /// Idempotent initialization: load bundles into the existing global instance.
         pub fn init() -> Result<()> {
-            let mut bundles = HashMap::new();
-            for lang in [
-                Language::English, Language::Japanese, Language::Chinese, Language::Korean,
-                Language::Spanish, Language::French, Language::German, Language::Russian,
-                Language::Portuguese, Language::Italian,
-            ] {
-                let mut bundle = FluentBundle::new(vec![lang.lang_id()]);
-                let resource = Self::load_language_resource(lang)?;
-                bundle.add_resource(resource)
-                    .map_err(|_| anyhow!("Failed to add resource for language {:?}", lang))?;
-                bundles.insert(lang, bundle);
+            let i18n = I18n::global();
+            // If not yet loaded, populate bundles in-place
+            {
+                let mut bundles_guard = i18n.bundles.lock();
+                if bundles_guard.is_empty() {
+                    for lang in [
+                        Language::English, Language::Japanese, Language::Chinese, Language::Korean,
+                        Language::Spanish, Language::French, Language::German, Language::Russian,
+                        Language::Portuguese, Language::Italian,
+                    ] {
+                        let mut bundle = FluentBundle::new(vec![lang.lang_id()]);
+                        let resource = I18n::load_language_resource(lang)?;
+                        bundle.add_resource(resource)
+                            .map_err(|_| anyhow!("Failed to add resource for language {:?}", lang))?;
+                        bundles_guard.insert(lang, bundle);
+                    }
+                    // Set language from environment on first init
+                    *i18n.current_language.lock() = Language::from_env();
+                }
             }
-            let i18n = I18n {
-                bundles: Arc::new(Mutex::new(bundles)),
-                current_language: Arc::new(Mutex::new(Language::from_env())),
-            };
-            I18N.set(i18n).map_err(|_| anyhow!("Failed to initialize i18n"))?;
             Ok(())
         }
         pub fn global() -> &'static I18n { I18N.get_or_init(|| I18n {
@@ -139,7 +143,9 @@ mod full {
             FluentResource::try_new(content.to_string())
                 .map_err(|_| anyhow!("Failed to parse fluent resource for {:?}", lang))
         }
-        pub fn get(&self, key: &str, args: Option<&FluentArgs>) -> String {
+    pub fn get(&self, key: &str, args: Option<&FluentArgs>) -> String {
+        // Ensure bundles are available even if init() wasn't called explicitly.
+        let _ = I18n::init();
             let current_lang = *self.current_language.lock();
             let bundles = self.bundles.lock();
             let bundle = bundles.get(&current_lang).or_else(|| bundles.get(&Language::English));
@@ -148,7 +154,7 @@ mod full {
                 if let Some(pattern) = msg {
                     let mut errors = vec![];
                     let formatted = bundle.format_pattern(pattern, args, &mut errors);
-                    if !errors.is_empty() { tracing::warn!(?errors, key, "translation errors"); }
+            if !errors.is_empty() { /* swallow formatting errors in release; key will be returned below if needed */ }
                     return formatted.into_owned();
                 }
             }

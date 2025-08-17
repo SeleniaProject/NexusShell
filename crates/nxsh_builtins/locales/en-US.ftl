@@ -28,6 +28,43 @@ cat-help-example1 = cat f - g  Output f's contents, then standard input, then g'
 cat-help-example2 = cat        Copy standard input to standard output.
 cat-version = cat (NexusShell) 1.0.0
 
+# cat statistics and advanced help
+cat-stats-header = === Statistics for { $filename } ===
+cat-stats-total-header = === Total Statistics ===
+cat-stats-bytes-read = Bytes read
+cat-stats-lines-processed = Lines processed
+cat-stats-processing-time = Processing time
+cat-stats-encoding-detected = Encoding detected
+cat-stats-file-type = File type
+cat-stats-compression = Compression
+cat-stats-throughput = Throughput
+cat-binary-skipped = cat: { $filename }: binary file skipped
+cat-error-file = cat: { $filename }: { $error }
+cat-warn-bzip2-missing = Warning: bzip2 decompression not available, reading as regular file
+cat-warn-xz-missing = Warning: XZ decompression not available, reading as regular file
+cat-warn-zstd-missing = Warning: zstd decompression not available, reading as regular file
+cat-help-advanced-title = Advanced options:
+cat-help-advanced-options =       --progress           show progress bar for large files\n      --parallel           process multiple files in parallel\n      --threads N          number of threads for parallel processing\n      --encoding ENC       force specific encoding (utf-8, utf-16le, etc.)\n      --binary             treat all files as binary\n      --text               treat all files as text\n      --skip-binary        skip binary files\n      --format FMT         output format (raw, hex, base64, json)\n      --color WHEN         colorize output (always, never, auto)\n      --statistics         show processing statistics\n      --buffer-size N      buffer size for I/O operations\n      --no-mmap            disable memory mapping for large files\n      --no-decompress      disable automatic decompression\n      --no-follow-symlinks don't follow symbolic links\n      --timeout N          network timeout in seconds\n      --help               display this help and exit\n      --version            output version information and exit
+cat-help-advanced-examples-title = Advanced examples:
+cat-help-advanced-example1 =   cat --parallel --progress *.log    Process log files in parallel with progress
+cat-help-advanced-example2 =   cat --format hex data.bin          Output binary file as hexadecimal
+cat-help-advanced-example3 =   cat --statistics --encoding utf-16le file.txt  Show stats with specific encoding
+cat-help-report-bugs = Report cat bugs to <bug-reports@nexusshell.org>
+
+# cat progress and URL/HTTP errors
+cat-progress-complete = Complete
+cat-error-invalid-file-url = Invalid file URL
+cat-error-invalid-base64 = Invalid base64 in data URL: {$error}
+cat-error-malformed-data-url = Malformed data URL
+cat-error-unsupported-url-scheme = Unsupported URL scheme: {$scheme}
+cat-error-http-request-failed = HTTP request failed: {$error}
+cat-error-http-feature-missing = URL support requires 'net-http' feature
+
+# cat short help descriptions
+cat-help-option-e-short-desc = equivalent to -vE
+cat-help-option-t-short-desc = equivalent to -vT
+cat-help-option-u-ignored = (ignored)
+
 # ls command
 ls-help-usage = Usage: ls [OPTION]... [FILE]...
 ls-help-description = List information about the FILEs (the current directory by default).
@@ -230,6 +267,57 @@ error-interrupted = Operation interrupted
 error-broken-pipe = Broken pipe
 error-invalid-utf8 = Invalid UTF-8 sequence 
 
+# at command
+at.help.title = at: One-time job scheduler
+at.help.usage = Usage:
+at.help.time_formats = Accepted time formats:
+at.help.options = Options:
+at.help.examples = Examples:
+at.help.inline-usage = at: usage: at [OPTIONS] time [command...]
+at.error.unable-parse-time = Unable to parse time specification: { $input }
+at.error.invalid-time = Invalid time: { $hour }:{ $minute }
+at.error.invalid-date-time-combo = Invalid date/time combination
+at.error.ambiguous-local-time = Ambiguous local time
+at.error.invalid-numeric-time = Invalid numeric time format
+at.error.unknown-named-time = Unknown named time: { $name }
+at.error.unknown-time-unit = Unknown time unit: { $unit }
+at.error.unknown-day = Unknown day: { $day }
+at.error.unknown-weekday = Unknown weekday: { $weekday }
+at.error.parse-iso = Failed to parse ISO format
+at.error.invalid-unix-timestamp = Invalid Unix timestamp: { $timestamp }
+at.error.unable-parse-date = Unable to parse date: { $date }
+at.error.in-future = Scheduled time must be in the future
+at.error.job-not-found = Job not found: { $id }
+at.error.user-not-allowed = User { $user } is not allowed to use at
+at.error.user-denied = User { $user } is denied access to at
+at.error.missing-id-for-remove = -r requires a job ID
+at.error.missing-queue-name = -q requires a queue name
+at.error.read-file = Failed to read file: { $filename }
+at.error.missing-filename = -f requires a filename
+at.error.missing-time-spec = -t requires a time specification
+at.error.invalid-priority = Invalid priority: { $value }
+at.error.missing-priority = --priority requires a priority level
+at.error.missing-output-filename = --output requires a filename
+at.error.missing-error-filename = --error requires a filename
+at.error.invalid-max-runtime = Invalid max runtime
+at.error.missing-max-runtime = --max-runtime requires seconds
+at.error.invalid-retry-count = Invalid retry count
+at.error.missing-retry-count = --retry requires a count
+at.error.missing-tag-name = --tag requires a tag name
+at.error.unknown-option = Unknown option: { $option }
+at.list.no-jobs = No jobs scheduled
+at.list.header.job-id = Job ID
+at.list.header.scheduled-time = Scheduled Time
+at.list.header.status = Status
+at.list.header.queue = Queue
+at.list.header.command = Command
+at.remove.removed = Job { $id } removed
+at.remove.failed = Failed to remove job { $id }: { $error }
+at.error.time-spec-required = Time specification required
+at.error.read-stdin = Failed to read from stdin: { $error }
+at.error.no-command = No command specified
+at.schedule.scheduled = job { $id } at { $time }
+
 # schedule command
 schedule-help-title = schedule: Simple task scheduler
 schedule-help-usage = Usage: schedule [OPTIONS] TIME COMMAND
@@ -416,3 +504,36 @@ common.available = available
 
 # units
 units.microseconds = microseconds
+
+# date command (metadata/relative/errors/holidays)
+date.error.invalid_timezone = Invalid timezone: {$tz}
+date.error.invalid_month = Invalid month: {$month}
+
+date.metadata.unix_timestamp = Unix timestamp: {$value}
+date.metadata.julian_day = Julian day: {$value}
+date.metadata.day_of_year = Day of year: {$value}
+date.metadata.week_number = Week number: {$value}
+date.metadata.weekday = Weekday: {$value}
+date.metadata.type.weekend = Type: Weekend
+date.metadata.type.business = Type: Business day
+date.metadata.astronomical = Astronomical: {$info}
+
+date.relative.now = now
+date.relative.minutes_ago = {$mins} minutes ago
+date.relative.in_minutes = in {$mins} minutes
+date.relative.hours_ago = {$hours} hours ago
+date.relative.in_hours = in {$hours} hours
+date.relative.days_ago = {$days} days ago
+date.relative.in_days = in {$days} days
+
+date.holiday.none = No holidays found for year {$year} in regions: {$regions}
+date.holiday.header = Holidays for {$year} in regions: {$regions}
+date.holiday.separator = =====================================
+date.holiday.entry = {$date} - {$name} ({$region}, {$kind})
+date.holiday.total = Total: {$count} holidays
+
+# at help detailed sections
+at.help.usage-line =     at [OPTIONS] time [command...]
+at.help.time_formats.details =     HH:MM [AM/PM] [date]    - Specific time (e.g., '14:30', '2:30 PM tomorrow')\n    HHMM [AM/PM] [date]     - Numeric format (e.g., '1430', '230 PM')\n    noon/midnight [date]    - Named times\n    now + N units           - Relative time (e.g., 'now + 2 hours')\n    in N units              - Alternative relative (e.g., 'in 30 minutes')\n    tomorrow at time        - Next day scheduling\n    next weekday [at time]  - Next occurrence of weekday\n    ISO-8601 format         - Full timestamp\n    @timestamp              - Unix timestamp
+at.help.options.list =     -h, --help              Show this help message\n    -l, --list              List scheduled jobs\n    -r, --remove ID         Remove job by ID\n    -q, --queue QUEUE       Specify job queue (default: 'a')\n    -m, --mail              Send mail when job completes\n    -M, --no-mail           Don't send mail\n    -f, --file FILE         Read commands from file\n    -t, --time TIME         Time specification\n    --priority LEVEL        Set priority (low, normal, high, critical)\n    --output FILE           Redirect stdout to file\n    --error FILE            Redirect stderr to file\n    --max-runtime SECS      Maximum runtime in seconds\n    --retry COUNT           Number of retries on failure\n    --tag TAG               Add tag to job
+at.help.examples.list =     at 14:30 tomorrow       # Schedule for 2:30 PM tomorrow\n    at 'now + 1 hour'       # Schedule for one hour from now\n    at 'next friday at 9am' # Schedule for next Friday at 9 AM\n    at --queue b --priority high 16:00 # High priority job in queue b\n    echo 'backup.sh' | at midnight # Schedule backup at midnight\n    at -l -q a               # List jobs in queue 'a'\n    at -r at_123             # Remove job with ID 'at_123'

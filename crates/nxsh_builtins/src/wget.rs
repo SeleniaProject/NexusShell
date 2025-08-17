@@ -5,8 +5,11 @@
 //! (e.g. minimal containers or Windows without Git for Windows), it falls back
 //! to an enhanced internal implementation that supports common wget operations.
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use std::process::Command;
+use std::fs::File;
+use std::io::{BufWriter, Write, copy};
+use std::path::{Path, PathBuf};
 #[cfg(feature = "net-http")]
 use url::Url;
 use which::which;

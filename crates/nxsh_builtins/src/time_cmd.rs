@@ -11,6 +11,7 @@ use std::time::Instant;
 use sysinfo::{ProcessExt, System, SystemExt, PidExt};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 pub fn time_cli(args: &[String]) -> Result<()> {
     if args.is_empty() {
@@ -25,11 +26,11 @@ pub fn time_cli(args: &[String]) -> Result<()> {
         .spawn()
         .map_err(|e| anyhow!("time: failed to execute '{}': {}", args[0], e))?;
     
-    let _child_pid = child.id();
+    let child_pid = child.id();
     
     // Monitor CPU usage in a separate thread
     let cpu_stats = Arc::new(Mutex::new((0.0, 0.0))); // (user_time, sys_time)
-    let _cpu_stats_clone = cpu_stats.clone();
+    let cpu_stats_clone = cpu_stats.clone();
     
     #[cfg(feature = "system-info")]
     let monitor_handle = thread::spawn(move || {

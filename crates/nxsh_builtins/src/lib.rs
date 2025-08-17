@@ -937,6 +937,11 @@ pub use common::*;
 pub mod logstats;
 #[cfg(feature = "logging")]
 pub use logstats::logstats_cli;
+// Compatibility shim: when logging feature is enabled, provide a stub module
+// `logstats_builtin` exporting `set_logging_system` so callers can import a
+// consistent path regardless of feature flags.
+#[cfg(feature = "logging")]
+pub mod logstats_builtin { pub fn set_logging_system<T>(_logging: T) {} }
 #[cfg(not(feature = "logging"))]
 pub mod logstats_builtin;
 #[cfg(not(feature = "logging"))]

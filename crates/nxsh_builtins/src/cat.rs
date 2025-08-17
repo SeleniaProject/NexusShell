@@ -328,7 +328,7 @@ fn parse_cat_args(args: &[String]) -> Result<CatOptions> {
             "--buffer-size" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(anyhow!(t!("error-missing-argument")));
+                    return Err(anyhow!(t!("error-missing-argument", "option" => "--buffer-size")));
                 }
                 options.buffer_size = args[i].parse()
                     .context(t!("error-invalid-argument", "argument" => &args[i]))?;
@@ -345,10 +345,10 @@ fn parse_cat_args(args: &[String]) -> Result<CatOptions> {
             "--timeout" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(anyhow!(t!("error-missing-argument")));
+                    return Err(anyhow!(t!("error-missing-argument", "option" => "--timeout")));
                 }
-                                  let seconds: u64 = args[i].parse()
-                    .context(t!("error-invalid-argument"))?;
+                let seconds: u64 = args[i].parse()
+                    .context(t!("error-invalid-argument", "argument" => &args[i]))?;
                 options.network_timeout = Duration::from_secs(seconds);
             }
             "--help" => {
@@ -390,7 +390,7 @@ fn parse_cat_args(args: &[String]) -> Result<CatOptions> {
                         'T' => options.show_tabs = true,
                         'u' => {}, // Ignored
                         'v' => options.show_nonprinting = true,
-                        _ => return Err(anyhow!(t!("error-invalid-option"))),
+                        _ => return Err(anyhow!(t!("error-invalid-option", "option" => arg))),
                     }
                 }
             }
@@ -455,7 +455,7 @@ fn process_files_sequential(options: &CatOptions) -> Result<()> {
     }
     
     if options.statistics && options.files.len() > 1 {
-        println!("\n{}", style("=== Total Statistics ===").bold());
+        println!("\n{}", style(t!("cat-stats-total-header")).bold());
         print_statistics(&total_stats, "Total");
     }
     
@@ -514,7 +514,7 @@ fn process_files_parallel(options: &CatOptions) -> Result<()> {
                 writer.write_all(&content)?;
             }
             Err(e) => {
-                eprintln!("cat: {filename}: {e}");
+                eprintln!("{}", t!("cat-error-file", "filename" => filename, "error" => e.to_string()));
             }
         }
     }
@@ -547,7 +547,7 @@ fn process_files_parallel(options: &CatOptions) -> Result<()> {
         }
         
         if options.files.len() > 1 {
-            println!("\n{}", style("=== Total Statistics ===").bold());
+            println!("\n{}", style(t!("cat-stats-total-header")).bold());
             print_statistics(&total_stats, "Total");
         }
     }
@@ -588,14 +588,14 @@ fn process_single_file(
                 return process_url(&url, options, multi_progress);
             }
         }
-        return Err(anyhow!(t!("error-file-not-found")));
+    return Err(anyhow!(t!("error-file-not-found", "filename" => _filename)));
     }
     
     let metadata = std::fs::metadata(path)
         .context(t!("error-io-error"))?;
     
     if metadata.is_dir() {
-        return Err(anyhow!(t!("error-not-a-file")));
+        return Err(anyhow!(t!("error-not-a-file", "path" => _filename)));
     }
     
     // Handle symlinks
@@ -619,7 +619,7 @@ fn process_single_file(
     // Handle binary files
     match options.binary_mode {
         BinaryMode::Skip if file_type == ContentType::BINARY => {
-            eprintln!("cat: {_filename}: binary file skipped");
+            eprintln!("{}", t!("cat-binary-skipped", "filename" => _filename));
             return Ok(FileStats {
                 bytes_read: 0,
                 lines_processed: 0,
@@ -727,7 +727,7 @@ fn process_file_mmap<W: Write>(
     }
     
     if let Some(pb) = progress_bar {
-        pb.finish_with_message("Complete");
+        pb.finish_with_message(t!("cat-progress-complete"));
     }
     
     Ok(stats)
@@ -769,19 +769,19 @@ fn process_file_stream<W: Write + ?Sized>(
         Some(CompressionType::Bzip2) => {
             // Use pure Rust alternative for bzip2
             // For now, treat as regular file
-            eprintln!("Warning: bzip2 decompression not available, reading as regular file");
+            eprintln!("{}", t!("cat-warn-bzip2-missing"));
             Box::new(BufReader::with_capacity(options.buffer_size, file))
         }
         Some(CompressionType::Xz) => {
             // Use pure Rust alternative for XZ
             // For now, treat as regular file
-            eprintln!("Warning: XZ decompression not available, reading as regular file");
+            eprintln!("{}", t!("cat-warn-xz-missing"));
             Box::new(BufReader::with_capacity(options.buffer_size, file))
         }
         Some(CompressionType::Zstd) => {
             // Use pure Rust alternative for zstd
             // For now, treat as regular file
-            eprintln!("Warning: zstd decompression not available, reading as regular file");
+            eprintln!("{}", t!("cat-warn-zstd-missing"));
             Box::new(BufReader::with_capacity(options.buffer_size, file))
         }
         Some(CompressionType::Deflate) => {
@@ -803,7 +803,7 @@ fn process_file_stream<W: Write + ?Sized>(
     )?;
     
     if let Some(pb) = progress_bar {
-        pb.finish_with_message("Complete");
+    pb.finish_with_message(t!("cat-progress-complete"));
     }
     
     Ok(stats)
@@ -1073,7 +1073,7 @@ fn process_url_to_writer(
             let compression = if options.decompress { detect_compression(&path_buf)? } else { None };
             return process_file_stream(&path_buf, writer, options, &path_buf.to_string_lossy(), None, compression);
         } else {
-            return Err(anyhow!("Invalid file URL"));
+            return Err(anyhow!(t!("cat-error-invalid-file-url")));
         }
     }
 
@@ -1084,10 +1084,10 @@ fn process_url_to_writer(
             let (meta, payload) = s.split_at(comma_idx);
             let payload = &payload[1..]; // skip comma
             let is_base64 = meta.ends_with(";base64");
-            let bytes = if is_base64 {
+        let bytes = if is_base64 {
                 general_purpose::STANDARD
-                    .decode(payload.as_bytes())
-                    .map_err(|e| anyhow!("Invalid base64 in data URL: {e}"))?
+            .decode(payload.as_bytes())
+            .map_err(|e| anyhow!(t!("cat-error-invalid-base64", "error" => e.to_string())))?
             } else {
                 // RFC2397: percent-decoding for non-base64
                 percent_decode_str(payload).collect::<Vec<u8>>()
@@ -1101,13 +1101,13 @@ fn process_url_to_writer(
                 None,
             );
         } else {
-            return Err(anyhow!("Malformed data URL"));
+            return Err(anyhow!(t!("cat-error-malformed-data-url")));
         }
     }
 
     // HTTP/HTTPS handled behind feature flag
     if scheme != "http" && scheme != "https" {
-        return Err(anyhow!("Unsupported URL scheme: {}", scheme));
+        return Err(anyhow!(t!("cat-error-unsupported-url-scheme", "scheme" => scheme)));
     }
 
     #[cfg(feature = "net-http")]
@@ -1122,7 +1122,7 @@ fn process_url_to_writer(
 
         let resp = agent.get(url.as_str())
             .call()
-            .map_err(|e| anyhow!("HTTP request failed: {e}"))?;
+            .map_err(|e| anyhow!(t!("cat-error-http-request-failed", "error" => e.to_string())))?;
 
         let len_opt = resp.header("Content-Length").and_then(|v| v.parse::<u64>().ok());
         let reader = std::io::BufReader::new(resp.into_reader());
@@ -1142,14 +1142,14 @@ fn process_url_to_writer(
             url.as_str(),
             progress_bar.as_ref(),
         )?;
-        if let Some(pb) = progress_bar { pb.finish_with_message("Complete"); }
+    if let Some(pb) = progress_bar { pb.finish_with_message(t!("cat-progress-complete")); }
         Ok(stats)
     }
 
     #[cfg(not(feature = "net-http"))]
     {
-        let _ = (multi_progress.is_some(), options.network_timeout);
-        Err(anyhow!("URL support requires 'net-http' feature"))
+    let _ = (multi_progress.is_some(), options.network_timeout);
+    Err(anyhow!(t!("cat-error-http-feature-missing")))
     }
 }
 
@@ -1225,35 +1225,35 @@ fn detect_encoding(data: &[u8]) -> &'static Encoding {
 }
 
 fn print_statistics(stats: &FileStats, filename: &str) {
-    println!("\n{}", style(format!("=== Statistics for {filename} ===")).bold());
+    println!("\n{}", style(t!("cat-stats-header", "filename" => filename)).bold());
     println!("{}: {}", 
-        style("Bytes read").cyan(), 
+        style(t!("cat-stats-bytes-read")).cyan(), 
         style(format!("{}", stats.bytes_read)).yellow()
     );
     println!("{}: {}", 
-        style("Lines processed").cyan(), 
+        style(t!("cat-stats-lines-processed")).cyan(), 
         style(format!("{}", stats.lines_processed)).yellow()
     );
-    println!("{}: {:.2?}", 
-        style("Processing time").cyan(), 
+    println!("{}: {}", 
+        style(t!("cat-stats-processing-time")).cyan(), 
         style(format!("{:.2?}", stats.processing_time)).yellow()
     );
     
     if let Some(encoding) = stats.encoding_detected {
         println!("{}: {}", 
-            style("Encoding detected").cyan(), 
+            style(t!("cat-stats-encoding-detected")).cyan(), 
             style(encoding.name()).yellow()
         );
     }
     
-    println!("{}: {:?}", 
-        style("File type").cyan(), 
+    println!("{}: {}", 
+        style(t!("cat-stats-file-type")).cyan(), 
         style(format!("{:?}", stats.file_type)).yellow()
     );
     
     if let Some(compression) = &stats.compression_detected {
-        println!("{}: {:?}", 
-            style("Compression").cyan(), 
+        println!("{}: {}", 
+            style(t!("cat-stats-compression")).cyan(), 
             style(format!("{compression:?}")).yellow()
         );
     }
@@ -1264,8 +1264,8 @@ fn print_statistics(stats: &FileStats, filename: &str) {
         0.0
     };
     
-    println!("{}: {:.2} MB/s", 
-        style("Throughput").cyan(), 
+    println!("{}: {} MB/s", 
+        style(t!("cat-stats-throughput")).cyan(), 
         style(format!("{throughput:.2}")).yellow()
     );
 }
@@ -1278,44 +1278,28 @@ fn print_help() {
     println!();
     println!("  -A, --show-all           {}", t!("cat-help-option-show-all"));
     println!("  -b, --number-nonblank    {}", t!("cat-help-option-number-nonblank"));
-    println!("  -e                       equivalent to -vE");
+    println!("  -e                       {}", t!("cat-help-option-e-short-desc"));
     println!("  -E, --show-ends          {}", t!("cat-help-option-show-ends"));
     println!("  -n, --number             {}", t!("cat-help-option-number"));
     println!("  -s, --squeeze-blank      {}", t!("cat-help-option-squeeze-blank"));
-    println!("  -t                       equivalent to -vT");
+    println!("  -t                       {}", t!("cat-help-option-t-short-desc"));
     println!("  -T, --show-tabs          {}", t!("cat-help-option-show-tabs"));
-    println!("  -u                       (ignored)");
+    println!("  -u                       {}", t!("cat-help-option-u-ignored"));
     println!("  -v, --show-nonprinting   {}", t!("cat-help-option-show-nonprinting"));
     println!();
-    println!("Advanced options:");
-    println!("      --progress           show progress bar for large files");
-    println!("      --parallel           process multiple files in parallel");
-    println!("      --threads N          number of threads for parallel processing");
-    println!("      --encoding ENC       force specific encoding (utf-8, utf-16le, etc.)");
-    println!("      --binary             treat all files as binary");
-    println!("      --text               treat all files as text");
-    println!("      --skip-binary        skip binary files");
-    println!("      --format FMT         output format (raw, hex, base64, json)");
-    println!("      --color WHEN         colorize output (always, never, auto)");
-    println!("      --statistics         show processing statistics");
-    println!("      --buffer-size N      buffer size for I/O operations");
-    println!("      --no-mmap            disable memory mapping for large files");
-    println!("      --no-decompress      disable automatic decompression");
-    println!("      --no-follow-symlinks don't follow symbolic links");
-    println!("      --timeout N          network timeout in seconds");
-    println!("      --help               display this help and exit");
-    println!("      --version            output version information and exit");
+    println!("{}", t!("cat-help-advanced-title"));
+    println!("{}", t!("cat-help-advanced-options"));
     println!();
     println!("{}", t!("cat-help-examples"));
     println!("  {}", t!("cat-help-example1"));
     println!("  {}", t!("cat-help-example2"));
     println!();
-    println!("Advanced examples:");
-    println!("  cat --parallel --progress *.log    Process log files in parallel with progress");
-    println!("  cat --format hex data.bin          Output binary file as hexadecimal");
-    println!("  cat --statistics --encoding utf-16le file.txt  Show stats with specific encoding");
+    println!("{}", t!("cat-help-advanced-examples-title"));
+    println!("{}", t!("cat-help-advanced-example1"));
+    println!("{}", t!("cat-help-advanced-example2"));
+    println!("{}", t!("cat-help-advanced-example3"));
     println!();
-    println!("Report cat bugs to <bug-reports@nexusshell.org>");
+    println!("{}", t!("cat-help-report-bugs"));
 }
 
 #[cfg(test)]

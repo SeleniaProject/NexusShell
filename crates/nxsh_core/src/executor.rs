@@ -1266,35 +1266,37 @@ impl Executor {
         #[cfg(debug_assertions)]
         fn debug_variant(node: &AstNode, depth: usize) {
             use AstNode::*;
-            let _indent = "  ".repeat(depth);
-            let _name = match node {
-                Program(_) => "Program",
-                Pipeline { .. } => "Pipeline",
-                Command { background, .. } => if *background { "Command(bg)" } else { "Command" },
-                SimpleCommand { .. } => "SimpleCommand",
-                Subshell(_) => "Subshell",
-                If { .. } => "If",
-                For { .. } => "For",
-                ForC { .. } => "ForC",
-                While { .. } => "While",
-                Until { .. } => "Until",
-                Case { .. } => "Case",
-                Select { .. } => "Select",
-                Match { .. } => "Match",
-                Function { .. } => "Function",
-                VariableAssignment { .. } => "VarAssign",
-                Word(_) => "Word",
-                StringLiteral { .. } => "StringLiteral",
-                NumberLiteral { .. } => "NumberLiteral",
-                VariableExpansion { .. } => "VarExp",
-                CommandSubstitution { .. } => "CmdSub",
-                LogicalAnd { .. } => "LogicalAnd",
-                LogicalOr { .. } => "LogicalOr",
-                Sequence { .. } => "Sequence",
-                _ => "Other",
-            };
             #[cfg(feature = "debug_exec")]
-            eprintln!("AST_DEBUG:{}{}", indent, name);
+            {
+                let indent = "  ".repeat(depth);
+                let name = match node {
+                    Program(_) => "Program",
+                    Pipeline { .. } => "Pipeline",
+                    Command { background, .. } => if *background { "Command(bg)" } else { "Command" },
+                    SimpleCommand { .. } => "SimpleCommand",
+                    Subshell(_) => "Subshell",
+                    If { .. } => "If",
+                    For { .. } => "For",
+                    ForC { .. } => "ForC",
+                    While { .. } => "While",
+                    Until { .. } => "Until",
+                    Case { .. } => "Case",
+                    Select { .. } => "Select",
+                    Match { .. } => "Match",
+                    Function { .. } => "Function",
+                    VariableAssignment { .. } => "VarAssign",
+                    Word(_) => "Word",
+                    StringLiteral { .. } => "StringLiteral",
+                    NumberLiteral { .. } => "NumberLiteral",
+                    VariableExpansion { .. } => "VarExp",
+                    CommandSubstitution { .. } => "CmdSub",
+                    LogicalAnd { .. } => "LogicalAnd",
+                    LogicalOr { .. } => "LogicalOr",
+                    Sequence { .. } => "Sequence",
+                    _ => "Other",
+                };
+                eprintln!("AST_DEBUG:{}{}", indent, name);
+            }
             match node {
                 Program(stmts) => for s in stmts { debug_variant(s, depth+1); },
                 Pipeline { elements, .. } => for s in elements { debug_variant(s, depth+1); },

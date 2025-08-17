@@ -53,7 +53,9 @@ mod timedatectl_tests {
         let manager = TimedatectlManager::new(config, i18n).await.unwrap();
         
         // Test valid NTP timestamp (2024-01-01 00:00:00 UTC)
-        let ntp_timestamp: u64 = (2024 - 1900) * 365 * 24 * 3600 + 2_208_988_800; // Approximate
+        // Build from an exact UNIX timestamp and add the NTP epoch offset
+        let unix_2024 = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap().timestamp() as u64;
+        let ntp_timestamp: u64 = unix_2024 + 2_208_988_800; // NTP epoch offset (1900->1970)
         let timestamp_bytes = [
             ((ntp_timestamp >> 24) & 0xFF) as u8,
             ((ntp_timestamp >> 16) & 0xFF) as u8,

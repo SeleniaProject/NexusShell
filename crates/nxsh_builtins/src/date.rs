@@ -33,7 +33,8 @@ use std::{
     fmt,
     fs,
 };
-use crate::common::i18n::I18n; // Stub provides same symbol when feature off
+use crate::common::i18n::{I18n, init_i18n}; // ensure i18n init when feature on (stub no-op)
+use crate::t; // bring macro t! into scope for this module
 
 // Configuration constants
 const DEFAULT_FORMAT: &str = "%a %b %e %H:%M:%S %Z %Y";
@@ -467,6 +468,8 @@ pub struct DateManager {
 
 impl DateManager {
     pub fn new(config: DateConfig, i18n: I18n) -> Self {
+    // Ensure i18n is initialized so that t! resolves to translated strings when enabled
+    let _ = init_i18n();
         // Create holiday database with regions based on config or environment
         let regions = std::env::var("NXSH_HOLIDAY_REGIONS")
             .ok()
@@ -952,7 +955,7 @@ impl DateManager {
         #[cfg(feature = "i18n")]
         {
             if tz_name == "local" { return Ok(chrono_tz::UTC); }
-            return tz_name.parse::<Tz>().map_err(|_| anyhow!("Invalid timezone: {}", tz_name));
+            return tz_name.parse::<Tz>().map_err(|_| anyhow!(t!("date.error.invalid_timezone", "tz" => tz_name)));
         }
         #[cfg(not(feature = "i18n"))]
         {
@@ -962,14 +965,14 @@ impl DateManager {
     }
 
     fn get_date_metadata(&self, datetime: &DateTime<Utc>, options: &DateOptions) -> Result<String> {
-        let mut metadata = Vec::new();
+    let mut metadata = Vec::new();
         let date_naive = datetime.date_naive();
 
-        metadata.push(format!("Unix timestamp: {}", datetime.timestamp()));
-        metadata.push(format!("Julian day: {}", self.calculate_julian_day(datetime)?));
-        metadata.push(format!("Day of year: {}", datetime.ordinal()));
-        metadata.push(format!("Week number: {}", datetime.iso_week().week()));
-        metadata.push(format!("Weekday: {}", datetime.weekday()));
+    metadata.push(t!("date.metadata.unix_timestamp", "value" => datetime.timestamp()));
+    metadata.push(t!("date.metadata.julian_day", "value" => self.calculate_julian_day(datetime)?));
+    metadata.push(t!("date.metadata.day_of_year", "value" => datetime.ordinal()));
+    metadata.push(t!("date.metadata.week_number", "value" => datetime.iso_week().week()));
+    metadata.push(t!("date.metadata.weekday", "value" => datetime.weekday().to_string()));
 
         // Add holiday information if requested
         if options.show_holiday_info && (options.include_holidays || self.config.include_holidays) {
@@ -978,16 +981,16 @@ impl DateManager {
             } else {
                 // Check if it's a weekend
                 if date_naive.weekday() == Weekday::Sat || date_naive.weekday() == Weekday::Sun {
-                    metadata.push("Type: Weekend".to_string());
+                    metadata.push(t!("date.metadata.type.weekend"));
                 } else if !self.holiday_db.is_holiday(date_naive) {
-                    metadata.push("Type: Business day".to_string());
+                    metadata.push(t!("date.metadata.type.business"));
                 }
             }
         }
 
         if let Some(ref location) = self.config.location {
             let astro_info = self.calculate_astronomical_info(datetime, location)?;
-            metadata.push(format!("Astronomical: {astro_info}"));
+            metadata.push(t!("date.metadata.astronomical", "info" => astro_info));
         }
 
         Ok(metadata.join(", "))
@@ -1017,27 +1020,27 @@ impl DateManager {
         let duration = now.signed_duration_since(datetime.with_timezone(&Utc));
 
         if duration.num_seconds().abs() < 60 {
-            Ok("now".to_string())
+            Ok(t!("date.relative.now"))
         } else if duration.num_minutes().abs() < 60 {
             let mins = duration.num_minutes();
             if mins > 0 {
-                Ok(format!("{mins} minutes ago"))
+                Ok(t!("date.relative.minutes_ago", "mins" => mins))
             } else {
-                Ok(format!("in {} minutes", -mins))
+                Ok(t!("date.relative.in_minutes", "mins" => -mins))
             }
         } else if duration.num_hours().abs() < 24 {
             let hours = duration.num_hours();
             if hours > 0 {
-                Ok(format!("{hours} hours ago"))
+                Ok(t!("date.relative.hours_ago", "hours" => hours))
             } else {
-                Ok(format!("in {} hours", -hours))
+                Ok(t!("date.relative.in_hours", "hours" => -hours))
             }
         } else {
             let days = duration.num_days();
             if days > 0 {
-                Ok(format!("{days} days ago"))
+                Ok(t!("date.relative.days_ago", "days" => days))
             } else {
-                Ok(format!("in {} days", -days))
+                Ok(t!("date.relative.in_days", "days" => -days))
             }
         }
     }
@@ -1057,7 +1060,7 @@ impl DateManager {
             1 | 3 | 5 | 7 | 8 | 10 | 12 => Ok(31),
             4 | 6 | 9 | 11 => Ok(30),
             2 => Ok(if self.is_leap_year(year) { 29 } else { 28 }),
-            _ => Err(anyhow!("Invalid month: {}", month)),
+            _ => Err(anyhow!(t!("date.error.invalid_month", "month" => month))),
         }
     }
 
@@ -1082,25 +1085,121 @@ impl DateManager {
         all_holidays.sort_by_key(|h| h.date);
 
         if all_holidays.is_empty() {
-            return Ok(format!("No holidays found for year {} in regions: {}", 
-                             target_year, 
-                             target_regions.join(", ")));
+            #[cfg(feature = "i18n")]
+            {
+                let msg = t!(
+                    "date.holiday.none",
+                    "year" => target_year,
+                    "regions" => target_regions.join(", ")
+                );
+                if msg == "date.holiday.none" {
+                    return Ok(format!(
+                        "No holidays found for year {} in regions: {}",
+                        target_year,
+                        target_regions.join(", ")
+                    ));
+                } else {
+                    return Ok(msg);
+                }
+            }
+            #[cfg(not(feature = "i18n"))]
+            {
+                return Ok(format!(
+                    "No holidays found for year {} in regions: {}",
+                    target_year,
+                    target_regions.join(", ")
+                ));
+            }
         }
 
-        let mut output = format!("Holidays for {} in regions: {}\n", 
-                                target_year, 
-                                target_regions.join(", "));
-        output.push_str("=====================================\n");
+        let mut output = String::new();
+        #[cfg(feature = "i18n")]
+        {
+            let header = t!(
+                "date.holiday.header",
+                "year" => target_year,
+                "regions" => target_regions.join(", ")
+            );
+            if header == "date.holiday.header" {
+                output.push_str(&format!(
+                    "Holidays for {} in regions: {}",
+                    target_year,
+                    target_regions.join(", ")
+                ));
+            } else {
+                output.push_str(&header);
+            }
+            output.push('\n');
+            let sep = t!("date.holiday.separator");
+            if sep == "date.holiday.separator" {
+                output.push_str("=====================================");
+            } else {
+                output.push_str(&sep);
+            }
+            output.push('\n');
+        }
+        #[cfg(not(feature = "i18n"))]
+        {
+            output.push_str(&format!(
+                "Holidays for {} in regions: {}",
+                target_year,
+                target_regions.join(", ")
+            ));
+            output.push('\n');
+            output.push_str("=====================================");
+            output.push('\n');
+        }
 
         for holiday in &all_holidays {
-            output.push_str(&format!("{} - {} ({}, {})\n", 
-                                   holiday.date.format("%Y-%m-%d %a"), 
-                                   holiday.name, 
-                                   holiday.region,
-                                   format!("{:?}", holiday.holiday_type).to_lowercase()));
+            #[cfg(feature = "i18n")]
+            {
+                let line = t!(
+                    "date.holiday.entry",
+                    "date" => holiday.date.format("%Y-%m-%d %a").to_string(),
+                    "name" => &holiday.name,
+                    "region" => &holiday.region,
+                    "kind" => format!("{:?}", holiday.holiday_type).to_lowercase()
+                );
+                if line == "date.holiday.entry" {
+                    output.push_str(&format!(
+                        "{} - {} ({}, {})",
+                        holiday.date.format("%Y-%m-%d %a"),
+                        holiday.name,
+                        holiday.region,
+                        format!("{:?}", holiday.holiday_type).to_lowercase()
+                    ));
+                } else {
+                    output.push_str(&line);
+                }
+            }
+            #[cfg(not(feature = "i18n"))]
+            {
+                output.push_str(&format!(
+                    "{} - {} ({}, {})",
+                    holiday.date.format("%Y-%m-%d %a"),
+                    holiday.name,
+                    holiday.region,
+                    format!("{:?}", holiday.holiday_type).to_lowercase()
+                ));
+            }
+            output.push('\n');
         }
 
-        output.push_str(&format!("\nTotal: {} holidays\n", all_holidays.len()));
+        output.push('\n');
+        #[cfg(feature = "i18n")]
+        {
+            let total = t!("date.holiday.total", "count" => all_holidays.len());
+            if total == "date.holiday.total" {
+                output.push_str(&format!("Total: {} holidays", all_holidays.len()));
+            } else {
+                output.push_str(&total);
+            }
+        }
+        #[cfg(not(feature = "i18n"))]
+        {
+            output.push_str(&format!("Total: {} holidays", all_holidays.len()));
+        }
+        output.push('\n');
         Ok(output)
     }
 
@@ -1500,12 +1599,14 @@ mod tests {
 
     #[test]
     fn test_list_holidays() {
+    // Ensure i18n bundles are initialized so t! resolves messages when feature enabled
+    let _ = crate::common::i18n::init_i18n();
         let config = DateConfig::default();
         let i18n = I18n::new();
         let manager = DateManager::new(config, i18n);
         
         let current_year = chrono::Utc::now().year();
-        let holiday_list = manager.list_holidays(Some(current_year), Some(vec!["US".to_string()])).unwrap();
+    let holiday_list = manager.list_holidays(Some(current_year), Some(vec!["US".to_string()])).unwrap();
         
         assert!(holiday_list.contains("New Year's Day"));
         assert!(holiday_list.contains("Independence Day"));

@@ -41,6 +41,7 @@ use tokio::{
 };
 use regex::Regex;
 use crate::common::i18n::I18n; // stub when i18n disabled
+use crate::t; // i18n macro (no-op when feature disabled)
 use nxsh_core::nxsh_log_info;
 
 // Configuration constants
@@ -329,7 +330,10 @@ impl TimeParser {
             }
         }
         
-        Err(anyhow!("Unable to parse time specification: {}", input))
+        Err(anyhow!(
+            "{}",
+            t!("at.error.unable-parse-time", "input" => input.as_str())
+        ))
     }
 
     fn parse_time_format(input: &str, parser: &TimeParser) -> Result<DateTime<Utc>> {
@@ -349,7 +353,10 @@ impl TimeParser {
         }
 
         if hour > 23 || minute > 59 {
-            return Err(anyhow!("Invalid time: {}:{}", hour, minute));
+            return Err(anyhow!(
+                "{}",
+                t!("at.error.invalid-time", "hour" => hour, "minute" => minute)
+            ));
         }
 
         let base_date = if let Some(date_str) = date_str {
@@ -365,11 +372,11 @@ impl TimeParser {
         };
 
         let target_dt = base_date.and_hms_opt(hour, minute, 0)
-            .ok_or_else(|| anyhow!("Invalid date/time combination"))?;
+            .ok_or_else(|| anyhow!("{}", t!("at.error.invalid-date-time-combo")))?;
         
         Ok(parser.timezone.from_local_datetime(&target_dt)
             .single()
-            .ok_or_else(|| anyhow!("Ambiguous local time"))?
+            .ok_or_else(|| anyhow!("{}", t!("at.error.ambiguous-local-time")))?
             .with_timezone(&Utc))
     }
 
@@ -391,7 +398,7 @@ impl TimeParser {
                 let minute = time_str[2..4].parse::<u32>()?;
                 (hour, minute)
             }
-            _ => return Err(anyhow!("Invalid numeric time format")),
+            _ => return Err(anyhow!("{}", t!("at.error.invalid-numeric-time"))),
         };
 
         let formatted_input = if let Some(am_pm) = am_pm {
@@ -411,7 +418,10 @@ impl TimeParser {
         let (hour, minute) = match time_name {
             "noon" => (12, 0),
             "midnight" => (0, 0),
-            _ => return Err(anyhow!("Unknown named time: {}", time_name)),
+            _ => return Err(anyhow!(
+                "{}",
+                t!("at.error.unknown-named-time", "name" => time_name)
+            )),
         };
 
         let formatted_input = format!("{}:{:02} {}", hour, minute, date_str.unwrap_or(""));
@@ -431,7 +441,10 @@ impl TimeParser {
             "week" | "weeks" => ChronoDuration::weeks(amount),
             "month" | "months" => ChronoDuration::days(amount * 30), // Approximate
             "year" | "years" => ChronoDuration::days(amount * 365), // Approximate
-            _ => return Err(anyhow!("Unknown time unit: {}", unit)),
+            _ => return Err(anyhow!(
+                "{}",
+                t!("at.error.unknown-time-unit", "unit" => unit)
+            )),
         };
 
         Ok(now + duration)
@@ -451,7 +464,10 @@ impl TimeParser {
         let target_date = match day {
             "today" => now.date_naive(),
             "tomorrow" => now.date_naive() + ChronoDuration::days(1),
-            _ => return Err(anyhow!("Unknown day: {}", day)),
+            _ => return Err(anyhow!(
+                "{}",
+                t!("at.error.unknown-day", "day" => day)
+            )),
         };
 
         let formatted_input = format!("{} {}", time_str, target_date.format("%Y-%m-%d"));
@@ -471,7 +487,10 @@ impl TimeParser {
             "friday" => chrono::Weekday::Fri,
             "saturday" => chrono::Weekday::Sat,
             "sunday" => chrono::Weekday::Sun,
-            _ => return Err(anyhow!("Unknown weekday: {}", weekday_str)),
+            _ => return Err(anyhow!(
+                "{}",
+                t!("at.error.unknown-weekday", "weekday" => weekday_str)
+            )),
         };
 
         let now = parser.timezone.from_utc_datetime(&Utc::now().naive_utc());
@@ -491,7 +510,7 @@ impl TimeParser {
         
         DateTime::parse_from_rfc3339(iso_str)
             .map(|dt| dt.with_timezone(&Utc))
-            .context("Failed to parse ISO format")
+            .context(t!("at.error.parse-iso"))
     }
 
     fn parse_unix_timestamp(input: &str, parser: &TimeParser) -> Result<DateTime<Utc>> {
@@ -499,7 +518,10 @@ impl TimeParser {
         let timestamp: i64 = caps.get(1).unwrap().as_str().parse()?;
         
         DateTime::from_timestamp(timestamp, 0)
-            .ok_or_else(|| anyhow!("Invalid Unix timestamp: {}", timestamp))
+            .ok_or_else(|| anyhow!(
+                "{}",
+                t!("at.error.invalid-unix-timestamp", "timestamp" => timestamp)
+            ))
     }
 
     fn parse_date(&self, date_str: &str) -> Result<chrono::NaiveDate> {
@@ -527,7 +549,10 @@ impl TimeParser {
             }
         }
 
-        Err(anyhow!("Unable to parse date: {}", date_str))
+        Err(anyhow!(
+            "{}",
+            t!("at.error.unable-parse-date", "date" => date_str.as_str())
+        ))
     }
 }
 
@@ -568,11 +593,11 @@ impl AtScheduler {
     pub async fn schedule_job(&self, command: String, time_spec: &str, options: JobOptions) -> Result<String> {
         // Parse time specification
         let scheduled_time = self.time_parser.parse_time(time_spec)
-            .with_context(|| format!("Failed to parse time specification: {time_spec}"))?;
+            .with_context(|| t!("at.error.unable-parse-time", "input" => time_spec))?;
 
         // Validate scheduled time is in the future
         if scheduled_time <= Utc::now() {
-            return Err(anyhow!("Scheduled time must be in the future"));
+            return Err(anyhow!("{}", t!("at.error.in-future")));
         }
 
         // Check permissions
@@ -646,7 +671,7 @@ impl AtScheduler {
         let job = {
             let mut jobs = self.jobs.write().unwrap();
             jobs.remove(job_id)
-                .ok_or_else(|| anyhow!("Job not found: {}", job_id))?
+                .ok_or_else(|| anyhow!("{}", t!("at.error.job-not-found", "id" => job_id)))?
         };
 
         // Cancel if running
@@ -676,7 +701,7 @@ impl AtScheduler {
         let jobs = self.jobs.read().unwrap();
         jobs.get(job_id)
             .cloned()
-            .ok_or_else(|| anyhow!("Job not found: {}", job_id))
+            .ok_or_else(|| anyhow!("{}", t!("at.error.job-not-found", "id" => job_id)))
     }
 
     async fn start_scheduler_loop(&self) {
@@ -962,11 +987,17 @@ impl AtScheduler {
 
     fn check_user_permissions(&self, user: &str) -> Result<()> {
         if !self.config.allowed_users.is_empty() && !self.config.allowed_users.contains(&user.to_string()) {
-            return Err(anyhow!("User {} is not allowed to use at", user));
+            return Err(anyhow!(
+                "{}",
+                t!("at.error.user-not-allowed", "user" => user)
+            ));
         }
 
         if self.config.denied_users.contains(&user.to_string()) {
-            return Err(anyhow!("User {} is denied access to at", user));
+            return Err(anyhow!(
+                "{}",
+                t!("at.error.user-denied", "user" => user)
+            ));
         }
 
         Ok(())
@@ -1015,7 +1046,7 @@ impl Default for JobOptions {
 // Main CLI interface
 pub async fn at_cli(args: &[String]) -> Result<()> {
     if args.is_empty() {
-        return Err(anyhow!("at: usage: at [OPTIONS] time [command...]"));
+        return Err(anyhow!("{}", t!("at.help.inline-usage")));
     }
 
     let config = AtConfig::default();
@@ -1038,7 +1069,7 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
                 if i < args.len() {
                     remove_jobs.push(args[i].clone());
                 } else {
-                    return Err(anyhow!("-r requires a job ID"));
+                    return Err(anyhow!("{}", t!("at.error.missing-id-for-remove")));
                 }
             }
             "-q" | "--queue" => {
@@ -1047,7 +1078,7 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
                     options.queue = args[i].clone();
                     queue_filter = Some(args[i].clone());
                 } else {
-                    return Err(anyhow!("-q requires a queue name"));
+                    return Err(anyhow!("{}", t!("at.error.missing-queue-name")));
                 }
             }
             "-m" | "--mail" => options.mail_on_completion = true,
@@ -1059,10 +1090,10 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
                 i += 1;
                 if i < args.len() {
                     let content = async_fs::read_to_string(&args[i]).await
-                        .with_context(|| format!("Failed to read file: {}", args[i]))?;
+                        .with_context(|| t!("at.error.read-file", "filename" => args[i].as_str()))?;
                     command_args.push(content);
                 } else {
-                    return Err(anyhow!("-f requires a filename"));
+                    return Err(anyhow!("{}", t!("at.error.missing-filename")));
                 }
             }
             "-t" | "--time" => {
@@ -1070,7 +1101,7 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
                 if i < args.len() {
                     time_spec = args[i].clone();
                 } else {
-                    return Err(anyhow!("-t requires a time specification"));
+                    return Err(anyhow!("{}", t!("at.error.missing-time-spec")));
                 }
             }
             "--priority" => {
@@ -1081,10 +1112,13 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
                         "normal" => JobPriority::Normal,
                         "high" => JobPriority::High,
                         "critical" => JobPriority::Critical,
-                        _ => return Err(anyhow!("Invalid priority: {}", args[i])),
+                        _ => return Err(anyhow!(
+                            "{}",
+                            t!("at.error.invalid-priority", "value" => args[i].as_str())
+                        )),
                     };
                 } else {
-                    return Err(anyhow!("--priority requires a priority level"));
+                    return Err(anyhow!("{}", t!("at.error.missing-priority")));
                 }
             }
             "--output" => {
@@ -1092,7 +1126,7 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
                 if i < args.len() {
                     options.output_file = Some(PathBuf::from(&args[i]));
                 } else {
-                    return Err(anyhow!("--output requires a filename"));
+                    return Err(anyhow!("{}", t!("at.error.missing-output-filename")));
                 }
             }
             "--error" => {
@@ -1100,26 +1134,26 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
                 if i < args.len() {
                     options.error_file = Some(PathBuf::from(&args[i]));
                 } else {
-                    return Err(anyhow!("--error requires a filename"));
+                    return Err(anyhow!("{}", t!("at.error.missing-error-filename")));
                 }
             }
             "--max-runtime" => {
                 i += 1;
                 if i < args.len() {
                     let runtime_secs: u64 = args[i].parse()
-                        .context("Invalid max runtime")?;
+                        .context(t!("at.error.invalid-max-runtime"))?;
                     options.max_runtime = Some(Duration::from_secs(runtime_secs));
                 } else {
-                    return Err(anyhow!("--max-runtime requires seconds"));
+                    return Err(anyhow!("{}", t!("at.error.missing-max-runtime")));
                 }
             }
             "--retry" => {
                 i += 1;
                 if i < args.len() {
                     options.max_retries = args[i].parse()
-                        .context("Invalid retry count")?;
+                        .context(t!("at.error.invalid-retry-count"))?;
                 } else {
-                    return Err(anyhow!("--retry requires a count"));
+                    return Err(anyhow!("{}", t!("at.error.missing-retry-count")));
                 }
             }
             "--tag" => {
@@ -1127,11 +1161,11 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
                 if i < args.len() {
                     options.tags.push(args[i].clone());
                 } else {
-                    return Err(anyhow!("--tag requires a tag name"));
+                    return Err(anyhow!("{}", t!("at.error.missing-tag-name")));
                 }
             }
             arg if arg.starts_with("--") => {
-                return Err(anyhow!("Unknown option: {}", arg));
+                return Err(anyhow!("{}", t!("at.error.unknown-option", "option" => arg)));
             }
             _ => {
                 if time_spec.is_empty() {
@@ -1158,9 +1192,16 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
         let jobs = scheduler.list_jobs(queue_filter.as_deref(), None).await?;
         
         if jobs.is_empty() {
-            println!("No jobs scheduled");
+            println!("{}", t!("at.list.no-jobs"));
         } else {
-            println!("{:<12} {:<20} {:<10} {:<8} Command", "Job ID", "Scheduled Time", "Status", "Queue");
+            println!(
+                "{:<12} {:<20} {:<10} {:<8} {}",
+                t!("at.list.header.job-id"),
+                t!("at.list.header.scheduled-time"),
+                t!("at.list.header.status"),
+                t!("at.list.header.queue"),
+                t!("at.list.header.command")
+            );
             println!("{}", "-".repeat(80));
             
             for job in jobs {
@@ -1183,8 +1224,8 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
     if !remove_jobs.is_empty() {
         for job_id in remove_jobs {
             match scheduler.remove_job(&job_id).await {
-                Ok(()) => println!("Job {job_id} removed"),
-                Err(e) => eprintln!("Failed to remove job {job_id}: {e}"),
+                Ok(()) => println!("{}", t!("at.remove.removed", "id" => job_id.as_str())),
+                Err(e) => eprintln!("{}", t!("at.remove.failed", "id" => job_id.as_str(), "error" => e.to_string())),
             }
         }
         return Ok(());
@@ -1192,7 +1233,7 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
 
     // Schedule new job
     if time_spec.is_empty() {
-        return Err(anyhow!("Time specification required"));
+        return Err(anyhow!("{}", t!("at.error.time-spec-required")));
     }
 
     let command = if command_args.is_empty() {
@@ -1205,7 +1246,7 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
         for line in reader.lines() {
             match line {
                 Ok(line) => command_lines.push(line),
-                Err(e) => return Err(anyhow!("Failed to read from stdin: {}", e)),
+                Err(e) => return Err(anyhow!("{}", t!("at.error.read-stdin", "error" => e.to_string()))),
             }
         }
         
@@ -1215,7 +1256,7 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
     };
 
     if command.trim().is_empty() {
-        return Err(anyhow!("No command specified"));
+        return Err(anyhow!("{}", t!("at.error.no-command")));
     }
 
     // Get current user
@@ -1227,10 +1268,18 @@ pub async fn at_cli(args: &[String]) -> Result<()> {
     match scheduler.schedule_job(command, &time_spec, options).await {
         Ok(job_id) => {
             let job = scheduler.get_job(&job_id).await?;
-            println!("job {} at {}", job_id, job.scheduled_time.format("%a %b %e %T %Y"));
+            let time_str = job.scheduled_time.format("%a %b %e %T %Y").to_string();
+            println!(
+                "{}",
+                t!(
+                    "at.schedule.scheduled",
+                    "id" => job_id.as_str(),
+                    "time" => time_str.as_str()
+                )
+            );
         }
         Err(e) => {
-            eprintln!("Failed to schedule job: {e}");
+            eprintln!("{}", t!("at.error.schedule-failed", "error" => e.to_string()));
             std::process::exit(1);
         }
     }
@@ -1242,41 +1291,14 @@ fn print_at_help(i18n: &I18n) {
     println!("{}", i18n.get("at.help.title", None));
     println!();
     println!("{}", i18n.get("at.help.usage", None));
-    println!("    at [OPTIONS] time [command...]");
+    println!("{}", i18n.get("at.help.usage-line", None));
     println!();
     println!("{}", i18n.get("at.help.time_formats", None));
-    println!("    HH:MM [AM/PM] [date]    - Specific time (e.g., '14:30', '2:30 PM tomorrow')");
-    println!("    HHMM [AM/PM] [date]     - Numeric format (e.g., '1430', '230 PM')");
-    println!("    noon/midnight [date]    - Named times");
-    println!("    now + N units           - Relative time (e.g., 'now + 2 hours')");
-    println!("    in N units              - Alternative relative (e.g., 'in 30 minutes')");
-    println!("    tomorrow at time        - Next day scheduling");
-    println!("    next weekday [at time]  - Next occurrence of weekday");
-    println!("    ISO-8601 format         - Full timestamp");
-    println!("    @timestamp              - Unix timestamp");
+    println!("{}", i18n.get("at.help.time_formats.details", None));
     println!();
     println!("{}", i18n.get("at.help.options", None));
-    println!("    -h, --help              Show this help message");
-    println!("    -l, --list              List scheduled jobs");
-    println!("    -r, --remove ID         Remove job by ID");
-    println!("    -q, --queue QUEUE       Specify job queue (default: 'a')");
-    println!("    -m, --mail              Send mail when job completes");
-    println!("    -M, --no-mail           Don't send mail");
-    println!("    -f, --file FILE         Read commands from file");
-    println!("    -t, --time TIME         Time specification");
-    println!("    --priority LEVEL        Set priority (low, normal, high, critical)");
-    println!("    --output FILE           Redirect stdout to file");
-    println!("    --error FILE            Redirect stderr to file");
-    println!("    --max-runtime SECS      Maximum runtime in seconds");
-    println!("    --retry COUNT           Number of retries on failure");
-    println!("    --tag TAG               Add tag to job");
+    println!("{}", i18n.get("at.help.options.list", None));
     println!();
     println!("{}", i18n.get("at.help.examples", None));
-    println!("    at 14:30 tomorrow       # Schedule for 2:30 PM tomorrow");
-    println!("    at 'now + 1 hour'       # Schedule for one hour from now");
-    println!("    at 'next friday at 9am' # Schedule for next Friday at 9 AM");
-    println!("    at --queue b --priority high 16:00 # High priority job in queue b");
-    println!("    echo 'backup.sh' | at midnight # Schedule backup at midnight");
-    println!("    at -l -q a               # List jobs in queue 'a'");
-    println!("    at -r at_123             # Remove job with ID 'at_123'");
+    println!("{}", i18n.get("at.help.examples.list", None));
 } 

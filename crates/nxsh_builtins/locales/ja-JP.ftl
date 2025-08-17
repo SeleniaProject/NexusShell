@@ -28,6 +28,43 @@ cat-help-example1 = cat f - g  f の内容、標準入力、g の内容の順で
 cat-help-example2 = cat        標準入力を標準出力にコピー
 cat-version = cat (NexusShell) 1.0.0
 
+# cat 統計と拡張ヘルプ
+cat-stats-header = === 統計: { $filename } ===
+cat-stats-total-header = === 合計の統計 ===
+cat-stats-bytes-read = 読み取りバイト数
+cat-stats-lines-processed = 処理した行数
+cat-stats-processing-time = 処理時間
+cat-stats-encoding-detected = 検出したエンコーディング
+cat-stats-file-type = ファイル種別
+cat-stats-compression = 圧縮
+cat-stats-throughput = スループット
+cat-binary-skipped = cat: { $filename }: バイナリファイルのためスキップ
+cat-error-file = cat: { $filename }: { $error }
+cat-warn-bzip2-missing = 警告: bzip2 解凍は利用できないため、そのまま読み込みます
+cat-warn-xz-missing = 警告: XZ 解凍は利用できないため、そのまま読み込みます
+cat-warn-zstd-missing = 警告: zstd 解凍は利用できないため、そのまま読み込みます
+cat-help-advanced-title = 追加オプション:
+cat-help-advanced-options =       --progress           大きなファイルで進捗バーを表示\n      --parallel           複数ファイルを並列処理\n      --threads N          並列処理のスレッド数\n      --encoding ENC       特定のエンコーディングを強制 (utf-8, utf-16le など)\n      --binary             すべてのファイルをバイナリとして扱う\n      --text               すべてのファイルをテキストとして扱う\n      --skip-binary        バイナリファイルをスキップ\n      --format FMT         出力形式 (raw, hex, base64, json)\n      --color WHEN         出力の色付け (always, never, auto)\n      --statistics         処理統計を表示\n      --buffer-size N      I/O のバッファサイズ\n      --no-mmap            大きなファイルのメモリマップを無効化\n      --no-decompress      自動展開を無効化\n      --no-follow-symlinks シンボリックリンクを辿らない\n      --timeout N          ネットワークのタイムアウト秒数\n      --help               このヘルプを表示して終了\n      --version            バージョン情報を表示して終了
+cat-help-advanced-examples-title = 応用例:
+cat-help-advanced-example1 =   cat --parallel --progress *.log    ログを進捗表示付きで並列処理
+cat-help-advanced-example2 =   cat --format hex data.bin          バイナリを16進で出力
+cat-help-advanced-example3 =   cat --statistics --encoding utf-16le file.txt  特定エンコーディングで統計を表示
+cat-help-report-bugs = cat のバグ報告先: <bug-reports@nexusshell.org>
+
+# cat 進捗と URL/HTTP エラー
+cat-progress-complete = 完了
+cat-error-invalid-file-url = 無効な file URL です
+cat-error-invalid-base64 = data URL の base64 が不正です: {$error}
+cat-error-malformed-data-url = 不正な data URL です
+cat-error-unsupported-url-scheme = 未対応の URL スキーム: {$scheme}
+cat-error-http-request-failed = HTTP リクエストに失敗しました: {$error}
+cat-error-http-feature-missing = URL サポートには 'net-http' 機能が必要です
+
+# cat 短いヘルプ説明
+cat-help-option-e-short-desc = -vE と同等
+cat-help-option-t-short-desc = -vT と同等
+cat-help-option-u-ignored = （無視されます）
+
 # ls コマンド
 ls-help-usage = 使用法: ls [オプション]... [ファイル]...
 ls-help-description = ファイルの情報を一覧表示します（デフォルトは現在のディレクトリ）。
@@ -261,6 +298,60 @@ schedule-help-option-help =   -h, --help     このヘルプを表示
 schedule-missing-command = schedule: コマンドが不足しています
 schedule-usage-time-cmd = 使い方: schedule 時刻/式 コマンド
 schedule-scheduled-as = schedule: 登録しました ID:
+# at コマンド
+at.help.title = at: 一回限りのジョブスケジューラ
+at.help.usage = 使い方:
+at.help.time_formats = 受け付ける時刻の形式:
+at.help.options = オプション:
+at.help.examples = 例:
+at.help.inline-usage = at: 使い方: at [オプション] 時刻 [コマンド...]
+at.help.usage-line =     at [オプション] 時刻 [コマンド...]
+at.help.time_formats.details =     HH:MM [AM/PM] [日付]    - 特定の時刻（例: '14:30', '明日の 2:30 PM'）\n    HHMM [AM/PM] [日付]     - 数値形式（例: '1430', '230 PM'）\n    noon/midnight [日付]    - 名前付き時刻\n    now + N 単位            - 相対時刻（例: 'now + 2 hours'）\n    in N 単位               - もう一つの相対指定（例: 'in 30 minutes'）\n    tomorrow at 時刻        - 翌日にスケジュール\n    next 曜日 [at 時刻]     - 次の該当曜日\n    ISO-8601 形式           - 完全なタイムスタンプ\n    @timestamp              - Unix タイムスタンプ
+at.help.options.list =     -h, --help              このヘルプを表示\n    -l, --list              予約済みジョブを一覧表示\n    -r, --remove ID         指定IDのジョブを削除\n    -q, --queue QUEUE       ジョブキューを指定（既定: 'a'）\n    -m, --mail              完了時にメール送信\n    -M, --no-mail           メールを送信しない\n    -f, --file FILE         ファイルからコマンドを読み込み\n    -t, --time TIME         時刻指定\n    --priority LEVEL        優先度を設定（low, normal, high, critical）\n    --output FILE           stdout をファイルにリダイレクト\n    --error FILE            stderr をファイルにリダイレクト\n    --max-runtime SECS      最大実行時間（秒）\n    --retry COUNT           失敗時のリトライ回数\n    --tag TAG               ジョブにタグを付与
+at.help.examples.list =     at 14:30 tomorrow       # 明日の 14:30 にスケジュール\n    at 'now + 1 hour'       # 1時間後にスケジュール\n    at 'next friday at 9am' # 次の金曜 9:00 にスケジュール\n    at --queue b --priority high 16:00 # キュー b で高優先度ジョブ\n    echo 'backup.sh' | at midnight # 深夜にバックアップを実行\n    at -l -q a               # キュー 'a' のジョブを一覧表示\n    at -r at_123             # ID 'at_123' のジョブを削除
+at.error.unable-parse-time = 時刻指定を解析できません: { $input }
+at.error.invalid-time = 無効な時刻: { $hour }:{ $minute }
+at.error.invalid-date-time-combo = 無効な日付/時刻の組み合わせ
+at.error.ambiguous-local-time = あいまいなローカル時刻です
+at.error.invalid-numeric-time = 無効な数値時刻形式です
+at.error.unknown-named-time = 不明な名前付き時刻: { $name }
+at.error.unknown-time-unit = 不明な時間単位: { $unit }
+at.error.unknown-day = 不明な日: { $day }
+at.error.unknown-weekday = 不明な曜日: { $weekday }
+at.error.parse-iso = ISO 形式の解析に失敗しました
+at.error.invalid-unix-timestamp = 無効な Unix タイムスタンプ: { $timestamp }
+at.error.unable-parse-date = 日付を解析できません: { $date }
+at.error.in-future = 予定時刻は未来である必要があります
+at.error.job-not-found = ジョブが見つかりません: { $id }
+at.error.user-not-allowed = ユーザー { $user } は at の使用を許可されていません
+at.error.user-denied = ユーザー { $user } は at へのアクセスを拒否されています
+at.error.missing-id-for-remove = -r にはジョブ ID が必要です
+at.error.missing-queue-name = -q にはキュー名が必要です
+at.error.read-file = ファイルの読み取りに失敗しました: { $filename }
+at.error.missing-filename = -f にはファイル名が必要です
+at.error.missing-time-spec = -t には時刻指定が必要です
+at.error.invalid-priority = 無効な優先度: { $value }
+at.error.missing-priority = --priority には優先度を指定してください
+at.error.missing-output-filename = --output にはファイル名を指定してください
+at.error.missing-error-filename = --error にはファイル名を指定してください
+at.error.invalid-max-runtime = 無効な最大実行時間です
+at.error.missing-max-runtime = --max-runtime には秒数を指定してください
+at.error.invalid-retry-count = 無効なリトライ回数です
+at.error.missing-retry-count = --retry には回数を指定してください
+at.error.missing-tag-name = --tag にはタグ名を指定してください
+at.error.unknown-option = 不明なオプション: { $option }
+at.list.no-jobs = 予定されたジョブはありません
+at.list.header.job-id = ジョブ ID
+at.list.header.scheduled-time = 予定時刻
+at.list.header.status = 状態
+at.list.header.queue = キュー
+at.list.header.command = コマンド
+at.remove.removed = ジョブ { $id } を削除しました
+at.remove.failed = ジョブ { $id } の削除に失敗しました: { $error }
+at.error.time-spec-required = 時刻指定が必要です
+at.error.read-stdin = 標準入力の読み取りに失敗しました: { $error }
+at.error.no-command = コマンドが指定されていません
+at.schedule.scheduled = job { $id } at { $time }
 schedule-delegating-at = schedule: 絶対時刻は外部 'at' があれば委譲します
 
 # cron デーモン
@@ -416,3 +507,30 @@ common.available = 利用可
 
 # 単位
 units.microseconds = マイクロ秒
+
+# date コマンド（メタデータ/相対表現/エラー/祝日一覧）
+date.error.invalid_timezone = 無効なタイムゾーン: {$tz}
+date.error.invalid_month = 無効な月: {$month}
+
+date.metadata.unix_timestamp = Unix タイムスタンプ: {$value}
+date.metadata.julian_day = ユリウス日: {$value}
+date.metadata.day_of_year = 年内通算日: {$value}
+date.metadata.week_number = 週番号: {$value}
+date.metadata.weekday = 曜日: {$value}
+date.metadata.type.weekend = 種別: 週末
+date.metadata.type.business = 種別: 平日
+date.metadata.astronomical = 天文情報: {$info}
+
+date.relative.now = 現在
+date.relative.minutes_ago = {$mins} 分前
+date.relative.in_minutes = {$mins} 分後
+date.relative.hours_ago = {$hours} 時間前
+date.relative.in_hours = {$hours} 時間後
+date.relative.days_ago = {$days} 日前
+date.relative.in_days = {$days} 日後
+
+date.holiday.none = 対象年 {$year}、地域: {$regions} の祝日は見つかりませんでした
+date.holiday.header = 祝日一覧 年: {$year} 地域: {$regions}
+date.holiday.separator = =====================================
+date.holiday.entry = {$date} - {$name}（{$region}, {$kind}）
+date.holiday.total = 合計: {$count} 件の祝日

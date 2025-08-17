@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use sysinfo::{System, SystemExt, CpuExt};
+use sysinfo::{System, SystemExt, CpuExt, NetworkExt};
 
 /// Snapshot of status metrics for the status line.
 #[derive(Debug, Clone)]
@@ -77,9 +77,9 @@ impl StatusMetricsCollector {
 						let mut total_rx: u64 = 0;
 						let mut total_tx: u64 = 0;
 						for (_name, data) in sys.networks() {
-                            // Use method names compatible with sysinfo 0.29
-                            total_rx = total_rx.saturating_add(data.total_received());
-                            total_tx = total_tx.saturating_add(data.total_transmitted());
+                            // Compatible with recent sysinfo versions
+                            total_rx = total_rx.saturating_add(data.received());
+                            total_tx = total_tx.saturating_add(data.transmitted());
                         }
                         let now = Instant::now();
                         let dt = now.saturating_duration_since(last_ts).as_secs_f64();
