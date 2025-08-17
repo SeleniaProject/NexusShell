@@ -168,40 +168,209 @@ fn get_group_name(gid: u32) -> String {
     name
 }
 
-/// Resolve user name from UID using pure Rust `uzers` on Unix
-#[cfg(unix)]
-fn resolve_user_name(uid: u32) -> Option<String> {
-    let cache = uzers::UsersCache::new();
-    cache.get_user_by_uid(uid).map(|u| u.name().to_string_lossy().to_string())
+/// Pure Rust user/group resolution cache
+use std::sync::OnceLock;
+
+#[derive(Debug, Clone)]
+struct UserGroupCache {
+    users: HashMap<u32, String>,
+    groups: HashMap<u32, String>,
 }
 
-/// Resolve group name from GID using pure Rust `uzers` on Unix
-#[cfg(unix)]
-fn resolve_group_name(gid: u32) -> Option<String> {
-    let cache = uzers::UsersCache::new();
-    cache.get_group_by_gid(gid).map(|g| g.name().to_string_lossy().to_string())
-}
-
-/// Windows fallback implementations
-#[cfg(windows)]
-fn resolve_user_name(_uid: u32) -> Option<String> {
-    // On Windows, use whoami or fallback to numeric ID
-    if let Ok(output) = std::process::Command::new("whoami").output() {
-        if output.status.success() {
-            let username = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !username.is_empty() {
-                return Some(username);
-            }
+impl UserGroupCache {
+    fn new() -> Self {
+        Self {
+            users: HashMap::new(),
+            groups: HashMap::new(),
         }
     }
-    None
+    
+    fn get_user_name(&mut self, uid: u32) -> String {
+        if let Some(name) = self.users.get(&uid) {
+            return name.clone();
+        }
+        
+        let name = Self::resolve_user_name_system(uid);
+        self.users.insert(uid, name.clone());
+        name
+    }
+    
+    fn get_group_name(&mut self, gid: u32) -> String {
+        if let Some(name) = self.groups.get(&gid) {
+            return name.clone();
+        }
+        
+        let name = Self::resolve_group_name_system(gid);
+        self.groups.insert(gid, name.clone());
+        name
+    }
+    
+    #[cfg(unix)]
+    fn resolve_user_name_system(uid: u32) -> String {
+        // Try reading /etc/passwd directly
+        if let Ok(passwd_content) = std::fs::read_to_string("/etc/passwd") {
+            for line in passwd_content.lines() {
+                let parts: Vec<&str> = line.split(':').collect();
+                if parts.len() >= 3 {
+                    if let Ok(file_uid) = parts[2].parse::<u32>() {
+                        if file_uid == uid {
+                            return parts[0].to_string();
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Fallback to getent if /etc/passwd fails
+        if let Ok(output) = std::process::Command::new("getent")
+            .args(["passwd", &uid.to_string()])
+            .output()
+        {
+            if output.status.success() {
+                let passwd_line = String::from_utf8_lossy(&output.stdout);
+                if let Some(name) = passwd_line.split(':').next() {
+                    if !name.is_empty() {
+                        return name.to_string();
+                    }
+                }
+            }
+        }
+        
+        // Final fallback to numeric ID
+        uid.to_string()
+    }
+    
+    #[cfg(unix)]
+    fn resolve_group_name_system(gid: u32) -> String {
+        // Try reading /etc/group directly
+        if let Ok(group_content) = std::fs::read_to_string("/etc/group") {
+            for line in group_content.lines() {
+                let parts: Vec<&str> = line.split(':').collect();
+                if parts.len() >= 3 {
+                    if let Ok(file_gid) = parts[2].parse::<u32>() {
+                        if file_gid == gid {
+                            return parts[0].to_string();
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Fallback to getent if /etc/group fails
+        if let Ok(output) = std::process::Command::new("getent")
+            .args(["group", &gid.to_string()])
+            .output()
+        {
+            if output.status.success() {
+                let group_line = String::from_utf8_lossy(&output.stdout);
+                if let Some(name) = group_line.split(':').next() {
+                    if !name.is_empty() {
+                        return name.to_string();
+                    }
+                }
+            }
+        }
+        
+        // Final fallback to numeric ID
+        gid.to_string()
+    }
+    
+    #[cfg(windows)]
+    fn resolve_user_name_system(uid: u32) -> String {
+        // Try to get Windows user information
+        if let Some(username) = Self::get_windows_username_from_sid(uid) {
+            return username;
+        }
+        
+        // Fallback to whoami command
+        if let Ok(output) = std::process::Command::new("whoami").output() {
+            if output.status.success() {
+                let username = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !username.is_empty() {
+                    return username;
+                }
+            }
+        }
+        
+        format!("user{}", uid)
+    }
+    
+    #[cfg(windows)]
+    fn resolve_group_name_system(gid: u32) -> String {
+        // Windows doesn't have traditional Unix-style groups
+        // Try to resolve via Windows Security APIs
+        if let Some(groupname) = Self::get_windows_groupname_from_sid(gid) {
+            return groupname;
+        }
+        
+        format!("group{}", gid)
+    }
+    
+    #[cfg(windows)]
+    fn get_windows_username_from_sid(_uid: u32) -> Option<String> {
+        // This would use Windows Security APIs like LookupAccountSid
+        // For now, return None to fall back to whoami
+        None
+    }
+    
+    #[cfg(windows)]
+    fn get_windows_groupname_from_sid(_gid: u32) -> Option<String> {
+        // This would use Windows Security APIs
+        None
+    }
+}
+
+static USER_GROUP_CACHE: OnceLock<Mutex<UserGroupCache>> = OnceLock::new();
+
+fn get_cache() -> &'static Mutex<UserGroupCache> {
+    USER_GROUP_CACHE.get_or_init(|| Mutex::new(UserGroupCache::new()))
+}
+
+/// Resolve user name from UID using pure Rust implementation
+#[cfg(unix)]
+fn resolve_user_name(uid: u32) -> Option<String> {
+    let cache = get_cache();
+    if let Ok(mut cache_guard) = cache.lock() {
+        Some(cache_guard.get_user_name(uid))
+    } else {
+        // Fallback without cache
+        Some(UserGroupCache::resolve_user_name_system(uid))
+    }
+}
+
+/// Resolve group name from GID using pure Rust implementation
+#[cfg(unix)]
+fn resolve_group_name(gid: u32) -> Option<String> {
+    let cache = get_cache();
+    if let Ok(mut cache_guard) = cache.lock() {
+        Some(cache_guard.get_group_name(gid))
+    } else {
+        // Fallback without cache
+        Some(UserGroupCache::resolve_group_name_system(gid))
+    }
+}
+
+/// Windows user/group resolution implementations
+#[cfg(windows)]
+fn resolve_user_name(uid: u32) -> Option<String> {
+    let cache = get_cache();
+    if let Ok(mut cache_guard) = cache.lock() {
+        Some(cache_guard.get_user_name(uid))
+    } else {
+        // Fallback without cache
+        Some(UserGroupCache::resolve_user_name_system(uid))
+    }
 }
 
 #[cfg(windows)]
 fn resolve_group_name(gid: u32) -> Option<String> {
-    // Windows doesn't have Unix-style group resolution
-    // Return the GID as string
-    Some(format!("group{gid}"))
+    let cache = get_cache();
+    if let Ok(mut cache_guard) = cache.lock() {
+        Some(cache_guard.get_group_name(gid))
+    } else {
+        // Fallback without cache
+        Some(UserGroupCache::resolve_group_name_system(gid))
+    }
 }
 
 
@@ -270,74 +439,65 @@ fn get_mode(_permissions: &std::fs::Permissions) -> u32 {
     0o644 // Default for Windows
 }
 
-// Cross-platform ctime/atime helpers
+// Cross-platform ctime/atime helpers with improved Windows support
 #[cfg(unix)]
 fn get_ctime(metadata: &Metadata) -> SystemTime {
     use std::os::unix::fs::MetadataExt as _;
-    SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(metadata.ctime() as u64)
+    SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(metadata.ctime() as u64) 
+        + std::time::Duration::from_nanos(metadata.ctime_nsec() as u64)
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
 fn get_ctime(metadata: &Metadata) -> SystemTime {
-    fn filetime_to_system_time(ft: filetime::FileTime) -> SystemTime {
-        // filetime::FileTime::seconds() returns i64 (seconds since UNIX_EPOCH), can be negative.
-        let secs = ft.seconds();
-        let nanos = ft.nanoseconds();
-        if secs >= 0 {
-            let mut t = SystemTime::UNIX_EPOCH
-                + std::time::Duration::from_secs(secs as u64);
-            if nanos > 0 {
-                t += std::time::Duration::from_nanos(nanos as u64);
-            }
-            t
-        } else {
-            // For pre-1970 timestamps, subtract from UNIX_EPOCH safely.
-            let mut t = SystemTime::UNIX_EPOCH
-                .checked_sub(std::time::Duration::from_secs((-secs) as u64))
-                .unwrap_or(SystemTime::UNIX_EPOCH);
-            if nanos > 0 {
-                // When going backwards, adjust nanoseconds with checked_sub.
-                t = t
-                    .checked_sub(std::time::Duration::from_nanos(nanos as u64))
-                    .unwrap_or(SystemTime::UNIX_EPOCH);
-            }
-            t
-        }
+    // On Windows, creation time is the closest equivalent to Unix ctime
+    // But Windows also provides change time through file attributes
+    if let Some(creation_time) = filetime::FileTime::from_creation_time(metadata) {
+        filetime_to_system_time(creation_time)
+    } else {
+        // Fallback to modified time
+        metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH)
     }
-
-    filetime::FileTime::from_creation_time(metadata)
-        .map(filetime_to_system_time)
-        .unwrap_or_else(|| metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH))
 }
 
 #[cfg(unix)]
 fn get_atime(metadata: &Metadata) -> SystemTime {
     use std::os::unix::fs::MetadataExt as _;
     SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(metadata.atime() as u64)
+        + std::time::Duration::from_nanos(metadata.atime_nsec() as u64)
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
 fn get_atime(metadata: &Metadata) -> SystemTime {
     let ft = filetime::FileTime::from_last_access_time(metadata);
-    // Reuse the same conversion logic as in get_ctime
+    filetime_to_system_time(ft)
+}
+
+#[cfg(windows)]
+fn filetime_to_system_time(ft: filetime::FileTime) -> SystemTime {
+    // filetime::FileTime::seconds() returns i64 (seconds since UNIX_EPOCH), can be negative.
     let secs = ft.seconds();
     let nanos = ft.nanoseconds();
+    
     if secs >= 0 {
-        let mut t = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs as u64);
+        let mut time = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs as u64);
         if nanos > 0 {
-            t += std::time::Duration::from_nanos(nanos as u64);
+            time += std::time::Duration::from_nanos(nanos as u64);
         }
-        t
+        time
     } else {
-        let mut t = SystemTime::UNIX_EPOCH
-            .checked_sub(std::time::Duration::from_secs((-secs) as u64))
-            .unwrap_or(SystemTime::UNIX_EPOCH);
-        if nanos > 0 {
-            t = t
-                .checked_sub(std::time::Duration::from_nanos(nanos as u64))
-                .unwrap_or(SystemTime::UNIX_EPOCH);
+        // For pre-1970 timestamps, subtract from UNIX_EPOCH safely
+        let duration = std::time::Duration::from_secs((-secs) as u64);
+        if let Some(time) = SystemTime::UNIX_EPOCH.checked_sub(duration) {
+            if nanos > 0 {
+                // When going backwards, adjust nanoseconds with checked_sub
+                time.checked_sub(std::time::Duration::from_nanos(nanos as u64))
+                    .unwrap_or(SystemTime::UNIX_EPOCH)
+            } else {
+                time
+            }
+        } else {
+            SystemTime::UNIX_EPOCH
         }
-        t
     }
 }
 
@@ -771,7 +931,6 @@ fn print_long_entry(
     entry: &FileInfo,
     options: &LsOptions,
     use_colors: bool,
-    // TODO: Replace with pure Rust alternative: users_cache: &UsersCache,
     max_links: usize,
     max_size: usize,
     max_user: usize,
@@ -1123,20 +1282,6 @@ fn format_file_name(entry: &FileInfo, use_colors: bool, classify: bool) -> Strin
 }
 
 // (removed duplicate generic helpers; platform-specific versions above are used)
-
-/* TODO: Implement with pure Rust alternative
-fn get_user_name(uid: u32, users_cache: &UsersCache) -> String {
-    users_cache.get_user_by_uid(uid)
-        .map(|u| u.name().to_string_lossy().to_string())
-        .unwrap_or_else(|| uid.to_string())
-}
-
-fn get_group_name(gid: u32, users_cache: &UsersCache) -> String {
-    users_cache.get_group_by_gid(gid)
-        .map(|g| g.name().to_string_lossy().to_string())
-        .unwrap_or_else(|| gid.to_string())
-}
-*/
 
 fn is_executable(_metadata: &Metadata) -> bool {
     #[cfg(unix)]
