@@ -460,7 +460,7 @@ impl PermissionManager {
         Ok(self.create_default_policy(metadata))
     }
     
-    fn create_default_policy(&self, metadata: &PluginMetadata) -> PermissionPolicy {
+    fn create_default_policy(&self, _metadata: &PluginMetadata) -> PermissionPolicy {
         // Create a restrictive default policy
         PermissionPolicy {
             trust_level: TrustLevel::Untrusted,
@@ -640,7 +640,7 @@ impl PermissionManager {
                     Ok(PermissionResult::denied("Process execution capability not granted".to_string()))
                 }
             }
-            PermissionOperation::EnvironmentRead { variable } => {
+            PermissionOperation::EnvironmentRead { variable: _ } => {
                 if context.permission_set.capabilities.contains(&"env_read".to_string()) {
                     Ok(PermissionResult::allowed())
                 } else {
@@ -674,7 +674,7 @@ impl PermissionManager {
     ) -> Result<bool> {
         match restrictions {
             NetworkRestrictions::None => Ok(false),
-            NetworkRestrictions::Limited { allowed_domains, allowed_ports } => {
+            NetworkRestrictions::Limited { allowed_domains, allowed_ports: _ } => {
                 // Simple domain/port checking
                 // In a real implementation, this would be more sophisticated
                 Ok(allowed_domains.iter().any(|domain| url.contains(domain)))

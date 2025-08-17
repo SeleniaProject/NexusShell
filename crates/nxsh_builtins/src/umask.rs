@@ -6,7 +6,7 @@
 //!
 //! On Unix uses `libc::umask`. On Windows prints unsupported message.
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 
 #[cfg(unix)]
 use nix::sys::stat::{umask, Mode};

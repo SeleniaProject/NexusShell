@@ -1,11 +1,13 @@
 use anyhow::{Result, Context};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs},
     time::{Duration, Instant, SystemTime},
     sync::Arc,
     process::Stdio,
     io::{BufRead, BufReader},
+    fmt,
+    str::FromStr,
 };
 use tokio::{
     net::{TcpStream, UdpSocket},
@@ -15,8 +17,117 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
 };
 use serde::{Deserialize, Serialize};
-// NOTE: reqwest 削除方針により HTTP クライアントは後続リファクタで ureq へ移行予定。updates 系は ureq 化済み。ここは未使用部のため削減対象 (将来: feature net-http)。
 use log::{info, warn, error, debug};
+use chrono::{DateTime, Utc};
+
+// HTTP Method enum for curl functionality
+#[derive(Debug, Clone, PartialEq)]
+pub enum HttpMethod {
+    GET,
+    POST,
+    PUT,
+    DELETE,
+    HEAD,
+    OPTIONS,
+    PATCH,
+}
+
+impl fmt::Display for HttpMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            HttpMethod::GET => write!(f, "GET"),
+            HttpMethod::POST => write!(f, "POST"),
+            HttpMethod::PUT => write!(f, "PUT"),
+            HttpMethod::DELETE => write!(f, "DELETE"),
+            HttpMethod::HEAD => write!(f, "HEAD"),
+            HttpMethod::OPTIONS => write!(f, "OPTIONS"),
+            HttpMethod::PATCH => write!(f, "PATCH"),
+        }
+    }
+}
+
+impl FromStr for HttpMethod {
+    type Err = anyhow::Error;
+    
+    fn from_str(s: &str) -> Result<Self> {
+        match s.to_uppercase().as_str() {
+            "GET" => Ok(HttpMethod::GET),
+            "POST" => Ok(HttpMethod::POST),
+            "PUT" => Ok(HttpMethod::PUT),
+            "DELETE" => Ok(HttpMethod::DELETE),
+            "HEAD" => Ok(HttpMethod::HEAD),
+            "OPTIONS" => Ok(HttpMethod::OPTIONS),
+            "PATCH" => Ok(HttpMethod::PATCH),
+            _ => Err(anyhow::anyhow!("Invalid HTTP method: {}", s)),
+        }
+    }
+}
+
+// Network connection state
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConnectionState {
+    Established,
+    SynSent,
+    SynRecv,
+    FinWait1,
+    FinWait2,
+    TimeWait,
+    Close,
+    CloseWait,
+    LastAck,
+    Listen,
+    Closing,
+    Unknown,
+}
+
+impl fmt::Display for ConnectionState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ConnectionState::Established => write!(f, "ESTABLISHED"),
+            ConnectionState::SynSent => write!(f, "SYN_SENT"),
+            ConnectionState::SynRecv => write!(f, "SYN_RECV"),
+            ConnectionState::FinWait1 => write!(f, "FIN_WAIT1"),
+            ConnectionState::FinWait2 => write!(f, "FIN_WAIT2"),
+            ConnectionState::TimeWait => write!(f, "TIME_WAIT"),
+            ConnectionState::Close => write!(f, "CLOSE"),
+            ConnectionState::CloseWait => write!(f, "CLOSE_WAIT"),
+            ConnectionState::LastAck => write!(f, "LAST_ACK"),
+            ConnectionState::Listen => write!(f, "LISTEN"),
+            ConnectionState::Closing => write!(f, "CLOSING"),
+            ConnectionState::Unknown => write!(f, "UNKNOWN"),
+        }
+    }
+}
+
+// Network connection info
+#[derive(Debug, Clone)]
+pub struct NetworkConnection {
+    pub protocol: String,
+    pub local_address: SocketAddr,
+    pub remote_address: Option<SocketAddr>,
+    pub state: ConnectionState,
+    pub recv_queue: u64,
+    pub send_queue: u64,
+    pub process_id: Option<u32>,
+    pub process_name: Option<String>,
+}
+
+// Network interface info
+#[derive(Debug, Clone)]
+pub struct NetworkInterface {
+    pub name: String,
+    pub index: u32,
+    pub flags: Vec<String>,
+    pub mtu: u32,
+    pub addresses: Vec<IpAddr>,
+    pub mac_address: Option<String>,
+    pub rx_packets: u64,
+    pub tx_packets: u64,
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+    pub rx_errors: u64,
+    pub tx_errors: u64,
+}
 
 use crate::common::i18n::tr;
 use nxsh_core::{context::NxshContext, result::NxshResult};
@@ -24,7 +135,6 @@ use nxsh_core::{context::NxshContext, result::NxshResult};
 /// Network tools manager for various network utilities
 pub struct NetworkToolsManager {
     ping_sessions: Arc<RwLock<HashMap<String, PingSession>>>,
-    http_client: Client,
     dns_cache: Arc<RwLock<HashMap<String, Vec<IpAddr>>>>,
     config: NetworkToolsConfig,
 }
@@ -32,20 +142,65 @@ pub struct NetworkToolsManager {
 impl NetworkToolsManager {
     /// Create a new network tools manager
     pub fn new() -> Result<Self> {
-        let http_client = ClientBuilder::new()
-            .timeout(Duration::from_secs(30))
-            .user_agent("NexusShell/1.0")
-            .build()
-            .context("Failed to create HTTP client")?;
-        
         Ok(Self {
             ping_sessions: Arc::new(RwLock::new(HashMap::new())),
-            http_client,
             dns_cache: Arc::new(RwLock::new(HashMap::new())),
             config: NetworkToolsConfig::default(),
         })
     }
     
+    #[cfg(windows)]
+    fn get_process_name_from_pid(pid: u32) -> Option<String> {
+        use windows_sys::Win32::System::Threading::*;
+        use windows_sys::Win32::System::ProcessStatus::*;
+        use windows_sys::Win32::Foundation::*;
+        use windows_sys::Win32::System::Diagnostics::ToolHelp::*;
+        use windows_sys::Win32::System::WindowsProgramming::*;
+        use windows_sys::Win32::System::ProcessStatus::K32GetProcessImageFileNameW;
+
+        unsafe {
+            // Try QueryFullProcessImageNameW first
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle != 0 {
+                // Buffer for path
+                let mut buf: [u16; 260] = [0; 260];
+                let mut size: u32 = buf.len() as u32;
+                // Prefer QueryFullProcessImageNameW if available
+                // windows-sys exposes it via Kernel32
+                #[allow(non_snake_case)]
+                extern "system" {
+                    fn QueryFullProcessImageNameW(hProcess: HANDLE, dwFlags: u32, lpExeName: *mut u16, lpdwSize: *mut u32) -> i32;
+                }
+                let ok = QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut size);
+                CloseHandle(handle);
+                if ok != 0 {
+                    let s = String::from_utf16_lossy(&buf[..size as usize]);
+                    // Return just file name for compactness
+                    if let Some(name) = std::path::Path::new(&s).file_name().and_then(|v| v.to_str()) {
+                        return Some(name.to_string());
+                    }
+                    return Some(s);
+                }
+            }
+
+            // Fallback to PSAPI K32GetProcessImageFileNameW
+            let handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, pid);
+            if handle != 0 {
+                let mut buf: [u16; 260] = [0; 260];
+                let len = K32GetProcessImageFileNameW(handle, buf.as_mut_ptr(), buf.len() as u32);
+                CloseHandle(handle);
+                if len > 0 {
+                    let s = String::from_utf16_lossy(&buf[..len as usize]);
+                    if let Some(name) = std::path::Path::new(&s).file_name().and_then(|v| v.to_str()) {
+                        return Some(name.to_string());
+                    }
+                    return Some(s);
+                }
+            }
+        }
+        None
+    }
+
     /// Execute ping command
     pub async fn ping(&self, ctx: &NxshContext, args: &[String]) -> NxshResult<()> {
         let options = self.parse_ping_args(args)?;
@@ -287,75 +442,99 @@ impl NetworkToolsManager {
         println!();
         println!(";; Query time: 15 msec");
         println!(";; SERVER: {}#53({})", options.server.unwrap_or_else(|| "8.8.8.8".to_string()), options.server.unwrap_or_else(|| "8.8.8.8".to_string()));
-        println!(";; WHEN: {}", chrono::Utc::now().format("%a %b %d %H:%M:%S UTC %Y"));
+        println!(";; WHEN: {}", Utc::now().format("%a %b %d %H:%M:%S UTC %Y"));
         println!(";; MSG SIZE  rcvd: 55");
         
         Ok(())
     }
     
-    /// Execute curl command
+    /// Execute curl command (simplified implementation)
     pub async fn curl(&self, ctx: &NxshContext, args: &[String]) -> NxshResult<()> {
         let options = self.parse_curl_args(args)?;
         
         info!("HTTP request to {} using method {}", options.url, options.method);
         
-        let mut request = self.http_client.request(options.method.clone(), &options.url);
-        
-        // Add headers
-        for (key, value) in &options.headers {
-            request = request.header(key, value);
-        }
-        
-        // Add body if present
-        if let Some(ref body) = options.body {
-            request = request.body(body.clone());
-        }
-        
-        // Add basic auth if present
-        if let Some((ref username, ref password)) = options.basic_auth {
-            request = request.basic_auth(username, password.as_deref());
-        }
-        
-        let start_time = Instant::now();
-        
-        match request.send().await {
-            Ok(response) => {
-                let duration = start_time.elapsed();
-                let status = response.status();
-                let headers = response.headers().clone();
-                
-                if options.include_headers {
-                    println!("HTTP/{:?} {}", response.version(), status);
-                    for (name, value) in &headers {
-                        println!("{}: {}", name, value.to_str().unwrap_or("<invalid>"));
-                    }
-                    println!();
-                }
-                
-                if options.head_only {
-                    return Ok(());
-                }
-                
-                let body = response.text().await.context("Failed to read response body")?;
-                
-                if options.output_file.is_some() {
-                    let output_path = options.output_file.unwrap();
-                    tokio::fs::write(&output_path, &body).await
-                        .with_context(|| format!("Failed to write to file: {}", output_path))?;
-                    println!("Response saved to: {}", output_path);
-                } else {
-                    print!("{}", body);
-                }
-                
-                if options.verbose {
-                    eprintln!("Request completed in {:.3}s", duration.as_secs_f64());
-                    eprintln!("Status: {}", status);
-                    eprintln!("Content-Length: {}", body.len());
-                }
-            },
-            Err(e) => {
-                return Err(anyhow::anyhow!("HTTP request failed: {}", e).into());
+        #[cfg(feature = "net-http")]
+        {
+            // Use ureq for HTTP requests when net-http feature is enabled
+            let agent = ureq::AgentBuilder::new()
+                .timeout(self.config.default_timeout)
+                .user_agent(&self.config.user_agent)
+                .build();
+            
+            let mut request = match options.method {
+                HttpMethod::GET => agent.get(&options.url),
+                HttpMethod::POST => agent.post(&options.url),
+                HttpMethod::PUT => agent.put(&options.url),
+                HttpMethod::DELETE => agent.delete(&options.url),
+                HttpMethod::HEAD => agent.head(&options.url),
+                _ => return Err(anyhow::anyhow!("Unsupported HTTP method: {}", options.method).into()),
+            };
+            
+            // Add headers
+            for (key, value) in &options.headers {
+                request = request.set(&key, &value);
             }
+            
+            // Add basic auth if present
+            if let Some((ref username, ref password)) = options.basic_auth {
+                if let Some(pass) = password {
+                    request = request.auth(username, pass);
+                } else {
+                    request = request.auth(username, "");
+                }
+            }
+            
+            let start_time = Instant::now();
+            
+            let response = if let Some(ref body) = options.body {
+                request.send_string(body)
+            } else {
+                request.call()
+            };
+            
+            match response {
+                Ok(resp) => {
+                    let duration = start_time.elapsed();
+                    
+                    if options.include_headers {
+                        println!("HTTP/1.1 {}", resp.status());
+                        for header_name in resp.headers_names() {
+                            if let Some(header_value) = resp.header(&header_name) {
+                                println!("{}: {}", header_name, header_value);
+                            }
+                        }
+                        println!();
+                    }
+                    
+                    if options.head_only {
+                        return Ok(());
+                    }
+                    
+                    let body = resp.into_string().context("Failed to read response body")?;
+                    
+                    if let Some(ref output_path) = options.output_file {
+                        tokio::fs::write(output_path, &body).await
+                            .with_context(|| format!("Failed to write to file: {}", output_path))?;
+                        println!("Response saved to: {}", output_path);
+                    } else {
+                        print!("{}", body);
+                    }
+                    
+                    if options.verbose {
+                        eprintln!("Request completed in {:.3}s", duration.as_secs_f64());
+                        eprintln!("Content-Length: {}", body.len());
+                    }
+                },
+                Err(e) => {
+                    return Err(anyhow::anyhow!("HTTP request failed: {}", e).into());
+                }
+            }
+        }
+        
+        #[cfg(not(feature = "net-http"))]
+        {
+            return Err(anyhow::anyhow!("HTTP functionality disabled (build without 'net-http' feature)").into());
         }
         
         Ok(())
@@ -437,46 +616,56 @@ impl NetworkToolsManager {
         
         info!("Getting network statistics");
         
-        // On Unix systems, we can read from /proc/net/
-        #[cfg(unix)]
-        {
-            if options.show_tcp {
-                self.show_tcp_connections().await?;
-            }
-            
-            if options.show_udp {
-                self.show_udp_connections().await?;
-            }
-            
-            if options.show_listening {
-                self.show_listening_ports().await?;
-            }
+        let connections = self.get_network_connections(&options).await?;
+        
+        // Print header
+        if options.show_processes {
+            println!("Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name");
+        } else {
+            println!("Proto Recv-Q Send-Q Local Address           Foreign Address         State");
         }
         
-        // On Windows, use netstat command
-        #[cfg(windows)]
-        {
-            let mut cmd = Command::new("netstat");
-            
-            if options.show_tcp {
-                cmd.arg("-t");
-            }
-            if options.show_udp {
-                cmd.arg("-u");
-            }
-            if options.show_listening {
-                cmd.arg("-l");
-            }
-            if options.show_numeric {
-                cmd.arg("-n");
-            }
-            
-            let output = cmd.output().await.context("Failed to execute netstat")?;
-            
-            if output.status.success() {
-                print!("{}", String::from_utf8_lossy(&output.stdout));
+        // Print connections
+        for conn in connections {
+            let local_addr = if options.show_numeric {
+                conn.local_address.to_string()
             } else {
-                eprintln!("netstat error: {}", String::from_utf8_lossy(&output.stderr));
+                self.resolve_address_with_service(conn.local_address).await
+            };
+            
+            let remote_addr = if let Some(remote) = conn.remote_address {
+                if options.show_numeric {
+                    remote.to_string()
+                } else {
+                    self.resolve_address_with_service(remote).await
+                }
+            } else {
+                "*:*".to_string()
+            };
+            
+            if options.show_processes {
+                let process_info = if let (Some(pid), Some(name)) = (conn.process_id, conn.process_name) {
+                    format!("{}/{}", pid, name)
+                } else {
+                    "-".to_string()
+                };
+                
+                println!("{:<5} {:>6} {:>6} {:<23} {:<23} {:<11} {}",
+                        conn.protocol,
+                        conn.recv_queue,
+                        conn.send_queue,
+                        local_addr,
+                        remote_addr,
+                        conn.state,
+                        process_info);
+            } else {
+                println!("{:<5} {:>6} {:>6} {:<23} {:<23} {}",
+                        conn.protocol,
+                        conn.recv_queue,
+                        conn.send_queue,
+                        local_addr,
+                        remote_addr,
+                        conn.state);
             }
         }
         
@@ -489,20 +678,70 @@ impl NetworkToolsManager {
         
         info!("Getting socket statistics");
         
-        println!("Netid  State      Recv-Q Send-Q Local Address:Port               Peer Address:Port");
+        let connections = self.get_network_connections_for_ss(&options).await?;
         
-        // This is a simplified implementation
-        // In a real implementation, this would parse /proc/net/ files on Linux
-        
-        if options.show_tcp {
-            println!("tcp    LISTEN     0      128          *:22                     *:*");
-            println!("tcp    LISTEN     0      128          *:80                     *:*");
-            println!("tcp    ESTAB      0      0      192.168.1.100:22           192.168.1.1:54321");
+        // Print header
+        if options.show_processes {
+            println!("Netid  State      Recv-Q Send-Q Local Address:Port               Peer Address:Port              Process");
+        } else {
+            println!("Netid  State      Recv-Q Send-Q Local Address:Port               Peer Address:Port");
         }
         
-        if options.show_udp {
-            println!("udp    UNCONN     0      0            *:68                     *:*");
-            println!("udp    UNCONN     0      0            *:53                     *:*");
+        // Print connections in ss format
+        for conn in connections {
+            let netid = conn.protocol.to_lowercase();
+            let state = match conn.state {
+                ConnectionState::Listen => "LISTEN",
+                ConnectionState::Established => "ESTAB",
+                ConnectionState::TimeWait => "TIME-WAIT",
+                ConnectionState::CloseWait => "CLOSE-WAIT",
+                ConnectionState::FinWait1 => "FIN-WAIT-1",
+                ConnectionState::FinWait2 => "FIN-WAIT-2",
+                ConnectionState::SynSent => "SYN-SENT",
+                ConnectionState::SynRecv => "SYN-RECV",
+                _ => "UNCONN",
+            };
+            
+            let local_addr = if options.show_numeric {
+                conn.local_address.to_string()
+            } else {
+                self.resolve_address_with_service(conn.local_address).await
+            };
+            
+            let remote_addr = if let Some(remote) = conn.remote_address {
+                if options.show_numeric {
+                    remote.to_string()
+                } else {
+                    self.resolve_address_with_service(remote).await
+                }
+            } else {
+                "*:*".to_string()
+            };
+            
+            if options.show_processes {
+                let process_info = if let (Some(pid), Some(name)) = (conn.process_id, conn.process_name) {
+                    format!("users:((\"{}\",pid={},fd=?))", name, pid)
+                } else {
+                    "-".to_string()
+                };
+                
+                println!("{:<6} {:<10} {:>6} {:>6} {:<31} {:<31} {}",
+                        netid,
+                        state,
+                        conn.recv_queue,
+                        conn.send_queue,
+                        local_addr,
+                        remote_addr,
+                        process_info);
+            } else {
+                println!("{:<6} {:<10} {:>6} {:>6} {:<31} {}",
+                        netid,
+                        state,
+                        conn.recv_queue,
+                        conn.send_queue,
+                        local_addr,
+                        remote_addr);
+            }
         }
         
         Ok(())
@@ -549,6 +788,487 @@ impl NetworkToolsManager {
     
     // Private helper methods
     
+    /// Get network connections for netstat command
+    async fn get_network_connections(&self, options: &NetstatOptions) -> Result<Vec<NetworkConnection>> {
+        let mut connections = Vec::new();
+        
+        #[cfg(unix)]
+        {
+            if options.show_tcp || options.show_all {
+                connections.extend(self.read_tcp_connections().await?);
+            }
+            
+            if options.show_udp || options.show_all {
+                connections.extend(self.read_udp_connections().await?);
+            }
+        }
+        
+        #[cfg(windows)]
+        {
+            // Prefer IpHelper for rich data; fall back to netstat parsing
+            match self.enumerate_windows_connections_iphelper(options).await {
+                Ok(mut v) => connections.append(&mut v),
+                Err(_) => connections.extend(self.parse_windows_netstat(options).await?),
+            }
+        }
+        
+        // Filter based on options
+        if options.show_listening {
+            connections.retain(|conn| conn.state == ConnectionState::Listen);
+        }
+        
+        Ok(connections)
+    }
+    
+    /// Get network connections for ss command
+    async fn get_network_connections_for_ss(&self, options: &SsOptions) -> Result<Vec<NetworkConnection>> {
+        let mut connections = Vec::new();
+        
+        #[cfg(unix)]
+        {
+            if options.show_tcp || options.show_all {
+                connections.extend(self.read_tcp_connections().await?);
+            }
+            
+            if options.show_udp || options.show_all {
+                connections.extend(self.read_udp_connections().await?);
+            }
+        }
+        
+        #[cfg(windows)]
+        {
+            match self.enumerate_windows_connections_iphelper_for_ss(options).await {
+                Ok(mut v) => connections.append(&mut v),
+                Err(_) => connections.extend(self.parse_windows_netstat_for_ss(options).await?),
+            }
+        }
+        
+        // Filter based on options
+        if options.show_listening {
+            connections.retain(|conn| conn.state == ConnectionState::Listen);
+        }
+        
+        Ok(connections)
+    }
+
+    #[cfg(windows)]
+    async fn enumerate_windows_connections_iphelper(&self, options: &NetstatOptions) -> Result<Vec<NetworkConnection>> {
+        use windows_sys::Win32::NetworkManagement::IpHelper::*;
+        use windows_sys::Win32::Networking::WinSock::*;
+        unsafe {
+            let mut list: Vec<NetworkConnection> = Vec::new();
+            // TCP v4
+            if options.show_tcp || options.show_all {
+                let mut size: u32 = 0;
+                let mut ret = GetExtendedTcpTable(std::ptr::null_mut(), &mut size, 1, AF_INET as u32, TCP_TABLE_CLASS::TCP_TABLE_OWNER_PID_ALL, 0);
+                let mut buf = vec![0u8; size as usize];
+                ret = GetExtendedTcpTable(buf.as_mut_ptr() as *mut _, &mut size, 1, AF_INET as u32, TCP_TABLE_CLASS::TCP_TABLE_OWNER_PID_ALL, 0);
+                if ret == 0 {
+                    let table = buf.as_ptr() as *const MIB_TCPTABLE_OWNER_PID;
+                    let count = (*table).dwNumEntries as usize;
+                    let rows = std::slice::from_raw_parts((*table).table.as_ptr(), count);
+                    for r in rows {
+                        let local = SocketAddr::new(IpAddr::V4(Ipv4Addr::from(u32::from_be(r.dwLocalAddr))), u16::from_be(r.dwLocalPort as u16));
+                        let remote = SocketAddr::new(IpAddr::V4(Ipv4Addr::from(u32::from_be(r.dwRemoteAddr))), u16::from_be(r.dwRemotePort as u16));
+                        let state = match r.dwState { MIB_TCP_STATE_ESTAB => ConnectionState::Established, MIB_TCP_STATE_LISTEN => ConnectionState::Listen, MIB_TCP_STATE_TIME_WAIT => ConnectionState::TimeWait, MIB_TCP_STATE_CLOSE_WAIT => ConnectionState::CloseWait, MIB_TCP_STATE_FIN_WAIT1 => ConnectionState::FinWait1, MIB_TCP_STATE_FIN_WAIT2 => ConnectionState::FinWait2, MIB_TCP_STATE_SYN_SENT => ConnectionState::SynSent, MIB_TCP_STATE_SYN_RCVD => ConnectionState::SynRecv, _ => ConnectionState::Unknown };
+                        list.push(NetworkConnection { protocol: "TCP".into(), local_address: local, remote_address: if state==ConnectionState::Listen { None } else { Some(remote) }, state, recv_queue: 0, send_queue: 0, process_id: Some(r.dwOwningPid), process_name: None });
+                    }
+                }
+            }
+            // UDP v4
+            if options.show_udp || options.show_all {
+                let mut size: u32 = 0;
+                let mut ret = GetExtendedUdpTable(std::ptr::null_mut(), &mut size, 1, AF_INET as u32, UDP_TABLE_CLASS::UDP_TABLE_OWNER_PID, 0);
+                let mut buf = vec![0u8; size as usize];
+                ret = GetExtendedUdpTable(buf.as_mut_ptr() as *mut _, &mut size, 1, AF_INET as u32, UDP_TABLE_CLASS::UDP_TABLE_OWNER_PID, 0);
+                if ret == 0 {
+                    let table = buf.as_ptr() as *const MIB_UDPTABLE_OWNER_PID;
+                    let count = (*table).dwNumEntries as usize;
+                    let rows = std::slice::from_raw_parts((*table).table.as_ptr(), count);
+                    for r in rows {
+                        let local = SocketAddr::new(IpAddr::V4(Ipv4Addr::from(u32::from_be(r.dwLocalAddr))), u16::from_be(r.dwLocalPort as u16));
+                        list.push(NetworkConnection { protocol: "UDP".into(), local_address: local, remote_address: None, state: ConnectionState::Unknown, recv_queue: 0, send_queue: 0, process_id: Some(r.dwOwningPid), process_name: None });
+                    }
+                }
+            }
+            // TCP v6
+            if options.show_tcp || options.show_all {
+                let mut size: u32 = 0;
+                let mut ret = GetExtendedTcpTable(std::ptr::null_mut(), &mut size, 1, AF_INET6 as u32, TCP_TABLE_CLASS::TCP_TABLE_OWNER_PID_ALL, 0);
+                let mut buf = vec![0u8; size as usize];
+                ret = GetExtendedTcpTable(buf.as_mut_ptr() as *mut _, &mut size, 1, AF_INET6 as u32, TCP_TABLE_CLASS::TCP_TABLE_OWNER_PID_ALL, 0);
+                if ret == 0 {
+                    let table = buf.as_ptr() as *const MIB_TCP6TABLE_OWNER_PID;
+                    let count = (*table).dwNumEntries as usize;
+                    let rows = std::slice::from_raw_parts((*table).table.as_ptr(), count);
+                    for r in rows {
+                        let local_ip = Ipv6Addr::from(r.ucLocalAddr);
+                        let remote_ip = Ipv6Addr::from(r.ucRemoteAddr);
+                        let local = SocketAddr::new(IpAddr::V6(local_ip), u16::from_be(r.dwLocalPort as u16));
+                        let remote = SocketAddr::new(IpAddr::V6(remote_ip), u16::from_be(r.dwRemotePort as u16));
+                        let state = match r.State { MIB_TCP_STATE_ESTAB => ConnectionState::Established, MIB_TCP_STATE_LISTEN => ConnectionState::Listen, MIB_TCP_STATE_TIME_WAIT => ConnectionState::TimeWait, MIB_TCP_STATE_CLOSE_WAIT => ConnectionState::CloseWait, MIB_TCP_STATE_FIN_WAIT1 => ConnectionState::FinWait1, MIB_TCP_STATE_FIN_WAIT2 => ConnectionState::FinWait2, MIB_TCP_STATE_SYN_SENT => ConnectionState::SynSent, MIB_TCP_STATE_SYN_RCVD => ConnectionState::SynRecv, _ => ConnectionState::Unknown };
+                        list.push(NetworkConnection { protocol: "TCP6".into(), local_address: local, remote_address: if state==ConnectionState::Listen { None } else { Some(remote) }, state, recv_queue: 0, send_queue: 0, process_id: Some(r.dwOwningPid), process_name: None });
+                    }
+                }
+            }
+            // UDP v6
+            if options.show_udp || options.show_all {
+                let mut size: u32 = 0;
+                let mut ret = GetExtendedUdpTable(std::ptr::null_mut(), &mut size, 1, AF_INET6 as u32, UDP_TABLE_CLASS::UDP_TABLE_OWNER_PID, 0);
+                let mut buf = vec![0u8; size as usize];
+                ret = GetExtendedUdpTable(buf.as_mut_ptr() as *mut _, &mut size, 1, AF_INET6 as u32, UDP_TABLE_CLASS::UDP_TABLE_OWNER_PID, 0);
+                if ret == 0 {
+                    let table = buf.as_ptr() as *const MIB_UDP6TABLE_OWNER_PID;
+                    let count = (*table).dwNumEntries as usize;
+                    let rows = std::slice::from_raw_parts((*table).table.as_ptr(), count);
+                    for r in rows {
+                        let local_ip = Ipv6Addr::from(r.ucLocalAddr);
+                        let local = SocketAddr::new(IpAddr::V6(local_ip), u16::from_be(r.dwLocalPort as u16));
+                        list.push(NetworkConnection { protocol: "UDP6".into(), local_address: local, remote_address: None, state: ConnectionState::Unknown, recv_queue: 0, send_queue: 0, process_id: Some(r.dwOwningPid), process_name: None });
+                    }
+                }
+            }
+            // Post-process to fill process_name from PID (best-effort)
+            let mut list = list;
+            let pids: HashSet<u32> = list.iter().filter_map(|c| c.process_id).collect();
+            let mut name_cache: HashMap<u32, String> = HashMap::new();
+            for pid in pids {
+                if let Some(name) = Self::get_process_name_from_pid(pid) {
+                    name_cache.insert(pid, name);
+                }
+            }
+            for conn in &mut list {
+                if let Some(pid) = conn.process_id {
+                    if let Some(name) = name_cache.get(&pid) {
+                        conn.process_name = Some(name.clone());
+                    }
+                }
+            }
+            Ok(list)
+        }
+    }
+
+    #[cfg(windows)]
+    async fn enumerate_windows_connections_iphelper_for_ss(&self, options: &SsOptions) -> Result<Vec<NetworkConnection>> {
+        // Reuse the same as netstat path
+        let netstat_options = NetstatOptions { show_tcp: options.show_tcp, show_udp: options.show_udp, show_listening: options.show_listening, show_numeric: options.show_numeric, show_processes: options.show_processes, show_all: options.show_all };
+        self.enumerate_windows_connections_iphelper(&netstat_options).await
+    }
+    
+    /// Resolve address with service name lookup
+    async fn resolve_address_with_service(&self, addr: SocketAddr) -> String {
+        // Try to resolve hostname and service name
+        let hostname = self.reverse_dns_lookup(addr.ip()).await
+            .unwrap_or_else(|| addr.ip().to_string());
+        
+        let service = self.resolve_service_name(addr.port()).await
+            .unwrap_or_else(|| addr.port().to_string());
+        
+        format!("{}:{}", hostname, service)
+    }
+    
+    /// Resolve service name from port number
+    async fn resolve_service_name(&self, port: u16) -> Option<String> {
+        // Common service mappings
+        match port {
+            22 => Some("ssh".to_string()),
+            23 => Some("telnet".to_string()),
+            25 => Some("smtp".to_string()),
+            53 => Some("domain".to_string()),
+            80 => Some("http".to_string()),
+            110 => Some("pop3".to_string()),
+            143 => Some("imap".to_string()),
+            443 => Some("https".to_string()),
+            993 => Some("imaps".to_string()),
+            995 => Some("pop3s".to_string()),
+            _ => None,
+        }
+    }
+    
+    #[cfg(unix)]
+    async fn read_tcp_connections(&self) -> Result<Vec<NetworkConnection>> {
+        let mut connections = Vec::new();
+        
+        // Read /proc/net/tcp
+        if let Ok(content) = tokio::fs::read_to_string("/proc/net/tcp").await {
+            for line in content.lines().skip(1) {
+                if let Some(conn) = self.parse_proc_net_tcp_line(line) {
+                    connections.push(conn);
+                }
+            }
+        }
+        
+        // Read /proc/net/tcp6
+        if let Ok(content) = tokio::fs::read_to_string("/proc/net/tcp6").await {
+            for line in content.lines().skip(1) {
+                if let Some(conn) = self.parse_proc_net_tcp6_line(line) {
+                    connections.push(conn);
+                }
+            }
+        }
+        
+        Ok(connections)
+    }
+    
+    #[cfg(unix)]
+    async fn read_udp_connections(&self) -> Result<Vec<NetworkConnection>> {
+        let mut connections = Vec::new();
+        
+        // Read /proc/net/udp
+        if let Ok(content) = tokio::fs::read_to_string("/proc/net/udp").await {
+            for line in content.lines().skip(1) {
+                if let Some(conn) = self.parse_proc_net_udp_line(line) {
+                    connections.push(conn);
+                }
+            }
+        }
+        
+        // Read /proc/net/udp6
+        if let Ok(content) = tokio::fs::read_to_string("/proc/net/udp6").await {
+            for line in content.lines().skip(1) {
+                if let Some(conn) = self.parse_proc_net_udp6_line(line) {
+                    connections.push(conn);
+                }
+            }
+        }
+        
+        Ok(connections)
+    }
+    
+    #[cfg(unix)]
+    fn parse_proc_net_tcp_line(&self, line: &str) -> Option<NetworkConnection> {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 10 {
+            return None;
+        }
+        
+        let local_addr = self.parse_proc_net_addr(parts[1])?;
+        let remote_addr = self.parse_proc_net_addr(parts[2]);
+        let state = self.parse_tcp_state_from_hex(parts[3]);
+        let recv_queue = u64::from_str_radix(parts[4].split(':').next()?, 16).ok()?;
+        let send_queue = u64::from_str_radix(parts[4].split(':').nth(1)?, 16).ok()?;
+        
+        Some(NetworkConnection {
+            protocol: "TCP".to_string(),
+            local_address: local_addr,
+            remote_address: remote_addr,
+            state,
+            recv_queue,
+            send_queue,
+            process_id: None, // Would need to parse /proc/net/tcp with inode lookup
+            process_name: None,
+        })
+    }
+    
+    #[cfg(unix)]
+    fn parse_proc_net_tcp6_line(&self, line: &str) -> Option<NetworkConnection> {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 10 {
+            return None;
+        }
+        
+        let local_addr = self.parse_proc_net_addr_v6(parts[1])?;
+        let remote_addr = self.parse_proc_net_addr_v6(parts[2]);
+        let state = self.parse_tcp_state_from_hex(parts[3]);
+        let recv_queue = u64::from_str_radix(parts[4].split(':').next()?, 16).ok()?;
+        let send_queue = u64::from_str_radix(parts[4].split(':').nth(1)?, 16).ok()?;
+        
+        Some(NetworkConnection {
+            protocol: "TCP6".to_string(),
+            local_address: local_addr,
+            remote_address: remote_addr,
+            state,
+            recv_queue,
+            send_queue,
+            process_id: None,
+            process_name: None,
+        })
+    }
+    
+    #[cfg(unix)]
+    fn parse_proc_net_udp_line(&self, line: &str) -> Option<NetworkConnection> {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 10 {
+            return None;
+        }
+        
+        let local_addr = self.parse_proc_net_addr(parts[1])?;
+        let remote_addr = self.parse_proc_net_addr(parts[2]);
+        let recv_queue = u64::from_str_radix(parts[4].split(':').next()?, 16).ok()?;
+        let send_queue = u64::from_str_radix(parts[4].split(':').nth(1)?, 16).ok()?;
+        
+        Some(NetworkConnection {
+            protocol: "UDP".to_string(),
+            local_address: local_addr,
+            remote_address: remote_addr,
+            state: ConnectionState::Unknown, // UDP doesn't have connection state
+            recv_queue,
+            send_queue,
+            process_id: None,
+            process_name: None,
+        })
+    }
+    
+    #[cfg(unix)]
+    fn parse_proc_net_udp6_line(&self, line: &str) -> Option<NetworkConnection> {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 10 {
+            return None;
+        }
+        
+        let local_addr = self.parse_proc_net_addr_v6(parts[1])?;
+        let remote_addr = self.parse_proc_net_addr_v6(parts[2]);
+        let recv_queue = u64::from_str_radix(parts[4].split(':').next()?, 16).ok()?;
+        let send_queue = u64::from_str_radix(parts[4].split(':').nth(1)?, 16).ok()?;
+        
+        Some(NetworkConnection {
+            protocol: "UDP6".to_string(),
+            local_address: local_addr,
+            remote_address: remote_addr,
+            state: ConnectionState::Unknown,
+            recv_queue,
+            send_queue,
+            process_id: None,
+            process_name: None,
+        })
+    }
+    
+    #[cfg(unix)]
+    fn parse_proc_net_addr(&self, addr_str: &str) -> Option<SocketAddr> {
+        if let Some((addr_hex, port_hex)) = addr_str.split_once(':') {
+            if addr_hex.len() == 8 && port_hex.len() == 4 {
+                // IPv4 address
+                if let (Ok(addr_num), Ok(port_num)) = (u32::from_str_radix(addr_hex, 16), u16::from_str_radix(port_hex, 16)) {
+                    let ip = Ipv4Addr::from(addr_num.swap_bytes());
+                    return Some(SocketAddr::new(IpAddr::V4(ip), port_num));
+                }
+            }
+        }
+        None
+    }
+    
+    #[cfg(unix)]
+    fn parse_proc_net_addr_v6(&self, addr_str: &str) -> Option<SocketAddr> {
+        if let Some((addr_hex, port_hex)) = addr_str.split_once(':') {
+            if addr_hex.len() == 32 && port_hex.len() == 4 {
+                // IPv6 address - simplified parsing
+                if let Ok(port_num) = u16::from_str_radix(port_hex, 16) {
+                    // For now, use a placeholder IPv6 address
+                    let ip = Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1);
+                    return Some(SocketAddr::new(IpAddr::V6(ip), port_num));
+                }
+            }
+        }
+        None
+    }
+    
+    #[cfg(unix)]
+    fn parse_tcp_state_from_hex(&self, state_hex: &str) -> ConnectionState {
+        match state_hex {
+            "01" => ConnectionState::Established,
+            "02" => ConnectionState::SynSent,
+            "03" => ConnectionState::SynRecv,
+            "04" => ConnectionState::FinWait1,
+            "05" => ConnectionState::FinWait2,
+            "06" => ConnectionState::TimeWait,
+            "07" => ConnectionState::Close,
+            "08" => ConnectionState::CloseWait,
+            "09" => ConnectionState::LastAck,
+            "0A" => ConnectionState::Listen,
+            "0B" => ConnectionState::Closing,
+            _ => ConnectionState::Unknown,
+        }
+    }
+    
+    #[cfg(windows)]
+    async fn parse_windows_netstat(&self, options: &NetstatOptions) -> Result<Vec<NetworkConnection>> {
+        let mut cmd = Command::new("netstat");
+        cmd.arg("-an");
+        
+        if options.show_processes {
+            cmd.arg("-o");
+        }
+        
+        let output = cmd.output().await.context("Failed to execute netstat")?;
+        
+        if !output.status.success() {
+            return Err(anyhow::anyhow!("netstat command failed"));
+        }
+        
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut connections = Vec::new();
+        
+        for line in stdout.lines() {
+            if let Some(conn) = self.parse_netstat_line(line) {
+                connections.push(conn);
+            }
+        }
+        
+        Ok(connections)
+    }
+    
+    #[cfg(windows)]
+    async fn parse_windows_netstat_for_ss(&self, options: &SsOptions) -> Result<Vec<NetworkConnection>> {
+        // Reuse netstat parsing for Windows
+        let netstat_options = NetstatOptions {
+            show_tcp: options.show_tcp,
+            show_udp: options.show_udp,
+            show_listening: options.show_listening,
+            show_numeric: options.show_numeric,
+            show_processes: options.show_processes,
+            show_all: options.show_all,
+        };
+        
+        self.parse_windows_netstat(&netstat_options).await
+    }
+    
+    #[cfg(windows)]
+    fn parse_netstat_line(&self, line: &str) -> Option<NetworkConnection> {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 4 {
+            return None;
+        }
+        
+        let protocol = parts[0];
+        if !protocol.eq_ignore_ascii_case("TCP") && !protocol.eq_ignore_ascii_case("UDP") {
+            return None;
+        }
+        
+        let local_addr: SocketAddr = parts[1].parse().ok()?;
+        let remote_addr: Option<SocketAddr> = if parts[2] == "*:*" {
+            None
+        } else {
+            parts[2].parse().ok()
+        };
+        
+        let state = if protocol.eq_ignore_ascii_case("TCP") && parts.len() > 3 {
+            match parts[3] {
+                "LISTENING" => ConnectionState::Listen,
+                "ESTABLISHED" => ConnectionState::Established,
+                "TIME_WAIT" => ConnectionState::TimeWait,
+                "CLOSE_WAIT" => ConnectionState::CloseWait,
+                "FIN_WAIT_1" => ConnectionState::FinWait1,
+                "FIN_WAIT_2" => ConnectionState::FinWait2,
+                "SYN_SENT" => ConnectionState::SynSent,
+                "SYN_RECEIVED" => ConnectionState::SynRecv,
+                _ => ConnectionState::Unknown,
+            }
+        } else {
+            ConnectionState::Unknown
+        };
+        
+        Some(NetworkConnection {
+            protocol: protocol.to_uppercase(),
+            local_address: local_addr,
+            remote_address: remote_addr,
+            state,
+            recv_queue: 0, // Windows netstat doesn't provide queue info
+            send_queue: 0,
+            process_id: None, // Would need -o flag parsing
+            process_name: None,
+        })
+    }
+    
     async fn resolve_hostname(&self, hostname: &str) -> Result<Vec<IpAddr>> {
         // Check cache first
         {
@@ -576,29 +1296,188 @@ impl NetworkToolsManager {
     }
     
     async fn reverse_dns_lookup(&self, ip: IpAddr) -> Option<String> {
-        // Simplified reverse DNS lookup
-        // In a real implementation, this would perform proper PTR queries
-        match ip {
-            IpAddr::V4(ipv4) => {
-                if ipv4 == Ipv4Addr::new(8, 8, 8, 8) {
-                    Some("dns.google".to_string())
-                } else if ipv4 == Ipv4Addr::new(1, 1, 1, 1) {
-                    Some("one.one.one.one".to_string())
-                } else {
-                    None
-                }
-            },
-            IpAddr::V6(_) => None,
+        #[cfg(feature = "dns-tools")]
+        {
+            use trust_dns_resolver::{TokioAsyncResolver, config::{ResolverConfig, ResolverOpts}};
+            // Use system DNS by default
+            let resolver = TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default()).ok()?;
+            match resolver.reverse_lookup(ip).await {
+                Ok(resp) => resp.iter().next().map(|name| name.to_utf8()),
+                Err(_) => None,
+            }
+        }
+        #[cfg(not(feature = "dns-tools"))]
+        {
+            None
         }
     }
     
     async fn send_ping(&self, target: IpAddr, seq: u32, size: usize, timeout: Duration) -> Result<Duration> {
+        // Windows: try real ICMP ping for IPv4 using IcmpSendEcho
+        #[cfg(target_os = "windows")]
+        {
+            if let IpAddr::V4(ipv4) = target {
+                let packet_len = size.clamp(1, 65500);
+                let timeout_ms: u32 = timeout
+                    .as_millis()
+                    .try_into()
+                    .unwrap_or(u32::MAX);
+                let r = tokio::task::spawn_blocking(move || -> Result<Duration> {
+                    use windows_sys::Win32::Foundation::HANDLE;
+                    use windows_sys::Win32::NetworkManagement::IpHelper::{IcmpCloseHandle, IcmpCreateFile, IcmpSendEcho, ICMP_ECHO_REPLY};
+                    use windows_sys::Win32::Networking::WinSock::{IN_ADDR, IN_ADDR_0};
+                    unsafe {
+                        let handle: HANDLE = IcmpCreateFile();
+                        if handle == 0 {
+                            return Err(anyhow::anyhow!("IcmpCreateFile failed"));
+                        }
+                        // S_addr expects IPv4 in network byte order
+                        let addr = IN_ADDR { S_un: IN_ADDR_0 { S_addr: u32::from(ipv4).to_be() } };
+                        // Allocate reply buffer: ICMP_ECHO_REPLY + payload + some slack
+                        let mut reply_buf = vec![0u8; std::mem::size_of::<ICMP_ECHO_REPLY>() + packet_len + 8];
+                        let data = vec![0x61u8; packet_len];
+                        let res = IcmpSendEcho(
+                            handle,
+                            addr.S_un.S_addr,
+                            data.as_ptr() as *const _,
+                            data.len() as u16,
+                            std::ptr::null_mut(),
+                            reply_buf.as_mut_ptr() as *mut _,
+                            reply_buf.len() as u32,
+                            timeout_ms,
+                        );
+                        IcmpCloseHandle(handle);
+                        if res == 0 {
+                            return Err(anyhow::anyhow!("Timeout"));
+                        }
+                        let reply: *const ICMP_ECHO_REPLY = reply_buf.as_ptr() as *const ICMP_ECHO_REPLY;
+                        let rtt_ms = (*reply).RoundTripTime as u64;
+                        Ok(Duration::from_millis(rtt_ms))
+                    }
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("Join error: {e}"))??;
+                return Ok(r);
+            } else if let IpAddr::V6(ipv6) = target {
+                let packet_len = size.clamp(1, 65500);
+                let timeout_ms: u32 = timeout
+                    .as_millis()
+                    .try_into()
+                    .unwrap_or(u32::MAX);
+                let segments = ipv6.segments();
+                let r = tokio::task::spawn_blocking(move || -> Result<Duration> {
+                    use windows_sys::Win32::Foundation::HANDLE;
+                    use windows_sys::Win32::NetworkManagement::IpHelper::{Icmp6CreateFile, Icmp6SendEcho2, IcmpCloseHandle, ICMPV6_ECHO_REPLY_LH};
+                    use windows_sys::Win32::Networking::WinSock::{SOCKADDR_IN6, IN6_ADDR, ADDRESS_FAMILY, AF_INET6};
+                    unsafe {
+                        let handle: HANDLE = Icmp6CreateFile();
+                        if handle == 0 {
+                            return Err(anyhow::anyhow!("Icmp6CreateFile failed"));
+                        }
+                        let mut dest_addr = SOCKADDR_IN6 {
+                            sin6_family: AF_INET6 as ADDRESS_FAMILY,
+                            sin6_port: 0,
+                            sin6_flowinfo: 0,
+                            sin6_addr: IN6_ADDR { u: windows_sys::Win32::Networking::WinSock::IN6_ADDR_0 { Byte: [0; 16] } },
+                            sin6_scope_id: 0,
+                        };
+                        // copy IPv6 bytes into dest_addr.sin6_addr
+                        let octets = ipv6.octets();
+                        dest_addr.sin6_addr.u.Byte.copy_from_slice(&octets);
+
+                        let mut src_addr: SOCKADDR_IN6 = std::mem::zeroed();
+                        let mut reply_buf = vec![0u8; std::mem::size_of::<ICMPV6_ECHO_REPLY_LH>() + packet_len + 8];
+                        let data = vec![0x61u8; packet_len];
+                        let res = Icmp6SendEcho2(
+                            handle,
+                            0,
+                            None,
+                            std::ptr::null_mut(),
+                            &mut src_addr as *mut _ as *mut _,
+                            &mut dest_addr as *mut _ as *mut _,
+                            data.as_ptr() as *const _,
+                            data.len() as u16,
+                            std::ptr::null_mut(),
+                            reply_buf.as_mut_ptr() as *mut _,
+                            reply_buf.len() as u32,
+                            timeout_ms,
+                        );
+                        IcmpCloseHandle(handle);
+                        if res == 0 {
+                            return Err(anyhow::anyhow!("Timeout"));
+                        }
+                        let reply: *const ICMPV6_ECHO_REPLY_LH = reply_buf.as_ptr() as *const ICMPV6_ECHO_REPLY_LH;
+                        let rtt_ms = (*reply).RoundTripTime as u64;
+                        Ok(Duration::from_millis(rtt_ms))
+                    }
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("Join error: {e}"))??;
+                return Ok(r);
+            } else if let IpAddr::V6(ipv6) = target {
+                let hop = ttl.min(255) as u32;
+                let timeout_ms: u32 = timeout
+                    .as_millis()
+                    .try_into()
+                    .unwrap_or(u32::MAX);
+                let r = tokio::task::spawn_blocking(move || -> Result<(IpAddr, Duration)> {
+                    use windows_sys::Win32::Foundation::HANDLE;
+                    use windows_sys::Win32::NetworkManagement::IpHelper::{Icmp6CreateFile, Icmp6SendEcho2, IcmpCloseHandle, ICMPV6_ECHO_REPLY_LH, IPV6_OPTION_INFORMATION};
+                    use windows_sys::Win32::Networking::WinSock::{SOCKADDR_IN6, IN6_ADDR, ADDRESS_FAMILY, AF_INET6};
+                    unsafe {
+                        let handle: HANDLE = Icmp6CreateFile();
+                        if handle == 0 { return Err(anyhow::anyhow!("Icmp6CreateFile failed")); }
+
+                        let mut dest_addr = SOCKADDR_IN6 {
+                            sin6_family: AF_INET6 as ADDRESS_FAMILY,
+                            sin6_port: 0,
+                            sin6_flowinfo: 0,
+                            sin6_addr: IN6_ADDR { u: windows_sys::Win32::Networking::WinSock::IN6_ADDR_0 { Byte: [0; 16] } },
+                            sin6_scope_id: 0,
+                        };
+                        dest_addr.sin6_addr.u.Byte.copy_from_slice(&ipv6.octets());
+
+                        let mut src_addr: SOCKADDR_IN6 = std::mem::zeroed();
+                        let mut reply_buf = vec![0u8; std::mem::size_of::<ICMPV6_ECHO_REPLY_LH>() + 64];
+                        let data = [0u8; 0];
+
+                        let mut opt: IPV6_OPTION_INFORMATION = std::mem::zeroed();
+                        opt.HopLimit = hop;
+
+                        let res = Icmp6SendEcho2(
+                            handle,
+                            0,
+                            None,
+                            std::ptr::null_mut(),
+                            &mut src_addr as *mut _ as *mut _,
+                            &mut dest_addr as *mut _ as *mut _,
+                            data.as_ptr() as *const _,
+                            data.len() as u16,
+                            &mut opt as *mut _ as *mut _,
+                            reply_buf.as_mut_ptr() as *mut _,
+                            reply_buf.len() as u32,
+                            timeout_ms,
+                        );
+                        IcmpCloseHandle(handle);
+                        if res == 0 { return Err(anyhow::anyhow!("Timeout")); }
+
+                        let reply: *const ICMPV6_ECHO_REPLY_LH = reply_buf.as_ptr() as *const ICMPV6_ECHO_REPLY_LH;
+                        let addr6: *const SOCKADDR_IN6 = &(*reply).Address as *const _ as *const SOCKADDR_IN6;
+                        let octets = (*addr6).sin6_addr.u.Byte;
+                        let hop_ip = IpAddr::V6(std::net::Ipv6Addr::from(octets));
+                        let rtt_ms = (*reply).RoundTripTime as u64;
+                        Ok((hop_ip, Duration::from_millis(rtt_ms)))
+                    }
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("Join error: {e}"))??;
+                return Ok(r);
+            }
+        }
+
+        // Fallback (non-Windows or IPv6 on Windows): simplified TCP connect timing
         let start = Instant::now();
-        
-        // Simplified ping implementation using TCP connect
-        // In a real implementation, this would use ICMP sockets
         let addr = SocketAddr::new(target, 80);
-        
         match timeout(timeout, TcpStream::connect(addr)).await {
             Ok(Ok(_)) => Ok(start.elapsed()),
             Ok(Err(_)) => Err(anyhow::anyhow!("Connection failed")),
@@ -607,12 +1486,58 @@ impl NetworkToolsManager {
     }
     
     async fn send_traceroute_probe(&self, target: IpAddr, ttl: u32, timeout: Duration) -> Result<(IpAddr, Duration)> {
+        // Windows IPv4: ICMP echo with TTL to discover hop
+        #[cfg(target_os = "windows")]
+        {
+            if let IpAddr::V4(ipv4) = target {
+                let ttl_u8 = ttl.min(255) as u8;
+                let timeout_ms: u32 = timeout
+                    .as_millis()
+                    .try_into()
+                    .unwrap_or(u32::MAX);
+                let r = tokio::task::spawn_blocking(move || -> Result<(IpAddr, Duration)> {
+                    use windows_sys::Win32::Foundation::HANDLE;
+                    use windows_sys::Win32::NetworkManagement::IpHelper::{IcmpCreateFile, IcmpSendEcho, IcmpCloseHandle, ICMP_ECHO_REPLY, IP_OPTION_INFORMATION};
+                    unsafe {
+                        let handle: HANDLE = IcmpCreateFile();
+                        if handle == 0 {
+                            return Err(anyhow::anyhow!("IcmpCreateFile failed"));
+                        }
+                        let mut opts = IP_OPTION_INFORMATION { Ttl: ttl_u8, Tos: 0, Flags: 0, OptionsSize: 0, OptionsData: std::ptr::null_mut() };
+                        let addr = u32::from(ipv4).to_be();
+                        let mut reply_buf = vec![0u8; std::mem::size_of::<ICMP_ECHO_REPLY>() + 64];
+                        let data = [0u8; 0];
+                        let res = IcmpSendEcho(
+                            handle,
+                            addr,
+                            data.as_ptr() as *const _,
+                            data.len() as u16,
+                            &mut opts as *mut _,
+                            reply_buf.as_mut_ptr() as *mut _,
+                            reply_buf.len() as u32,
+                            timeout_ms,
+                        );
+                        IcmpCloseHandle(handle);
+                        if res == 0 {
+                            return Err(anyhow::anyhow!("Timeout"));
+                        }
+                        let reply: *const ICMP_ECHO_REPLY = reply_buf.as_ptr() as *const ICMP_ECHO_REPLY;
+                        let addr_be = (*reply).Address; // network order
+                        let octets = addr_be.to_be_bytes();
+                        let hop_ip = IpAddr::V4(std::net::Ipv4Addr::new(octets[0], octets[1], octets[2], octets[3]));
+                        let rtt_ms = (*reply).RoundTripTime as u64;
+                        Ok((hop_ip, Duration::from_millis(rtt_ms)))
+                    }
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("Join error: {e}"))??;
+                return Ok(r);
+            }
+        }
+
+        // Fallback (non-Windows or IPv6): TCP connect-based
         let start = Instant::now();
-        
-        // Simplified traceroute implementation
-        // In a real implementation, this would use UDP packets with specific TTL
         let addr = SocketAddr::new(target, 33434 + ttl);
-        
         match timeout(timeout, TcpStream::connect(addr)).await {
             Ok(Ok(_)) => Ok((target, start.elapsed())),
             Ok(Err(_)) => Err(anyhow::anyhow!("Connection failed")),
@@ -1092,10 +2017,12 @@ impl NetworkToolsManager {
                 "-u" | "--udp" => options.show_udp = true,
                 "-l" | "--listening" => options.show_listening = true,
                 "-n" | "--numeric" => options.show_numeric = true,
+                "-p" | "--processes" => options.show_processes = true,
                 "-a" | "--all" => {
                     options.show_tcp = true;
                     options.show_udp = true;
                     options.show_listening = true;
+                    options.show_all = true;
                 },
                 _ => {}
             }
@@ -1106,6 +2033,7 @@ impl NetworkToolsManager {
             options.show_tcp = true;
             options.show_udp = true;
             options.show_listening = true;
+            options.show_all = true;
         }
         
         Ok(options)
@@ -1120,10 +2048,12 @@ impl NetworkToolsManager {
                 "-u" | "--udp" => options.show_udp = true,
                 "-l" | "--listening" => options.show_listening = true,
                 "-n" | "--numeric" => options.show_numeric = true,
+                "-p" | "--processes" => options.show_processes = true,
                 "-a" | "--all" => {
                     options.show_tcp = true;
                     options.show_udp = true;
                     options.show_listening = true;
+                    options.show_all = true;
                 },
                 _ => {}
             }
@@ -1240,7 +2170,7 @@ impl Default for DigOptions {
 #[derive(Debug, Clone)]
 struct CurlOptions {
     url: String,
-    method: Method,
+    method: HttpMethod,
     headers: HashMap<String, String>,
     body: Option<String>,
     basic_auth: Option<(String, Option<String>)>,
@@ -1254,7 +2184,7 @@ impl Default for CurlOptions {
     fn default() -> Self {
         Self {
             url: String::new(),
-            method: Method::GET,
+            method: HttpMethod::GET,
             headers: HashMap::new(),
             body: None,
             basic_auth: None,
@@ -1289,6 +2219,8 @@ struct NetstatOptions {
     show_udp: bool,
     show_listening: bool,
     show_numeric: bool,
+    show_processes: bool,
+    show_all: bool,
 }
 
 impl Default for NetstatOptions {
@@ -1298,6 +2230,8 @@ impl Default for NetstatOptions {
             show_udp: false,
             show_listening: false,
             show_numeric: false,
+            show_processes: false,
+            show_all: false,
         }
     }
 }
@@ -1308,6 +2242,8 @@ struct SsOptions {
     show_udp: bool,
     show_listening: bool,
     show_numeric: bool,
+    show_processes: bool,
+    show_all: bool,
 }
 
 impl Default for SsOptions {
@@ -1317,6 +2253,8 @@ impl Default for SsOptions {
             show_udp: false,
             show_listening: false,
             show_numeric: false,
+            show_processes: false,
+            show_all: false,
         }
     }
 }
@@ -1421,8 +2359,8 @@ mod tests {
         let options = manager.parse_curl_args(&args).unwrap();
         
         assert_eq!(options.url, "https://example.com");
-        assert_eq!(options.method, Method::POST);
-        assert_eq!(options.headers.get("Content-Type", None), Some(&"application/json".to_string()));
+        assert_eq!(options.method, HttpMethod::POST);
+        assert_eq!(options.headers.get("Content-Type"), Some(&"application/json".to_string()));
     }
     
     #[tokio::test]

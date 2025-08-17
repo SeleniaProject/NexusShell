@@ -1,12 +1,16 @@
 #[cfg(test)]
 mod timedatectl_tests {
-    use super::*;
-    use chrono::{DateTime, Utc, TimeZone};
+    use crate::timedatectl::{
+        TimedatectlConfig, TimedatectlManager, TimeSyncStatus, NTPServerStatus,
+        LeapStatus, LeapIndicator, compute_timesync_summary, parse_time_string,
+    };
+    use crate::common::i18n::I18n;
+    use chrono::{Utc, TimeZone};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
-    use tokio::test;
+    // use tokio test runtime for async tests
 
     /// Test NTP packet creation with proper RFC 5905 format
-    #[test]
+    #[tokio::test]
     async fn test_ntp_packet_creation() {
         let config = TimedatectlConfig::default();
         let i18n = I18n::new();
@@ -42,7 +46,7 @@ mod timedatectl_tests {
     }
 
     /// Test NTP timestamp parsing
-    #[test]
+    #[tokio::test]
     async fn test_ntp_timestamp_parsing() {
         let config = TimedatectlConfig::default();
         let i18n = I18n::new();
@@ -58,12 +62,12 @@ mod timedatectl_tests {
             0, 0, 0, 0, // No fractional seconds
         ];
         
-        let duration = manager.parse_ntp_timestamp(&timestamp_bytes).unwrap();
+    let duration = manager.parse_ntp_timestamp(&timestamp_bytes).await.unwrap();
         assert!(duration.as_secs() > 1_700_000_000); // Should be after 2023
     }
 
     /// Test NTP response parsing with valid packet
-    #[test]
+    #[tokio::test]
     async fn test_ntp_response_parsing() {
         let config = TimedatectlConfig::default();
         let i18n = I18n::new();
@@ -105,7 +109,7 @@ mod timedatectl_tests {
     }
 
     /// Test timezone information retrieval
-    #[test]
+    #[tokio::test]
     async fn test_timezone_info() {
         let config = TimedatectlConfig::default();
         let i18n = I18n::new();
@@ -122,7 +126,7 @@ mod timedatectl_tests {
     }
 
     /// Test DST detection
-    #[test]
+    #[tokio::test]
     async fn test_dst_detection() {
         let config = TimedatectlConfig::default();
         let i18n = I18n::new();
@@ -148,7 +152,7 @@ mod timedatectl_tests {
     }
 
     /// Test DST transition detection
-    #[test]
+    #[tokio::test]
     async fn test_dst_transitions() {
         let config = TimedatectlConfig::default();
         let i18n = I18n::new();
@@ -173,7 +177,7 @@ mod timedatectl_tests {
     }
 
     /// Test pure Rust NTP sync (mock test)
-    #[test]
+    #[tokio::test]
     async fn test_pure_rust_ntp_sync_fallback() {
         let config = TimedatectlConfig::default();
         let i18n = I18n::new();
@@ -265,7 +269,7 @@ mod timedatectl_tests {
     /// Test configuration validation
     #[test]
     fn test_config_validation() {
-        let mut config = TimedatectlConfig::default();
+        let config = TimedatectlConfig::default();
         
         // Test valid configuration
         assert!(config.sync_config.enabled);
@@ -302,7 +306,7 @@ mod timedatectl_tests {
     }
 
     /// Test statistics computation
-    #[test]
+    #[tokio::test]
     async fn test_statistics_computation() {
         let config = TimedatectlConfig::default();
         let i18n = I18n::new();
@@ -317,7 +321,7 @@ mod timedatectl_tests {
     }
 
     /// Test user permission checking
-    #[test]
+    #[tokio::test]
     async fn test_user_permissions() {
         let mut config = TimedatectlConfig::default();
         config.security_enabled = true;
@@ -339,7 +343,7 @@ mod timedatectl_tests {
     }
 
     /// Test monitoring mode functionality
-    #[test]
+    #[tokio::test]
     async fn test_monitoring_mode() {
         let config = TimedatectlConfig::default();
         let i18n = I18n::new();
@@ -376,7 +380,7 @@ mod timedatectl_tests {
     }
 
     /// Test timezone has DST functionality
-    #[test]
+    #[tokio::test]
     async fn test_timezone_has_dst() {
         let config = TimedatectlConfig::default();
         let i18n = I18n::new();
@@ -399,7 +403,7 @@ mod timedatectl_tests {
     }
 
     /// Test exact DST transition time finding
-    #[test]
+    #[tokio::test]
     async fn test_exact_dst_transition_time() {
         let config = TimedatectlConfig::default();
         let i18n = I18n::new();
@@ -415,7 +419,7 @@ mod timedatectl_tests {
             // Test finding transition on a known DST transition date
             // March 10, 2024 was a DST transition date for Eastern timezone
             if let Some(march_10) = NaiveDate::from_ymd_opt(2024, 3, 10) {
-                let transition = manager.find_exact_transition_time(&eastern_tz, march_10).await;
+                let _transition = manager.find_exact_transition_time(&eastern_tz, march_10).await;
                 // Should find a transition or return None if not a transition date
                 // This is acceptable as the exact date may vary
             }
@@ -423,7 +427,7 @@ mod timedatectl_tests {
     }
 
     /// Test error handling for invalid NTP responses
-    #[test]
+    #[tokio::test]
     async fn test_invalid_ntp_response_handling() {
         let config = TimedatectlConfig::default();
         let i18n = I18n::new();
@@ -448,7 +452,7 @@ mod timedatectl_tests {
     }
 
     /// Test drift monitoring functionality
-    #[test]
+    #[tokio::test]
     async fn test_drift_monitoring() {
         let mut config = TimedatectlConfig::default();
         config.monitor_drift = true;
@@ -466,11 +470,11 @@ mod timedatectl_tests {
         // Check that statistics are being updated
         let stats = manager.get_statistics().await;
         // Initial state should have empty drift history
-        assert!(stats.drift_history.is_empty() || stats.drift_history.len() >= 0);
+    assert!(stats.drift_history.is_empty() || true);
     }
 
     /// Test comprehensive status display
-    #[test]
+    #[tokio::test]
     async fn test_comprehensive_status() {
         let config = TimedatectlConfig::default();
         let i18n = I18n::new();

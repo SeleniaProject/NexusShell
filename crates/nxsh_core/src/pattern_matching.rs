@@ -619,7 +619,7 @@ impl PatternMatchingEngine {
         // Simplified guard evaluation
         // In a real implementation, this would use the expression evaluator
         match guard {
-            AstNode::BinaryExpression { left, operator, right } => {
+            AstNode::BinaryExpression { left: _, operator: _, right: _ } => {
                 // Simplified comparison
                 Ok(true) // Placeholder
             },

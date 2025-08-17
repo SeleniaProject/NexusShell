@@ -1,5 +1,5 @@
 use nxsh_core::mir::{MirExecutor, MirValue, lower::Lowerer};
-use nxsh_parser::ast::{AstNode, NumberType, AssignmentOperator, Parameter};
+use nxsh_parser::ast::{AstNode, NumberType, AssignmentOperator};
 
 // Helper to build simple program from sequence of nodes
 fn run(nodes: Vec<AstNode>) -> Result<MirValue, nxsh_core::mir::MirError> {

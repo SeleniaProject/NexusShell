@@ -182,6 +182,15 @@ impl NexusCompleter {
         Ok(completions)
     }
 
+    /// Get completions synchronously for non-async builds
+    #[cfg(not(feature = "async"))]
+    pub fn get_completions_sync(&self, input: &str) -> Result<Vec<String>> {
+        let pos = input.len();
+        let candidates = self.get_completion_candidates(input, pos)?;
+        let completions: Vec<String> = candidates.into_iter().take(20).map(|c| c.text).collect();
+        Ok(completions)
+    }
+
     /// Produce rustyline-compatible completion pairs and start position.
     /// Keeps internal candidate types encapsulated.
     pub fn complete_for_rustyline_sync(&self, line: &str, pos: usize) -> (usize, Vec<Pair>) {

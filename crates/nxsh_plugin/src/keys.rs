@@ -8,7 +8,9 @@
 //!
 //! The key strings must be base64-encoded raw 32-byte Ed25519 public keys.
 
+#[cfg(any(feature = "crypto-verification", feature = "plugin-management"))]
 use std::fs;
+#[cfg(feature = "crypto-verification")]
 use base64::Engine;
 
 /// Built-in fallback keys (base64). Replace with actual keys for production builds.
@@ -24,6 +26,7 @@ pub fn load_official_pubkey_b64() -> String {
     }
 
     // 2) Local file under ~/.nxsh/keys/official_ed25519.pub
+    #[cfg(feature = "plugin-management")]
     if let Some(mut path) = dirs::home_dir() {
         path.push(".nxsh"); path.push("keys"); path.push("official_ed25519.pub");
         if let Ok(contents) = fs::read_to_string(&path) {
@@ -44,6 +47,7 @@ pub fn load_community_pubkey_b64() -> String {
     }
 
     // 2) Local file under ~/.nxsh/keys/community_ed25519.pub
+    #[cfg(feature = "plugin-management")]
     if let Some(mut path) = dirs::home_dir() {
         path.push(".nxsh"); path.push("keys"); path.push("community_ed25519.pub");
         if let Ok(contents) = fs::read_to_string(&path) {
@@ -59,11 +63,15 @@ pub fn load_community_pubkey_b64() -> String {
 /// Helper to validate that a base64 key decodes to 32 bytes.
 pub fn is_valid_ed25519_pubkey_b64(key_b64: &str) -> bool {
     if key_b64.trim().is_empty() { return false; }
+    #[cfg(feature = "crypto-verification")]
     let decoded = match base64::engine::general_purpose::STANDARD.decode(key_b64) {
         Ok(bytes) => bytes,
         Err(_) => return false,
     };
-    decoded.len() == 32
+    #[cfg(feature = "crypto-verification")]
+    return decoded.len() == 32;
+    #[cfg(not(feature = "crypto-verification"))]
+    { false }
 }
 
 /// Rotate trusted keys by environment-supplied new keys; returns (old_official, old_community).
@@ -74,8 +82,10 @@ pub fn rotate_trusted_keys_if_requested() -> std::io::Result<(Option<String>, Op
         let new_off = std::env::var("NXSH_NEW_OFFICIAL_PUBKEY").ok();
         let new_com = std::env::var("NXSH_NEW_COMMUNITY_PUBKEY").ok();
         if new_off.is_none() && new_com.is_none() { return Ok((None, None)); }
-
-        let home = dirs::home_dir().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "no home dir"))?;
+    #[cfg(feature = "plugin-management")]
+    let home = dirs::home_dir().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "no home dir"))?;
+    #[cfg(not(feature = "plugin-management"))]
+    let home: std::path::PathBuf = std::env::var_os("HOME").map(Into::into).unwrap_or_else(|| std::path::PathBuf::from("."));
         let keys_dir = home.join(".nxsh").join("keys");
         let _ = std::fs::create_dir_all(&keys_dir);
 
@@ -96,11 +106,11 @@ pub fn rotate_trusted_keys_if_requested() -> std::io::Result<(Option<String>, Op
             Ok(old)
         }
 
-        if let Some(val) = new_off {
+    if let Some(val) = new_off {
             let p = keys_dir.join("official_ed25519.pub");
             old_off = backup_and_write(&p, val.trim())?;
         }
-        if let Some(val) = new_com {
+    if let Some(val) = new_com {
             let p = keys_dir.join("community_ed25519.pub");
             old_com = backup_and_write(&p, val.trim())?;
         }

@@ -1,5 +1,5 @@
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Global startup profiler for measuring early UI milestones.
 /// Enabled when environment variable `NXSH_MEASURE_STARTUP=1` is set

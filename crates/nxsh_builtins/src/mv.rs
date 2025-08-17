@@ -402,7 +402,7 @@ fn move_file(source: &Path, dest: &Path, options: &MvOptions) -> Result<()> {
     // Try atomic rename first
     match fs::rename(source, dest) {
         Ok(()) => Ok(()),
-        Err(e) => {
+    Err(_e) => {
             // Check if this is a cross-filesystem move
             #[cfg(unix)]
             if e.raw_os_error() == Some(libc::EXDEV) {

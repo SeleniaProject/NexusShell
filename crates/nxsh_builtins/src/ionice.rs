@@ -103,7 +103,7 @@ fn print_help() {
 #[cfg(windows)]
 fn handle_windows_ionice(
     class: Option<u32>,
-    classdata: Option<u32>,
+    _classdata: Option<u32>,
     pid: Option<u32>,
     _pgrp: Option<u32>,
     _uid: Option<u32>,

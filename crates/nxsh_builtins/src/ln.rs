@@ -619,8 +619,8 @@ mod tests {
     #[test]
     fn test_make_relative_path() {
         // Test case: target is in parent directory
-        let target = Path::new("/home/user/documents/file.txt");
-        let link = Path::new("/home/user/desktop/link.txt");
+    let _target = Path::new("/home/user/documents/file.txt");
+    let _link = Path::new("/home/user/desktop/link.txt");
         
         // This would need actual filesystem for canonicalize to work
         // For unit test, we'll just test the logic with mock paths

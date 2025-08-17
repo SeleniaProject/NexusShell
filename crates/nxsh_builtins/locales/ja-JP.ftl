@@ -284,3 +284,135 @@ timedatectl.help.examples = 例:
 timedatectl.help.timesync_options = timesync-status のオプション:
 timedatectl.help.timesync_json_option =   -J, --json            ステータスと要約をJSONで出力
 timedatectl.help.global_json_option =   グローバル: 一部のコマンドは -J/--json でJSON出力に対応
+
+# timedatectl status/common/time-sync labels
+timedatectl.common.yes = はい
+timedatectl.common.no = いいえ
+timedatectl.common.enabled = 有効
+timedatectl.common.disabled = 無効
+timedatectl.common.reachable = 到達可能
+timedatectl.common.unreachable = 到達不可
+
+timedatectl.msg.time_set_to = 時刻を設定しました:
+timedatectl.msg.timezone_set_to = タイムゾーンを設定しました:
+timedatectl.msg.rtc_in_local_tz = RTCのローカルタイムゾーン:
+timedatectl.msg.ntp_sync = NTP同期:
+timedatectl.msg.added_ntp_server = NTPサーバーを追加:
+timedatectl.msg.removed_ntp_server = NTPサーバーを削除:
+
+timedatectl.timesync.title = 時刻同期ステータス:
+timedatectl.timesync.enabled = 有効:
+timedatectl.timesync.synchronized = 同期済み:
+timedatectl.timesync.last_sync = 最終同期:
+timedatectl.timesync.sync_accuracy = 同期精度:
+timedatectl.timesync.drift_rate = ドリフト率:
+timedatectl.timesync.poll_interval = ポーリング間隔:
+timedatectl.timesync.leap_status = うるう秒ステータス:
+timedatectl.timesync.ntp_servers = NTPサーバー:
+timedatectl.timesync.stratum = ストラタム:
+timedatectl.timesync.delay = 遅延:
+timedatectl.timesync.offset = オフセット:
+timedatectl.timesync.summary = 要約:
+timedatectl.timesync.servers_total_reachable = サーバー (総数/到達可能):
+timedatectl.timesync.best_stratum = 最良ストラタム:
+timedatectl.timesync.preferred_server = 優先サーバー:
+timedatectl.timesync.avg_delay = 平均遅延:
+timedatectl.timesync.min_delay = 最小遅延:
+timedatectl.timesync.max_delay = 最大遅延:
+timedatectl.timesync.avg_offset = 平均オフセット:
+timedatectl.timesync.min_offset = 最小オフセット:
+timedatectl.timesync.max_offset = 最大オフセット:
+timedatectl.timesync.avg_jitter = 平均ジッタ:
+
+# timedatectl ステータス表示ラベル
+timedatectl.status.local_time = ローカル時刻
+timedatectl.status.universal_time = 協定世界時 (UTC)
+timedatectl.status.rtc_time = RTC 時刻
+timedatectl.status.time_zone = タイムゾーン
+timedatectl.status.system_clock_synchronized = システム時計の同期
+timedatectl.status.ntp_service = NTP サービス
+timedatectl.status.rtc_in_local_tz = RTC のローカルTZ
+timedatectl.status.sync_accuracy = 同期精度
+timedatectl.status.drift_rate = ドリフト率
+timedatectl.status.last_sync = 最終同期
+timedatectl.status.leap_second = うるう秒
+timedatectl.status.pending = 保留中
+
+# timedatectl ヘルプ各コマンド説明
+timedatectl.help.cmd.status = 現在の時刻ステータスを表示
+timedatectl.help.cmd.show = ステータスをJSONで表示
+timedatectl.help.cmd.set_time = システム時刻を設定
+timedatectl.help.cmd.set_timezone = システムのタイムゾーンを設定
+timedatectl.help.cmd.list_timezones = 利用可能なタイムゾーンを一覧表示
+timedatectl.help.cmd.set_local_rtc = RTC をローカル時刻に設定 (true/false)
+timedatectl.help.cmd.set_ntp = NTP 同期を有効/無効にする (true/false)
+timedatectl.help.cmd.timesync_status = 時刻同期ステータスを表示
+timedatectl.help.cmd.show_timesync = 時刻同期ステータスをJSONで表示
+timedatectl.help.cmd.add_ntp_server = NTP サーバーを追加
+timedatectl.help.cmd.remove_ntp_server = NTP サーバーを削除
+timedatectl.help.cmd.statistics = 時刻関連統計を表示
+timedatectl.help.cmd.history = 時刻調整履歴を表示
+
+# timedatectl ヘルプオプション項目
+timedatectl.help.opt.help = このヘルプを表示して終了
+timedatectl.help.opt.monitor = リアルタイム監視モードを実行
+timedatectl.help.opt.all = すべてのプロパティを表示
+timedatectl.help.opt.json = JSON 形式で出力
+
+# 受け付ける時刻フォーマットの説明
+timedatectl.help.fmt.full_datetime = 日付と時刻（秒を含む）
+timedatectl.help.fmt.datetime_no_sec = 日付と時刻（秒なし）
+timedatectl.help.fmt.time_only = 時刻のみ
+timedatectl.help.fmt.time_no_sec = 時刻（秒なし）
+timedatectl.help.fmt.unix_timestamp = Unix タイムスタンプ（秒）
+timedatectl.help.fmt.iso8601 = ISO 8601（UTC）
+
+# ヘルプの例の説明
+timedatectl.help.ex.status = ステータスを表示
+timedatectl.help.ex.set_time = システム時刻を設定
+timedatectl.help.ex.set_timezone = タイムゾーンを設定
+timedatectl.help.ex.find_timezone = タイムゾーンを検索
+timedatectl.help.ex.enable_ntp = NTP 同期を有効化
+timedatectl.help.ex.add_server = NTP サーバーを追加
+timedatectl.help.ex.sync_status = 同期ステータスを表示
+timedatectl.help.ex.statistics = 統計を表示
+
+# プロパティ表示
+timedatectl.properties.title = 時刻と日付のプロパティ
+timedatectl.properties.time_info = 時刻情報
+timedatectl.properties.local_time = ローカル時刻
+timedatectl.properties.utc_time = UTC 時刻
+timedatectl.properties.timezone_info = タイムゾーン情報
+timedatectl.properties.timezone = タイムゾーン
+timedatectl.properties.utc_offset = UTC オフセット
+timedatectl.properties.dst_active = 夏時間 (DST)
+timedatectl.properties.sync_status = 同期ステータス
+timedatectl.properties.system_synced = システム時計の同期
+timedatectl.properties.ntp_service = NTP サービス
+timedatectl.properties.time_source = 時刻ソース
+timedatectl.properties.sync_accuracy = 同期精度
+timedatectl.properties.last_sync = 最終同期
+timedatectl.properties.drift_rate = ドリフト率 (ppm)
+timedatectl.properties.leap_info = うるう秒の情報
+timedatectl.properties.leap_pending = うるう秒の挿入/削除が保留
+timedatectl.properties.ntp_config = NTP 設定
+timedatectl.properties.ntp_enabled = NTP 有効
+timedatectl.properties.ntp_servers = NTP サーバー
+timedatectl.properties.min_poll = 最小ポーリング間隔
+timedatectl.properties.max_poll = 最大ポーリング間隔
+timedatectl.properties.capabilities = システム機能
+timedatectl.properties.tz_changes = タイムゾーン変更
+timedatectl.properties.ntp_sync = NTP 同期
+timedatectl.properties.rtc_access = RTC アクセス
+timedatectl.properties.hw_timestamp = ハードウェアタイムスタンプ
+
+# 共通ラベル
+common.yes = はい
+common.no = いいえ
+common.supported = 対応
+common.limited = 制限あり
+common.full = 完全
+common.available = 利用可
+
+# 単位
+units.microseconds = マイクロ秒

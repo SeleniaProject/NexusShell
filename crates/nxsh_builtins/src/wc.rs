@@ -73,7 +73,7 @@ pub fn wc_cli(args: &[String]) -> Result<()> {
     let mut total = (0usize, 0usize, 0usize, 0usize, 0usize); // lines, words, bytes, chars, maxline
     let mut files_processed = 0;
 
-    let mut inputs: Vec<String> = if let Some(list_path) = files0_from {
+    let inputs: Vec<String> = if let Some(list_path) = files0_from {
         let data = std::fs::read(list_path)?;
         let mut v = Vec::new();
         for chunk in data.split(|b| *b == 0) {

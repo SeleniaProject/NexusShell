@@ -24,7 +24,6 @@ use std::{
 use crate::history_crypto;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc as StdArc, Mutex as StdMutex};
-use nxsh_parser::Parser;
 
 /// Simple CUI line editor with standard readline functionality
 pub struct NexusLineEditor {

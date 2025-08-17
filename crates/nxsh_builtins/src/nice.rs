@@ -59,7 +59,7 @@ pub fn nice_cli(args: &[String]) -> Result<()> {
             ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, HIGH_PRIORITY_CLASS, IDLE_PRIORITY_CLASS,
             NORMAL_PRIORITY_CLASS, REALTIME_PRIORITY_CLASS,
         };
-        let priority_class = if adjust <= -15 {
+    let _priority_class = if adjust <= -15 {
             REALTIME_PRIORITY_CLASS
         } else if adjust <= -10 {
             HIGH_PRIORITY_CLASS

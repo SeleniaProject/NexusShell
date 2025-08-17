@@ -352,8 +352,7 @@ impl ClosureSystem {
             },
             BinaryOperator::And => Ok(Value::Boolean(self.value_to_bool(left) && self.value_to_bool(right))),
             BinaryOperator::Or  => Ok(Value::Boolean(self.value_to_bool(left) || self.value_to_bool(right))),
-            // Add other operators as needed
-            _ => Err(crate::anyhow!("Binary operator not implemented"))
+            // All supported operators are explicitly handled above.
         }
     }
 

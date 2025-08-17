@@ -1,13 +1,18 @@
 //! Locale-aware formatting utilities (numbers, dates, sizes) with light dependencies.
-//! This module uses `unic-langid` to parse BCP47 language tags and selects
-//! reasonable formatting conventions per locale without heavy ICU.
-
-use unic_langid::LanguageIdentifier;
+//! Avoids heavy ICU and compiles even when i18n features are disabled.
 use num_format::{Locale as NumLocale, ToFormattedString};
 use chrono::{DateTime, Local, TimeZone};
 
-fn resolve_num_locale(lang: &LanguageIdentifier) -> NumLocale {
-    match lang.language.as_str() {
+// Extract primary language subtag in lowercase from a BCP47-ish string.
+// Examples: "ja-JP" -> "ja", "pt_BR" -> "pt", "EN" -> "en".
+fn lang_code(langid: &str) -> String {
+    let lower = langid.to_ascii_lowercase();
+    let mut it = lower.split(|c| c == '-' || c == '_');
+    it.next().unwrap_or("en").to_string()
+}
+
+fn resolve_num_locale(code: &str) -> NumLocale {
+    match code {
         "fr" => NumLocale::fr,
         "de" => NumLocale::de,
         "ru" => NumLocale::ru,
@@ -22,19 +27,19 @@ fn resolve_num_locale(lang: &LanguageIdentifier) -> NumLocale {
 }
 
 pub fn format_integer_locale(value: i64, langid: &str) -> String {
-    let lang: LanguageIdentifier = langid.parse().unwrap_or_else(|_| "en-US".parse().unwrap());
-    let loc = resolve_num_locale(&lang);
+    let code = lang_code(langid);
+    let loc = resolve_num_locale(&code);
     value.to_formatted_string(&loc)
 }
 
 pub fn format_float_locale(value: f64, precision: usize, langid: &str) -> String {
-    let lang: LanguageIdentifier = langid.parse().unwrap_or_else(|_| "en-US".parse().unwrap());
-    let mut s = format!("{:.*}", precision, value);
+    let code = lang_code(langid);
+    let s = format!("{:.*}", precision, value);
     if let Some(dot) = s.find('.') {
         let (int_part, frac_part) = s.split_at(dot);
         let int_val: i64 = int_part.parse().unwrap_or(0);
         let grouped = format_integer_locale(int_val, langid);
-        let dec_sep = match lang.language.as_str() { "fr" | "de" | "it" | "es" | "pt" | "ru" => ',', _ => '.' };
+        let dec_sep = match code.as_str() { "fr" | "de" | "it" | "es" | "pt" | "ru" => ',', _ => '.' };
         return format!("{}{}{}", grouped, dec_sep, &frac_part[1..]);
     }
     s
@@ -42,12 +47,25 @@ pub fn format_float_locale(value: f64, precision: usize, langid: &str) -> String
 
 pub fn format_date_locale(ts: i64, langid: &str) -> String {
     let dt: DateTime<Local> = Local.timestamp_opt(ts, 0).single().unwrap_or_else(Local::now);
-    let lang: LanguageIdentifier = langid.parse().unwrap_or_else(|_| "en-US".parse().unwrap());
-    match lang.language.as_str() {
+    let code = lang_code(langid);
+    match code.as_str() {
         "ja" => dt.format("%Y/%m/%d").to_string(),
         "de" => dt.format("%d.%m.%Y").to_string(),
         "fr" | "es" | "it" | "pt" => dt.format("%d/%m/%Y").to_string(),
         _ => dt.format("%Y-%m-%d").to_string(),
+    }
+}
+
+/// Format local datetime according to locale (lightweight patterns)
+pub fn format_datetime_locale(ts: i64, langid: &str) -> String {
+    let dt: DateTime<Local> = Local.timestamp_opt(ts, 0).single().unwrap_or_else(Local::now);
+    let code = lang_code(langid);
+    match code.as_str() {
+        // Include seconds for Japanese (common convention), minutes for others
+        "ja" => dt.format("%Y/%m/%d %H:%M:%S").to_string(),
+        "de" => dt.format("%d.%m.%Y %H:%M").to_string(),
+        "fr" | "es" | "it" | "pt" => dt.format("%d/%m/%Y %H:%M").to_string(),
+        _ => dt.format("%Y-%m-%d %H:%M").to_string(),
     }
 }
 

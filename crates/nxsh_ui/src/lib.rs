@@ -80,14 +80,20 @@ pub async fn run_cui_minimal(start_time: std::time::Instant) -> anyhow::Result<(
     if startup_profiler::is_enabled() {
         startup_profiler::mark_cui_init_done(std::time::Instant::now());
     }
-    app.run().await
+    #[cfg(feature = "async")]
+    { app.run().await }
+    #[cfg(not(feature = "async"))]
+    { app.run() }
 }
 
 /// Main entry point for CUI mode with comprehensive functionality
 /// This replaces the previous TUI-based interface with a streamlined CUI
 pub async fn run_cui() -> anyhow::Result<()> {
     let mut app = App::new()?;
-    app.run().await
+    #[cfg(feature = "async")]
+    { app.run().await }
+    #[cfg(not(feature = "async"))]
+    { app.run() }
 }
 
 /// Main entry point for CUI mode with startup timing and full features
@@ -107,7 +113,10 @@ pub async fn run_cui_with_timing(start_time: std::time::Instant) -> anyhow::Resu
         eprintln!("✅ NexusShell startup: {startup_ms:.2}ms");
     }
     
-    app.run().await
+    #[cfg(feature = "async")]
+    { app.run().await }
+    #[cfg(not(feature = "async"))]
+    { app.run() }
 }
 
 /// Run CUI with custom configuration and full functionality
@@ -117,7 +126,10 @@ pub async fn run_cui_with_config(_config: UIConfig) -> anyhow::Result<()> {
     // Bridge UI-only configuration into the running app. This uses a dedicated
     // proxy on App that forwards to the internal configuration manager.
     app.apply_ui_config(_config)?;
-    app.run().await
+    #[cfg(feature = "async")]
+    { app.run().await }
+    #[cfg(not(feature = "async"))]
+    { app.run() }
 }
 
 /// Check CUI compatibility with comprehensive terminal feature detection

@@ -136,7 +136,7 @@ fn execute_nohup(options: &NohupOptions) -> ShellResult<ExecutionResult> {
             use std::fs::OpenOptions;
             use std::os::windows::io::{AsRawHandle, FromRawHandle};
             let file = OpenOptions::new().create(true).append(true).open(of)
-                .map_err(|e| ShellError::permission_denied(of))?;
+                .map_err(|_e| ShellError::permission_denied(of))?;
             let handle = file.as_raw_handle();
             unsafe {
                 use std::process::Stdio;

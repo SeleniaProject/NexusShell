@@ -168,9 +168,9 @@ impl MacroSystem {
             },
             
             BuiltinMacro::Date => {
-                let format = args.get(0).map(|s| s.as_str()).unwrap_or("%Y-%m-%d %H:%M:%S");
                 #[cfg(feature = "heavy-time")]
                 {
+                    let format = args.get(0).map(|s| s.as_str()).unwrap_or("%Y-%m-%d %H:%M:%S");
                     return Ok(chrono::Local::now().format(format).to_string());
                 }
                 #[cfg(not(feature = "heavy-time"))]

@@ -7,7 +7,7 @@ fn main() -> anyhow::Result<()> {
     let validator = ThemeValidator::new()?;
     for t in themes {
         print!("Validating {} ... ", t.display());
-        match validator.validate_theme_file(&t.to_string_lossy()) {
+        match validator.validate_theme_file(&t) {
             Ok(result) => {
                 if result.is_valid() {
                     println!("ok");

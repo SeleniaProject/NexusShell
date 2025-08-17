@@ -37,6 +37,15 @@ use std::sync::Mutex;
 use chrono::{DateTime, Local};
 use nu_ansi_term::{Color as NuColor, Style};
 use humansize::{format_size, BINARY};
+#[cfg(windows)]
+use windows_sys::Win32::{
+    Security::{
+        LookupAccountSidW, GROUP_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, SID_NAME_USE,
+        GetFileSecurityW, GetSecurityDescriptorOwner, GetSecurityDescriptorGroup,
+    },
+};
+#[cfg(windows)]
+use std::os::windows::ffi::OsStrExt;
 
 // Git repository integration
 #[derive(Debug, Clone)]
@@ -115,6 +124,8 @@ impl GitRepository {
 lazy_static::lazy_static! {
     static ref USER_CACHE: Mutex<HashMap<u32, String>> = Mutex::new(HashMap::new());
     static ref GROUP_CACHE: Mutex<HashMap<u32, String>> = Mutex::new(HashMap::new());
+    #[cfg(windows)]
+    static ref OWNER_GROUP_CACHE: Mutex<HashMap<PathBuf, (String, String)>> = Mutex::new(HashMap::new());
 }
 
 /// Get user name from UID with caching
@@ -257,6 +268,77 @@ fn get_mode(permissions: &std::fs::Permissions) -> u32 {
 #[cfg(not(unix))]
 fn get_mode(_permissions: &std::fs::Permissions) -> u32 {
     0o644 // Default for Windows
+}
+
+// Cross-platform ctime/atime helpers
+#[cfg(unix)]
+fn get_ctime(metadata: &Metadata) -> SystemTime {
+    use std::os::unix::fs::MetadataExt as _;
+    SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(metadata.ctime() as u64)
+}
+
+#[cfg(not(unix))]
+fn get_ctime(metadata: &Metadata) -> SystemTime {
+    fn filetime_to_system_time(ft: filetime::FileTime) -> SystemTime {
+        // filetime::FileTime::seconds() returns i64 (seconds since UNIX_EPOCH), can be negative.
+        let secs = ft.seconds();
+        let nanos = ft.nanoseconds();
+        if secs >= 0 {
+            let mut t = SystemTime::UNIX_EPOCH
+                + std::time::Duration::from_secs(secs as u64);
+            if nanos > 0 {
+                t += std::time::Duration::from_nanos(nanos as u64);
+            }
+            t
+        } else {
+            // For pre-1970 timestamps, subtract from UNIX_EPOCH safely.
+            let mut t = SystemTime::UNIX_EPOCH
+                .checked_sub(std::time::Duration::from_secs((-secs) as u64))
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+            if nanos > 0 {
+                // When going backwards, adjust nanoseconds with checked_sub.
+                t = t
+                    .checked_sub(std::time::Duration::from_nanos(nanos as u64))
+                    .unwrap_or(SystemTime::UNIX_EPOCH);
+            }
+            t
+        }
+    }
+
+    filetime::FileTime::from_creation_time(metadata)
+        .map(filetime_to_system_time)
+        .unwrap_or_else(|| metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH))
+}
+
+#[cfg(unix)]
+fn get_atime(metadata: &Metadata) -> SystemTime {
+    use std::os::unix::fs::MetadataExt as _;
+    SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(metadata.atime() as u64)
+}
+
+#[cfg(not(unix))]
+fn get_atime(metadata: &Metadata) -> SystemTime {
+    let ft = filetime::FileTime::from_last_access_time(metadata);
+    // Reuse the same conversion logic as in get_ctime
+    let secs = ft.seconds();
+    let nanos = ft.nanoseconds();
+    if secs >= 0 {
+        let mut t = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs as u64);
+        if nanos > 0 {
+            t += std::time::Duration::from_nanos(nanos as u64);
+        }
+        t
+    } else {
+        let mut t = SystemTime::UNIX_EPOCH
+            .checked_sub(std::time::Duration::from_secs((-secs) as u64))
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        if nanos > 0 {
+            t = t
+                .checked_sub(std::time::Duration::from_nanos(nanos as u64))
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+        }
+        t
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -614,16 +696,12 @@ fn sort_entries(entries: &mut [FileInfo], options: &LsOptions) {
         } else if options.sort_by_size {
             b.metadata.len().cmp(&a.metadata.len())
         } else if options.sort_by_ctime {
-            // Creation time is not directly available in std::fs::Metadata
-            // Use modified time as fallback for cross-platform compatibility
-            let a_time = a.metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
-            let b_time = b.metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+            let a_time = get_ctime(&a.metadata);
+            let b_time = get_ctime(&b.metadata);
             b_time.cmp(&a_time)
         } else if options.sort_by_atime {
-            // Access time is not directly available in std::fs::Metadata
-            // Use modified time as fallback for cross-platform compatibility
-            let a_time = a.metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
-            let b_time = b.metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+            let a_time = get_atime(&a.metadata);
+            let b_time = get_atime(&b.metadata);
             b_time.cmp(&a_time)
         } else {
             // Default: sort by name
@@ -651,13 +729,30 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
     for entry in entries {
         max_links = max_links.max(get_nlink(&entry.metadata).to_string().len());
         max_size = max_size.max(format_file_size(entry.metadata.len(), options.human_readable).len());
-        
+
+        #[cfg(windows)]
+        {
+            if !options.numeric_ids {
+                if !options.long_no_owner || (!options.long_no_group && !options.no_group) {
+                    if let Some((owner, group)) = get_windows_owner_group(&entry.path) {
+                        if !options.long_no_owner {
+                            max_user = max_user.max(owner.len());
+                        }
+                        if !options.long_no_group && !options.no_group {
+                            max_group = max_group.max(group.len());
+                        }
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // Non‑Windows or fallback
         if !options.long_no_owner && !options.numeric_ids {
             let uid = get_uid(&entry.metadata);
             let user_name = get_user_name(uid);
             max_user = max_user.max(user_name.len());
         }
-        
         if !options.long_no_group && !options.no_group && !options.numeric_ids {
             let gid = get_gid(&entry.metadata);
             let group_name = get_group_name(gid);
@@ -703,13 +798,43 @@ fn print_long_entry(
     
     // Owner
     if !options.long_no_owner {
-        let owner = if options.numeric_ids { get_uid(&entry.metadata).to_string() } else { get_user_name(get_uid(&entry.metadata)) };
+        let owner = if options.numeric_ids {
+            get_uid(&entry.metadata).to_string()
+        } else {
+            #[cfg(windows)]
+            {
+                if let Some((owner, _group)) = get_windows_owner_group(&entry.path) {
+                    owner
+                } else {
+                    get_user_name(get_uid(&entry.metadata))
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                get_user_name(get_uid(&entry.metadata))
+            }
+        };
         line.push_str(&format!(" {owner:max_user$}"));
     }
     
     // Group
     if !options.long_no_group && !options.no_group {
-        let group = if options.numeric_ids { get_gid(&entry.metadata).to_string() } else { get_group_name(get_gid(&entry.metadata)) };
+        let group = if options.numeric_ids {
+            get_gid(&entry.metadata).to_string()
+        } else {
+            #[cfg(windows)]
+            {
+                if let Some((_owner, group)) = get_windows_owner_group(&entry.path) {
+                    group
+                } else {
+                    get_group_name(get_gid(&entry.metadata))
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                get_group_name(get_gid(&entry.metadata))
+            }
+        };
         line.push_str(&format!(" {group:max_group$}"));
     }
     
@@ -1013,7 +1138,7 @@ fn get_group_name(gid: u32, users_cache: &UsersCache) -> String {
 }
 */
 
-fn is_executable(metadata: &Metadata) -> bool {
+fn is_executable(_metadata: &Metadata) -> bool {
     #[cfg(unix)]
     {
         get_mode(&metadata.permissions()) & 0o111 != 0
@@ -1022,5 +1147,119 @@ fn is_executable(metadata: &Metadata) -> bool {
     #[cfg(not(unix))]
     {
         false // Windows doesn't have the same concept
+    }
+}
+
+// Windows: retrieve file owner and primary group via WinAPI (GetFileSecurityW + LookupAccountSidW)
+#[cfg(windows)]
+fn get_windows_owner_group(path: &Path) -> Option<(String, String)> {
+    // Cache fast‑path
+    if let Ok(cache) = OWNER_GROUP_CACHE.lock() {
+        if let Some(v) = cache.get(path) { return Some(v.clone()); }
+    }
+    unsafe {
+        // Convert path to wide string
+        let widestr: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+
+        // First call to get required security descriptor size
+        let mut needed: u32 = 0;
+        let _ = GetFileSecurityW(
+            widestr.as_ptr(),
+            OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            0,
+            &mut needed,
+        );
+        if needed == 0 {
+            return None;
+        }
+
+        // Allocate buffer and retrieve security descriptor
+        let mut sd_buf = vec![0u8; needed as usize];
+        if GetFileSecurityW(
+            widestr.as_ptr(),
+            OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION,
+            sd_buf.as_mut_ptr() as *mut core::ffi::c_void,
+            needed,
+            &mut needed,
+        ) == 0
+        {
+            return None;
+        }
+
+        let mut p_owner_sid: *mut core::ffi::c_void = std::ptr::null_mut();
+        let mut owner_defaulted: i32 = 0;
+        if GetSecurityDescriptorOwner(
+            sd_buf.as_mut_ptr() as *mut core::ffi::c_void,
+            &mut p_owner_sid,
+            &mut owner_defaulted,
+        ) == 0
+        {
+            return None;
+        }
+
+        let mut p_group_sid: *mut core::ffi::c_void = std::ptr::null_mut();
+        let mut group_defaulted: i32 = 0;
+        if GetSecurityDescriptorGroup(
+            sd_buf.as_mut_ptr() as *mut core::ffi::c_void,
+            &mut p_group_sid,
+            &mut group_defaulted,
+        ) == 0
+        {
+            return None;
+        }
+
+        // Helper to resolve SID to Domain\\Name
+        unsafe fn sid_to_name(sid: *mut core::ffi::c_void) -> Option<String> {
+            if sid.is_null() {
+                return None;
+            }
+            let mut name_len: u32 = 0;
+            let mut domain_len: u32 = 0;
+            let mut use_type: SID_NAME_USE = 0;
+            // First call to get required lengths
+            let _ = LookupAccountSidW(
+                std::ptr::null(),
+                sid,
+                std::ptr::null_mut(),
+                &mut name_len,
+                std::ptr::null_mut(),
+                &mut domain_len,
+                &mut use_type,
+            );
+            if name_len == 0 { return None; }
+            let mut name_buf = vec![0u16; name_len as usize];
+            let mut domain_buf = if domain_len > 0 { vec![0u16; domain_len as usize] } else { Vec::new() };
+            if LookupAccountSidW(
+                std::ptr::null(),
+                sid,
+                name_buf.as_mut_ptr(),
+                &mut name_len,
+                if domain_len > 0 { domain_buf.as_mut_ptr() } else { std::ptr::null_mut() },
+                &mut domain_len,
+                &mut use_type,
+            ) == 0
+            {
+                return None;
+            }
+            // Trim trailing NULs
+            while let Some(&0) = name_buf.last() { name_buf.pop(); }
+            while let Some(&0) = domain_buf.last() { domain_buf.pop(); }
+            let name = String::from_utf16(&name_buf).ok()?;
+            let domain = if !domain_buf.is_empty() { Some(String::from_utf16(&domain_buf).ok()?) } else { None };
+            Some(match domain {
+                Some(d) if !d.is_empty() => format!("{}\\{}", d, name),
+                _ => name,
+            })
+        }
+
+        let owner = sid_to_name(p_owner_sid).unwrap_or_else(|| "unknown".to_string());
+        let group = sid_to_name(p_group_sid).unwrap_or_else(|| "unknown".to_string());
+
+        let pair = (owner, group);
+        if let Ok(mut cache) = OWNER_GROUP_CACHE.lock() {
+            cache.insert(path.to_path_buf(), pair.clone());
+        }
+        Some(pair)
     }
 }

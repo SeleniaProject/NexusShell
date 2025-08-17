@@ -309,6 +309,7 @@ impl PromptFormatter {
     /// 
     /// This method creates the formatted prompt string for use by
     /// the application's input handling system.
+    #[cfg(feature = "async")]
     pub async fn generate_prompt(&self) -> Result<String> {
         let mut prompt = String::new();
         
@@ -352,17 +353,58 @@ impl PromptFormatter {
         }
         
         // Add Git information if enabled
-        if self.config.show_git_info {
-            if let Ok(git_info) = self.get_git_info().await {
+            if self.config.show_git_info {
+                #[cfg(feature = "async")]
+                let git_info = self.get_git_info().await.unwrap_or_default();
+                #[cfg(not(feature = "async"))]
+                let git_info = self.get_git_info_blocking().unwrap_or_default();
                 if !git_info.is_empty() {
                     prompt.push_str(&git_info);
                 }
-            }
         }
         
         // Add final prompt character
         prompt.push_str(" $ ");
         
+        Ok(prompt)
+    }
+
+    #[cfg(not(feature = "async"))]
+    pub fn generate_prompt(&self) -> Result<String> {
+        let mut prompt = String::new();
+
+        if let Ok(ps1) = env::var("PS1") {
+            return self.process_ps1_format(&ps1);
+        }
+
+        if self.config.show_user {
+            prompt.push_str(&format!("\x1b[32m{}\x1b[0m", whoami::username()));
+        }
+
+        if self.config.show_hostname {
+            if self.config.show_user { prompt.push('@'); }
+            prompt.push_str(&format!("\x1b[32m{}\x1b[0m", hostname::get().unwrap_or_default().to_string_lossy()));
+        }
+
+        if self.config.show_cwd {
+            if self.config.show_user || self.config.show_hostname { prompt.push(':'); }
+            let cwd = env::current_dir()?;
+            let home = env::var("HOME").or_else(|_| env::var("USERPROFILE"));
+            let display_path = if let Ok(home_path) = home {
+                let home_path = Path::new(&home_path);
+                if cwd.starts_with(home_path) {
+                    format!("~{}", cwd.strip_prefix(home_path).unwrap().display())
+                } else { cwd.display().to_string() }
+            } else { cwd.display().to_string() };
+            prompt.push_str(&format!("\x1b[34m{display_path}\x1b[0m"));
+        }
+
+        if self.config.show_git_info {
+            let git_info = self.get_git_info_blocking().unwrap_or_default();
+            if !git_info.is_empty() { prompt.push_str(&git_info); }
+        }
+
+        prompt.push_str(" $ ");
         Ok(prompt)
     }
     
@@ -420,13 +462,14 @@ impl PromptFormatter {
     }
     
     /// Get Git information for prompt display
+    #[cfg(feature = "async")]
     async fn get_git_info(&self) -> Result<String> {
         if !self.config.git_simplified {
             return Ok(String::new());
         }
         
         // Check if we're in a Git repository
-        let output = tokio::process::Command::new("git")
+    let output = tokio::process::Command::new("git")
             .args(["branch", "--show-current"])
             .output()
             .await?;
@@ -443,7 +486,7 @@ impl PromptFormatter {
         let mut git_info = format!(" \x1b[35m({branch})\x1b[0m");
         
         // Check for uncommitted changes
-        let status_output = tokio::process::Command::new("git")
+    let status_output = tokio::process::Command::new("git")
             .args(["status", "--porcelain"])
             .output()
             .await;
@@ -457,6 +500,24 @@ impl PromptFormatter {
             }
         }
         
+        Ok(git_info)
+    }
+
+    #[cfg(not(feature = "async"))]
+    fn get_git_info_blocking(&self) -> Result<String> {
+        if !self.config.git_simplified { return Ok(String::new()); }
+        use std::process::Command;
+        let output = Command::new("git").args(["branch", "--show-current"]).output()?;
+        if !output.status.success() { return Ok(String::new()); }
+        let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if branch.is_empty() { return Ok(String::new()); }
+        let mut git_info = format!(" \x1b[35m({branch})\x1b[0m");
+        if let Ok(status) = Command::new("git").args(["status", "--porcelain"]).output() {
+            if status.status.success() {
+                let status_text = String::from_utf8_lossy(&status.stdout);
+                if !status_text.trim().is_empty() { git_info.push_str("\x1b[31m*\x1b[0m"); }
+            }
+        }
         Ok(git_info)
     }
     

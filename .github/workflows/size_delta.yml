@@ -17,7 +17,11 @@ jobs:
           toolchain: stable
           override: true
       - name: Build and generate size report
-        run: bash scripts/size_report.sh
+        run: |
+          cargo build -p nxsh_cli --no-default-features --features busybox-min --profile release-small
+          BIN=target/release-small/nxsh
+          SIZE=$(stat -c%s "$BIN")
+          echo "{\"size_bytes\":$SIZE}" > size_report.json
       - name: Compare with previous size_report_local.json if present
         run: |
           echo "Generating delta..."

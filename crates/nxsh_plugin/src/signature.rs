@@ -1,3 +1,4 @@
+#![cfg(feature = "crypto-verification")]
 use anyhow::{Result, Context};
 use std::{
     collections::HashMap,
@@ -58,7 +59,7 @@ impl SignatureVerifier {
         debug!("Verifying plugin signature for: {plugin_path:?}");
         
         // Read plugin file
-        let plugin_data = tokio::fs::read(plugin_path).await
+    let plugin_data = tokio::fs::read(plugin_path).await
             .map_err(|e| PluginError::SecurityError(format!("Failed to read plugin file: {e}")))?;
         
         // Calculate plugin hash
@@ -99,7 +100,7 @@ impl SignatureVerifier {
         }
         
         // Read and verify plugin signature
-        let signature_data = tokio::fs::read(&signature_path).await
+    let signature_data = tokio::fs::read(&signature_path).await
             .map_err(|e| PluginError::SecurityError(format!("Failed to read signature file: {e}")))?;
         
         let plugin_signature: PluginSignature = serde_json::from_slice(&signature_data)
@@ -374,7 +375,7 @@ impl SignatureVerifier {
         Ok(false)
     }
     
-    async fn verify_tuf_signature(&self, entry: &TufPluginEntry) -> Result<bool> {
+    async fn verify_tuf_signature(&self, _entry: &TufPluginEntry) -> Result<bool> {
         // Verify that the TUF entry is properly signed
         // This would involve checking the TUF signature chain
         // For now, we'll assume it's valid if it exists in our metadata

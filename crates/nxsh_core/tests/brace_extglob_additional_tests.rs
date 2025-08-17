@@ -1,5 +1,5 @@
 // Lightweight smoke tests (no full parser invocation yet)
-use std::fs::{self, File};
+use std::fs::File;
 use tempfile::TempDir;
 use nxsh_core::{Executor, ShellContext};
 use nxsh_parser::ast::AstNode;

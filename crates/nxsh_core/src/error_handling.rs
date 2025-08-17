@@ -1,4 +1,4 @@
-use crate::compat::{Result, Context, Error};
+use crate::compat::{Result, Error};
 use std::collections::HashMap;
 
 /// Advanced error handling system for NexusShell scripts
@@ -141,7 +141,7 @@ impl ErrorHandlingSystem {
                 for handler in &catch_handlers {
                     if self.matches_pattern(&error_info, &handler.pattern) {
                         return match &handler.action {
-                            CatchAction::Return(value) => {
+                            CatchAction::Return(_value) => {
                                 // This is a placeholder - actual implementation would need proper type handling
     Err(crate::anyhow!("Catch handler executed"))
                             },

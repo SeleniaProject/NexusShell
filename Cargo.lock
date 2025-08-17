@@ -2808,6 +2808,7 @@ dependencies = [
  "color-eyre",
  "console",
  "content_inspector",
+ "crc32fast",
  "criterion",
  "cron",
  "crossterm",
@@ -2859,6 +2860,7 @@ dependencies = [
  "nxsh_hal",
  "once_cell",
  "parking_lot",
+ "percent-encoding",
  "platform-info",
  "predicates",
  "proptest",
@@ -2870,6 +2872,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "sha1",
  "sha2",
  "signal-hook",
  "socket2 0.5.10",
@@ -2897,6 +2900,7 @@ dependencies = [
  "which",
  "whoami",
  "windows-sys 0.59.0",
+ "xxhash-rust",
  "zip",
 ]
 
@@ -4027,6 +4031,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3bf829a2d51ab4a5ddf1352d8470c140cadc8301b2ae1789db023f01cedd6ba"
+dependencies = [
+ "cfg-if 1.0.1",
+ "cpufeatures",
+ "digest",
+]
+
+[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4749,7 +4764,7 @@ version = "1.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
- "cfg-if 0.1.10",
+ "cfg-if 1.0.1",
  "static_assertions",
 ]
 
@@ -5595,6 +5610,12 @@ dependencies = [
  "mac",
  "markup5ever",
 ]
+
+[[package]]
+name = "xxhash-rust"
+version = "0.8.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fdd20c5420375476fbd4394763288da7eb0cc0b8c11deed431a91562af7335d3"
 
 [[package]]
 name = "yoke"

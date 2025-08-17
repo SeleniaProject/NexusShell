@@ -209,7 +209,7 @@ fn show_udp_connections(options: &NetstatOptions) -> Result<()> {
 }
 
 #[cfg(windows)]
-fn show_windows_connections(protocol: &str, options: &NetstatOptions) -> Result<()> {
+fn show_windows_connections(protocol: &str, _options: &NetstatOptions) -> Result<()> {
     // Use PowerShell to get network connections on Windows
     let mut cmd = Command::new("powershell");
     cmd.arg("-Command");

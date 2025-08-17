@@ -535,7 +535,7 @@ impl UpdateSystem {
 
     /// Download update file (full or delta)
     async fn download_update(&self, update_info: &UpdateInfo, use_delta: bool) -> Result<PathBuf> {
-        let (url, expected_size, checksum) = if use_delta {
+    let (url, expected_size, _checksum) = if use_delta {
             (
                 update_info.delta_url.as_ref().unwrap(),
                 update_info.delta_size.unwrap(),
@@ -667,7 +667,7 @@ impl UpdateSystem {
     }
 
     /// Verify cryptographic signature
-    fn verify_signature(&self, data: &[u8], signature_b64: &str, key_fingerprint: &str) -> Result<()> {
+    fn verify_signature(&self, _data: &[u8], _signature_b64: &str, key_fingerprint: &str) -> Result<()> {
         let keys = self.verification_keys.read().unwrap();
         
         let key_name = keys.fingerprint_to_name.get(key_fingerprint)
@@ -800,7 +800,7 @@ impl UpdateSystem {
         // Locate current binary and read old bytes
         let current_exe = std::env::current_exe()
             .map_err(|e| crate::anyhow!("failed to locate current exe: {e}"))?;
-        let old_bytes = fs::read(&current_exe)?;
+    let _old_bytes = fs::read(&current_exe)?;
 
         // Read delta file into memory
         let delta = fs::read(delta_path)?;

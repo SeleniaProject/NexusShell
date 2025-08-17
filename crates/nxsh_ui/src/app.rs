@@ -30,7 +30,7 @@ use crate::{
     enhanced_ui::CuiFormatter,
     prompt::PromptFormatter,
 };
-use crate::config::{UiConfig as UIConfig, ConfigManager, NexusConfig};
+use crate::config::UiConfig as UIConfig;
 
 /// Application performance specifications from SPEC.md
 const MAX_STARTUP_TIME_MS: u64 = 5;
@@ -106,6 +106,12 @@ impl App {
             input_events_processed: 0,
         };
         
+        let _specs_guard = (
+            MAX_STARTUP_TIME_MS,
+            MAX_MEMORY_USAGE_MIB,
+            MAX_COMPLETION_LATENCY_MS,
+        );
+
         Ok(Self {
             cui_app,
             formatter,
@@ -189,7 +195,10 @@ impl App {
         // Ensure welcome banner appears once via wrapper for consistency
         self.display_welcome_message()?;
         // Hand off control to the full CUI runtime
-        self.cui_app.run().await?;
+    #[cfg(feature = "async")]
+    { self.cui_app.run().await?; }
+    #[cfg(not(feature = "async"))]
+    { self.cui_app.run()?; }
         // Display final shutdown message for a consistent session footer
         self.display_shutdown_message()?;
         Ok(())
@@ -377,8 +386,14 @@ impl App {
         self.metrics.commands_executed += 1;
         
         // Execute command through CUI application
-        self.cui_app.execute_command(command).await
+        #[cfg(feature = "async")]
+        let out = self.cui_app.execute_command(command).await
             .context("Command execution failed")
+            ?;
+        #[cfg(not(feature = "async"))]
+        let out = self.cui_app.execute_command(command)
+            .context("Command execution failed")?;
+        Ok(out)
     }
     
     /// Display the shell prompt
@@ -386,7 +401,11 @@ impl App {
     /// Renders the current shell prompt using the configured prompt formatter,
     /// including current directory, git status, and system information.
     async fn display_prompt(&mut self) -> Result<()> {
+        #[cfg(feature = "async")]
         let prompt = self.prompt_formatter.generate_prompt().await
+            .context("Failed to generate prompt")?;
+        #[cfg(not(feature = "async"))]
+        let prompt = self.prompt_formatter.generate_prompt()
             .context("Failed to generate prompt")?;
         
         print!("{prompt}");
@@ -433,10 +452,13 @@ impl App {
     /// performance monitoring to ensure <1ms latency requirement.
     async fn handle_tab_completion(&mut self) -> Result<InputResult> {
         // Get current input for completion context
-        let current_input = self.get_current_input().await?;
+    let current_input = self.get_current_input().await?;
         
         // Request completion from CUI application
-        let completions = self.cui_app.get_completions(&current_input).await?;
+    #[cfg(feature = "async")]
+    let completions = self.cui_app.get_completions(&current_input).await?;
+    #[cfg(not(feature = "async"))]
+    let completions = self.cui_app.get_completions_blocking(&current_input)?;
         
         if !completions.is_empty() {
             // Display completion options
@@ -466,7 +488,10 @@ impl App {
     /// Get current input from line editor
     async fn get_current_input(&self) -> Result<String> {
         // Read current buffer from underlying line editor via CUI layer
-        self.cui_app.get_current_buffer().await
+    #[cfg(feature = "async")]
+    { self.cui_app.get_current_buffer().await }
+    #[cfg(not(feature = "async"))]
+    { self.cui_app.get_current_buffer() }
     }
     
     /// Handle line editor input

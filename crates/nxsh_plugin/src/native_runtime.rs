@@ -330,8 +330,8 @@ impl NativePluginRuntime {
     
     /// Extract plugin metadata by calling the plugin's initialization function
     async fn extract_plugin_metadata(
-        &self,
-        library: &Library,
+    &self,
+    _library: &Library,
         plugin_id: &str,
     ) -> PluginResult<PluginMetadata> {
         // For now, create basic metadata from the plugin ID
@@ -356,8 +356,8 @@ impl NativePluginRuntime {
     
     /// Initialize a plugin by calling its init function
     async fn initialize_plugin(
-        &self,
-        library: &Library,
+    &self,
+    library: &Library,
         plugin_id: &str,
     ) -> PluginResult<()> {
         // Try to find and call the plugin initialization function

@@ -399,7 +399,7 @@ impl NamespaceSystem {
 
         // Check cache first
         if self.config.enable_caching {
-            if let Some(cached_module) = self.module_cache.read().unwrap().get(&module_name) {
+                if let Some(_cached_module) = self.module_cache.read().unwrap().get(&module_name) {
                 self.statistics.cache_hits += 1;
                 debug!(name = %module_name, "Module loaded from cache");
                 return Ok(module_name);
@@ -820,7 +820,7 @@ impl NamespaceSystem {
             }
             
             // Check imported symbols
-            if let Some(imported) = module.imports.iter().find_map(|import| {
+            if let Some(imported) = module.imports.iter().find_map(|_import| {
                 // Simplified lookup in imports
                 None // Would implement proper lookup here
             }) {

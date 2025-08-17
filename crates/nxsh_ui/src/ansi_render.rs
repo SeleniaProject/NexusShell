@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use ab_glyph::{point, FontRef, PxScale, Font, ScaleFont};
 use image::{ImageBuffer, Rgba};

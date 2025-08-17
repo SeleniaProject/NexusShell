@@ -176,7 +176,7 @@ impl SecuritySandbox {
     }
 
     /// Validate network access
-    async fn validate_network_access(&self, policy: &SecurityPolicy, host: &str, port: u16) -> Result<bool> {
+    async fn validate_network_access(&self, policy: &SecurityPolicy, host: &str, _port: u16) -> Result<bool> {
         if !policy.capabilities.contains(&Capability::NetworkAccess) {
                 self.record_violation(&policy.plugin_id, SecurityViolationType::UnauthorizedNetworkAccess, "Plugin lacks network access capability").await;
             return Ok(false);
@@ -404,7 +404,7 @@ impl AuditLogger {
         }
     }
 
-    async fn log_policy_creation(&self, plugin_id: &str, policy: &SecurityPolicy) {
+    async fn log_policy_creation(&self, plugin_id: &str, _policy: &SecurityPolicy) {
         self.log_entry(AuditLogEntry {
             plugin_id: plugin_id.to_string(),
             event_type: AuditEventType::PolicyCreated,

@@ -5,12 +5,10 @@ on:
     paths:
       - 'i18n/**'
       - '.github/workflows/i18n.yml'
-      - 'scripts/compile_po_to_mo.sh'
   pull_request:
     paths:
       - 'i18n/**'
       - '.github/workflows/i18n.yml'
-      - 'scripts/compile_po_to_mo.sh'
 
 jobs:
   build_mo:
@@ -19,8 +17,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install gettext
         run: sudo apt-get update && sudo apt-get install -y gettext
-      - name: Compile .po to .mo
-        run: bash scripts/compile_po_to_mo.sh
+      - name: Compile .po to .mo (inline)
+        run: |
+          set -euo pipefail
+          find i18n/po -name '*.po' | while read -r po; do \
+            lang=$(basename "$(dirname "$po")"); \
+            out="i18n/mo/$lang/LC_MESSAGES/nxsh.mo"; \
+            mkdir -p "$(dirname "$out")"; \
+            msgfmt "$po" -o "$out"; \
+          done
       - name: Upload .mo artifacts
         uses: actions/upload-artifact@v4
         with:

@@ -3,7 +3,7 @@
 //! このモジュールは、NexusShellのために設計された高性能な構造化ログシステムを提供します。
 //! JSON形式での出力、ログローテーション、非同期書き込みをサポートしています。
 
-use crate::compat::{Context, Result};
+use crate::compat::{Result, Context};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio::sync::RwLock;
@@ -119,11 +119,16 @@ impl StructuredLogger {
     }
     /// 新しい構造化ログシステムを作成
     pub fn new(config: LogConfig) -> Result<Self> {
-        let mut logger = Self {
+        let base = Self {
             config: Arc::new(RwLock::new(config.clone())),
             _guard: None,
         };
-        
+
+        #[cfg(feature = "logging")]
+        let mut logger = base;
+        #[cfg(not(feature = "logging"))]
+        let logger = base;
+
         #[cfg(feature = "logging")]
         { logger.initialize_logger(&config)?; }
         

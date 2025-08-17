@@ -155,8 +155,8 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # Generate Homebrew formula (.rb file)
-      - name: Generate Homebrew formula
-        run: bash scripts/gen_homebrew_formula.sh "${{ github.ref_name }}" "nxsh-${{ github.ref_name }}-darwin-x86_64.tar.gz"
+      - name: Generate Homebrew formula (skipped)
+        run: echo "gen_homebrew_formula script removed; please update tap manually"
 
       # Create PR to official Homebrew tap repository
       - name: Homebrew tap PR
@@ -171,8 +171,8 @@ jobs:
           add-paths: nexusshell.rb
 
       # Generate Scoop manifest (JSON)
-      - name: Generate Scoop manifest
-        run: pwsh -File scripts/gen_scoop_manifest.ps1 -Version "${{ github.ref_name }}" -Archive "nxsh-${{ github.ref_name }}-windows-x86_64.zip"
+      - name: Generate Scoop manifest (skipped)
+        run: echo "gen_scoop_manifest script removed; please update bucket manually"
 
       # Create PR to Scoop bucket repository
       - name: Scoop bucket PR

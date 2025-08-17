@@ -41,7 +41,6 @@ use tokio::{
 };
 use regex::Regex;
 use crate::common::i18n::I18n; // stub when i18n disabled
-use crate::t;
 use nxsh_core::nxsh_log_info;
 
 // Configuration constants
@@ -779,7 +778,7 @@ impl AtScheduler {
            .stdout(Stdio::piped())
            .stderr(Stdio::piped());
 
-        let mut child = cmd.spawn()?;
+        let child = cmd.spawn()?;
         let pid_for_monitor = child.id().unwrap_or(0);
         let monitor_handle = crate::common::resource_monitor::spawn_basic_monitor(pid_for_monitor);
 

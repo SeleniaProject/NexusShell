@@ -10,6 +10,7 @@ use std::{
     path::PathBuf,
     sync::Arc,
 };
+#[cfg(feature = "async-support")]
 use tokio::sync::RwLock;
 
 use crate::{PluginMetadata, PluginError, PluginResult};

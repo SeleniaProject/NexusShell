@@ -15,12 +15,12 @@ use serde::{Deserialize, Serialize};
 use tracing_subscriber::{
     Registry,
     layer::SubscriberExt,
-    fmt::{self
-        , time::{ChronoUtc}
-    },
+    fmt::{self},
     filter::{LevelFilter, EnvFilter},
     Layer, // Needed for .boxed()
 };
+#[cfg(all(feature = "logging", feature = "heavy-time"))]
+use tracing_subscriber::fmt::time::ChronoUtc;
 
 // When heavy-time feature is disabled but logging enabled, provide a tiny timer stub
 #[cfg(all(feature = "logging", not(feature = "heavy-time")))]

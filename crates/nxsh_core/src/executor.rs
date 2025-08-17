@@ -328,7 +328,7 @@ impl Executor {
                 // Support simple classes like [abc] and ranges like [a-c]
                 let mut chars = class.chars().peekable();
                 let mut last: Option<char> = None;
-                let mut any = false;
+                let mut _any = false;
                 while let Some(ch) = chars.next() {
                     if ch == '-' {
                         if let (Some(start), Some(end)) = (last, chars.peek().copied()) {
@@ -338,13 +338,13 @@ impl Executor {
                             } else {
                                 if (e..=s).any(|u| Some(c) == char::from_u32(u)) { return true; }
                             }
-                            any = true;
+                            _any = true;
                             last = chars.next();
                             continue;
                         }
                     }
                     if ch == c { return true; }
-                    any = true;
+                    _any = true;
                     last = Some(ch);
                 }
                 // No element matched
@@ -566,7 +566,7 @@ impl Executor {
 
         // Return the original result or convert timeout detected late
         match result {
-            Ok(mut r) => {
+            Ok(r) => {
                 if context.is_timed_out() {
                     let execution_time = start_time.elapsed().as_micros() as u64;
                     Ok(ExecutionResult {
@@ -1266,8 +1266,8 @@ impl Executor {
         #[cfg(debug_assertions)]
         fn debug_variant(node: &AstNode, depth: usize) {
             use AstNode::*;
-            let indent = "  ".repeat(depth);
-            let name = match node {
+            let _indent = "  ".repeat(depth);
+            let _name = match node {
                 Program(_) => "Program",
                 Pipeline { .. } => "Pipeline",
                 Command { background, .. } => if *background { "Command(bg)" } else { "Command" },
@@ -1487,8 +1487,8 @@ impl Executor {
             }
             AstNode::Match { expr, arms, is_exhaustive: _ } => {
                 // Evaluate match expression using pattern engine
-                use crate::pattern_matching::{PatternMatchingEngine, PatternMatchingConfig, shell_value_to_pattern_value, PatternValue};
-                use nxsh_parser::ast::Pattern as AstPattern;
+                use crate::pattern_matching::{PatternMatchingEngine, PatternMatchingConfig, shell_value_to_pattern_value};
+                
                 // Evaluate the scrutinee expression to a string (simplified)
                 let value_result = self.execute_ast_direct(expr, context)?;
                 let value_str = value_result.stdout.clone();
@@ -1608,7 +1608,6 @@ impl Executor {
                             if Some(i) == variadic_index {
                                 let rest = if arg_idx < evaluated_args.len() { evaluated_args[arg_idx..].join(" ") } else { String::new() };
                                 context.set_var(name.clone(), rest);
-                                arg_idx = evaluated_args.len();
                                 break;
                             } else if let Some(val) = evaluated_args.get(arg_idx) {
                                 context.set_var(name.clone(), val.clone());
@@ -1688,9 +1687,8 @@ impl Executor {
                                 if Some(i) == variadic_index {
                                     // 残り全部
                                     let rest = if arg_idx < evaluated_args.len() { evaluated_args[arg_idx..].join(" ") } else { String::new() };
-                                    context.set_var(name.clone(), rest);
-                                    arg_idx = evaluated_args.len();
-                                    break; // variadic は末尾想定
+                                        context.set_var(name.clone(), rest);
+                                        break; // variadic は末尾想定
                                 } else {
                                     if let Some(val) = evaluated_args.get(arg_idx) {
                                         context.set_var(name.clone(), val.clone());
@@ -1895,7 +1893,7 @@ impl Executor {
                     let a = start_s.chars().next().unwrap();
                     let b = end_s.chars().next().unwrap();
                     if !a.is_ascii_alphabetic() || !b.is_ascii_alphabetic() { return None; }
-                    let (mut ai, bi) = (a as i16, b as i16);
+                    let (ai, bi) = (a as i16, b as i16);
                     let dir: i16 = if bi >= ai { 1 } else { -1 };
                     let step: i16 = (step_abs as i16) * dir;
                     let mut out = Vec::new();
@@ -2148,7 +2146,6 @@ impl Executor {
                 if Some(i) == variadic_index {
                     let rest = if arg_idx < evaluated_args.len() { evaluated_args[arg_idx..].join(" ") } else { String::new() };
                     context.set_var(name.clone(), rest);
-                    arg_idx = evaluated_args.len();
                     break;
                 } else if let Some(val) = evaluated_args.get(arg_idx) {
                     context.set_var(name.clone(), val.clone());
@@ -2392,7 +2389,7 @@ impl Executor {
                                 }
                             }
                         }
-                        let mut variants = if has_top_level_comma || try_range(inner).is_some() {
+                        let variants = if has_top_level_comma || try_range(inner).is_some() {
                             parse_brace_inner(inner)
                         } else {
                             // Not expandable: keep literal braces
@@ -2468,7 +2465,7 @@ impl Executor {
             if start_str.len()==1 && end_str.len()==1 {
                 let (a, b) = (start_str.chars().next().unwrap(), end_str.chars().next().unwrap());
                 if !a.is_ascii_alphabetic() || !b.is_ascii_alphabetic() { return None; }
-                let (mut ai, bi) = (a as i16, b as i16);
+                let (ai, bi) = (a as i16, b as i16);
                 let dir: i16 = if bi >= ai { 1 } else { -1 };
                 let step: i16 = (step_abs as i16) * dir;
                 let mut out = Vec::new();
@@ -2585,7 +2582,7 @@ impl Executor {
     
     /// Execute a pipeline of commands
     fn execute_pipeline(&mut self, commands: &[AstNode], context: &mut ShellContext) -> ShellResult<ExecutionResult> {
-        let start_time = Instant::now();
+        let _start_time = Instant::now();
         // Experimental: if PowerShell compatibility requested, attempt object pipeline using simplified textual reconstruction
         if std::env::var("NXSH_PWSH_MODE").ok().as_deref() == Some("1") {
             #[cfg(feature = "powershell_compat")]
@@ -2596,7 +2593,7 @@ impl Executor {
                 let mut compat = crate::powershell_compat::PowerShellCompat::new();
                 if let Ok(objs) = compat.execute_pipeline(&pipeline_str) {
                     let out = objs.iter().map(|o| o.to_string()).collect::<Vec<_>>().join("\n");
-                    let execution_time = start_time.elapsed().as_micros() as u64;
+                    let execution_time = _start_time.elapsed().as_micros() as u64;
                     return Ok(ExecutionResult { exit_code: 0, stdout: out, stderr: String::new(), execution_time, strategy: ExecutionStrategy::DirectInterpreter, metrics: ExecutionMetrics { execute_time_us: execution_time, ..Default::default() } });
                 }
             }

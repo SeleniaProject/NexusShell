@@ -390,7 +390,7 @@ mod tests {
     
     #[test]
     fn test_metrics_initialization() {
-        let config = MetricsConfig::default();
+    let _config = MetricsConfig::default();
         // Note: This would fail in a real test because of singleton pattern
         // In practice, metrics should be initialized once per process
     }

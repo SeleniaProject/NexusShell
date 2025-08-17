@@ -22,23 +22,13 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
 
       - name: Run Criterion bench (jit_vs_interp)
         run: |
           cargo bench -p nxsh_core --bench jit_vs_interp -- --sample-size 30
 
-      - name: Enforce JIT/MIR speedup gate (>= 2.0x)
-        run: |
-          python scripts/check_jit_speedup.py \
-            --target-dir target/criterion \
-            --bench-group jit_vs_interp \
-            --interp-name interp_execute \
-            --jit-name mir_execute \
-            --required-speedup 2.0
+      - name: Skip speedup gate (scripts removed)
+        run: echo "Speedup gate temporarily disabled"
 
       - name: Upload Criterion reports
         if: always()

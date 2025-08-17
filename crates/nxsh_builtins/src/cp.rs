@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use std::io::{self, Write};
 use tracing::{info, debug, warn};
+#[cfg(windows)]
+use std::os::windows::fs::OpenOptionsExt; // for .custom_flags()
 
 // Progress tracking for large operations
 struct ProgressTracker {

@@ -407,7 +407,7 @@ impl CrashHandler {
     }
 
     /// Collect shell state
-    fn collect_shell_state(config: &CrashHandlerConfig) -> Result<ShellState> {
+    fn collect_shell_state(_config: &CrashHandlerConfig) -> Result<ShellState> {
         // Best-effort extraction from a fresh ShellContext; in production this would
         // accept a reference to the live context. This implementation aggregates
         // environment size, history length, active jobs, aliases, and last command.

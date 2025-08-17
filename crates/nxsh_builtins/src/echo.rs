@@ -265,7 +265,7 @@ mod tests {
     use nxsh_core::context::ShellContext;
     
 
-    fn create_test_context(args: Vec<String>) -> ShellContext {
+    fn create_test_context(_args: Vec<String>) -> ShellContext {
         ShellContext::new()
     }
 

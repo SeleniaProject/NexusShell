@@ -304,6 +304,7 @@ fn set_directory_permissions(path: &Path, mode: u32) -> Result<()> {
     }
     #[cfg(not(unix))]
     {
+        let _ = (path, mode);
         eprintln!("mkdir: warning: setting file permissions not supported on this platform");
     }
     Ok(())
@@ -322,6 +323,7 @@ fn set_selinux_context(path: &Path, context: &str) -> Result<()> {
     }
     #[cfg(not(target_os = "linux"))]
     {
+        let _ = (path, context);
         eprintln!("mkdir: warning: SELinux context setting not supported on this platform");
         Ok(())
     }

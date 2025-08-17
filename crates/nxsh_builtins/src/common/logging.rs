@@ -12,7 +12,7 @@
 //! - Cross-platform file handling
 
 #[cfg(feature = "logging")]
-use anyhow::{anyhow, Result, Context};
+use anyhow::{Result, Context};
 #[cfg(not(feature = "logging"))]
 use anyhow::Result;
 #[cfg(feature = "logging")]

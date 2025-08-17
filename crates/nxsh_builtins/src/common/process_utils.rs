@@ -20,6 +20,7 @@ pub fn execute_kill_target(target_pid: u32, signal: i32) -> ShellResult<()> {
     
     #[cfg(windows)]
     {
+        let _ = signal; // Windows は taskkill 固定のため signal は未使用
         let status = Command::new("taskkill")
             .arg("/PID")
             .arg(target_pid.to_string())

@@ -1,21 +1,221 @@
-//! `fsck` builtin  Efilesystem consistency checker.
-//!
-//! Supported filesystems: FAT12/16/32 (via `fatfs` crate).
-//!
-//! Usage:
-//!     fsck DEVICE
-//!     fsck -a DEVICE    # auto-repair (currently read-only, reports issues)
-//!
-//! Behaviour:
-//! * Performs a **read-only** scan of FAT tables and directory trees.
-//! * Detects orphaned (lost) clusters, cross-linked clusters, and directory
-//!   entry inconsistencies. Results are printed as a report.
-//! * `-a` flag is accepted for compatibility; repair functionality is a TODO
-//!   and will be implemented with journalling once write-back safety guarantees
-//!   are in place.
-//!
-//! Platform: Unix-like systems. On non-Unix platforms the command gracefully
-//! degrades with an informative message.
+#[cfg(unix)]
+fn apply_broken_chain_end(image_path: &str, start_cluster: u32) -> Result<()> {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    let mut f = std::fs::OpenOptions::new().read(true).write(true).open(image_path)
+        .with_context(|| format!("fsck: cannot open shadow image {} for write", image_path))?;
+    let mut bpb = [0u8; 512];
+    f.read_exact(&mut bpb).context("fsck: failed to read boot sector")?;
+
+    let bps = u16::from_le_bytes([bpb[11], bpb[12]]) as u32;
+    let spc = bpb[13] as u32;
+    let rsvd = u16::from_le_bytes([bpb[14], bpb[15]]) as u32;
+    let nfats = bpb[16] as u32;
+    let root_ent_cnt = u16::from_le_bytes([bpb[17], bpb[18]]) as u32;
+    let tot_sec_16 = u16::from_le_bytes([bpb[19], bpb[20]]) as u32;
+    let tot_sec_32 = u32::from_le_bytes([bpb[32], bpb[33], bpb[34], bpb[35]]);
+    let fat_sz_16 = u16::from_le_bytes([bpb[22], bpb[23]]) as u32;
+    let fat_sz_32 = u32::from_le_bytes([bpb[36], bpb[37], bpb[38], bpb[39]]);
+    let fat_sz = if fat_sz_16 != 0 { fat_sz_16 } else { fat_sz_32 };
+    let total_sectors = if tot_sec_16 != 0 { tot_sec_16 } else { tot_sec_32 };
+
+    let root_dir_sectors = ((root_ent_cnt * 32) + (bps - 1)) / bps;
+    let data_sectors = total_sectors - (rsvd + (nfats * fat_sz) + root_dir_sectors);
+    let cluster_count = data_sectors / spc;
+    let fat_type = if cluster_count < 4085 { 12 } else if cluster_count < 65525 { 16 } else { 32 };
+
+    // helper: read FAT entry
+    let read_entry = |f: &mut std::fs::File, fat_base: u64, c: u32| -> Result<u32> {
+        match fat_type {
+            12 => {
+                let n = c as u64;
+                let byte_index = fat_base + (n + (n / 2)) as u64;
+                let mut pair = [0u8; 2];
+                f.seek(SeekFrom::Start(byte_index))?;
+                f.read_exact(&mut pair)?;
+                let val = if c % 2 == 0 {
+                    u16::from_le_bytes([pair[0], pair[1] & 0x0F]) as u32
+                } else {
+                    (u16::from_le_bytes([pair[0], pair[1]]) >> 4) as u32
+                };
+                Ok(val)
+            }
+            16 => {
+                let off = fat_base + ((c as u64) * 2);
+                let mut b = [0u8; 2];
+                f.seek(SeekFrom::Start(off))?;
+                f.read_exact(&mut b)?;
+                Ok(u16::from_le_bytes(b) as u32)
+            }
+            32 => {
+                let off = fat_base + ((c as u64) * 4);
+                let mut b = [0u8; 4];
+                f.seek(SeekFrom::Start(off))?;
+                f.read_exact(&mut b)?;
+                Ok(u32::from_le_bytes(b) & 0x0FFFFFFF)
+            }
+            _ => Err(anyhow!("fsck: unsupported FAT type")),
+        }
+    };
+
+    // helper: write EOC to entry
+    let write_eoc = |f: &mut std::fs::File, fat_base: u64, c: u32| -> Result<()> {
+        match fat_type {
+            12 => {
+                let n = c as u64;
+                let byte_index = fat_base + (n + (n / 2)) as u64;
+                let mut pair = [0u8; 2];
+                f.seek(SeekFrom::Start(byte_index))?;
+                f.read_exact(&mut pair)?;
+                if c % 2 == 0 {
+                    pair[0] = 0xFF;
+                    pair[1] = (pair[1] & 0xF0) | 0x0F;
+                } else {
+                    pair[0] = (pair[0] & 0x0F) | 0xF0;
+                    pair[1] = 0xFF;
+                }
+                f.seek(SeekFrom::Start(byte_index))?;
+                f.write_all(&pair)?;
+                Ok(())
+            }
+            16 => {
+                let off = fat_base + ((c as u64) * 2);
+                let val = 0xFFFFu16.to_le_bytes();
+                f.seek(SeekFrom::Start(off))?;
+                f.write_all(&val)?;
+                Ok(())
+            }
+            32 => {
+                let off = fat_base + ((c as u64) * 4);
+                let mut val = 0x0FFFFFFFu32.to_le_bytes();
+                f.seek(SeekFrom::Start(off))?;
+                f.write_all(&val)?;
+                Ok(())
+            }
+            _ => Err(anyhow!("fsck: unsupported FAT type")),
+        }
+    };
+
+    let fat0_offset = (rsvd * bps) as u64;
+
+    // traverse chain and find the first invalid link; set previous to EOC
+    let mut prev = start_cluster;
+    let mut cur = start_cluster;
+    loop {
+        let next = read_entry(&mut f, fat0_offset, cur)?;
+        let invalid = match fat_type {
+            12 => next >= 0xFF0 && next < 0xFF8,
+            16 => next >= 0xFFF0 && next < 0xFFF8,
+            32 => (next >= 0x0FFFFFF0 && next < 0x0FFFFFF8) || next == 0,
+            _ => false,
+        };
+        if next == 0 || invalid { // hole or reserved/bad before EOC
+            write_eoc(&mut f, fat0_offset, prev)?;
+            break;
+        }
+        if match fat_type { 12 => next >= 0xFF8, 16 => next >= 0xFFF8, 32 => next >= 0x0FFFFFF8, _ => false } {
+            // already proper EOC
+            break;
+        }
+        prev = cur;
+        cur = next;
+    }
+
+    // Mirror to other FATs
+    for i in 1..nfats {
+        let src = 0u8;
+        sync_fat_mirrors(image_path, src)?;
+        let _ = i; // already synced wholesale
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn apply_cross_link_break(image_path: &str, cluster: u32) -> Result<()> {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    let mut f = std::fs::OpenOptions::new().read(true).write(true).open(image_path)
+        .with_context(|| format!("fsck: cannot open shadow image {} for write", image_path))?;
+    let mut bpb = [0u8; 512];
+    f.read_exact(&mut bpb).context("fsck: failed to read boot sector")?;
+
+    let bps = u16::from_le_bytes([bpb[11], bpb[12]]) as u32;
+    let spc = bpb[13] as u32;
+    let rsvd = u16::from_le_bytes([bpb[14], bpb[15]]) as u32;
+    let nfats = bpb[16] as u32;
+    let root_ent_cnt = u16::from_le_bytes([bpb[17], bpb[18]]) as u32;
+    let tot_sec_16 = u16::from_le_bytes([bpb[19], bpb[20]]) as u32;
+    let tot_sec_32 = u32::from_le_bytes([bpb[32], bpb[33], bpb[34], bpb[35]]);
+    let fat_sz_16 = u16::from_le_bytes([bpb[22], bpb[23]]) as u32;
+    let fat_sz_32 = u32::from_le_bytes([bpb[36], bpb[37], bpb[38], bpb[39]]);
+    let fat_sz = if fat_sz_16 != 0 { fat_sz_16 } else { fat_sz_32 };
+    let total_sectors = if tot_sec_16 != 0 { tot_sec_16 } else { tot_sec_32 };
+
+    let root_dir_sectors = ((root_ent_cnt * 32) + (bps - 1)) / bps;
+    let data_sectors = total_sectors - (rsvd + (nfats * fat_sz) + root_dir_sectors);
+    let cluster_count = data_sectors / spc;
+    let fat_type = if cluster_count < 4085 { 12 } else if cluster_count < 65525 { 16 } else { 32 };
+    let fat0_offset = (rsvd * bps) as u64;
+
+    // helper to write zero (free) entry
+    let write_free = |f: &mut std::fs::File, fat_base: u64, c: u32| -> Result<()> {
+        match fat_type {
+            12 => {
+                let n = c as u64;
+                let byte_index = fat_base + (n + (n / 2)) as u64;
+                let mut pair = [0u8; 2];
+                f.seek(SeekFrom::Start(byte_index))?;
+                f.read_exact(&mut pair)?;
+                if c % 2 == 0 {
+                    pair[0] = 0x00;
+                    pair[1] &= 0xF0;
+                } else {
+                    pair[0] &= 0x0F;
+                    pair[1] = 0x00;
+                }
+                f.seek(SeekFrom::Start(byte_index))?;
+                f.write_all(&pair)?;
+                Ok(())
+            }
+            16 => {
+                let off = fat_base + ((c as u64) * 2);
+                let val = 0u16.to_le_bytes();
+                f.seek(SeekFrom::Start(off))?;
+                f.write_all(&val)?;
+                Ok(())
+            }
+            32 => {
+                let off = fat_base + ((c as u64) * 4);
+                let val = (0u32).to_le_bytes();
+                f.seek(SeekFrom::Start(off))?;
+                f.write_all(&val)?;
+                Ok(())
+            }
+            _ => Err(anyhow!("fsck: unsupported FAT type")),
+        }
+    };
+
+    write_free(&mut f, fat0_offset, cluster)?;
+    // mirror to others
+    sync_fat_mirrors(image_path, 0)?;
+    Ok(())
+}
+// `fsck` builtin — filesystem consistency checker.
+//
+// Supported filesystems: FAT12/16/32 (via `fatfs` crate).
+//
+// Usage:
+//     fsck DEVICE
+//     fsck -a DEVICE    # auto-repair (currently read-only, reports issues)
+//
+// Behaviour:
+// * Performs a read-only scan of FAT tables and directory trees.
+// * Detects orphaned (lost) clusters, cross-linked clusters, and directory
+//   entry inconsistencies. Results are printed as a report.
+// * `-a` flag is accepted for compatibility; repair functionality is a TODO
+//   and will be implemented with journalling once write-back safety guarantees
+//   are in place.
+//
+// Platform: Unix-like systems. On non-Unix platforms the command gracefully
+// degrades with an informative message.
 
 use anyhow::{anyhow, Context, Result};
 
@@ -27,7 +227,7 @@ use fscommon::BufStream;
 use std::{collections::HashSet, fs::OpenOptions, path::Path};
 use serde::{Serialize, Deserialize};
 #[cfg(unix)]
-use std::fs;
+use std::{fs, io::{Read, Seek, SeekFrom}};
 use sha2::{Digest, Sha256};
 use base64::{engine::general_purpose, Engine as _};
 
@@ -135,36 +335,57 @@ fn run_fat_check(device: &str, auto: bool) -> Result<()> {
 
     if auto { println!("fsck: auto-repair mode (read-only analysis)"); }
 
+    // FATメタデータの読み出し（厳密検査用）
+    let fat_type_u8 = match fs.fat_type() { FatType::Fat12=>12, FatType::Fat16=>16, FatType::Fat32=>32 };
+    let fat_entries = read_fat_table(device, fat_type_u8)?;
+    let max_cluster_num: u32 = (fat_entries.len() as u32) + 1; // クラスタ番号範囲 [2, len+1]
+
+    // 参照マークとクロスリンク/破損チェイン収集
     let root_dir = fs.root_dir();
     let mut used_clusters: HashSet<u32> = HashSet::new();
-    let mut cross_links = 0;
+    let mut cross_linked_clusters_traversal: HashSet<u32> = HashSet::new();
+    let mut broken_chains_traversal: Vec<u32> = Vec::new();
     let mut scanned_files = 0;
 
-    // Traverse filesystem and mark used clusters
-    traverse_dir(&root_dir, &mut used_clusters, &mut cross_links, &mut scanned_files)?;
+    // ディレクトリ木を辿り、各エントリのFATチェインを厳密に追跡
+    traverse_dir_with_fat(
+        &root_dir,
+        &fat_entries,
+        fat_type_u8,
+        &mut used_clusters,
+        &mut cross_linked_clusters_traversal,
+        &mut scanned_files,
+        &mut broken_chains_traversal,
+        max_cluster_num,
+    )?;
 
-    // Check for lost clusters (simplified check)
-    let stats = fs.stats()?; // stats currently only used for potential future lost cluster logic
-    let _total_clusters = stats.total_clusters();
-    
-    // Simple lost cluster detection (best-effort): build a referenced set from directory traversal
-    // and compare against FAT allocation chain map. Requires reading FAT entries.
+    // Enhanced lost cluster detection with FAT chain analysis
     let mut lost_clusters: Vec<u32> = Vec::new();
-    {
-        let info = fs.info();
-        let total = info.total_clusters();
-        // Build a bitmap of referenced clusters from our traversal
-        let referenced = used_clusters;
-        // Iterate FAT to find allocated clusters not referenced by any file/dir
-        for cl in 2..=total {
-            if let Ok(state) = fs.cluster_state(cl) {
-                if state.is_allocated() && !referenced.contains(&cl) {
-                    lost_clusters.push(cl);
-                    if lost_clusters.len() >= 1024 { break; }
-                }
-            }
+    let mut cross_linked_clusters: HashSet<u32> = HashSet::new();
+    
+    // Perform comprehensive FAT chain analysis
+    let fat_analysis = analyze_fat_chains(device, &fs)?;
+    
+    // Detect lost clusters: allocated in FAT but not referenced by directory tree
+    for cluster in fat_analysis.allocated_clusters {
+        if !used_clusters.contains(&cluster) {
+            lost_clusters.push(cluster);
+            if lost_clusters.len() >= 1024 { break; }
         }
     }
+    
+    // Update cross-links count from detailed analysis
+    cross_linked_clusters = fat_analysis.cross_linked_clusters
+        .union(&cross_linked_clusters_traversal)
+        .copied()
+        .collect();
+    let cross_links = cross_linked_clusters.len();
+
+    // 破損チェインの統合
+    let mut broken_chains: Vec<u32> = fat_analysis.broken_chains.clone();
+    broken_chains.extend(broken_chains_traversal);
+    broken_chains.sort_unstable();
+    broken_chains.dedup();
     
     // Compute FAT mirror consistency and hashes
     let (fat_mirror_consistent, fat_mirror_hashes, fat_mirror_mismatch_samples) =
@@ -174,6 +395,14 @@ fn run_fat_check(device: &str, auto: bool) -> Result<()> {
     let mut actions: Vec<FsckAction> = Vec::new();
     if !lost_clusters.is_empty() { actions.push(FsckAction::FreeClusters { clusters: lost_clusters.clone() }); }
     if !fat_mirror_consistent { actions.push(FsckAction::SyncFatMirrors { source_fat: 0 }); }
+    // 破損チェイン修復候補
+    for &sc in &fat_analysis.broken_chains {
+        actions.push(FsckAction::BrokenChainEnd { start_cluster: sc });
+    }
+    // クロスリンク切断候補（ターゲットクラスタの切断）
+    for &c in &fat_analysis.cross_link_targets {
+        actions.push(FsckAction::CrossLinkBreak { cluster: c });
+    }
 
     let mut report = FsckReport {
         device: device.to_string(),
@@ -185,6 +414,7 @@ fn run_fat_check(device: &str, auto: bool) -> Result<()> {
         fat_mirror_consistent,
         fat_mirror_hashes,
         fat_mirror_mismatch_samples,
+        broken_chains,
         report_hash: String::new(),
     };
 
@@ -225,28 +455,221 @@ fn run_fat_check(device: &str, auto: bool) -> Result<()> {
 }
 
 #[cfg(unix)]
-fn traverse_dir<D: ReadWriteSeek + 'static>(
+fn traverse_dir_with_fat<D: ReadWriteSeek + 'static>(
     dir: &fatfs::Dir<D>,
+    fat_entries: &[u32],
+    fat_type: u8,
     used: &mut HashSet<u32>,
-    cross_links: &mut usize,
+    cross_linked: &mut HashSet<u32>,
     files: &mut usize,
+    broken: &mut Vec<u32>,
+    max_cluster_num: u32,
 ) -> Result<()> {
     for entry in dir.iter() {
         let entry = entry?;
         *files += 1;
-        
-        // Check if entry is a directory using FileAttributes
+
+        let start_cluster = entry.first_cluster();
+        if start_cluster >= 2 {
+            let mut current = start_cluster;
+            let mut local_seen: HashSet<u32> = HashSet::new();
+            let mut loop_detected = false;
+
+            while current >= 2 {
+                if current > max_cluster_num { broken.push(start_cluster); break; }
+                if !local_seen.insert(current) { loop_detected = true; break; }
+
+                if !used.insert(current) { cross_linked.insert(current); }
+
+                match get_next_cluster(current, fat_entries, fat_type) {
+                    Some(next) => { current = next; }
+                    None => { break; } // EOC or invalid
+                }
+            }
+            if loop_detected { broken.push(start_cluster); }
+        }
+
         if entry.attributes().contains(FileAttributes::DIRECTORY) {
             let sub = entry.to_dir();
-            // Note: Simplified cluster marking - real implementation would 
-            // need to track cluster chains properly
-            traverse_dir(&sub, used, cross_links, files)?;
-        } else {
-            let _file = entry.to_file();
-            // Note: File cluster chain tracking would go here
+            traverse_dir_with_fat(&sub, fat_entries, fat_type, used, cross_linked, files, broken, max_cluster_num)?;
         }
     }
     Ok(())
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+struct FatAnalysis {
+    allocated_clusters: HashSet<u32>,
+    cross_linked_clusters: HashSet<u32>,
+    broken_chains: Vec<u32>,
+    fat_type: u8,
+    cross_link_targets: Vec<u32>,
+}
+
+#[cfg(unix)]
+fn analyze_fat_chains(device: &str, fs: &FileSystem<BufStream<std::fs::File>>) -> Result<FatAnalysis> {
+    let mut allocated_clusters = HashSet::new();
+    let mut cross_linked_clusters = HashSet::new();
+    let mut broken_chains = Vec::new();
+    let mut cross_link_targets = Vec::new();
+    
+    // Determine FAT type
+    let fat_type = match fs.fat_type() {
+        FatType::Fat12 => 12,
+        FatType::Fat16 => 16,
+        FatType::Fat32 => 32,
+    };
+    
+    // Read FAT table directly for comprehensive analysis
+    let fat_entries = read_fat_table(device, fat_type)?;
+    
+    // Analyze each cluster entry
+    for (cluster, &entry) in fat_entries.iter().enumerate() {
+        let cluster = cluster as u32 + 2; // FAT entries start at cluster 2
+        
+        if is_allocated_entry(entry, fat_type) {
+            allocated_clusters.insert(cluster);
+            
+            // Check for broken chains (pointing to invalid clusters)
+            if is_bad_cluster_entry(entry, fat_type) {
+                broken_chains.push(cluster);
+            }
+        }
+    }
+    
+    // Detect cross-links by following chains and checking for convergence
+    let mut cluster_references: std::collections::HashMap<u32, Vec<u32>> = std::collections::HashMap::new();
+    
+    for &cluster in &allocated_clusters {
+        if let Some(next) = get_next_cluster(cluster, &fat_entries, fat_type) {
+            cluster_references.entry(next).or_default().push(cluster);
+        }
+    }
+    
+    // Clusters referenced by multiple predecessors are cross-linked
+    for (cluster, refs) in cluster_references {
+        if refs.len() > 1 {
+            cross_linked_clusters.insert(cluster);
+            for &ref_cluster in &refs {
+                cross_linked_clusters.insert(ref_cluster);
+            }
+            cross_link_targets.push(cluster);
+        }
+    }
+    
+    Ok(FatAnalysis {
+        allocated_clusters,
+        cross_linked_clusters,
+        broken_chains,
+    fat_type,
+    cross_link_targets,
+    })
+}
+
+#[cfg(unix)]
+fn read_fat_table(device: &str, fat_type: u8) -> Result<Vec<u32>> {
+    let mut file = std::fs::OpenOptions::new().read(true).open(device)
+        .with_context(|| format!("fsck: cannot open {} for FAT analysis", device))?;
+    
+    // Read boot sector to get FAT parameters
+    let mut bpb = [0u8; 512];
+    file.read_exact(&mut bpb).context("fsck: failed to read boot sector")?;
+    
+    let bps = u16::from_le_bytes([bpb[11], bpb[12]]) as u64;
+    let rsvd = u16::from_le_bytes([bpb[14], bpb[15]]) as u64;
+    let fat_sz_16 = u16::from_le_bytes([bpb[22], bpb[23]]) as u64;
+    let fat_sz_32 = u32::from_le_bytes([bpb[36], bpb[37], bpb[38], bpb[39]]) as u64;
+    let fat_sz = if fat_sz_16 != 0 { fat_sz_16 } else { fat_sz_32 };
+    
+    let fat_offset = rsvd * bps;
+    let fat_bytes = fat_sz * bps;
+    
+    // Read FAT data
+    file.seek(SeekFrom::Start(fat_offset))?;
+    let mut fat_data = vec![0u8; fat_bytes as usize];
+    file.read_exact(&mut fat_data)?;
+    
+    // Parse FAT entries based on type
+    let mut entries = Vec::new();
+    match fat_type {
+        12 => {
+            // FAT12: 12-bit entries, packed 2 entries per 3 bytes
+            for i in (0..fat_data.len()).step_by(3) {
+                if i + 2 < fat_data.len() {
+                    let bytes = [fat_data[i], fat_data[i + 1], fat_data[i + 2]];
+                    let entry1 = u16::from_le_bytes([bytes[0], bytes[1] & 0x0F]) as u32;
+                    let entry2 = (u16::from_le_bytes([bytes[1], bytes[2]]) >> 4) as u32;
+                    entries.push(entry1);
+                    entries.push(entry2);
+                }
+            }
+        }
+        16 => {
+            // FAT16: 16-bit entries
+            for chunk in fat_data.chunks_exact(2) {
+                let entry = u16::from_le_bytes([chunk[0], chunk[1]]) as u32;
+                entries.push(entry);
+            }
+        }
+        32 => {
+            // FAT32: 32-bit entries (only lower 28 bits used)
+            for chunk in fat_data.chunks_exact(4) {
+                let entry = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) & 0x0FFFFFFF;
+                entries.push(entry);
+            }
+        }
+        _ => return Err(anyhow!("fsck: unsupported FAT type: {}", fat_type)),
+    }
+    
+    Ok(entries)
+}
+
+#[cfg(unix)]
+fn is_allocated_entry(entry: u32, fat_type: u8) -> bool {
+    match fat_type {
+        12 => entry != 0 && entry < 0xFF0,
+        16 => entry != 0 && entry < 0xFFF0,
+        32 => entry != 0 && entry < 0x0FFFFFF0,
+        _ => false,
+    }
+}
+
+#[cfg(unix)]
+fn is_bad_cluster_entry(entry: u32, fat_type: u8) -> bool {
+    match fat_type {
+        12 => entry == 0xFF7,
+        16 => entry == 0xFFF7,
+        32 => entry == 0x0FFFFFF7,
+        _ => false,
+    }
+}
+
+#[cfg(unix)]
+fn get_next_cluster(cluster: u32, fat_entries: &[u32], fat_type: u8) -> Option<u32> {
+    let index = (cluster - 2) as usize;
+    if index >= fat_entries.len() {
+        return None;
+    }
+    
+    let entry = fat_entries[index];
+    if is_end_of_chain(entry, fat_type) || is_bad_cluster_entry(entry, fat_type) {
+        None
+    } else if is_allocated_entry(entry, fat_type) {
+        Some(entry)
+    } else {
+        None
+    }
+}
+
+#[cfg(unix)]
+fn is_end_of_chain(entry: u32, fat_type: u8) -> bool {
+    match fat_type {
+        12 => entry >= 0xFF8,
+        16 => entry >= 0xFFF8,
+        32 => entry >= 0x0FFFFFF8,
+        _ => false,
+    }
 } 
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -260,6 +683,8 @@ struct FsckReport {
     fat_mirror_consistent: bool,
     fat_mirror_hashes: Vec<String>,
     fat_mirror_mismatch_samples: Option<Vec<u64>>, // byte offsets relative to FAT start
+    #[serde(default)]
+    broken_chains: Vec<u32>,
     report_hash: String,
     signature: Option<String>, // base64(ed25519 signature over report_hash)
     public_key_hint: Option<String>, // hex(pubkey) or fingerprint for operator reference
@@ -270,6 +695,10 @@ struct FsckReport {
 enum FsckAction {
     FreeClusters { clusters: Vec<u32> },
     SyncFatMirrors { source_fat: u8 },
+    /// 修復: FATチェーンの終端を強制的に修正する（broken chain）
+    BrokenChainEnd { start_cluster: u32 },
+    /// 修復: クロスリンクを切断し、クラスタを解放する
+    CrossLinkBreak { cluster: u32 },
 }
 
 #[cfg(unix)]
@@ -337,6 +766,11 @@ fn compute_report_hash(report: &FsckReport) -> String {
     hasher.update(report.cross_links.to_le_bytes());
     for cl in &report.lost_clusters { hasher.update(cl.to_le_bytes()); }
     for h in &report.fat_mirror_hashes { hasher.update(h.as_bytes()); }
+    for b in &report.broken_chains { hasher.update(b.to_le_bytes()); }
+    // include actions (stable JSON)
+    if let Ok(bytes) = serde_json::to_vec(&report.actions_proposed) {
+        hasher.update(bytes);
+    }
     let digest = hasher.finalize();
     hex::encode(digest)
 }
@@ -418,6 +852,15 @@ async fn apply_fsck_journal(path: &str) -> Result<()> {
             FsckAction::FreeClusters { clusters } => {
                 println!(" - would free {} cluster(s) (first 16 shown): {:?}", clusters.len(), &clusters[..std::cmp::min(16, clusters.len())]);
             }
+            FsckAction::SyncFatMirrors { source_fat } => {
+                println!(" - would sync FAT mirrors from FAT{}", source_fat);
+            }
+            FsckAction::BrokenChainEnd { start_cluster } => {
+                println!(" - would fix broken chain end starting at cluster {}", start_cluster);
+            }
+            FsckAction::CrossLinkBreak { cluster } => {
+                println!(" - would break cross-link by freeing cluster {}", cluster);
+            }
         }
     }
     println!("fsck: dry-run completed. Use dedicated repair tool to perform write-back on a shadow copy.");
@@ -431,7 +874,7 @@ async fn apply_fsck_journal(_path: &str) -> Result<()> {
 }
 
 #[cfg(unix)]
-async fn apply_fsck_journal_with_shadow(path: &str, shadow_img: Option<&str>, commit: bool) -> Result<()> {
+async fn apply_fsck_journal_with_shadow(path: &str, shadow_img: Option<&str>) -> Result<()> {
     // Load journal
     let data = std::fs::read(path).with_context(|| format!("fsck: cannot read journal {path}"))?;
     let report: FsckReport = serde_json::from_slice(&data).context("fsck: invalid journal format")?;
@@ -447,36 +890,24 @@ async fn apply_fsck_journal_with_shadow(path: &str, shadow_img: Option<&str>, co
         println!("fsck: shadow image {} mounted as FAT{}", img, match fs.fat_type() { FatType::Fat12=>12, FatType::Fat16=>16, FatType::Fat32=>32 });
     }
 
-    // Apply actions on FAT32 images only when --commit is provided
-    if commit {
-        let img = shadow_img.ok_or_else(|| anyhow!("fsck: --commit requires --shadow <image>"))?;
-        for action in &report.actions_proposed {
-            match action {
-                FsckAction::FreeClusters { clusters } => {
-                    println!("fsck: committing free of {} cluster(s) on {}", clusters.len(), img);
-                    apply_free_clusters_fat(img, clusters)?;
-                }
-                FsckAction::SyncFatMirrors { source_fat } => {
-                    println!("fsck: synchronizing FAT mirrors from FAT{} on {}", source_fat, img);
-                    sync_fat_mirrors(img, *source_fat)?;
-                }
+    // Dry-run only in this path; committing is handled by apply_fsck_journal_commit
+    for action in &report.actions_proposed {
+        match action {
+            FsckAction::FreeClusters { clusters } => {
+                println!(" - would free {} cluster(s) (first 16 shown): {:?}", clusters.len(), &clusters[..std::cmp::min(16, clusters.len())]);
+            }
+            FsckAction::SyncFatMirrors { source_fat } => {
+                println!(" - would sync FAT mirrors from FAT{}", source_fat);
+            }
+            FsckAction::BrokenChainEnd { start_cluster } => {
+                println!(" - would fix broken chain end starting at cluster {}", start_cluster);
+            }
+            FsckAction::CrossLinkBreak { cluster } => {
+                println!(" - would break cross-link by freeing cluster {}", cluster);
             }
         }
-        println!("fsck: commit completed on shadow image {}", img);
-    } else {
-        // Dry-run
-        for action in &report.actions_proposed {
-            match action {
-                FsckAction::FreeClusters { clusters } => {
-                    println!(" - would free {} cluster(s) (first 16 shown): {:?}", clusters.len(), &clusters[..std::cmp::min(16, clusters.len())]);
-                }
-                FsckAction::SyncFatMirrors { source_fat } => {
-                    println!(" - would sync FAT mirrors from FAT{}", source_fat);
-                }
-            }
-        }
-        println!("fsck: dry-run only. Re-run with --commit to apply on --shadow image.");
     }
+    println!("fsck: dry-run only. Re-run with --commit to apply on --shadow image.");
 
     Ok(())
 }
@@ -493,6 +924,15 @@ async fn apply_fsck_journal_commit(path: &str, shadow_img: Option<&str>) -> Resu
         match action {
             FsckAction::FreeClusters { clusters } => {
                 apply_free_clusters_fat(img, clusters)?;
+            }
+            FsckAction::SyncFatMirrors { source_fat } => {
+                sync_fat_mirrors(img, *source_fat)?;
+            }
+            FsckAction::BrokenChainEnd { start_cluster } => {
+                apply_broken_chain_end(img, *start_cluster)?;
+            }
+            FsckAction::CrossLinkBreak { cluster } => {
+                apply_cross_link_break(img, *cluster)?;
             }
         }
     }

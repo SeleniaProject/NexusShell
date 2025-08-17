@@ -34,7 +34,6 @@ use std::{
     fs,
 };
 use crate::common::i18n::I18n; // Stub provides same symbol when feature off
-use crate::t;
 
 // Configuration constants
 const DEFAULT_FORMAT: &str = "%a %b %e %H:%M:%S %Z %Y";

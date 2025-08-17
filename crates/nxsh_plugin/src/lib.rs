@@ -17,6 +17,7 @@ pub mod json;
 pub mod registrar;
 #[cfg(feature = "wasi-runtime")]
 pub mod loader;             // Pure Rust WASM plugin loading (restored)
+#[cfg(any(feature = "crypto-verification", feature = "plugin-management"))]
 pub mod keys;
 #[cfg(feature = "remote-plugins")]
 pub mod remote;             // Stage 2: Remote plugin support (restored in Phase 3)
@@ -24,16 +25,28 @@ pub mod remote;             // Stage 2: Remote plugin support (restored in Phase
 pub mod native_runtime;     // Stage 1: Native Rust plugins
 #[cfg(feature = "wasi-runtime")]
 pub mod runtime;            // Pure Rust WASI plugins (restored)
+// Manager: 本実装は機能有効時のみ。無効時はスタブにフォールバック。
+#[cfg(any(feature = "native-plugins", feature = "plugin-management", feature = "async-support"))]
 pub mod manager;
+#[cfg(not(any(feature = "native-plugins", feature = "plugin-management", feature = "async-support")))]
+pub mod manager_stub;
+#[cfg(not(any(feature = "native-plugins", feature = "plugin-management", feature = "async-support")))]
+pub use manager_stub as manager;
+
+// セキュリティ関連は async-support が前提。無効時はコンパイル対象外。
+#[cfg(feature = "async-support")]
 pub mod security;
 #[cfg(feature = "wasi-runtime")]
 pub mod component;          // Pure Rust Component model (restored)
+#[cfg(feature = "crypto-verification")]
 pub mod signature;
+#[cfg(feature = "async-support")]
 pub mod permissions;
 #[cfg(feature = "wasi-runtime")]
 pub mod resource_table;     // Pure Rust WASM resource management (restored)
 #[cfg(feature = "wasi-runtime")]
 pub mod wasi_advanced;      // Advanced WASM/WASI runtime
+#[cfg(feature = "async-support")]
 pub mod security_sandbox;   // Security sandbox system
 #[cfg(feature = "plugin-management")]
 pub mod plugin_manager_advanced; // Advanced plugin management
@@ -47,7 +60,12 @@ use crate::component::ComponentRegistry;
 #[cfg(feature = "wasi-runtime")]
 use crate::resource_table::ResourceTable;
 pub use crate::manager::PluginManager;
+// 署名は機能有効時のみ公開。無効時は最小スタブ型を提供。
+#[cfg(feature = "crypto-verification")]
 pub use crate::signature::PluginSignature;
+#[cfg(not(feature = "crypto-verification"))]
+#[derive(Debug, Clone)]
+pub struct PluginSignature;
 
 // #[cfg(test)]
 // mod tests;  // Disabled legacy tests for now
@@ -440,6 +458,7 @@ impl From<wasmi::Error> for PluginError {
 }
 
 /// Security integration utilities
+#[cfg(all(feature = "crypto-verification", feature = "async-support"))]
 pub mod security_integration {
     use super::*;
     use crate::{signature::SignatureVerifier, permissions::PermissionManager};
@@ -453,6 +472,7 @@ pub mod security_integration {
     impl IntegratedSecurityManager {
         pub async fn new() -> Result<Self> {
             // Attempt key rotation before initializing signature verifier (best-effort)
+            #[cfg(any(feature = "crypto-verification", feature = "plugin-management"))]
             let _ = crate::keys::rotate_trusted_keys_if_requested();
             let mut signature_verifier = SignatureVerifier::new()?;
             signature_verifier.initialize().await?;

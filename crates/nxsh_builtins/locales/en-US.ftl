@@ -284,3 +284,135 @@ timedatectl.help.examples = Examples:
 timedatectl.help.timesync_options = Options for timesync-status:
 timedatectl.help.timesync_json_option =   -J, --json            Output status and summary as compact JSON
 timedatectl.help.global_json_option =   Global: some commands accept -J/--json for JSON output
+
+# timedatectl status/common/time-sync labels
+timedatectl.common.yes = yes
+timedatectl.common.no = no
+timedatectl.common.enabled = enabled
+timedatectl.common.disabled = disabled
+timedatectl.common.reachable = reachable
+timedatectl.common.unreachable = unreachable
+
+timedatectl.msg.time_set_to = Time set to:
+timedatectl.msg.timezone_set_to = Timezone set to:
+timedatectl.msg.rtc_in_local_tz = RTC in local timezone:
+timedatectl.msg.ntp_sync = NTP synchronization:
+timedatectl.msg.added_ntp_server = Added NTP server:
+timedatectl.msg.removed_ntp_server = Removed NTP server:
+
+timedatectl.timesync.title = Time synchronization status:
+timedatectl.timesync.enabled = Enabled:
+timedatectl.timesync.synchronized = Synchronized:
+timedatectl.timesync.last_sync = Last sync:
+timedatectl.timesync.sync_accuracy = Sync accuracy:
+timedatectl.timesync.drift_rate = Drift rate:
+timedatectl.timesync.poll_interval = Poll interval:
+timedatectl.timesync.leap_status = Leap status:
+timedatectl.timesync.ntp_servers = NTP Servers:
+timedatectl.timesync.stratum = Stratum:
+timedatectl.timesync.delay = Delay:
+timedatectl.timesync.offset = Offset:
+timedatectl.timesync.summary = Summary:
+timedatectl.timesync.servers_total_reachable = Servers (total/reachable):
+timedatectl.timesync.best_stratum = Best stratum:
+timedatectl.timesync.preferred_server = Preferred server:
+timedatectl.timesync.avg_delay = Avg delay:
+timedatectl.timesync.min_delay = Min delay:
+timedatectl.timesync.max_delay = Max delay:
+timedatectl.timesync.avg_offset = Avg offset:
+timedatectl.timesync.min_offset = Min offset:
+timedatectl.timesync.max_offset = Max offset:
+timedatectl.timesync.avg_jitter = Avg jitter:
+
+# timedatectl status view labels
+timedatectl.status.local_time = Local time
+timedatectl.status.universal_time = Universal time
+timedatectl.status.rtc_time = RTC time
+timedatectl.status.time_zone = Time zone
+timedatectl.status.system_clock_synchronized = System clock synchronized
+timedatectl.status.ntp_service = NTP service
+timedatectl.status.rtc_in_local_tz = RTC in local TZ
+timedatectl.status.sync_accuracy = Sync accuracy
+timedatectl.status.drift_rate = Drift rate
+timedatectl.status.last_sync = Last sync
+timedatectl.status.leap_second = Leap second
+timedatectl.status.pending = pending
+
+# timedatectl help detailed command labels
+timedatectl.help.cmd.status = Show current time status
+timedatectl.help.cmd.show = Show status as JSON
+timedatectl.help.cmd.set_time = Set the system time
+timedatectl.help.cmd.set_timezone = Set the system time zone
+timedatectl.help.cmd.list_timezones = List available time zones
+timedatectl.help.cmd.set_local_rtc = Set RTC to local time (true/false)
+timedatectl.help.cmd.set_ntp = Enable or disable NTP sync (true/false)
+timedatectl.help.cmd.timesync_status = Show time synchronization status
+timedatectl.help.cmd.show_timesync = Show time sync status as JSON
+timedatectl.help.cmd.add_ntp_server = Add an NTP server
+timedatectl.help.cmd.remove_ntp_server = Remove an NTP server
+timedatectl.help.cmd.statistics = Show timing statistics
+timedatectl.help.cmd.history = Show time adjustment history
+
+# timedatectl help option labels
+timedatectl.help.opt.help = Show this help and exit
+timedatectl.help.opt.monitor = Run real-time monitoring mode
+timedatectl.help.opt.all = Show all properties
+timedatectl.help.opt.json = Output in JSON
+
+# timedatectl accepted time formats descriptions
+timedatectl.help.fmt.full_datetime = Full date and time
+timedatectl.help.fmt.datetime_no_sec = Date and time without seconds
+timedatectl.help.fmt.time_only = Time only
+timedatectl.help.fmt.time_no_sec = Time (no seconds)
+timedatectl.help.fmt.unix_timestamp = Unix timestamp (seconds)
+timedatectl.help.fmt.iso8601 = ISO 8601 (UTC)
+
+# timedatectl help example explanations
+timedatectl.help.ex.status = show status
+timedatectl.help.ex.set_time = set system time
+timedatectl.help.ex.set_timezone = set time zone
+timedatectl.help.ex.find_timezone = find a time zone
+timedatectl.help.ex.enable_ntp = enable NTP synchronization
+timedatectl.help.ex.add_server = add NTP server
+timedatectl.help.ex.sync_status = show sync status
+timedatectl.help.ex.statistics = show statistics
+
+# timedatectl properties view
+timedatectl.properties.title = Time and Date Properties
+timedatectl.properties.time_info = Time Information
+timedatectl.properties.local_time = Local time
+timedatectl.properties.utc_time = UTC time
+timedatectl.properties.timezone_info = Timezone Information
+timedatectl.properties.timezone = Time zone
+timedatectl.properties.utc_offset = UTC offset
+timedatectl.properties.dst_active = DST active
+timedatectl.properties.sync_status = Synchronization Status
+timedatectl.properties.system_synced = System clock synchronized
+timedatectl.properties.ntp_service = NTP service
+timedatectl.properties.time_source = Time source
+timedatectl.properties.sync_accuracy = Sync accuracy
+timedatectl.properties.last_sync = Last sync
+timedatectl.properties.drift_rate = Drift rate (ppm)
+timedatectl.properties.leap_info = Leap Second Information
+timedatectl.properties.leap_pending = Leap second pending
+timedatectl.properties.ntp_config = NTP Configuration
+timedatectl.properties.ntp_enabled = NTP enabled
+timedatectl.properties.ntp_servers = NTP servers
+timedatectl.properties.min_poll = Min poll interval
+timedatectl.properties.max_poll = Max poll interval
+timedatectl.properties.capabilities = System Capabilities
+timedatectl.properties.tz_changes = Timezone changes
+timedatectl.properties.ntp_sync = NTP sync
+timedatectl.properties.rtc_access = RTC access
+timedatectl.properties.hw_timestamp = HW timestamping
+
+# generic common labels
+common.yes = yes
+common.no = no
+common.supported = supported
+common.limited = limited
+common.full = full
+common.available = available
+
+# units
+units.microseconds = microseconds

@@ -5,10 +5,9 @@
 - 自動化済み（just タスクで一括実行可能）
   - ビルド/テスト: `just ci`（clippy, fmt, test）
   - テーマ検証: `just themes-validate` / `just themes-validate-json`
-  - コマンド実装確認: `just command-status-check`
-    - docs/spec 整合チェックを強化（`scripts/gen_command_status.rs` が `docs/COMMANDS.md` と `spec/COMMANDS.md` を突合。差分は `COMMAND_STATUS.diff.md` として出力しCIで失敗）
+  - コマンド実装確認: （スクリプト削除に伴い一時停止）
   - バイナリサイズゲート: `just busybox-size-gate`
-  - JIT/MIR ベンチ・ゲート: `just bench-gate`（Criterion 出力から 2x 判定）
+  - JIT/MIR ベンチ・ゲート: `just bench-gate`（現在はベンチ実行のみ。自動判定ゲートは停止）
   - フル CI+ベンチ: `just full-ci-with-bench`
   - Nightly ベンチゲート（GitHub Actions）: `.github/workflows/nightly_bench_gate.yml`（毎日 UTC 03:00、自動／手動トリガー）
 

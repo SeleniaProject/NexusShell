@@ -3,7 +3,7 @@ use nxsh_core::context::ShellContext;
 
 #[test]
 fn export_set_and_get() {
-    let ctx = ShellContext::new();
+    let _ctx = ShellContext::new();
     export_cli(&["TEST_EXPORT=42".to_string()]).unwrap();
     
     // Check if environment variable was set

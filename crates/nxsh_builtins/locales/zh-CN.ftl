@@ -229,3 +229,135 @@ error-timeout = 操作超时
 error-interrupted = 操作被中断
 error-broken-pipe = 管道损坏
 error-invalid-utf8 = 无效的UTF-8序列 
+
+# timedatectl status/common/time-sync labels
+timedatectl.common.yes = 是
+timedatectl.common.no = 否
+timedatectl.common.enabled = 已启用
+timedatectl.common.disabled = 已禁用
+timedatectl.common.reachable = 可达
+timedatectl.common.unreachable = 不可达
+
+timedatectl.msg.time_set_to = 时间已设置为：
+timedatectl.msg.timezone_set_to = 时区已设置为：
+timedatectl.msg.rtc_in_local_tz = 本地时区的RTC：
+timedatectl.msg.ntp_sync = NTP同步：
+timedatectl.msg.added_ntp_server = 已添加NTP服务器：
+timedatectl.msg.removed_ntp_server = 已移除NTP服务器：
+
+timedatectl.timesync.title = 时间同步状态：
+timedatectl.timesync.enabled = 已启用：
+timedatectl.timesync.synchronized = 已同步：
+timedatectl.timesync.last_sync = 上次同步：
+timedatectl.timesync.sync_accuracy = 同步精度：
+timedatectl.timesync.drift_rate = 漂移率：
+timedatectl.timesync.poll_interval = 轮询间隔：
+timedatectl.timesync.leap_status = 闰秒状态：
+timedatectl.timesync.ntp_servers = NTP服务器：
+timedatectl.timesync.stratum = 层级：
+timedatectl.timesync.delay = 延迟：
+timedatectl.timesync.offset = 偏移：
+timedatectl.timesync.summary = 摘要：
+timedatectl.timesync.servers_total_reachable = 服务器（总数/可达）：
+timedatectl.timesync.best_stratum = 最佳层级：
+timedatectl.timesync.preferred_server = 首选服务器：
+timedatectl.timesync.avg_delay = 平均延迟：
+timedatectl.timesync.min_delay = 最小延迟：
+timedatectl.timesync.max_delay = 最大延迟：
+timedatectl.timesync.avg_offset = 平均偏移：
+timedatectl.timesync.min_offset = 最小偏移：
+timedatectl.timesync.max_offset = 最大偏移：
+timedatectl.timesync.avg_jitter = 平均抖动：
+
+# timedatectl 状态标签
+timedatectl.status.local_time = 本地时间
+timedatectl.status.universal_time = 世界时 (UTC)
+timedatectl.status.rtc_time = RTC 时间
+timedatectl.status.time_zone = 时区
+timedatectl.status.system_clock_synchronized = 系统时钟已同步
+timedatectl.status.ntp_service = NTP 服务
+timedatectl.status.rtc_in_local_tz = 本地时区的 RTC
+timedatectl.status.sync_accuracy = 同步精度
+timedatectl.status.drift_rate = 漂移率
+timedatectl.status.last_sync = 上次同步
+timedatectl.status.leap_second = 闰秒
+timedatectl.status.pending = 待定
+
+# timedatectl 帮助 — 命令
+timedatectl.help.cmd.status = 显示当前时间状态
+timedatectl.help.cmd.show = 以 JSON 显示状态
+timedatectl.help.cmd.set_time = 设置系统时间
+timedatectl.help.cmd.set_timezone = 设置系统时区
+timedatectl.help.cmd.list_timezones = 列出可用时区
+timedatectl.help.cmd.set_local_rtc = 将 RTC 设为本地时间（true/false）
+timedatectl.help.cmd.set_ntp = 启用或禁用 NTP 同步（true/false）
+timedatectl.help.cmd.timesync_status = 显示时间同步状态
+timedatectl.help.cmd.show_timesync = 以 JSON 显示同步状态
+timedatectl.help.cmd.add_ntp_server = 添加 NTP 服务器
+timedatectl.help.cmd.remove_ntp_server = 删除 NTP 服务器
+timedatectl.help.cmd.statistics = 显示时间统计
+timedatectl.help.cmd.history = 显示时间调整历史
+
+# timedatectl 帮助 — 选项
+timedatectl.help.opt.help = 显示此帮助并退出
+timedatectl.help.opt.monitor = 运行实时监控模式
+timedatectl.help.opt.all = 显示所有属性
+timedatectl.help.opt.json = 以 JSON 输出
+
+# 接受的时间格式
+timedatectl.help.fmt.full_datetime = 完整日期和时间
+timedatectl.help.fmt.datetime_no_sec = 不含秒的日期和时间
+timedatectl.help.fmt.time_only = 仅时间
+timedatectl.help.fmt.time_no_sec = 时间（无秒）
+timedatectl.help.fmt.unix_timestamp = Unix 时间戳（秒）
+timedatectl.help.fmt.iso8601 = ISO 8601（UTC）
+
+# 帮助示例
+timedatectl.help.ex.status = 显示状态
+timedatectl.help.ex.set_time = 设置系统时间
+timedatectl.help.ex.set_timezone = 设置时区
+timedatectl.help.ex.find_timezone = 查找时区
+timedatectl.help.ex.enable_ntp = 启用 NTP 同步
+timedatectl.help.ex.add_server = 添加 NTP 服务器
+timedatectl.help.ex.sync_status = 显示同步状态
+timedatectl.help.ex.statistics = 显示统计
+
+# 属性视图
+timedatectl.properties.title = 时间和日期属性
+timedatectl.properties.time_info = 时间信息
+timedatectl.properties.local_time = 本地时间
+timedatectl.properties.utc_time = UTC 时间
+timedatectl.properties.timezone_info = 时区信息
+timedatectl.properties.timezone = 时区
+timedatectl.properties.utc_offset = UTC 偏移
+timedatectl.properties.dst_active = 夏令时启用
+timedatectl.properties.sync_status = 同步状态
+timedatectl.properties.system_synced = 系统时钟已同步
+timedatectl.properties.ntp_service = NTP 服务
+timedatectl.properties.time_source = 时间源
+timedatectl.properties.sync_accuracy = 同步精度
+timedatectl.properties.last_sync = 上次同步
+timedatectl.properties.drift_rate = 漂移率 (ppm)
+timedatectl.properties.leap_info = 闰秒信息
+timedatectl.properties.leap_pending = 闰秒待定
+timedatectl.properties.ntp_config = NTP 配置
+timedatectl.properties.ntp_enabled = NTP 已启用
+timedatectl.properties.ntp_servers = NTP 服务器
+timedatectl.properties.min_poll = 最小轮询间隔
+timedatectl.properties.max_poll = 最大轮询间隔
+timedatectl.properties.capabilities = 系统功能
+timedatectl.properties.tz_changes = 时区更改
+timedatectl.properties.ntp_sync = NTP 同步
+timedatectl.properties.rtc_access = RTC 访问
+timedatectl.properties.hw_timestamp = 硬件时间戳
+
+# 通用标签
+common.yes = 是
+common.no = 否
+common.supported = 支持
+common.limited = 受限
+common.full = 完整
+common.available = 可用
+
+# 单位
+units.microseconds = 微秒

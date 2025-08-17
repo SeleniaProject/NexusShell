@@ -1,5 +1,5 @@
 use nxsh_core::mir::{MirExecutor, MirValue, lower::Lowerer};
-use nxsh_parser::ast::{AstNode, NumberType, AssignmentOperator, BinaryOperator, QuoteType};
+use nxsh_parser::ast::{AstNode, NumberType, AssignmentOperator, BinaryOperator};
 
 fn run_prog(nodes: Vec<AstNode>) -> MirValue {
     let ast = AstNode::Program(nodes);

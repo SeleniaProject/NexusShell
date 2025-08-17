@@ -4,17 +4,22 @@
 //! discovery, loading, unloading, dependency resolution, and semantic versioning.
 
 use anyhow::{Result, Context};
+#[cfg(feature = "plugin-management")]
 use semver::{Version, VersionReq};
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     time::SystemTime,
 };
+#[cfg(any(feature = "plugin-management", feature = "async-support"))]
 use tokio::fs;
+#[cfg(feature = "plugin-management")]
 use walkdir::WalkDir;
 
+// Note: cfg attributes cannot be placed inside a use tree list. Split them.
+#[cfg(feature = "native-plugins")]
+use crate::native_runtime::NativePluginRuntime;
 use crate::{
-    native_runtime::NativePluginRuntime,
     // runtime::WasiPluginRuntime,
     // component::ComponentRegistry,
     PluginConfig, PluginMetadata, PluginEvent,
@@ -69,6 +74,7 @@ impl PluginManager {
     }
 
     /// Set the native runtime for the manager
+    #[cfg(feature = "native-plugins")]
     pub fn set_native_runtime(&mut self, runtime: NativePluginRuntime) {
         self.native_runtime = Some(runtime);
     }
@@ -81,8 +87,11 @@ impl PluginManager {
     /// Initialize native runtime only (Stage 1)
     pub async fn initialize_runtimes(&mut self) -> Result<()> {
         // Initialize native runtime
-        let native_runtime = NativePluginRuntime::new()?;
-        self.set_native_runtime(native_runtime);
+        #[cfg(feature = "native-plugins")]
+        {
+            let native_runtime = NativePluginRuntime::new()?;
+            self.set_native_runtime(native_runtime);
+        }
 
         // // Initialize WASI runtime (Stage 2 - C-free for now)
         // let wasi_runtime = WasiPluginRuntime::new().await
@@ -96,6 +105,7 @@ impl PluginManager {
     /// Load configuration
     pub async fn load_config(&mut self) -> Result<()> {
         // Load configuration from file if it exists
+        #[cfg(feature = "plugin-management")]
         if let Some(config_dir) = dirs::config_dir() {
             let config_path = config_dir.join("nexusshell").join("plugins.toml");
             if config_path.exists() {
@@ -110,6 +120,7 @@ impl PluginManager {
 
     /// Save configuration
     pub async fn save_config(&self) -> Result<()> {
+        #[cfg(feature = "plugin-management")]
         if let Some(config_dir) = dirs::config_dir() {
             let config_path = config_dir.join("nexusshell").join("plugins.toml");
             
@@ -148,7 +159,7 @@ impl PluginManager {
     /// Discover plugins in a specific directory
     async fn discover_plugins_in_directory(&mut self, dir: &Path) -> Result<()> {
         log::debug!("Scanning directory for plugins: {}", dir.display());
-
+        #[cfg(feature = "plugin-management")]
         for entry in WalkDir::new(dir).follow_links(true) {
             let entry = entry.context("Failed to read directory entry")?;
             let path = entry.path();
@@ -164,7 +175,7 @@ impl PluginManager {
             }
         }
 
-        Ok(())
+    Ok(())
     }
 
     /// Register a plugin file in the registry

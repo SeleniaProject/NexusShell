@@ -17,10 +17,10 @@ jobs:
         run: cargo build --release -p nxsh_cli
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
-      - name: Run grep vs rg bench
-        run: bash scripts/bench_grep_vs_rg.sh | tee grep_vs_rg.txt
-      - name: Run ls recursive bench
-        run: bash scripts/bench_ls_recursive.sh | tee ls_recursive.txt
+      - name: Run simple nxsh version
+        run: ./target/release/nxsh --version | tee grep_vs_rg.txt
+      - name: Run ls recursive example
+        run: ./target/release/nxsh -c "ls -laR . | head -n 50" | tee ls_recursive.txt
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

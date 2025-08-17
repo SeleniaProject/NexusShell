@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use sysinfo::{System, SystemExt, CpuExt, NetworkExt};
+use sysinfo::{System, SystemExt, CpuExt};
 
 /// Snapshot of status metrics for the status line.
 #[derive(Debug, Clone)]
@@ -46,9 +46,10 @@ impl StatusMetricsCollector {
             sys.refresh_cpu();
             sys.refresh_memory();
             // Accumulators for network rate calculation (feature-gated implementation below).
-            let mut last_rx: u64 = 0;
-            let mut last_tx: u64 = 0;
-            let mut last_ts = Instant::now();
+            // Network metrics accumulators (only used when feature is enabled)
+            #[cfg(feature = "net-metrics")] let mut last_rx: u64 = 0;
+            #[cfg(feature = "net-metrics")] let mut last_tx: u64 = 0;
+            #[cfg(feature = "net-metrics")] let mut last_ts = Instant::now();
 
             let mut interval = Duration::from_millis(100);
             loop {

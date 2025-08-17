@@ -1,4 +1,3 @@
-use image::Rgba;
 
 #[test]
 fn parse_basic_segments() {

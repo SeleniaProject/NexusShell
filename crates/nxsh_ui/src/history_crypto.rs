@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use aes_gcm::{Aes256Gcm, KeyInit};
 use aes_gcm::aead::{Aead, OsRng};
 use rand::RngCore;

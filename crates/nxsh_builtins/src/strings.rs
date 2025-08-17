@@ -177,7 +177,7 @@ fn extract_latin1_strings(data: &[u8], min_length: usize, print_filename: bool, 
     
     for &byte in data {
         // Latin-1 printable characters (0x20-0x7E and 0xA0-0xFF, excluding control chars)
-        if (byte >= 0x20 && byte <= 0x7E) || (byte >= 0xA0 && byte <= 0xFF) {
+    if (byte >= 0x20 && byte <= 0x7E) || byte >= 0xA0 {
             current_string.push(byte);
         } else {
             if current_string.len() >= min_length {
@@ -285,7 +285,7 @@ fn extract_utf8_strings(data: &[u8], min_length: usize, print_filename: bool, fi
     
     while i < data.len() {
         // Try to decode next UTF-8 character
-        let (ch, len) = match decode_utf8_char(&data[i..]) {
+        let (_ch, len) = match decode_utf8_char(&data[i..]) {
             Some((ch, len)) if !ch.is_control() || ch == ' ' => {
                 current_string.push(ch);
                 (ch, len)
@@ -309,7 +309,7 @@ fn extract_utf8_strings(data: &[u8], min_length: usize, print_filename: bool, fi
                 ('\0', 1)
             }
         };
-        i += len;
+    i += len;
     }
     
     if current_string.len() >= min_length {

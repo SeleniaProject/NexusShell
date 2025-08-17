@@ -20,10 +20,7 @@ use std::os::unix::fs::MetadataExt;
 
 #[cfg(windows)]
 use whoami;
-#[cfg(windows)]
-use windows_sys::Win32::Security::{LookupAccountNameW, LookupAccountSidW, SID_NAME_USE, WinBuiltinUsersSid};
-#[cfg(windows)]
-use windows_sys::Win32::System::SystemInformation::GetUserNameW;
+// Windows は whoami クレートで十分。低レベルAPIの未使用importを削除。
 
 pub fn id_cli(args: &[String]) -> Result<()> {
     let mut user_only = false;

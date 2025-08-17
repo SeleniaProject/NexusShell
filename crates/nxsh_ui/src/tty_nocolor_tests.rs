@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tty_nocolor_tests {
-    use super::*;
+    
     use std::env;
     use std::sync::Mutex;
     use once_cell::sync::Lazy;
@@ -65,7 +65,7 @@ mod tty_nocolor_tests {
         env::remove_var("NXSH_TTY_NOCOLOR");
         env::remove_var("NO_COLOR");
         
-        let mut manager = crate::accessibility::AccessibilityManager::new().unwrap();
+        let manager = crate::accessibility::AccessibilityManager::new().unwrap();
         
         // Initially should not be in blind mode
         assert!(!manager.is_blind_mode_enabled().await);

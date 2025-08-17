@@ -1171,8 +1171,8 @@ mod tests {
             cursor_position: 6,
         };
 
-        let completions = engine.get_completions("", &context).unwrap();
-        assert!(completions.iter().any(|c| c.text == "-i"), "expected -i to be suggested");
+    let completions = engine.get_completions("", &context).unwrap();
+    assert!(completions.iter().any(|c| c.text == "-i"), "expected -i to be suggested");
     }
 
     #[test]
@@ -1185,8 +1185,8 @@ mod tests {
             cursor_position: 7,
         };
 
-        let completions = engine.get_completions("", &context).unwrap();
-        assert!(completions.iter().any(|c| c.text == "-maxdepth"), "expected -maxdepth to be suggested");
+    let completions = engine.get_completions("", &context).unwrap();
+    assert!(completions.iter().any(|c| c.text == "-maxdepth"), "expected -maxdepth to be suggested");
     }
 
     #[test]
@@ -1256,7 +1256,7 @@ mod tests {
             cursor_position: 0,
         };
 
-        let completions = engine.get_completions("", &context).unwrap();
+    let _completions = engine.get_completions("", &context).unwrap();
         // Should return some files from temp directory
         // This test might be environment-specific
     }

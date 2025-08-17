@@ -56,21 +56,25 @@ jobs:
         run: |
           cargo build -p nxsh_cli --no-default-features --features busybox-min --profile release-small
 
-      - name: Report base size (PR only)
+    - name: Report base size (PR only)
         if: github.event_name == 'pull_request'
         working-directory: ../nxsh_base
         run: |
-          bash scripts/size_report.sh
-          cp size_report.json $GITHUB_WORKSPACE/base_size.json
+      BIN=target/release-small/nxsh
+      SIZE=$(stat -c%s "$BIN")
+      echo "{\"size_bytes\":$SIZE}" > size_report.json
+      cp size_report.json "$GITHUB_WORKSPACE/base_size.json"
 
       - name: Build head busybox-min
         run: |
           cargo build -p nxsh_cli --no-default-features --features busybox-min --profile release-small
 
-      - name: Report head size
+    - name: Report head size
         run: |
-          bash scripts/size_report.sh
-          cp size_report.json head_size.json
+      BIN=target/release-small/nxsh
+      SIZE=$(stat -c%s "$BIN")
+      echo "{\"size_bytes\":$SIZE}" > size_report.json
+      cp size_report.json head_size.json
 
       - name: Compute delta and gate (PR only)
         if: github.event_name == 'pull_request'

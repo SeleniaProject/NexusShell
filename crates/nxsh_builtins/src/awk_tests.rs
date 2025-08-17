@@ -53,7 +53,7 @@ mod comprehensive_awk_tests {
 
     #[test]
     fn test_dynamic_field_references() {
-        let ctx = create_context_with_fields("one two three four five");
+    let mut ctx = create_context_with_fields("one two three four five");
         
         // Test $(NF-1) - should be "four" (field 4)
         let nf_minus_one = AwkExpression::Field(Box::new(AwkExpression::Binary(
@@ -62,13 +62,13 @@ mod comprehensive_awk_tests {
             Box::new(AwkExpression::Number(1.0)),
         )));
         
-        let result = evaluate_awk_expression(&nf_minus_one, &ctx).unwrap();
+    let result = evaluate_awk_expression(&nf_minus_one, &mut ctx).unwrap();
         assert_eq!(to_string_val(&result), "four");
     }
 
     #[test]
     fn test_ternary_operator() {
-        let ctx = create_test_context();
+    let mut ctx = create_test_context();
         
         // Test: NF > 3 ? "many" : "few"
         let ternary = AwkExpression::Ternary(
@@ -81,7 +81,7 @@ mod comprehensive_awk_tests {
             Box::new(AwkExpression::String("few".to_string())),
         );
         
-        let result = evaluate_awk_expression(&ternary, &ctx).unwrap();
+    let result = evaluate_awk_expression(&ternary, &mut ctx).unwrap();
         assert_eq!(to_string_val(&result), "many"); // NF is 4
     }
 
@@ -92,12 +92,12 @@ mod comprehensive_awk_tests {
         
         // Test pre-increment: ++counter
         let pre_inc = AwkExpression::PreIncrement("counter".to_string());
-        let result = evaluate_awk_expression(&pre_inc, &ctx).unwrap();
+    let result = evaluate_awk_expression(&pre_inc, &mut ctx).unwrap();
         assert_eq!(to_number(&result), 6.0);
         
         // Test post-increment: counter++
         let post_inc = AwkExpression::PostIncrement("counter".to_string());
-        let result = evaluate_awk_expression(&post_inc, &ctx).unwrap();
+    let result = evaluate_awk_expression(&post_inc, &mut ctx).unwrap();
         assert_eq!(to_number(&result), 6.0); // Returns old value
         
         // Verify counter was incremented
@@ -107,7 +107,7 @@ mod comprehensive_awk_tests {
 
     #[test]
     fn test_power_operator() {
-        let ctx = create_test_context();
+    let mut ctx = create_test_context();
         
         // Test: 2 ** 3 = 8
         let power_expr = AwkExpression::Binary(
@@ -116,13 +116,13 @@ mod comprehensive_awk_tests {
             Box::new(AwkExpression::Number(3.0)),
         );
         
-        let result = evaluate_awk_expression(&power_expr, &ctx).unwrap();
+    let result = evaluate_awk_expression(&power_expr, &mut ctx).unwrap();
         assert_eq!(to_number(&result), 8.0);
     }
 
     #[test]
     fn test_regex_match_operators() {
-        let ctx = create_context_with_fields("hello world 123");
+    let mut ctx = create_context_with_fields("hello world 123");
         
         // Test: $1 ~ /^h.*o$/
         let regex = Regex::new(r"^h.*o$").unwrap();
@@ -131,7 +131,7 @@ mod comprehensive_awk_tests {
             regex,
         );
         
-        let result = evaluate_awk_expression(&match_expr, &ctx).unwrap();
+    let result = evaluate_awk_expression(&match_expr, &mut ctx).unwrap();
         assert_eq!(to_number(&result), 1.0); // Should match "hello"
     }
 
@@ -151,7 +151,7 @@ mod comprehensive_awk_tests {
             Box::new(AwkExpression::Variable("arr".to_string())),
         );
         
-        let result = evaluate_awk_expression(&in_expr, &ctx).unwrap();
+    let result = evaluate_awk_expression(&in_expr, &mut ctx).unwrap();
         assert_eq!(to_number(&result), 1.0); // Should be true
     }
 
@@ -207,7 +207,7 @@ mod comprehensive_awk_tests {
 
     #[test]
     fn test_mathematical_functions() {
-        let ctx = create_test_context();
+    let mut ctx = create_test_context();
         
         // Test sin(π/2) ≈ 1.0
         let sin_expr = AwkExpression::Function(
@@ -219,7 +219,7 @@ mod comprehensive_awk_tests {
             )],
         );
         
-        let result = evaluate_awk_expression(&sin_expr, &ctx).unwrap();
+    let result = evaluate_awk_expression(&sin_expr, &mut ctx).unwrap();
         assert!((to_number(&result) - 1.0).abs() < 1e-10);
         
         // Test sqrt(16) = 4
@@ -228,13 +228,13 @@ mod comprehensive_awk_tests {
             vec![AwkExpression::Number(16.0)],
         );
         
-        let result = evaluate_awk_expression(&sqrt_expr, &ctx).unwrap();
+    let result = evaluate_awk_expression(&sqrt_expr, &mut ctx).unwrap();
         assert_eq!(to_number(&result), 4.0);
     }
 
     #[test]
     fn test_string_functions() {
-        let ctx = create_test_context();
+    let mut ctx = create_test_context();
         
         // Test length("hello") = 5
         let length_expr = AwkExpression::Function(
@@ -242,7 +242,7 @@ mod comprehensive_awk_tests {
             vec![AwkExpression::String("hello".to_string())],
         );
         
-        let result = evaluate_awk_expression(&length_expr, &ctx).unwrap();
+    let result = evaluate_awk_expression(&length_expr, &mut ctx).unwrap();
         assert_eq!(to_number(&result), 5.0);
         
         // Test substr("hello", 2, 3) = "ell"
@@ -255,7 +255,7 @@ mod comprehensive_awk_tests {
             ],
         );
         
-        let result = evaluate_awk_expression(&substr_expr, &ctx).unwrap();
+    let result = evaluate_awk_expression(&substr_expr, &mut ctx).unwrap();
         assert_eq!(to_string_val(&result), "ell");
         
         // Test index("hello", "ll") = 3
@@ -267,7 +267,7 @@ mod comprehensive_awk_tests {
             ],
         );
         
-        let result = evaluate_awk_expression(&index_expr, &ctx).unwrap();
+    let result = evaluate_awk_expression(&index_expr, &mut ctx).unwrap();
         assert_eq!(to_number(&result), 3.0);
     }
 
@@ -285,7 +285,7 @@ mod comprehensive_awk_tests {
             ],
         );
         
-        let result = evaluate_awk_expression(&split_expr, &ctx).unwrap();
+    let result = evaluate_awk_expression(&split_expr, &mut ctx).unwrap();
         assert_eq!(to_number(&result), 3.0);
         
         // Verify array was created correctly
@@ -314,7 +314,7 @@ mod comprehensive_awk_tests {
             ],
         );
         
-        let result = evaluate_awk_expression(&gsub_expr, &ctx).unwrap();
+    let result = evaluate_awk_expression(&gsub_expr, &mut ctx).unwrap();
         assert_eq!(to_number(&result), 3.0); // Should replace 3 occurrences
         
         // Verify text was modified
@@ -332,19 +332,19 @@ mod comprehensive_awk_tests {
             vec![AwkExpression::Number(42.0)],
         );
         
-        evaluate_awk_expression(&srand_expr, &ctx).unwrap();
+    evaluate_awk_expression(&srand_expr, &mut ctx).unwrap();
         assert_eq!(ctx.random_seed, 42);
         
         // Test rand() - should return value between 0 and 1
         let rand_expr = AwkExpression::Function("rand".to_string(), vec![]);
-        let result = evaluate_awk_expression(&rand_expr, &ctx).unwrap();
+    let result = evaluate_awk_expression(&rand_expr, &mut ctx).unwrap();
         let rand_val = to_number(&result);
         assert!(rand_val >= 0.0 && rand_val < 1.0);
     }
 
     #[test]
     fn test_system_function() {
-        let ctx = create_test_context();
+    let mut ctx = create_test_context();
         
         // Test system("echo hello") - should execute command
         let system_expr = AwkExpression::Function(
@@ -352,7 +352,7 @@ mod comprehensive_awk_tests {
             vec![AwkExpression::String("echo hello".to_string())],
         );
         
-        let result = evaluate_awk_expression(&system_expr, &ctx).unwrap();
+    let result = evaluate_awk_expression(&system_expr, &mut ctx).unwrap();
         // Should return exit code (0 for success on most systems)
         assert_eq!(to_number(&result), 0.0);
     }
@@ -407,7 +407,7 @@ mod comprehensive_awk_tests {
 
     #[test]
     fn test_printf_formatting() {
-        let ctx = create_test_context();
+    let mut ctx = create_test_context();
         
         // Test various printf format specifiers
         let test_cases = vec![
@@ -426,14 +426,14 @@ mod comprehensive_awk_tests {
         ];
         
         for (format, args, expected) in test_cases {
-            let result = format_awk_printf(format, &args, &ctx).unwrap();
+            let result = format_awk_printf(format, &args, &mut ctx).unwrap();
             assert_eq!(result, expected, "Failed for format: {}", format);
         }
     }
 
     #[test]
     fn test_complex_expression_evaluation() {
-        let ctx = create_context_with_fields("10 20 30");
+    let mut ctx = create_context_with_fields("10 20 30");
         
         // Test complex expression: ($1 + $2) * $3 / 2
         let complex_expr = AwkExpression::Binary(
@@ -450,28 +450,28 @@ mod comprehensive_awk_tests {
             Box::new(AwkExpression::Number(2.0)),
         );
         
-        let result = evaluate_awk_expression(&complex_expr, &ctx).unwrap();
+    let result = evaluate_awk_expression(&complex_expr, &mut ctx).unwrap();
         assert_eq!(to_number(&result), 450.0); // (10 + 20) * 30 / 2 = 450
     }
 
     #[test]
     fn test_pattern_matching() {
-        let ctx = create_context_with_fields("test line with pattern");
+    let mut ctx = create_context_with_fields("test line with pattern");
         
         // Test regex pattern matching
         let regex = Regex::new(r".*pattern.*").unwrap();
         let pattern = AwkPattern::Regex(regex);
         
-        let matches = match_awk_pattern(&pattern, &ctx, "test line with pattern").unwrap();
+    let matches = match_awk_pattern(&pattern, &mut ctx, "test line with pattern").unwrap();
         assert!(matches);
         
-        let no_match = match_awk_pattern(&pattern, &ctx, "no match here").unwrap();
+    let no_match = match_awk_pattern(&pattern, &mut ctx, "no match here").unwrap();
         assert!(!no_match);
     }
 
     #[test]
     fn test_range_patterns() {
-        let ctx = create_test_context();
+    let mut ctx = create_test_context();
         
         // Test range pattern: /start/,/end/
         let start_regex = Regex::new(r"start").unwrap();
@@ -521,7 +521,7 @@ mod comprehensive_awk_tests {
         
         // Test accessing uninitialized variable
         let var_expr = AwkExpression::Variable("nonexistent".to_string());
-        let result = evaluate_awk_expression(&var_expr, &ctx).unwrap();
+    let result = evaluate_awk_expression(&var_expr, &mut ctx).unwrap();
         
         // Uninitialized variables should default to empty string
         assert_eq!(to_string_val(&result), "");
@@ -530,7 +530,7 @@ mod comprehensive_awk_tests {
 
     #[test]
     fn test_type_coercion() {
-        let ctx = create_test_context();
+    let mut ctx = create_test_context();
         
         // Test string to number coercion
         let str_num = AwkValue::String("42.5".to_string());
@@ -569,8 +569,43 @@ mod comprehensive_awk_tests {
             Box::new(AwkExpression::Number(0.0)),
         );
         
-        let result = evaluate_awk_expression(&div_zero, &ctx).unwrap();
+    let result = evaluate_awk_expression(&div_zero, &mut ctx).unwrap();
         // Should handle division by zero gracefully (result is infinity)
         assert!(to_number(&result).is_infinite());
+    }
+
+    #[test]
+    fn test_regex_not_match_operator() {
+    let mut ctx = create_context_with_fields("hello world 123");
+
+        // Test: $1 !~ /^z/  => should be true (1.0)
+        let not_match_expr = AwkExpression::Binary(
+            Box::new(AwkExpression::Field(Box::new(AwkExpression::Number(1.0)))),
+            BinaryOp::NotMatch,
+            Box::new(AwkExpression::String("^z".to_string())),
+        );
+
+    let result = evaluate_awk_expression(&not_match_expr, &mut ctx).unwrap();
+        assert_eq!(to_number(&result), 1.0);
+    }
+
+    #[test]
+    fn test_in_operator_for_arrays_negative() {
+        let mut ctx = create_test_context();
+
+        // Create associative array: arr["key1"] = 1
+        let mut map = std::collections::HashMap::new();
+        map.insert("key1".to_string(), AwkValue::Number(1.0));
+        ctx.variables.insert("arr".to_string(), AwkValue::Map(map));
+
+        // Test: "missing" in arr => 0.0 (false)
+        let in_expr = AwkExpression::Binary(
+            Box::new(AwkExpression::String("missing".to_string())),
+            BinaryOp::In,
+            Box::new(AwkExpression::Variable("arr".to_string())),
+        );
+
+    let result = evaluate_awk_expression(&in_expr, &mut ctx).unwrap();
+        assert_eq!(to_number(&result), 0.0);
     }
 }

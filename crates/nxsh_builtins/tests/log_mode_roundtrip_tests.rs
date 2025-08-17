@@ -1,5 +1,4 @@
 use nxsh_builtins::logstats_cli;
-use std::process::{Command, Stdio};
 
 fn run_capture(args: &[&str]) -> String {
     // Invoke via current process using the CLI entry to keep it simple

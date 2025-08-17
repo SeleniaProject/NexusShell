@@ -119,7 +119,7 @@ fn format_fat(dev: &str, label: &str, kind: FatType) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
     
 
     #[cfg(unix)]

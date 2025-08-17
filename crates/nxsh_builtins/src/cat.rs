@@ -34,12 +34,16 @@ use indicatif::{ProgressBar, ProgressStyle, MultiProgress}; // progress bars opt
 // When progress-ui feature is disabled, provide no-op stubs so code still compiles
 #[cfg(not(feature = "progress-ui"))]
 #[derive(Clone)]
+#[allow(dead_code)]
 struct ProgressBar;
 #[cfg(not(feature = "progress-ui"))]
+#[allow(dead_code)]
 struct ProgressStyle;
 #[cfg(not(feature = "progress-ui"))]
+#[allow(dead_code)]
 struct MultiProgress;
 #[cfg(not(feature = "progress-ui"))]
+#[allow(dead_code)]
 impl ProgressBar {
     fn new(_len: u64) -> Self { Self }
     fn new_spinner() -> Self { Self }
@@ -51,6 +55,7 @@ impl ProgressBar {
     fn abandon_with_message<S: Into<String>>(&self, _msg: S) {}
 }
 #[cfg(not(feature = "progress-ui"))]
+#[allow(dead_code)]
 impl ProgressStyle {
     fn default_bar() -> Self { Self }
     fn default_spinner() -> Self { Self }
@@ -58,6 +63,7 @@ impl ProgressStyle {
     fn progress_chars(self, _c: &str) -> Self { Self }
 }
 #[cfg(not(feature = "progress-ui"))]
+#[allow(dead_code)]
 impl MultiProgress {
     fn new() -> Self { Self }
     fn add(&self, pb: ProgressBar) -> ProgressBar { pb }
@@ -65,6 +71,7 @@ impl MultiProgress {
 use console::style;
 // Removed unused async streaming imports (no async read operations implemented yet)
 use url::Url;
+use percent_encoding::percent_decode_str;
 use base64::{Engine as _, engine::general_purpose};
 
 use crate::common::i18n::init_i18n; // Provided by full or stub impl
@@ -79,7 +86,8 @@ const BUFFER_SIZE: usize = 64 * 1024;
 /// Chunk size for parallel processing
 const CHUNK_SIZE: usize = 1024 * 1024;
 
-/// Progress update interval
+/// Progress update interval (kept for future use)
+#[allow(dead_code)]
 const PROGRESS_UPDATE_INTERVAL: Duration = Duration::from_millis(100);
 
 // Type aliases to reduce clippy::type_complexity noise
@@ -548,13 +556,13 @@ fn process_files_parallel(options: &CatOptions) -> Result<()> {
 }
 
 fn process_single_file(
-    filename: &str,
+    _filename: &str,
     options: &CatOptions,
     multi_progress: Option<&MultiProgress>,
 ) -> Result<FileStats> {
     let start_time = Instant::now();
     
-    if filename == "-" {
+    if _filename == "-" {
         let stdin = io::stdin();
         let reader = stdin.lock();
         let stdout = io::stdout();
@@ -568,15 +576,15 @@ fn process_single_file(
         );
     }
     
-    let path = Path::new(filename);
+    let path = Path::new(_filename);
 
     // Prefer filesystem path handling first. On Windows, paths like
     // "C:\\..." contain a colon and can be misparsed as a URL scheme.
     if !path.exists() {
         // If it's not an existing path, then treat inputs that clearly look like
         // URLs (contain "://") as URLs.
-        if filename.contains("://") {
-            if let Ok(url) = Url::parse(filename) {
+        if _filename.contains("://") {
+            if let Ok(url) = Url::parse(_filename) {
                 return process_url(&url, options, multi_progress);
             }
         }
@@ -611,7 +619,7 @@ fn process_single_file(
     // Handle binary files
     match options.binary_mode {
         BinaryMode::Skip if file_type == ContentType::BINARY => {
-            eprintln!("cat: {filename}: binary file skipped");
+            eprintln!("cat: {_filename}: binary file skipped");
             return Ok(FileStats {
                 bytes_read: 0,
                 lines_processed: 0,
@@ -629,9 +637,9 @@ fn process_single_file(
     let mut writer = BufWriter::new(stdout.lock());
     
     let stats = if options.use_mmap && file_size > MMAP_THRESHOLD && compression.is_none() {
-        process_file_mmap(&final_path, &mut writer, options, filename, multi_progress)?
+    process_file_mmap(&final_path, &mut writer, options, _filename, multi_progress)?
     } else {
-        process_file_stream(&final_path, &mut writer, options, filename, multi_progress, compression.clone())?
+    process_file_stream(&final_path, &mut writer, options, _filename, multi_progress, compression.clone())?
     };
     
     Ok(FileStats {
@@ -648,7 +656,7 @@ fn process_file_mmap<W: Write>(
     path: &Path,
     writer: &mut W,
     options: &CatOptions,
-    filename: &str,
+    _filename: &str,
     multi_progress: Option<&MultiProgress>,
 ) -> Result<FileStats> {
     let file = File::open(path)
@@ -669,8 +677,8 @@ fn process_file_mmap<W: Write>(
                 .unwrap()
                 .progress_chars("#>-"),
         );
-        #[cfg(feature = "progress-ui")]
-        pb.set_message(filename.to_string());
+    #[cfg(feature = "progress-ui")]
+    pb.set_message(_filename.to_string());
         Some(pb)
     } else { None };
     
@@ -725,7 +733,7 @@ fn process_file_mmap<W: Write>(
     Ok(stats)
 }
 
-fn process_file_stream<W: Write>(
+fn process_file_stream<W: Write + ?Sized>(
     path: &Path,
     writer: &mut W,
     options: &CatOptions,
@@ -810,7 +818,7 @@ fn process_reader<R: BufRead, W: Write>(
     process_reader_with_progress(reader, writer, options, _filename, None)
 }
 
-fn process_reader_with_progress<R: BufRead + ?Sized, W: Write>(
+fn process_reader_with_progress<R: BufRead + ?Sized, W: Write + ?Sized>(
     mut reader: Box<R>,
     writer: &mut W,
     options: &CatOptions,
@@ -892,7 +900,7 @@ fn process_reader_with_progress<R: BufRead + ?Sized, W: Write>(
     Ok(stats)
 }
 
-fn process_chunk<W: Write>(
+fn process_chunk<W: Write + ?Sized>(
     chunk: &[u8],
     writer: &mut W,
     options: &CatOptions,
@@ -1044,8 +1052,60 @@ fn process_url(
     options: &CatOptions,
     multi_progress: Option<&MultiProgress>,
 ) -> Result<FileStats> {
-    // Only HTTP/HTTPS are supported at the moment
+    // Use stdout writer by default; tests can use the writer-injectable variant.
+    let stdout = io::stdout();
+    let mut writer = BufWriter::new(stdout.lock());
+    process_url_to_writer(url, options, multi_progress, &mut writer)
+}
+
+fn process_url_to_writer(
+    url: &Url,
+    options: &CatOptions,
+    multi_progress: Option<&MultiProgress>,
+    writer: &mut dyn Write,
+) -> Result<FileStats> {
     let scheme = url.scheme().to_ascii_lowercase();
+
+    // file: scheme → treat as local path
+    if scheme == "file" {
+        if let Ok(path_buf) = url.to_file_path() {
+            // Reuse local file streaming path. Detect compression if enabled.
+            let compression = if options.decompress { detect_compression(&path_buf)? } else { None };
+            return process_file_stream(&path_buf, writer, options, &path_buf.to_string_lossy(), None, compression);
+        } else {
+            return Err(anyhow!("Invalid file URL"));
+        }
+    }
+
+    // data: scheme → inline data (support base64 and percent-encoded plain)
+    if scheme == "data" {
+        let s = url.as_str();
+        if let Some(comma_idx) = s.find(',') {
+            let (meta, payload) = s.split_at(comma_idx);
+            let payload = &payload[1..]; // skip comma
+            let is_base64 = meta.ends_with(";base64");
+            let bytes = if is_base64 {
+                general_purpose::STANDARD
+                    .decode(payload.as_bytes())
+                    .map_err(|e| anyhow!("Invalid base64 in data URL: {e}"))?
+            } else {
+                // RFC2397: percent-decoding for non-base64
+                percent_decode_str(payload).collect::<Vec<u8>>()
+            };
+            let reader = BufReader::new(std::io::Cursor::new(bytes));
+            return process_reader_with_progress(
+                Box::new(reader),
+                writer,
+                options,
+                "data:",
+                None,
+            );
+        } else {
+            return Err(anyhow!("Malformed data URL"));
+        }
+    }
+
+    // HTTP/HTTPS handled behind feature flag
     if scheme != "http" && scheme != "https" {
         return Err(anyhow!("Unsupported URL scheme: {}", scheme));
     }
@@ -1065,7 +1125,7 @@ fn process_url(
             .map_err(|e| anyhow!("HTTP request failed: {e}"))?;
 
         let len_opt = resp.header("Content-Length").and_then(|v| v.parse::<u64>().ok());
-        let mut reader = std::io::BufReader::new(resp.into_reader());
+        let reader = std::io::BufReader::new(resp.into_reader());
 
         // Optional progress bar based on Content-Length
         let progress_bar = if let (Some(mp), Some(total)) = (multi_progress, len_opt) {
@@ -1075,12 +1135,9 @@ fn process_url(
             Some(pb)
         } else { None };
 
-        // Process through the same pipeline as files
-        let stdout = io::stdout();
-        let mut writer = BufWriter::new(stdout.lock());
         let stats = process_reader_with_progress(
             Box::new(reader),
-            &mut writer,
+            writer,
             options,
             url.as_str(),
             progress_bar.as_ref(),
@@ -1436,6 +1493,44 @@ mod tests {
             None,
         )?;
         
+        assert!(stats.bytes_read > 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_file_url_scheme() -> Result<()> {
+        let mut temp_file = NamedTempFile::new()?;
+        write!(temp_file, "alpha\nβeta")?;
+        let url = Url::from_file_path(temp_file.path()).unwrap();
+        let opts = CatOptions::default();
+        let mut out: Vec<u8> = Vec::new();
+        let stats = process_url_to_writer(&url, &opts, None, &mut out)?;
+        assert_eq!(String::from_utf8_lossy(&out), "alpha\nβeta");
+        assert!(stats.bytes_read > 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_data_url_base64() -> Result<()> {
+        // "Hello, 世界!" in UTF-8 base64
+        let data = "SGVsbG8sIOS4lueVjCE=";
+        let url = Url::parse(&format!("data:text/plain;base64,{}", data)).unwrap();
+        let opts = CatOptions::default();
+        let mut out: Vec<u8> = Vec::new();
+        let stats = process_url_to_writer(&url, &opts, None, &mut out)?;
+        assert_eq!(String::from_utf8_lossy(&out), "Hello, 世界!");
+        assert!(stats.bytes_read > 0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_data_url_percent_encoded() -> Result<()> {
+        // Percent-encoded UTF-8 for "Hello, 世界!" -> Hello,%20%E4%B8%96%E7%95%8C!
+        let url = Url::parse("data:text/plain,Hello,%20%E4%B8%96%E7%95%8C!").unwrap();
+        let opts = CatOptions::default();
+        let mut out: Vec<u8> = Vec::new();
+        let stats = process_url_to_writer(&url, &opts, None, &mut out)?;
+        assert_eq!(String::from_utf8_lossy(&out), "Hello, 世界!");
         assert!(stats.bytes_read > 0);
         Ok(())
     }

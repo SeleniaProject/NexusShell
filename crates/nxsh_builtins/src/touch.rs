@@ -533,7 +533,11 @@ mod tests {
         
         // Should parse to Jan 1, 2023 12:00:30
         let duration = result.duration_since(UNIX_EPOCH).unwrap();
-        let expected = Local.ymd(2023, 1, 1).and_hms(12, 0, 30).timestamp() as u64;
+        let expected = Local
+            .with_ymd_and_hms(2023, 1, 1, 12, 0, 30)
+            .single()
+            .expect("valid test date")
+            .timestamp() as u64;
         assert_eq!(duration.as_secs(), expected);
     }
     

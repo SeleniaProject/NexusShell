@@ -1,38 +1,47 @@
 ## ビルトイン簡略化/未実装チェックリスト
 
 - [ ] `crates/nxsh_builtins/src/awk.rs`
-  - [ ] 簡易パーサを完全対応へ拡張（BEGIN/END、正規表現、式/配列/連想配列、ユーザー関数、条件/ループ、フィールド分割、レコード分割）
-  - [ ] `printf`/`print` の完全互換（フォーマット指定子/幅/精度/エスケープ）
-  - [ ] 簡易式評価の撤廃と本格評価器の実装（数値/文字列/ブール/比較/正規表現一致）
+  - [x] 簡易パーサを完全対応へ拡張（BEGIN/END、正規表現、式/配列/連想配列、ユーザー関数、条件/ループ、フィールド分割、レコード分割）
+  - [x] `printf`/`print` の完全互換（フォーマット指定子/幅/精度/エスケープ）
+  - [x] 簡易式評価の撤廃と本格評価器の実装（数値/文字列/ブール/比較/正規表現一致）
 
 - [ ] `crates/nxsh_builtins/src/find.rs`
-  - [ ] 式ツリー評価の完全実装（AND/OR/NOT、括弧、優先順位、短絡評価）
-  - [ ] 正規表現エンジンの実装/選択（Basic/Extended/Perl 相当）
-  - [ ] `-printf`/`-fls` 出力の完全化（現在の簡易実装を置換）
-  - [ ] GID→グループ名解決の実装（現在は簡易名称）
-  - [ ] 並列探索（rayon）導入と `--parallel` オプション実装
-  - [ ] レガシーベクターフォールバック動作の撤廃
-  - [ ] 進捗UI（`progress-ui`）と統合した堅牢な進行表示
+  - [x] 式ツリー評価の完全実装（AND/OR/NOT、括弧、優先順位、短絡評価）
+  - [x] 正規表現エンジンの実装/選択（Basic/Extended/Perl 相当）
+  - [x] `-printf`/`-fls` 出力の完全化（現在の簡易実装を置換）
+  - [x] GID→グループ名解決の実装（現在は簡易名称）
+  - [x] 並列探索（rayon）導入と `--parallel` オプション実装
+  - [x] レガシーベクターフォールバック動作の撤廃
+  - [x] 進捗UI（`progress-ui`）と統合した堅牢な進行表示
 
 - [ ] `crates/nxsh_builtins/src/timedatectl.rs`
-  - [ ] NTP クライアントの本実装（送受時刻スタンプ、オフセット/遅延/ジッタ/ストラタム計算）
-  - [ ] タイムゾーンDB/夏時間判定の実装（最小ビルドの UTC 限定スタブ排除）
-  - [ ] 外部 `ntpdate/chrony/date` フォールバック依存の削減/撤廃
-  - [ ] 簡略オフセット計算の精密化（NTP 固定小数点処理）
+  - [x] NTP クライアントの本実装（送受時刻スタンプ、オフセット/遅延/ジッタ/ストラタム計算）
+  - [x] タイムゾーンDB/夏時間判定の実装（最小ビルドの UTC 限定スタブ排除）
+  - [x] 外部 `ntpdate/chrony/date` フォールバック依存の削減/撤廃
+  - [x] 簡略オフセット計算の精密化（NTP 固定小数点処理）
   - [ ] 完全 i18n 対応（メッセージ/書式）
 
 - [ ] `crates/nxsh_builtins/src/fsck.rs`
-  - [ ] FAT チェイン解析/ロストクラスタ/クロスリンク厳密検出
-  - [ ] `-a`（自動修復）実装とジャーナリングによる安全な書き戻し
-  - [ ] 簡易マーキング/naive 比較の撤廃と完全検査の導入
+  - [x] FAT チェイン解析/ロストクラスタ/クロスリンク厳密検出
+  - [x] `-a`（自動修復）実装とジャーナリングによる安全な書き戻し
+  - [x] 簡易マーキング/naive 比較の撤廃と完全検査の導入
 
 - [ ] `crates/nxsh_builtins/src/zstd.rs` および `zstd_complete.rs`
   - [ ] Pure Rust 圧縮（辞書、圧縮レベル、マルチスレッド、チェック）実装
-  - [ ] RAW ブロックのみのストアモード・フォールバック解消
-  - [ ] CLI 互換オプションの網羅実装（互換エイリアス含む）
+    - [x] マルチスレッド（フレーム分割・並列化）
+    - [x] フレームチェックサム（XXH64 下位32bit）
+    - [x] ストアモード最適化（RAW/RLE ブロック）
+    - [ ] 実圧縮（LZ/リテラル/シーケンス符号化: Huffman/FSE）
+      - [x] リテラル: Raw/RLE/Huffman（単一ストリーム, 直接 weights ヘッダ）
+      - [ ] リテラル: 4 ストリーム + Jump_Table（FSE 圧縮 weights 含む）
+      - [ ] シーケンス: Predefined_Mode（LL/ML/OF）
+      - [ ] シーケンス: FSE_Compressed_Mode（Repeat/RLE 含む）
+    - [ ] 辞書（DictID、読み込み/適用/訓練）
+  - [x] RAW ブロックのみのストアモード・フォールバック解消
+  - [x] CLI 互換オプションの網羅実装（互換エイリアス含む）
 
 - [ ] `crates/nxsh_builtins/src/tar.rs`
-  - [ ] 簡易タイムスタンプ表記の本実装（時刻/権限/所有者などメタデータの厳密整形）
+  - [x] 簡易タイムスタンプ表記の本実装（時刻/権限/所有者などメタデータの厳密整形）
 
 - [ ] `crates/nxsh_builtins/src/network_tools.rs`
   - [ ] `netstat`/`ss` 相当の完全実装（/proc 読み取り・WinAPI・BSD sysctl 等）
@@ -51,7 +60,7 @@
   - [ ] アルゴリズム選択の拡張と互換出力形式の厳密化
 
 - [ ] `crates/nxsh_builtins/src/compression.rs`
-  - [ ] zstd 外部依存の撤廃（Pure Rust エンコーダ導入）
+  - [x] zstd 外部依存の撤廃（Pure Rust エンコーダ導入）
   - [ ] 7z 作成は外部委譲から堅牢ラッパまたは内蔵実装へ拡張
 
 - [ ] `crates/nxsh_builtins/src/sed.rs`
@@ -86,6 +95,9 @@
 
 - [ ] `crates/nxsh_builtins/src/cat.rs`
   - [ ] URL スキーム拡張（ftp/file/data 等）、HTTP/HTTPS 以外の未対応解消
+    - [x] file: スキーム対応（ローカルパスに正しくフォールバック／圧縮検出併用）
+    - [x] data: スキーム（base64／percent-encoding）対応（オプション適用・ストリーミング経路統合）
+    - [ ] ftp: スキーム対応（保留）
 
 - [ ] `crates/nxsh_builtins/src/cut.rs`
   - [ ] 不明オプション扱いを削減し、全オプション（-b/-c/-f/-d/-s/--output-delimiter 等）実装
@@ -94,7 +106,7 @@
   - [ ] POSIX 拡張（-p 他）の実装、現状 unsupported オプションの解消
 
 - [ ] `crates/nxsh_builtins/src/umask.rs`
-  - [ ] `-S`（象徴表記）実装、Windows サポート
+  - [x] `-S`（象徴表記）実装、Windows サポート
 
 - [ ] `crates/nxsh_builtins/src/strings.rs`
   - [ ] 追加エンコーディング/自動判別、エラー/i18n 整備

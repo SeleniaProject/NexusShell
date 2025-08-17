@@ -383,8 +383,14 @@ impl CompressionManager {
                 writer.flush().ok();
             },
             CompressionFormat::Zstd => {
-                // Use external zstd binary for compression (Pure Rust encoder unavailable)
-                compress_with_external_zstd_file(input_path, &output_path, level as u8)?;
+                // Use Pure Rust zstd store-mode frame writer
+                let meta = std::fs::metadata(input_path)?;
+                let mut r = std::io::BufReader::new(std::fs::File::open(input_path)?);
+                let mut w = std::io::BufWriter::new(std::fs::File::create(&output_path)?);
+                // No checksum in manager path to keep compatibility/size; CLI zstd has flag
+                crate::zstd::write_store_frame_stream_with_options(&mut w, &mut r, meta.len(), false, level as u8)
+                    .context("Failed to write zstd store-mode frame")?;
+                w.flush().ok();
             },
         }
         
@@ -434,15 +440,9 @@ impl CompressionManager {
                     lzma_rs::xz_compress(&mut input_cursor, &mut output_data).context("Failed to compress with xz")?;
                 },
                 CompressionFormat::Zstd => {
-                    // External zstd works file-to-file; perform on paths instead of in-memory.
-                    // Write input_data to a temp file, then compress via external zstd into output_path.
-                    let temp = tempfile::NamedTempFile::new().context("Failed to create temp file for zstd")?;
-                    std::fs::write(temp.path(), &input_data).context("Failed to write temp input for zstd")?;
-                    let out_path_str = output_path.to_string_lossy().to_string();
-                    compress_with_external_zstd_file(temp.path(), &Path::new(&out_path_str), options.compression_level as u8)
-                        .context("External zstd compression failed")?;
-                    // Read the produced file back to memory to fit the function contract
-                    output_data = std::fs::read(&out_path_str).context("Failed to read compressed output")?;
+                    // Pure Rust zstd store-mode encoder (RAW/RLE blocks), no external dependency
+                    crate::zstd::write_store_frame_slice_with_options(&mut output_data, &input_data, false, options.compression_level as u8)
+                        .context("Failed to write zstd store-mode frame")?;
                 },
             }
             
@@ -1041,6 +1041,10 @@ impl CompressionManager {
                         options.threads = args[i].parse().context("Invalid thread count")?;
                     }
                 },
+                arg if arg.starts_with("-T") && arg.len() > 2 => {
+                    // -T# shorthand
+                    options.threads = arg[2..].parse().context("Invalid thread count")?;
+                },
                 "--ultra" => {
                     // Enable ultra mode (levels 20-22)
                     if options.compression_level < 20 {
@@ -1227,19 +1231,9 @@ impl CompressionManager {
 }
 
 /// Compress a file using external zstd binary
-fn compress_with_external_zstd_file<P: AsRef<Path>>(input: P, output: P, level: u8) -> anyhow::Result<()> {
-    let zstd_path = which("zstd").map_err(|_| anyhow::anyhow!(
-        "Compression requires external 'zstd' binary (not found in PATH)"
-    ))?;
-    let status = Command::new(zstd_path)
-        .arg(format!("-{}", level.max(1)))
-        .args(["-o", output.as_ref().to_string_lossy().as_ref(), input.as_ref().to_string_lossy().as_ref()])
-        .status()
-        .context("Failed to launch external zstd")?;
-    if !status.success() {
-        return Err(anyhow::anyhow!("external zstd failed with status {:?}", status.code()));
-    }
-    Ok(())
+// External zstd no longer required; kept stub to avoid breaking callers if any remain
+fn compress_with_external_zstd_file<P: AsRef<Path>>(_input: P, _output: P, _level: u8) -> anyhow::Result<()> {
+    Err(anyhow::anyhow!("external zstd compression path removed; using Pure Rust store-mode encoder"))
 }
 
 // Enums and structs

@@ -33,17 +33,24 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y upx-ucl
 
-      - name: Build & size report (PowerShell on Windows)
+    - name: Build & size report (PowerShell on Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          ./scripts/size_report.ps1 -Profile release-small
-          Get-Content size_report.json
+      $ErrorActionPreference = 'Stop'
+      cargo build -p nxsh_cli --no-default-features --features busybox-min --profile release-small
+      $bin = "target/release-small/nxsh.exe"
+      $size = (Get-Item $bin).Length
+      "{`"size_bytes`":$size}" | Set-Content -Encoding UTF8 size_report.json
+      Get-Content size_report.json
 
-      - name: Build & size report (bash on Linux)
+    - name: Build & size report (bash on Linux)
         if: runner.os == 'Linux'
         run: |
-          bash scripts/size_report.sh
+      cargo build -p nxsh_cli --no-default-features --features busybox-min --profile release-small
+      BIN=target/release-small/nxsh
+      SIZE=$(stat -c%s "$BIN")
+      echo "{\"size_bytes\":$SIZE}" > size_report.json
           cat size_report.json
 
       - name: Upload size report artifact

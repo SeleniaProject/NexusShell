@@ -25,7 +25,10 @@ use std::{
 };
 // sysinfo 0.30 以降は拡張トレイト import 不要 (メソッドは固有実装)
 use sysinfo::{System, Pid, SystemExt, PidExt, ProcessExt};
+#[cfg(feature = "async")]
 use tokio::sync::Mutex;
+#[cfg(not(feature = "async"))]
+type Mutex<T> = std::sync::Mutex<T>;
 
 use crate::{
     config::ConfigManager,
@@ -401,6 +404,7 @@ impl CUIApp {
     /// - Input processing
     /// - Command execution
     /// - Output formatting
+    #[cfg(feature = "async")]
     pub async fn run(&mut self) -> Result<()> {
         // Initialize terminal for CUI mode
         self.initialize_terminal()
@@ -441,7 +445,12 @@ impl CUIApp {
             // Measure input latency
             let input_start = Instant::now();
             // Read and process input
-            match self.read_input().await {
+            match {
+                #[cfg(feature = "async")]
+                { self.read_input().await }
+                #[cfg(not(feature = "async"))]
+                { self.read_input() }
+            } {
                 Ok(Some(command)) => {
                     let latency = input_start.elapsed().as_micros() as f64 / 1000.0; // ms
                     {
@@ -467,8 +476,12 @@ impl CUIApp {
                         if self.process_guide_input(&command).await? {
                             // guide input consumed; nothing else to do this loop
                         } else {
-                            let output = self.execute_command(&command)
-                                .await
+                            let output = {
+                                #[cfg(feature = "async")]
+                                { self.execute_command(&command).await }
+                                #[cfg(not(feature = "async"))]
+                                { self.execute_command(&command) }
+                            }
                                 .context("Failed to execute command")?;
                             if !output.trim().is_empty() {
                                 println!("{}", output);
@@ -492,6 +505,87 @@ impl CUIApp {
         self.cleanup_terminal()
             .context("Failed to cleanup terminal")?;
         
+        Ok(())
+    }
+
+    /// Run loop for non-async builds (synchronous)
+    #[cfg(not(feature = "async"))]
+    pub fn run(&mut self) -> Result<()> {
+        // Initialize terminal for CUI mode
+        self.initialize_terminal()
+            .context("Failed to initialize terminal")?;
+
+        // Display startup banner
+        self.display_startup_banner()
+            .context("Failed to display startup banner")?;
+        if startup_profiler::is_enabled() {
+            startup_profiler::mark_first_frame_flushed(Instant::now());
+        }
+
+        // Main application loop
+        let mut sys = System::new();
+        if std::env::var("NXSH_STATUSLINE_DISABLE").ok().as_deref() != Some("1") {
+            self.status_collector = Some(StatusMetricsCollector::start());
+        }
+
+        let pid_u32 = std::process::id();
+        let pid = Pid::from_u32(pid_u32);
+        while !self.should_quit {
+            // Display prompt
+            self.display_prompt()?;
+            if startup_profiler::is_enabled() {
+                startup_profiler::mark_first_prompt_flushed(Instant::now());
+            }
+
+            // Render a status line below prompt if enabled
+            if let Some(ref c) = self.status_collector {
+                let snap = c.get();
+                let colored = crate::tui::supports_color();
+                let line = format_status_line(&snap, colored);
+                println!("\r{}", line);
+            }
+
+            // Measure input latency
+            let input_start = Instant::now();
+            // Read and process input (sync)
+            match self.read_input() {
+                Ok(Some(command)) => {
+                    let latency = input_start.elapsed().as_micros() as f64 / 1000.0; // ms
+                    {
+                        let mut m = self.metrics.lock().unwrap();
+                        m.input_latency_last_ms = latency;
+                        if m.input_latency_avg_ms == 0.0 { m.input_latency_avg_ms = latency; }
+                        else { m.input_latency_avg_ms = (m.input_latency_avg_ms * 0.8) + (latency * 0.2); }
+                    }
+                    if latency as u64 > INPUT_TIMEOUT_MS {
+                        eprintln!("⚠️  Input latency {}ms exceeded threshold {}ms", latency, INPUT_TIMEOUT_MS);
+                    }
+                    // Update memory metrics before execution (process memory in KiB -> MiB)
+                    sys.refresh_process(pid);
+                    if let Some(proc_) = sys.process(pid) {
+                        let mem_mib = proc_.memory() as f64 / 1024.0;
+                        let mut m = self.metrics.lock().unwrap();
+                        m.memory_usage_mib = mem_mib;
+                        if mem_mib > m.peak_memory_usage_mib { m.peak_memory_usage_mib = mem_mib; }
+                    }
+
+                    // Execute command
+                    match self.execute_command(&command) {
+                        Ok(output) => {
+                            if !output.trim().is_empty() { println!("{}", output); }
+                        }
+                        Err(e) => {
+                            eprintln!("Error: {}", e);
+                        }
+                    }
+                }
+                Ok(None) => { /* no input, continue loop */ }
+                Err(e) => {
+                    eprintln!("Input error: {}", e);
+                }
+            }
+        }
+
         Ok(())
     }
     
@@ -623,9 +717,10 @@ impl CUIApp {
     fn is_admin() -> bool { false }
     
     /// Read input from user with timeout
+    #[cfg(feature = "async")]
     async fn read_input(&mut self) -> Result<Option<String>> {
         // Use line editor for input with history and completion
-        let mut line_editor = self.line_editor.lock().await;
+    let mut line_editor = self.line_editor.lock().await;
         
         match line_editor.readline("$ ") {
             Ok(input) => {
@@ -645,11 +740,32 @@ impl CUIApp {
             Err(e) => Err(anyhow::anyhow!("Failed to read input: {}", e))
         }
     }
+
+    /// Read input (sync) when async feature is disabled
+    #[cfg(not(feature = "async"))]
+    fn read_input(&mut self) -> Result<Option<String>> {
+        let mut line_editor = self.line_editor.lock().unwrap();
+        match line_editor.readline("$ ") {
+            Ok(input) => {
+                if input.trim() == "exit" || input.trim() == "quit" {
+                    self.should_quit = true;
+                    return Ok(None);
+                }
+                if !input.trim().is_empty() {
+                    self.command_history.push(input.clone());
+                    self.history_position = self.command_history.len();
+                }
+                Ok(Some(input))
+            }
+            Err(e) => Err(anyhow::anyhow!("Failed to read input: {}", e))
+        }
+    }
     
     /// Execute a command and display results
     /// 
     /// This method provides complete command execution with proper error handling,
     /// output formatting, and performance monitoring to meet SPEC.md requirements.
+    #[cfg(feature = "async")]
     pub async fn execute_command(&mut self, command: &str) -> Result<String> {
         let start_time = Instant::now();
         
@@ -742,11 +858,48 @@ impl CUIApp {
         
         Ok(output)
     }
+
+    /// Execute command (sync) for non-async builds
+    #[cfg(not(feature = "async"))]
+    pub fn execute_command(&mut self, command: &str) -> Result<String> {
+        let start_time = Instant::now();
+        {
+            let mut m = self.metrics.lock().unwrap();
+            m.commands_executed += 1;
+        }
+        self.record_event_command(command);
+        if let Some(output) = self.handle_builtin_command(command)? { return Ok(output); }
+        use nxsh_parser::Parser;
+        let parser = Parser::new();
+        let (output, exit_code): (String, i32) = match parser.parse(command) {
+            Ok(ast) => {
+                let mut executor = self.executor.lock().unwrap();
+                let mut shell_context = self.shell_context.lock().unwrap();
+                match executor.execute(&ast, &mut shell_context) {
+                    Ok(result) => { (self.format_execution_result(&result), result.exit_code as i32) }
+                    Err(e) => { (self.format_execution_error(&e), 1) }
+                }
+            }
+            Err(parse_error) => { (self.format_parse_error(&parse_error, command), 1) }
+        };
+        self.last_exit_code = exit_code;
+        self.record_event_output(&output, exit_code);
+        let execution_time = start_time.elapsed();
+        self.last_command_time = Some(execution_time);
+        let exec_time_ms = execution_time.as_millis() as f64;
+        {
+            let mut m = self.metrics.lock().unwrap();
+            if m.commands_executed == 1 { m.avg_execution_time_ms = exec_time_ms; }
+            else { m.avg_execution_time_ms = ((m.avg_execution_time_ms * (m.commands_executed - 1) as f64) + exec_time_ms) / m.commands_executed as f64; }
+        }
+        Ok(output)
+    }
     
     /// Handle built-in CUI commands
     /// 
     /// Processes internal commands that don't require external execution,
     /// such as exit, help, history, and settings commands.
+    #[cfg(feature = "async")]
     async fn handle_builtin_command(&mut self, command: &str) -> Result<Option<String>> {
         let cmd_parts: Vec<&str> = command.split_whitespace().collect();
         if cmd_parts.is_empty() {
@@ -823,6 +976,19 @@ impl CUIApp {
                 }
             }
             _ => Ok(None) // Not a built-in command
+        }
+    }
+
+    /// Builtin handler (sync) for non-async builds
+    #[cfg(not(feature = "async"))]
+    fn handle_builtin_command(&mut self, command: &str) -> Result<Option<String>> {
+        let cmd_parts: Vec<&str> = command.split_whitespace().collect();
+        if cmd_parts.is_empty() { return Ok(None); }
+        match cmd_parts[0] {
+            "exit" | "quit" => { self.should_quit = true; Ok(Some(String::new())) }
+            "help" => Ok(Some(self.generate_help_text())),
+            "history" => Ok(Some(self.generate_history_display())),
+            _ => Ok(None)
         }
     }
     
@@ -1186,6 +1352,7 @@ impl CUIApp {
     /// 
     /// Provides intelligent command and filename completion with performance
     /// monitoring to ensure <1ms latency as specified in SPEC.md.
+    #[cfg(feature = "async")]
     pub async fn get_completions(&self, input: &str) -> Result<Vec<String>> {
         let completion_start = Instant::now();
         
@@ -1204,9 +1371,27 @@ impl CUIApp {
         Ok(completions)
     }
 
+    #[cfg(not(feature = "async"))]
+    pub fn get_completions_blocking(&self, input: &str) -> Result<Vec<String>> {
+        let completion_start = Instant::now();
+        let completer = self.completer.lock().unwrap();
+        // 非asyncビルドでは同期APIを使用
+        let completions = completer.get_completions_sync(input)
+            .context("Failed to get completions")?;
+        let completion_time = completion_start.elapsed().as_millis();
+        if completion_time > 1 { eprintln!("⚠️  Warning: Completion latency {completion_time}ms exceeds SPEC.md requirement of 1ms"); }
+        Ok(completions)
+    }
+
     /// Expose current input buffer from line editor for outer app queries
+    #[cfg(feature = "async")]
     pub async fn get_current_buffer(&self) -> Result<String> {
         let le = self.line_editor.lock().await;
+        Ok(le.current_buffer())
+    }
+    #[cfg(not(feature = "async"))]
+    pub fn get_current_buffer(&self) -> Result<String> {
+        let le = self.line_editor.lock().unwrap();
         Ok(le.current_buffer())
     }
     
@@ -1306,7 +1491,12 @@ impl CUIApp {
                     }
                 }
                 println!("🔧 Executing constructed command: {final_cmd}");
-                let output = self.execute_command(&final_cmd).await?; // this will update metrics / exit code
+                let output = {
+                    #[cfg(feature = "async")]
+                    { self.execute_command(&final_cmd).await? }
+                    #[cfg(not(feature = "async"))]
+                    { self.execute_command(&final_cmd)? }
+                }; // this will update metrics / exit code
                 println!("{output}");
                 self.guide_session = None;
             }

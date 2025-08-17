@@ -25,7 +25,7 @@ pub fn renice_cli(args: &[String]) -> Result<()> {
         (&args[0], 1)
     };
 
-    let adjust: i32 = adjust_str
+    let _adjust: i32 = adjust_str
         .parse()
         .map_err(|e: ParseIntError| anyhow!("renice: invalid adjustment '{adjust_str}': {e}"))?;
 

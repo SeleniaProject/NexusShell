@@ -4,7 +4,7 @@
 [![CodeQL](https://github.com/SeleniaProject/NexusShell/actions/workflows/codeql.yml/badge.svg)](https://github.com/SeleniaProject/NexusShell/actions/workflows/codeql.yml)
 [![Coverage](https://codecov.io/gh/SeleniaProject/NexusShell/branch/main/graph/badge.svg)](https://codecov.io/gh/SeleniaProject/NexusShell)
 [![Command Coverage](https://img.shields.io/badge/commands-57%2F182-brightgreen.svg)](COMMAND_STATUS.md)
-[![Binary Size](https://img.shields.io/badge/busybox--min-<1.5MB-blue.svg)](scripts/size_report.ps1)
+[![Binary Size](https://img.shields.io/badge/busybox--min-<1.5MB-blue.svg)](README.md#サイズ計測)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](README.md#installation)
 
@@ -275,9 +275,9 @@ cargo build -p nxsh_cli --no-default-features --features busybox-min --profile r
 または just ターゲット: `just busybox-build`
 
 ### サイズ計測 & 閾値ゲート
-PowerShell (Windows) / pwsh / Linux PowerShell で共通動作:
+PowerShell (Windows) 例:
 ```
-pwsh ./scripts/size_report.ps1 -Profile release-small -Variant busybox-min -OutJson latest.json -PrevJson prev.json
+just busybox-size
 ```
 環境変数:
 ```
@@ -285,11 +285,11 @@ NXSH_SIZE_MAX=1048576           # 最大許容 (bytes)
 NXSH_SIZE_DELTA_FAIL_PCT=5      # 前回比 +5% 以上で失敗(exit 3)
 NXSH_DISABLE_UPX=1              # UPX スキップ
 ```
-CI では `prev.json` をアーティファクトから取得し、差分が基準超の場合ブロック。
+CI では just タスクの内蔵ロジックでサイズを評価します。
 
 ### テーマ検証
 ```
-python scripts/tools/validate_themes.py
+just themes-validate
 ```
 
 ### シンボリックリンク戦略

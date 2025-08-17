@@ -257,7 +257,7 @@ impl PerformanceCache {
         None
     }
     
-    fn set<T: Send + Sync + 'static>(&mut self, key: String, value: T, cost: Duration) -> crate::compat::Result<()> {
+    fn set<T: Send + Sync + 'static>(&mut self, key: String, value: T, _cost: Duration) -> crate::compat::Result<()> {
         let size_estimate = std::mem::size_of::<T>() as u64;
         
         // Evict if necessary

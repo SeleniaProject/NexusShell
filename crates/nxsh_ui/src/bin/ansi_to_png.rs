@@ -1,8 +1,8 @@
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use ab_glyph::{FontRef, PxScale};
+use ab_glyph::PxScale;
 use image::Rgba;
 use nxsh_ui::ansi_render::load_font;
 
@@ -127,7 +127,7 @@ fn main() -> anyhow::Result<()> {
     let output = output.expect("--out is required");
 
     let font = load_font(&font_path)?;
-    let scale = PxScale { x: size, y: size };
+    let _scale = PxScale { x: size, y: size };
 
     let file = fs::File::open(&input)?;
     let reader = BufReader::new(file);

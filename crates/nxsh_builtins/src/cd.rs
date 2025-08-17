@@ -442,7 +442,7 @@ mod tests {
         let mut shell_ctx = ShellContext::new();
         shell_ctx.set_var("HOME", "/tmp");
         
-        let result = cd_cli(&["cd".to_string()], &mut shell_ctx);
+    let _result = cd_cli(&["cd".to_string()], &mut shell_ctx);
         // This test would need proper setup to work in all environments
     }
 

@@ -211,7 +211,7 @@ impl ComponentRegistry {
     }
     
     /// Extract type information from WASM module (simplified)
-    fn extract_module_type_info(&self, module: &Module) -> PluginResult<String> {
+    fn extract_module_type_info(&self, _module: &Module) -> PluginResult<String> {
         // Simplified type extraction - just return basic info as JSON
         let type_info = serde_json::json!({
             "exports": [],
@@ -233,7 +233,7 @@ impl ComponentRegistry {
         
         // Create a store for host function binding
         let engine = wasmi::Engine::default();
-        let store = wasmi::Store::new(&engine, ComponentState::new());
+    let _store = wasmi::Store::new(&engine, ComponentState::new());
         
         // Implement proper host function binding with correct wasmi 0.34 API
         // Create comprehensive host function set for NexusShell plugin system
@@ -426,7 +426,7 @@ impl ComponentRegistry {
                 let lo = (nanos as u64) as u32;
                 let hi = ((nanos as u64) >> 32) as u32;
                 let memory = caller.get_export("memory").and_then(|e| e.into_memory()).ok_or_else(|| wasmi::Error::new("Plugin memory not accessible"))?;
-                let mut data = memory.data_mut(&mut caller);
+                let data = memory.data_mut(&mut caller);
                 let ptr = result_ptr as usize;
                 if ptr + 8 > data.len() { return Ok(28); } // EFAULT-like
                 data[ptr..ptr+4].copy_from_slice(&lo.to_le_bytes());
@@ -441,7 +441,7 @@ impl ComponentRegistry {
             "random_get",
             |mut caller: Caller<'_, ComponentState>, buf_ptr: i32, buf_len: i32| -> Result<i32, wasmi::Error> {
                 let memory = caller.get_export("memory").and_then(|e| e.into_memory()).ok_or_else(|| wasmi::Error::new("Plugin memory not accessible"))?;
-                let mut data = memory.data_mut(&mut caller);
+                let data = memory.data_mut(&mut caller);
                 let start = buf_ptr as usize;
                 let len = buf_len as usize;
                 if start + len > data.len() { return Ok(28); }
@@ -556,7 +556,7 @@ impl ComponentRegistry {
     }
     
     /// Check if a function reference is callable
-    pub fn is_function_callable(&self, func_ref: &wasmi::Func) -> bool {
+    pub fn is_function_callable(&self, _func_ref: &wasmi::Func) -> bool {
         // Validate function signature and accessibility
         // This would integrate with the component's type system
         true // Simplified - real implementation would do proper validation
@@ -803,7 +803,7 @@ impl ComponentInterfaceGenerator {
     
     /// Generate component interface bindings
     pub fn generate_bindings(&self, world_name: &str) -> Result<String> {
-        let wit_definition = self.wit_definitions.get(world_name)
+    let _wit_definition = self.wit_definitions.get(world_name)
             .ok_or_else(|| anyhow::anyhow!("WIT world '{}' not found", world_name))?;
         
         // Generate Rust bindings using wit-bindgen

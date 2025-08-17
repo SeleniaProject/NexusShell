@@ -1,6 +1,6 @@
-use nxsh_ui::theme_validator::{ThemeValidator, ValidationResult};
+use nxsh_ui::theme_validator::ThemeValidator;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 fn main() -> anyhow::Result<()> {
     println!("🎨 NexusShell テーマバリデータ");
@@ -10,7 +10,7 @@ fn main() -> anyhow::Result<()> {
     let mut themes_dir: Option<PathBuf> = None;
     let mut out_format: Option<String> = None; // md|csv|json
     let mut out_path: Option<PathBuf> = None;
-    let mut min_contrast: Option<f64> = None; // not yet plumbed to validator rules, for future
+    let mut _min_contrast: Option<f64> = None; // not yet plumbed to validator rules, for future
     let mut strict: bool = false;
 
     let mut args = std::env::args().skip(1);
@@ -20,7 +20,7 @@ fn main() -> anyhow::Result<()> {
             "--out-format" => out_format = Some(args.next().expect("--out-format requires md|csv|json")),
             "--out" => out_path = Some(PathBuf::from(args.next().expect("--out requires a path"))),
             "--min-contrast" => {
-                min_contrast = Some(args.next().expect("--min-contrast requires a number").parse::<f64>().unwrap_or(4.5))
+                _min_contrast = Some(args.next().expect("--min-contrast requires a number").parse::<f64>().unwrap_or(4.5))
             }
             "--strict" => { strict = true; }
             _ => {}

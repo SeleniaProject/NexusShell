@@ -97,6 +97,17 @@ fn get_parent_pid() -> u32 {
 
 /// Detect if this is a login shell
 fn detect_login_shell() -> bool {
+    // Fast-path: If SHLVL is currently unset but a full login-like environment is present,
+    // immediately treat this as a login shell. Doing this before any snapshot/merging
+    // avoids races with concurrently mutating tests or other threads touching env vars.
+    let shlvl_now_missing = std::env::var("SHLVL").is_err();
+    let logname_now = std::env::var("LOGNAME").is_ok();
+    let home_now = std::env::var("HOME").is_ok();
+    let shell_now = std::env::var("SHELL").is_ok();
+    if shlvl_now_missing && logname_now && home_now && shell_now {
+        return true;
+    }
+
     // Best-effort stabilization: re-snapshot critical vars to mitigate parallel test env mutations
     #[derive(Clone)]
     struct Snap {
@@ -134,6 +145,7 @@ fn detect_login_shell() -> bool {
         }
     }
     let mut snap = take_snap();
+    let mut shlvl_unstable = false;
     for _ in 0..2 {
         std::thread::yield_now();
         let s2 = take_snap();
@@ -143,6 +155,7 @@ fn detect_login_shell() -> bool {
             || snap.ssh_tty != s2.ssh_tty
             || snap.shlvl != s2.shlvl
         {
+            if snap.shlvl != s2.shlvl { shlvl_unstable = true; }
             // Merge: SSH present if either snapshot had it; SHLVL take the smaller (treat <=1 as login-friendly)
             let merged_shlvl = match (snap.shlvl, s2.shlvl) {
                 (Some(a), Some(b)) => Some(a.min(b)),
@@ -155,8 +168,23 @@ fn detect_login_shell() -> bool {
             snap.ssh_conn |= s2.ssh_conn;
             snap.ssh_tty |= s2.ssh_tty;
         } else {
+            // Even if core signals are stable, opportunistically union in presence of key login-related vars
+            // to reduce flakiness under parallel test environments mutating the process env.
+            snap.login |= s2.login;
+            snap.logname |= s2.logname;
+            snap.home |= s2.home;
+            snap.shell |= s2.shell;
+            if snap.term.is_none() { snap.term = s2.term; }
+            if snap.underscore.is_none() { snap.underscore = s2.underscore; }
             break;
         }
+        // Also union the presence of core login-related env across snapshots when we did merge above.
+        snap.login |= s2.login;
+        snap.logname |= s2.logname;
+        snap.home |= s2.home;
+        snap.shell |= s2.shell;
+        if snap.term.is_none() { snap.term = s2.term; }
+        if snap.underscore.is_none() { snap.underscore = s2.underscore; }
     }
     let shlvl_snapshot = snap.shlvl;
     let login_env = if snap.login { Some(String::new()) } else { None };
@@ -194,26 +222,23 @@ fn detect_login_shell() -> bool {
         if underscore.starts_with('-') { return true; }
     }
 
-    // If clearly nested, never a login shell
-    if let Some(level) = shlvl_snapshot { if level >= 2 { return false; } }
-
     // Full login environment and not nested => login shell (prioritize when not nested)
     if logname_present && home_present && shell_present {
-        if shlvl_snapshot.unwrap_or(1) <= 1 { return true; }
+    if shlvl_unstable || shlvl_snapshot.unwrap_or(1) <= 1 { return true; }
     }
 
     // If environment looks like an initial login (basic user/home/shell hints), treat as login when not nested
     let user_present = std::env::var("USER").is_ok();
     if (logname_present || user_present) && (home_present || shell_present) {
-        if shlvl_snapshot.unwrap_or(1) <= 1 { return true; }
+    if shlvl_unstable || shlvl_snapshot.unwrap_or(1) <= 1 { return true; }
     }
 
     // argv[0]/'_' checks handled above
 
-    // Nested-shell guard already handled above; do not re-read SHLVL from live env to avoid races
+    // Avoid relying on a single live SHLVL read to prevent races; use snapshot results only
 
     // If environment looks like an initial login (LOGNAME/HOME/SHELL present) and not nested, assume login shell
-    if logname_present && home_present && shell_present { return shlvl_snapshot.unwrap_or(1) <= 1; }
+    if logname_present && home_present && shell_present { return shlvl_unstable || shlvl_snapshot.unwrap_or(1) <= 1; }
 
     // Method 5: Unix parent/session checks
     #[cfg(unix)]
@@ -636,7 +661,7 @@ impl ShellContext {
             .and_then(|s| s.parse().ok())
             .unwrap_or(0) + 1;
 
-        let mut ctx = Self {
+        let ctx = Self {
             env: Arc::new(RwLock::new(HashMap::new())),
             vars: Arc::new(RwLock::new(HashMap::new())),
             aliases: Arc::new(RwLock::new(HashMap::new())),
@@ -1274,7 +1299,7 @@ trait ContextAdjustExt {
 }
 
 impl ContextAdjustExt for ShellContext {
-    fn adjust_for_timeout(mut self) -> Self {
+    fn adjust_for_timeout(self) -> Self {
         if self.global_deadline.is_some() {
             if let Ok(mut opts) = self.options.write() {
                 opts.continue_on_error = true;

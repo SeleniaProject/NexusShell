@@ -8,7 +8,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(feature = "internationalization"))]
     {
         println!("(i18n_test example built without internationalization feature)");
-        return Ok(());
     }
 
     #[cfg(feature = "internationalization")]

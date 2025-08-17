@@ -89,7 +89,7 @@ pub fn command_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
     Ok(())
 }
 
-fn handle_query(names: Vec<String>, ctx: &ShellContext, list_only: bool, verbose: bool) -> Result<()> {
+fn handle_query(names: Vec<String>, ctx: &ShellContext, _list_only: bool, verbose: bool) -> Result<()> {
     for name in names {
         if let Some(alias) = ctx.get_alias(&name) {
             if verbose {

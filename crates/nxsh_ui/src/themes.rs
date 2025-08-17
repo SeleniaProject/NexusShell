@@ -339,3 +339,27 @@ impl DisplayTheme {
         })
     }
 }
+
+/// List all theme files (JSON/TOML) from the default theme directory
+/// This is a convenience function for quick validation tools/examples.
+pub fn list_theme_files() -> Result<Vec<PathBuf>> {
+    let theme_dir = ThemeManager::get_theme_directory()
+        .unwrap_or_else(|_| PathBuf::from("themes"));
+
+    let mut files = Vec::new();
+    if theme_dir.exists() {
+        for entry in fs::read_dir(&theme_dir).with_context(|| format!(
+            "Failed to read theme directory: {:?}", theme_dir
+        ))? {
+            let entry = entry?;
+            let path = entry.path();
+            if let Some(ext) = path.extension() {
+                if ext == "json" || ext == "toml" {
+                    files.push(path);
+                }
+            }
+        }
+    }
+
+    Ok(files)
+}

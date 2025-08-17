@@ -118,10 +118,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Make scripts executable
-        run: chmod +x scripts/compile_po_to_mo.sh
-      - name: Compile translations
-        run: scripts/compile_po_to_mo.sh
+      - name: Install gettext
+        run: sudo apt-get update && sudo apt-get install -y gettext
+      - name: Compile translations (inline)
+        run: |
+          set -euo pipefail
+          find i18n/po -name '*.po' | while read -r po; do \
+            lang=$(basename "$(dirname "$po")"); \
+            out="i18n/mo/$lang/LC_MESSAGES/nxsh.mo"; \
+            mkdir -p "$(dirname "$out")"; \
+            msgfmt "$po" -o "$out"; \
+          done
 
   size-gate:
     name: Size gate (busybox-min)
@@ -135,8 +142,11 @@ jobs:
         shell: pwsh
         run: |
           $env:NXSH_SIZE_MAX = "1572864"
-          ./scripts/size_report.ps1 -Profile release-small -Variant busybox-min -OutJson size_report_local.json
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build -p nxsh_cli --no-default-features --features busybox-min --profile release-small
+          $bin = "target/release-small/nxsh.exe"
+          $size = (Get-Item $bin).Length
+          if ($size -gt [int]$env:NXSH_SIZE_MAX) { echo "Size gate failed: $size > $env:NXSH_SIZE_MAX"; exit 2 } else { echo "Size gate OK ($size bytes)" }
+          "{`"size_bytes`":$size}" | Set-Content -Encoding UTF8 size_report_local.json
       - name: Upload size report
         uses: actions/upload-artifact@v4
         with:
@@ -148,12 +158,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Validate theme JSONs
-        run: python scripts/tools/validate_themes.py
+      - name: Validate themes via nxsh_ui
+        run: cargo run -p nxsh_ui --bin theme_validator_test -- --dir assets/themes --out-format json --out reports/theme_validation.json --strict
 
   coverage:
     name: Coverage (ubuntu)

@@ -156,28 +156,25 @@ pub use touch::touch_cli;
 pub mod ln;
 pub use ln::ln_cli;
 
-// Regex-heavy text / file search utilities. In super-min we stub them out to avoid
-// pulling in the regex ecosystem immediately. This yields a large size win.
-#[cfg(not(feature = "super-min"))]
+// Regex-heavy utilities (gated behind advanced-regex). In super-min or when disabled,
+// we expose stubs to keep the command table consistent.
+#[cfg(all(not(feature = "super-min"), feature = "advanced-regex"))]
 pub mod find;
-#[cfg(not(feature = "super-min"))]
+#[cfg(all(not(feature = "super-min"), feature = "advanced-regex"))]
 pub use find::find_cli;
-#[cfg(feature = "super-min")]
-pub mod find { use anyhow::{Result, anyhow}; pub fn find_cli(_: &[String]) -> Result<()> { Err(anyhow!("find disabled in super-min")) } }
-#[cfg(feature = "super-min")]
+#[cfg(any(feature = "super-min", not(feature = "advanced-regex")))]
+pub mod find { use anyhow::{Result, anyhow}; pub fn find_cli(_: &[String]) -> Result<()> { Err(anyhow!("find disabled in this build")) } }
+#[cfg(any(feature = "super-min", not(feature = "advanced-regex")))]
 pub use find::find_cli;
 
-#[cfg(not(feature = "super-min"))]
+#[cfg(all(not(feature = "super-min"), feature = "advanced-regex"))]
 pub mod grep;
-#[cfg(not(feature = "super-min"))]
+#[cfg(all(not(feature = "super-min"), feature = "advanced-regex"))]
 pub use grep::grep_cli;
-#[cfg(feature = "super-min")]
-pub mod grep { use anyhow::{Result, anyhow}; pub fn grep_cli(_: &[String]) -> Result<()> { Err(anyhow!("grep disabled in super-min")) } }
-#[cfg(feature = "super-min")]
+#[cfg(any(feature = "super-min", not(feature = "advanced-regex")))]
+pub mod grep { use anyhow::{Result, anyhow}; pub fn grep_cli(_: &[String]) -> Result<()> { Err(anyhow!("grep disabled in this build")) } }
+#[cfg(any(feature = "super-min", not(feature = "advanced-regex")))]
 pub use grep::grep_cli;
-
-pub mod sort;
-pub use sort::sort_cli;
 
 pub mod uniq;
 pub use uniq::uniq_cli;
@@ -202,25 +199,28 @@ pub use wc::wc_cli;
 pub mod cut;
 pub use cut::cut_cli;
 
-#[cfg(not(feature = "super-min"))]
+pub mod sort;
+pub use sort::sort_cli;
+
+#[cfg(all(not(feature = "super-min"), feature = "advanced-regex"))]
 pub mod awk;
-#[cfg(not(feature = "super-min"))]
+#[cfg(all(not(feature = "super-min"), feature = "advanced-regex"))]
 pub use awk::awk_cli;
-#[cfg(feature = "super-min")]
+#[cfg(any(feature = "super-min", not(feature = "advanced-regex")))]
 pub mod awk { use anyhow::{Result, anyhow};
     // Signature matches real implementation (adds &mut ShellContext)
     pub fn awk_cli(_: &[String], _: &mut nxsh_core::context::ShellContext) -> Result<()> { Err(anyhow!("awk disabled in super-min")) }
 }
-#[cfg(feature = "super-min")]
+#[cfg(any(feature = "super-min", not(feature = "advanced-regex")))]
 pub use awk::awk_cli;
 
-#[cfg(not(feature = "super-min"))]
+#[cfg(all(not(feature = "super-min"), feature = "advanced-regex"))]
 pub mod sed;
-#[cfg(not(feature = "super-min"))]
+#[cfg(all(not(feature = "super-min"), feature = "advanced-regex"))]
 pub use sed::sed_cli;
-#[cfg(feature = "super-min")]
-pub mod sed { use anyhow::{Result, anyhow}; pub fn sed_cli(_: &[String]) -> Result<()> { Err(anyhow!("sed disabled in super-min")) } }
-#[cfg(feature = "super-min")]
+#[cfg(any(feature = "super-min", not(feature = "advanced-regex")))]
+pub mod sed { use anyhow::{Result, anyhow}; pub fn sed_cli(_: &[String]) -> Result<()> { Err(anyhow!("sed disabled in this build")) } }
+#[cfg(any(feature = "super-min", not(feature = "advanced-regex")))]
 pub use sed::sed_cli;
 
 pub mod tr;
@@ -934,12 +934,11 @@ pub use common::*;
 
 // Logging statistics builtin (exposes runtime logging metrics)
 #[cfg(feature = "logging")]
-pub mod logstats_builtin;
-#[cfg(feature = "logging")]
 pub mod logstats;
 #[cfg(feature = "logging")]
-#[cfg(feature = "logging")]
 pub use logstats::logstats_cli;
+#[cfg(not(feature = "logging"))]
+pub mod logstats_builtin;
 #[cfg(not(feature = "logging"))]
 pub use logstats_builtin::logstats_cli;
 
@@ -987,13 +986,11 @@ pub fn execute_builtin(command: &str, args: &[String]) -> BuiltinResult<()> {
         "cat" => cat_cli(args).map_err(shellerr_from_anyhow),
         "cp" => {
             #[cfg(all(feature = "async-runtime", not(feature = "super-min")))]
-            {
-                return GLOBAL_RT.block_on(async { cp_cli(args).await }).map_err(shellerr_from_anyhow);
-            }
-            #[cfg(any(feature = "super-min", not(feature = "async-runtime")))]
-            {
-                return cp_cli(args).map_err(shellerr_from_anyhow);
-            }
+            { return GLOBAL_RT.block_on(async { cp_cli(args).await }).map_err(shellerr_from_anyhow); }
+            #[cfg(feature = "super-min")]
+            { return cp_cli(args).map_err(shellerr_from_anyhow); }
+            #[cfg(all(not(feature = "async-runtime"), not(feature = "super-min")))]
+            { return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "cp: async runtime not available (enable feature 'async-runtime' or 'super-min')")); }
         },
         "mv" => mv_cli(args).map_err(shellerr_from_anyhow),
         "rm" => rm_cli(args).map_err(shellerr_from_anyhow),
@@ -1029,26 +1026,19 @@ pub fn execute_builtin(command: &str, args: &[String]) -> BuiltinResult<()> {
         "uname" => uname_cli(args).map_err(shellerr_from_anyhow),
         "date" => {
             #[cfg(all(feature = "async-runtime", not(feature = "super-min")))]
-            {
-                return GLOBAL_RT.block_on(async { date_cli(args).await }).map_err(shellerr_from_anyhow);
-            }
-            #[cfg(any(feature = "super-min", not(feature = "async-runtime")))]
-            {
-                // date_cli is async; when no full async runtime feature, execute via a lightweight executor.
-                return futures::executor::block_on(date_cli(args)).map_err(shellerr_from_anyhow);
-            }
+            { return GLOBAL_RT.block_on(async { date_cli(args).await }).map_err(shellerr_from_anyhow); }
+            #[cfg(feature = "super-min")]
+            { return futures::executor::block_on(date_cli(args)).map_err(shellerr_from_anyhow); }
+            #[cfg(all(not(feature = "async-runtime"), not(feature = "super-min")))]
+            { return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "date: async runtime not available in this build")); }
         },
         "cal" => {
             #[cfg(all(feature = "async-runtime", not(feature = "super-min")))]
-            {
-                return GLOBAL_RT.block_on(async { cal_cli(args.to_vec()).await.map(|_| ()) });
-            }
-            #[cfg(any(feature = "super-min", not(feature = "async-runtime")))]
-            {
-                // cal_cli is async and expects an owned Vec<String>; run it to completion, discarding its output value.
-                let res = futures::executor::block_on(cal_cli(args.to_vec()));
-                return res.map(|_| ());
-            }
+            { return GLOBAL_RT.block_on(async { cal_cli(args.to_vec()).await.map(|_| ()) }); }
+            #[cfg(feature = "super-min")]
+            { let _ = futures::executor::block_on(cal_cli(args.to_vec())); return Ok(()); }
+            #[cfg(all(not(feature = "async-runtime"), not(feature = "super-min")))]
+            { return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "cal: async runtime not available in this build")); }
         },
         "env" => env_cli(args).map_err(shellerr_from_anyhow),
                 "chmod" => chmod_cli(args).map_err(shellerr_from_anyhow),

@@ -1,6 +1,7 @@
 use anyhow::Result;
-use std::io::{self, Read};
 use std::fs::File;
+use std::io::{self, Read, BufReader};
+use crc32fast::Hasher as Crc32;
 
 /// CLI wrapper function for cksum command
 pub fn cksum_cli(args: &[String]) -> Result<()> {
@@ -35,18 +36,17 @@ pub fn cksum_cli(args: &[String]) -> Result<()> {
     }
     
     if files.is_empty() {
-        // Read from stdin
-        let mut buffer = Vec::new();
-        io::stdin().read_to_end(&mut buffer)?;
-        let (checksum, size) = compute_checksum(&buffer, algorithm)?;
+        // Stream from stdin
+        let stdin = io::stdin();
+        let mut reader = BufReader::new(stdin.lock());
+        let (checksum, size) = compute_checksum_stream(&mut reader, algorithm)?;
         println!("{checksum} {size} -");
     } else {
-        // Read from files
+        // Stream from files
         for filename in &files {
-            let mut file = File::open(filename)?;
-            let mut buffer = Vec::new();
-            file.read_to_end(&mut buffer)?;
-            let (checksum, size) = compute_checksum(&buffer, algorithm)?;
+            let file = File::open(filename)?;
+            let mut reader = BufReader::new(file);
+            let (checksum, size) = compute_checksum_stream(&mut reader, algorithm)?;
             println!("{checksum} {size} {filename}");
         }
     }
@@ -54,64 +54,63 @@ pub fn cksum_cli(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn compute_checksum(data: &[u8], algorithm: &str) -> Result<(String, usize)> {
-    let size = data.len();
-    
+fn compute_checksum_stream<R: Read>(reader: &mut R, algorithm: &str) -> Result<(String, usize)> {
     match algorithm {
         "crc32" => {
-            let crc = compute_crc32(data);
-            Ok((format!("{crc}"), size))
+            // Fast CRC32 with streaming; matches common IEEE CRC32 (zlib) used widely.
+            let mut hasher = Crc32::new();
+            let mut size: usize = 0;
+            let mut buf = [0u8; 64 * 1024];
+            loop {
+                let n = reader.read(&mut buf)?;
+                if n == 0 { break; }
+                hasher.update(&buf[..n]);
+                size += n;
+            }
+            let crc = hasher.finalize();
+            Ok((format!("{}", crc), size))
         }
         "md5" => {
-            let digest = md5::compute(data);
+            let mut hasher = md5::Context::new();
+            let mut size: usize = 0;
+            let mut buf = [0u8; 64 * 1024];
+            loop {
+                let n = reader.read(&mut buf)?;
+                if n == 0 { break; }
+                hasher.consume(&buf[..n]);
+                size += n;
+            }
+            let digest = hasher.compute();
             Ok((format!("{:x}", digest), size))
         }
         "sha1" => {
-            use sha2::digest::Digest;
-            let mut hasher = sha2::Sha1::new();
-            hasher.update(data);
+            use sha1::{Digest, Sha1};
+            let mut hasher = Sha1::new();
+            let mut size: usize = 0;
+            let mut buf = [0u8; 64 * 1024];
+            loop {
+                let n = reader.read(&mut buf)?;
+                if n == 0 { break; }
+                hasher.update(&buf[..n]);
+                size += n;
+            }
             let out = hasher.finalize();
             Ok((format!("{:x}", out), size))
         }
         "sha256" => {
             use sha2::digest::Digest;
             let mut hasher = sha2::Sha256::new();
-            hasher.update(data);
+            let mut size: usize = 0;
+            let mut buf = [0u8; 64 * 1024];
+            loop {
+                let n = reader.read(&mut buf)?;
+                if n == 0 { break; }
+                hasher.update(&buf[..n]);
+                size += n;
+            }
             let out = hasher.finalize();
             Ok((format!("{:x}", out), size))
         }
-        _ => {
-            Err(anyhow::anyhow!("Unsupported algorithm: {}", algorithm))
-        }
+        _ => Err(anyhow::anyhow!("Unsupported algorithm: {}", algorithm)),
     }
-}
-
-fn compute_crc32(data: &[u8]) -> u32 {
-    // Simple CRC32 implementation
-    const CRC32_POLY: u32 = 0xEDB88320;
-    let mut crc: u32 = !0;
-    
-    for &byte in data {
-        crc ^= byte as u32;
-        for _ in 0..8 {
-            if crc & 1 != 0 {
-                crc = (crc >> 1) ^ CRC32_POLY;
-            } else {
-                crc >>= 1;
-            }
-        }
-    }
-    
-    !crc
-}
-
-fn compute_simple_hash(data: &[u8], length: usize) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    
-    let mut hasher = DefaultHasher::new();
-    data.hash(&mut hasher);
-    let hash = hasher.finish();
-    
-    format!("{hash:0length$x}")
 }

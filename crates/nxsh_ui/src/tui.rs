@@ -3,10 +3,9 @@
 
 use nxsh_core::{ShellContext, ShellResult, executor::Executor, ErrorKind, error::RuntimeErrorKind};
 use crate::app::App;
-use crossterm::execute;
 
 /// Disabled TUI run function - returns error
-pub async fn run(context: &mut ShellContext, executor: &mut Executor) -> ShellResult<()> {
+pub async fn run(_context: &mut ShellContext, _executor: &mut Executor) -> ShellResult<()> {
     Err(nxsh_core::ShellError::new(
         ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound),
         "TUI mode disabled - use CUI mode instead"
@@ -14,12 +13,12 @@ pub async fn run(context: &mut ShellContext, executor: &mut Executor) -> ShellRe
 }
 
 /// Disabled TUI event handler
-pub async fn handle_events(app: &mut App, _ctx: &mut ShellContext) -> ShellResult<bool> {
+pub async fn handle_events(_app: &mut App, _ctx: &mut ShellContext) -> ShellResult<bool> {
     Ok(false)
 }
 
 /// Disabled TUI draw function
-pub fn draw_ui(frame: &mut DummyFrame, app: &mut App) -> Result<(), std::io::Error> {
+pub fn draw_ui(_frame: &mut DummyFrame, _app: &mut App) -> Result<(), std::io::Error> {
     Ok(())
 }
 
@@ -73,16 +72,14 @@ pub fn supports_color() -> bool {
 
 /// Clear the terminal screen.
 pub fn clear_screen() -> ShellResult<()> {
-    use std::io::Write;
-    execute!(std::io::stdout(), crossterm::terminal::Clear(crossterm::terminal::ClearType::All))
+    crossterm::execute!(std::io::stdout(), crossterm::terminal::Clear(crossterm::terminal::ClearType::All))
         .map_err(|e| nxsh_core::ShellError::io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
     Ok(())
 }
 
 /// Move cursor to position.
 pub fn move_cursor(x: u16, y: u16) -> ShellResult<()> {
-    use std::io::Write;
-    execute!(std::io::stdout(), crossterm::cursor::MoveTo(x, y))
+    crossterm::execute!(std::io::stdout(), crossterm::cursor::MoveTo(x, y))
         .map_err(|e| nxsh_core::ShellError::io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
     Ok(())
 }

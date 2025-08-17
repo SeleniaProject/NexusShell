@@ -23,10 +23,13 @@ use anyhow::{anyhow, Result, Context};
 use indicatif::{ProgressBar, ProgressStyle};
 #[cfg(not(feature = "progress-ui"))]
 #[derive(Clone)]
+#[allow(dead_code)]
 struct ProgressBar;
 #[cfg(not(feature = "progress-ui"))]
+#[allow(dead_code)]
 struct ProgressStyle;
 #[cfg(not(feature = "progress-ui"))]
+#[allow(dead_code)]
 impl ProgressBar {
     fn new(_len: u64) -> Self { Self }
     fn new_spinner() -> Self { Self }
@@ -37,6 +40,7 @@ impl ProgressBar {
     fn abandon_with_message<S: Into<String>>(&self, _msg: S) {}
 }
 #[cfg(not(feature = "progress-ui"))]
+#[allow(dead_code)]
 impl ProgressStyle {
     fn default_bar() -> Self { Self }
     fn default_spinner() -> Self { Self }
@@ -52,7 +56,6 @@ use std::{
 #[cfg(feature = "async-runtime")]
 use tokio::{ signal, sync::broadcast, time::{sleep as async_sleep, sleep_until}};
 use crate::common::i18n::I18n; // stub when i18n disabled
-use crate::t;
 
 // High-precision sleep configuration
 const SPIN_THRESHOLD_NS: u64 = 10_000_000; // 10ms - switch to spin-sleep below this
@@ -161,7 +164,7 @@ impl SleepManager {
         let start_time = SystemTime::now();
         let start_instant = Instant::now();
         
-        let mut operation = SleepOperation {
+    let mut operation = SleepOperation {
             id: operation_id.clone(),
             duration,
             start_time,
@@ -243,7 +246,7 @@ impl SleepManager {
 
     async fn high_precision_sleep(&self, duration: Duration, label: &Option<String>) -> Result<()> {
         if self.config.show_progress {
-            self.sleep_with_progress(duration, label, SleepMethod::HighPrecision).await
+            self.sleep_with_progress(duration, &label, SleepMethod::HighPrecision).await
         } else {
             self.precise_sleep_internal(duration).await
         }
@@ -304,9 +307,9 @@ impl SleepManager {
         Ok(())
     }
 
-    async fn standard_sleep(&self, duration: Duration, label: &Option<String>) -> Result<()> {
+    async fn standard_sleep(&self, duration: Duration, _label: &Option<String>) -> Result<()> {
         if self.config.show_progress {
-            self.sleep_with_progress(duration, label, SleepMethod::Standard).await
+        self.sleep_with_progress(duration, &_label, SleepMethod::Standard).await
         } else {
             async_sleep(duration).await;
             Ok(())
@@ -334,13 +337,13 @@ impl SleepManager {
         Ok(())
     }
 
-    async fn sleep_with_progress(&self, duration: Duration, label: &Option<String>, method: SleepMethod) -> Result<()> {
+    async fn sleep_with_progress(&self, duration: Duration, _label: &Option<String>, method: SleepMethod) -> Result<()> {
         let pb = ProgressBar::new(duration.as_millis() as u64);
         #[cfg(feature = "progress-ui")]
         pb.set_style(
             ProgressStyle::default_bar()
                 .template(&format!("{{spinner:.green}} {} [{{wide_bar:.cyan/blue}}] {{pos}}/{{len}}ms ({{eta}})", 
-                    label.as_deref().unwrap_or(&self.i18n.get("sleep.progress.sleeping", None))))
+                    _label.as_deref().unwrap_or(&self.i18n.get("sleep.progress.sleeping", None))))
                 .unwrap()
                 .progress_chars("#>-")
         );

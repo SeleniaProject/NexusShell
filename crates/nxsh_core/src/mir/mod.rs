@@ -1134,13 +1134,13 @@ impl MirExecutor {
     }
 
     /// High-performance id implementation
-    fn builtin_id(&self, args: Vec<MirValue>) -> Result<MirValue, MirError> {
+    fn builtin_id(&self, _args: Vec<MirValue>) -> Result<MirValue, MirError> {
         // Simple implementation for Windows - display current user info
         #[cfg(windows)]
         {
             use std::env;
             let username = env::var("USERNAME").unwrap_or_else(|_| "unknown".to_string());
-            let domain = env::var("USERDOMAIN").unwrap_or_else(|_| "WORKGROUP".to_string());
+            let _domain = env::var("USERDOMAIN").unwrap_or_else(|_| "WORKGROUP".to_string());
             println!("uid=1000({}) gid=1000({}) groups=1000({})", username, username, username);
             Ok(MirValue::Integer(0))
         }
@@ -1465,7 +1465,7 @@ impl MirExecutor {
         
         let mut results = Vec::new();
         for line in input.lines() {
-            let combined_args = vec![MirValue::String(line.to_string())];
+            let _combined_args = vec![MirValue::String(line.to_string())];
             // Use external command execution for xargs
             match std::process::Command::new(&command)
                 .arg(line)
@@ -1978,7 +1978,7 @@ impl MirExecutor {
 
     /// Execute a closure object (as created by ClosureCreate) with no arguments and return its value.
     fn execute_closure_object(&mut self, func: &MirFunction, obj: &std::collections::HashMap<String, MirValue>) -> Result<MirValue, MirError> {
-        if let (Some(MirValue::Integer(block_id_i)), Some(MirValue::Array(cap_vals)), Some(MirValue::Array(capture_regs_vals)), Some(MirValue::Array(param_regs_vals))) = (
+    if let (Some(MirValue::Integer(block_id_i)), Some(MirValue::Array(cap_vals)), Some(MirValue::Array(capture_regs_vals)), Some(MirValue::Array(_param_regs_vals))) = (
             obj.get("block"), obj.get("captures"), obj.get("capture_regs"), obj.get("param_regs")
         ) {
             // Map captures

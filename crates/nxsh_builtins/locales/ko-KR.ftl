@@ -53,3 +53,135 @@ file-exists = 파일이 존재합니다: {$filename}
 file-not-exists = 파일이 존재하지 않습니다: {$filename}
 operation-cancelled = 작업이 취소되었습니다
 operation-completed = 작업이 성공적으로 완료되었습니다 
+
+# timedatectl status/common/time-sync labels
+timedatectl.common.yes = 예
+timedatectl.common.no = 아니오
+timedatectl.common.enabled = 사용
+timedatectl.common.disabled = 사용 안 함
+timedatectl.common.reachable = 도달 가능
+timedatectl.common.unreachable = 도달 불가
+
+timedatectl.msg.time_set_to = 시간 설정:
+timedatectl.msg.timezone_set_to = 시간대 설정:
+timedatectl.msg.rtc_in_local_tz = 로컬 시간대의 RTC:
+timedatectl.msg.ntp_sync = NTP 동기화:
+timedatectl.msg.added_ntp_server = NTP 서버 추가:
+timedatectl.msg.removed_ntp_server = NTP 서버 제거:
+
+timedatectl.timesync.title = 시간 동기화 상태:
+timedatectl.timesync.enabled = 사용:
+timedatectl.timesync.synchronized = 동기화됨:
+timedatectl.timesync.last_sync = 최근 동기화:
+timedatectl.timesync.sync_accuracy = 동기화 정확도:
+timedatectl.timesync.drift_rate = 드리프트율:
+timedatectl.timesync.poll_interval = 폴링 간격:
+timedatectl.timesync.leap_status = 윤초 상태:
+timedatectl.timesync.ntp_servers = NTP 서버:
+timedatectl.timesync.stratum = 스트라텀:
+timedatectl.timesync.delay = 지연:
+timedatectl.timesync.offset = 오프셋:
+timedatectl.timesync.summary = 요약:
+timedatectl.timesync.servers_total_reachable = 서버 (전체/도달 가능):
+timedatectl.timesync.best_stratum = 최적 스트라텀:
+timedatectl.timesync.preferred_server = 우선 서버:
+timedatectl.timesync.avg_delay = 평균 지연:
+timedatectl.timesync.min_delay = 최소 지연:
+timedatectl.timesync.max_delay = 최대 지연:
+timedatectl.timesync.avg_offset = 평균 오프셋:
+timedatectl.timesync.min_offset = 최소 오프셋:
+timedatectl.timesync.max_offset = 최대 오프셋:
+timedatectl.timesync.avg_jitter = 평균 지터:
+
+# timedatectl 상태 레이블
+timedatectl.status.local_time = 로컬 시간
+timedatectl.status.universal_time = 세계시 (UTC)
+timedatectl.status.rtc_time = RTC 시간
+timedatectl.status.time_zone = 시간대
+timedatectl.status.system_clock_synchronized = 시스템 시계 동기화됨
+timedatectl.status.ntp_service = NTP 서비스
+timedatectl.status.rtc_in_local_tz = 로컬 TZ의 RTC
+timedatectl.status.sync_accuracy = 동기화 정확도
+timedatectl.status.drift_rate = 드리프트율
+timedatectl.status.last_sync = 마지막 동기화
+timedatectl.status.leap_second = 윤초
+timedatectl.status.pending = 보류 중
+
+# timedatectl 도움말 — 명령
+timedatectl.help.cmd.status = 현재 시간 상태 표시
+timedatectl.help.cmd.show = 상태를 JSON으로 표시
+timedatectl.help.cmd.set_time = 시스템 시간을 설정
+timedatectl.help.cmd.set_timezone = 시스템 시간대를 설정
+timedatectl.help.cmd.list_timezones = 사용 가능한 시간대 나열
+timedatectl.help.cmd.set_local_rtc = RTC를 로컬 시간으로 설정 (true/false)
+timedatectl.help.cmd.set_ntp = NTP 동기화 활성/비활성 (true/false)
+timedatectl.help.cmd.timesync_status = 시간 동기화 상태 표시
+timedatectl.help.cmd.show_timesync = 시간 동기화 상태를 JSON으로 표시
+timedatectl.help.cmd.add_ntp_server = NTP 서버 추가
+timedatectl.help.cmd.remove_ntp_server = NTP 서버 제거
+timedatectl.help.cmd.statistics = 시간 관련 통계 표시
+timedatectl.help.cmd.history = 시간 조정 이력 표시
+
+# timedatectl 도움말 — 옵션
+timedatectl.help.opt.help = 이 도움말을 표시하고 종료
+timedatectl.help.opt.monitor = 실시간 모니터링 모드 실행
+timedatectl.help.opt.all = 모든 속성 표시
+timedatectl.help.opt.json = JSON으로 출력
+
+# 허용되는 시간 형식
+timedatectl.help.fmt.full_datetime = 전체 날짜 및 시간
+timedatectl.help.fmt.datetime_no_sec = 초 없이 날짜 및 시간
+timedatectl.help.fmt.time_only = 시간만
+timedatectl.help.fmt.time_no_sec = 시간 (초 없음)
+timedatectl.help.fmt.unix_timestamp = 유닉스 타임스탬프 (초)
+timedatectl.help.fmt.iso8601 = ISO 8601 (UTC)
+
+# 도움말 예시
+timedatectl.help.ex.status = 상태 표시
+timedatectl.help.ex.set_time = 시스템 시간 설정
+timedatectl.help.ex.set_timezone = 시간대 설정
+timedatectl.help.ex.find_timezone = 시간대 찾기
+timedatectl.help.ex.enable_ntp = NTP 동기화 활성화
+timedatectl.help.ex.add_server = NTP 서버 추가
+timedatectl.help.ex.sync_status = 동기화 상태 표시
+timedatectl.help.ex.statistics = 통계 표시
+
+# 속성 보기
+timedatectl.properties.title = 시간 및 날짜 속성
+timedatectl.properties.time_info = 시간 정보
+timedatectl.properties.local_time = 로컬 시간
+timedatectl.properties.utc_time = UTC 시간
+timedatectl.properties.timezone_info = 시간대 정보
+timedatectl.properties.timezone = 시간대
+timedatectl.properties.utc_offset = UTC 오프셋
+timedatectl.properties.dst_active = 서머타임 활성
+timedatectl.properties.sync_status = 동기화 상태
+timedatectl.properties.system_synced = 시스템 시계 동기화됨
+timedatectl.properties.ntp_service = NTP 서비스
+timedatectl.properties.time_source = 시간 소스
+timedatectl.properties.sync_accuracy = 동기화 정확도
+timedatectl.properties.last_sync = 마지막 동기화
+timedatectl.properties.drift_rate = 드리프트율 (ppm)
+timedatectl.properties.leap_info = 윤초 정보
+timedatectl.properties.leap_pending = 윤초 보류 중
+timedatectl.properties.ntp_config = NTP 구성
+timedatectl.properties.ntp_enabled = NTP 활성화
+timedatectl.properties.ntp_servers = NTP 서버
+timedatectl.properties.min_poll = 최소 폴링 간격
+timedatectl.properties.max_poll = 최대 폴링 간격
+timedatectl.properties.capabilities = 시스템 기능
+timedatectl.properties.tz_changes = 시간대 변경
+timedatectl.properties.ntp_sync = NTP 동기화
+timedatectl.properties.rtc_access = RTC 액세스
+timedatectl.properties.hw_timestamp = 하드웨어 타임스탬핑
+
+# 일반 레이블
+common.yes = 예
+common.no = 아니오
+common.supported = 지원됨
+common.limited = 제한적
+common.full = 전체
+common.available = 사용 가능
+
+# 단위
+units.microseconds = 마이크로초

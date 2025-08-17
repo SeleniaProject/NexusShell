@@ -512,6 +512,7 @@ fn print_gzip_license() {
 mod tests {
     use super::*;
     use tempfile::NamedTempFile;
+    #[allow(unused_imports)]
     use std::io::Write as _;
 
     #[test]

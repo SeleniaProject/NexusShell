@@ -1,4 +1,4 @@
-use nxsh_ui::ui_ux::{UIUXSystem, ParameterType};
+use nxsh_ui::ui_ux::UIUXSystem;
 
 #[test]
 fn interactive_flow_basic() {

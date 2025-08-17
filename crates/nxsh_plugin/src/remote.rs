@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use ureq;
 #[cfg(feature = "remote-plugins")]
 use base64::engine::{Engine, general_purpose::STANDARD as BASE64};
-use crate::keys::{load_official_pubkey_b64, load_community_pubkey_b64, is_valid_ed25519_pubkey_b64};
+use crate::keys::{load_official_pubkey_b64, load_community_pubkey_b64};
 
 /// Remote plugin repository configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]

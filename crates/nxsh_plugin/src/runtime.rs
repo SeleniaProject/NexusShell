@@ -423,7 +423,7 @@ impl WasiPluginRuntime {
         let instance = pre_instance.start(&mut store)
             .context("Failed to start plugin instance")?;
         
-        let execution_timeout = Duration::from_millis(self.config.execution_timeout_ms);
+    let _execution_timeout = Duration::from_millis(self.config.execution_timeout_ms);
         
         // Execute synchronously to avoid lifetime issues
         let result = self.execute_function(&mut store, &instance, function_name, args).await?;

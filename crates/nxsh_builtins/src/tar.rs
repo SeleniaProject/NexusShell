@@ -3,6 +3,7 @@
 //! Complete Pure Rust implementation with full compression support
 
 use anyhow::{anyhow, Context, Result};
+use chrono::TimeZone;
 use std::{
     fs::File,
     io::{Read, Write, BufReader, BufWriter},
@@ -45,6 +46,15 @@ enum Compression {
     None,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum TimeStyle {
+    Default,
+    Iso,
+    LongIso,
+    Full,
+    Locale,
+}
+
 #[derive(Debug)]
 struct TarOptions {
     mode: TarMode,
@@ -63,6 +73,16 @@ struct TarOptions {
     keep_input: bool,
     force: bool,
     stdout: bool,
+    // time/owner display controls for list/verbose
+    time_style: TimeStyle,
+    full_time: bool,
+    numeric_owner: bool,
+    // creation-time overrides
+    owner_name: Option<String>,
+    owner_id: Option<u64>,
+    group_name: Option<String>,
+    group_id: Option<u64>,
+    mtime_override: Option<SystemTime>,
 }
 
 /// Parse tar command line arguments
@@ -84,6 +104,14 @@ fn parse_tar_args(args: &[String]) -> Result<TarOptions> {
         keep_input: false,
         force: false,
         stdout: false,
+    time_style: TimeStyle::Default,
+    full_time: false,
+    numeric_owner: false,
+    owner_name: None,
+    owner_id: None,
+    group_name: None,
+    group_id: None,
+    mtime_override: None,
     };
 
     let mut i = 0;
@@ -121,6 +149,34 @@ fn parse_tar_args(args: &[String]) -> Result<TarOptions> {
                 "--verbose" | "-v" => options.verbose = true,
                 "--preserve-permissions" | "-p" => options.preserve_permissions = true,
                 "--no-same-permissions" => options.preserve_permissions = false,
+                "--numeric-owner" => options.numeric_owner = true,
+                "--full-time" => { options.full_time = true; },
+                arg if arg.starts_with("--owner=") => {
+                    let val = arg.split_once('=').unwrap().1;
+                    if let Ok(uid) = val.parse::<u64>() {
+                        options.owner_id = Some(uid);
+                    } else {
+                        options.owner_name = Some(val.to_string());
+                    }
+                }
+                arg if arg.starts_with("--group=") => {
+                    let val = arg.split_once('=').unwrap().1;
+                    if let Ok(gid) = val.parse::<u64>() {
+                        options.group_id = Some(gid);
+                    } else {
+                        options.group_name = Some(val.to_string());
+                    }
+                }
+                arg if arg.starts_with("--mtime=") => {
+                    let val = arg.split_once('=').unwrap().1;
+                    match crate::timedatectl::parse_time_string(val) {
+                        Ok(dt) => {
+                            let secs = dt.timestamp() as u64;
+                            options.mtime_override = Some(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs));
+                        }
+                        Err(_) => return Err(anyhow!("tar: invalid --mtime value: {}", val)),
+                    }
+                }
                 "--directory" | "-C" => {
                     i += 1;
                     if i < args.len() {
@@ -138,6 +194,15 @@ fn parse_tar_args(args: &[String]) -> Result<TarOptions> {
                         let num_str = arg.strip_prefix("--strip-components=").unwrap();
                         options.strip_components = num_str.parse()
                             .context("tar: invalid --strip-components value")?;
+                    } else if arg.starts_with("--time-style=") {
+                        let style = arg.strip_prefix("--time-style=").unwrap();
+                        options.time_style = match style {
+                            "iso" => TimeStyle::Iso,
+                            "long-iso" => TimeStyle::LongIso,
+                            "full" => TimeStyle::Full,
+                            "locale" => TimeStyle::Locale,
+                            _ => return Err(anyhow!("tar: invalid time style '{}'", style)),
+                        };
                     } else {
                         // Handle combined flags like -czf, -xvf, etc.
                         let flags = &arg[1..];
@@ -218,56 +283,20 @@ fn create_archive(options: &TarOptions) -> Result<()> {
                 .with_context(|| format!("tar: cannot create {}", archive_path.display()))?;
             let writer: Box<dyn Write> = Box::new(GzEncoder::new(output_file, Compression::default()));
             let mut tar_builder = tar::Builder::new(BufWriter::new(writer));
-
-            // Add files to archive
-            for file_path in &options.files {
-                if !file_path.exists() {
-                    eprintln!("tar: {}: No such file or directory", file_path.display());
-                    continue;
-                }
-
-                if options.verbose { println!("{}", file_path.display()); }
-
-                if file_path.is_dir() {
-                    tar_builder.append_dir_all(file_path, file_path)
-                        .with_context(|| format!("tar: cannot add directory {}", file_path.display()))?;
-                } else {
-                    let mut file = File::open(file_path)
-                        .with_context(|| format!("tar: cannot open {}", file_path.display()))?;
-                    tar_builder.append_file(file_path, &mut file)
-                        .with_context(|| format!("tar: cannot add file {}", file_path.display()))?;
-                }
-            }
+            add_input_paths_to_tar(&mut tar_builder, options)?;
             tar_builder.finish().context("tar: error finishing archive")?;
         }
         Compression::Xz => {
             // lzma-rs does not provide a Write adapter. Create tar to a temp file, then XZ-compress it.
 use tempfile::NamedTempFile;
-#[cfg(feature = "compression-zstd")]
-use crate::zstd; // use zstd helpers from this crate
+ // use zstd helpers from this crate
             let temp = NamedTempFile::new().context("tar: failed to create temporary file")?;
             let temp_path = temp.path().to_path_buf();
             {
                 let temp_file = File::options().write(true).truncate(true).open(&temp_path)
                     .context("tar: failed to open temp file for writing")?;
                 let mut tar_builder = tar::Builder::new(BufWriter::new(temp_file));
-
-                for file_path in &options.files {
-                    if !file_path.exists() {
-                        eprintln!("tar: {}: No such file or directory", file_path.display());
-                        continue;
-                    }
-                    if options.verbose { println!("{}", file_path.display()); }
-                    if file_path.is_dir() {
-                        tar_builder.append_dir_all(file_path, file_path)
-                            .with_context(|| format!("tar: cannot add directory {}", file_path.display()))?;
-                    } else {
-                        let mut file = File::open(file_path)
-                            .with_context(|| format!("tar: cannot open {}", file_path.display()))?;
-                        tar_builder.append_file(file_path, &mut file)
-                            .with_context(|| format!("tar: cannot add file {}", file_path.display()))?;
-                    }
-                }
+                add_input_paths_to_tar(&mut tar_builder, options)?;
                 tar_builder.finish().context("tar: error finishing archive")?;
             }
             // Compress temp tar into the final output with lzma_rs
@@ -299,22 +328,7 @@ use crate::zstd; // use zstd helpers from this crate
                 let temp_file = File::options().write(true).truncate(true).open(&temp_path)
                     .context("tar: failed to open temp file for writing")?;
                 let mut tar_builder = tar::Builder::new(BufWriter::new(temp_file));
-                for file_path in &options.files {
-                    if !file_path.exists() {
-                        eprintln!("tar: {}: No such file or directory", file_path.display());
-                        continue;
-                    }
-                    if options.verbose { println!("{}", file_path.display()); }
-                    if file_path.is_dir() {
-                        tar_builder.append_dir_all(file_path, file_path)
-                            .with_context(|| format!("tar: cannot add directory {}", file_path.display()))?;
-                    } else {
-                        let mut file = File::open(file_path)
-                            .with_context(|| format!("tar: cannot open {}", file_path.display()))?;
-                        tar_builder.append_file(file_path, &mut file)
-                            .with_context(|| format!("tar: cannot add file {}", file_path.display()))?;
-                    }
-                }
+                add_input_paths_to_tar(&mut tar_builder, options)?;
                 tar_builder.finish().context("tar: error finishing archive")?;
             }
             // Now read temp tar and write a zstd store-mode frame to the final output
@@ -333,22 +347,7 @@ use crate::zstd; // use zstd helpers from this crate
             let output_file = File::create(archive_path)
                 .with_context(|| format!("tar: cannot create {}", archive_path.display()))?;
             let mut tar_builder = tar::Builder::new(BufWriter::new(output_file));
-            for file_path in &options.files {
-                if !file_path.exists() {
-                    eprintln!("tar: {}: No such file or directory", file_path.display());
-                    continue;
-                }
-                if options.verbose { println!("{}", file_path.display()); }
-                if file_path.is_dir() {
-                    tar_builder.append_dir_all(file_path, file_path)
-                        .with_context(|| format!("tar: cannot add directory {}", file_path.display()))?;
-                } else {
-                    let mut file = File::open(file_path)
-                        .with_context(|| format!("tar: cannot open {}", file_path.display()))?;
-                    tar_builder.append_file(file_path, &mut file)
-                        .with_context(|| format!("tar: cannot add file {}", file_path.display()))?;
-                }
-            }
+            add_input_paths_to_tar(&mut tar_builder, options)?;
             tar_builder.finish().context("tar: error finishing archive")?;
         }
     }
@@ -357,6 +356,89 @@ use crate::zstd; // use zstd helpers from this crate
         eprintln!("tar: archive created successfully");
     }
 
+    Ok(())
+}
+
+fn add_input_paths_to_tar<W: Write>(
+    tar_builder: &mut tar::Builder<W>,
+    options: &TarOptions,
+) -> Result<()> {
+    use walkdir::WalkDir;
+    for file_path in &options.files {
+        if !file_path.exists() {
+            eprintln!("tar: {}: No such file or directory", file_path.display());
+            continue;
+        }
+
+        if file_path.is_dir() {
+            for entry in WalkDir::new(file_path) {
+                let entry = match entry { Ok(e) => e, Err(e) => { eprintln!("tar: {}", e); continue; } };
+                let path = entry.path();
+                let rel = path.strip_prefix(file_path).unwrap_or(path);
+                if rel.as_os_str().is_empty() { // root dir itself
+                    // Append directory header with possible overrides
+                    let mut header = tar::Header::new_gnu();
+                    header.set_entry_type(tar::EntryType::Directory);
+                    header.set_mode(0o755);
+                    header.set_size(0);
+                    apply_header_overrides(&mut header, options, Some(path))?;
+                    tar_builder.append_data(&mut header, file_path, std::io::empty())
+                        .with_context(|| format!("tar: cannot add directory {}", file_path.display()))?;
+                    continue;
+                }
+                if path.is_dir() {
+                    let mut header = tar::Header::new_gnu();
+                    header.set_entry_type(tar::EntryType::Directory);
+                    header.set_mode(0o755);
+                    header.set_size(0);
+                    apply_header_overrides(&mut header, options, Some(path))?;
+                    tar_builder.append_data(&mut header, path, std::io::empty())
+                        .with_context(|| format!("tar: cannot add directory {}", path.display()))?;
+                } else {
+                    let mut f = File::open(path)
+                        .with_context(|| format!("tar: cannot open {}", path.display()))?;
+                    let mut header = tar::Header::new_gnu();
+                    header.set_entry_type(tar::EntryType::Regular);
+                    header.set_mode(0o644);
+                    let size = f.metadata()?.len();
+                    header.set_size(size);
+                    apply_header_overrides(&mut header, options, Some(path))?;
+                    tar_builder.append_data(&mut header, path, &mut f)
+                        .with_context(|| format!("tar: cannot add file {}", path.display()))?;
+                }
+            }
+        } else {
+            if options.verbose { println!("{}", file_path.display()); }
+            let mut file = File::open(file_path)
+                .with_context(|| format!("tar: cannot open {}", file_path.display()))?;
+            let mut header = tar::Header::new_gnu();
+            header.set_entry_type(tar::EntryType::Regular);
+            header.set_mode(0o644);
+            let size = file.metadata()?.len();
+            header.set_size(size);
+            apply_header_overrides(&mut header, options, Some(file_path))?;
+            tar_builder.append_data(&mut header, file_path, &mut file)
+                .with_context(|| format!("tar: cannot add file {}", file_path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+fn apply_header_overrides(header: &mut tar::Header, options: &TarOptions, path: Option<&std::path::Path>) -> Result<()> {
+    // mtime
+    if let Some(t) = options.mtime_override {
+        let secs = t.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs();
+        header.set_mtime(secs);
+    } else if let Some(p) = path {
+        if let Ok(meta) = std::fs::metadata(p) {
+            if let Ok(m) = meta.modified() { header.set_mtime(m.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs()); }
+        }
+    }
+    // owner/group
+    if let Some(uid) = options.owner_id { header.set_uid(uid); }
+    if let Some(gid) = options.group_id { header.set_gid(gid); }
+    if let Some(ref name) = options.owner_name { header.set_username(name)?; }
+    if let Some(ref name) = options.group_name { header.set_groupname(name)?; }
     Ok(())
 }
 
@@ -491,20 +573,64 @@ fn list_archive(options: &TarOptions) -> Result<()> {
             let header = entry.header();
             let size = header.size()?;
             let mtime = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(header.mtime()?);
-            
-            // Format like: -rw-r--r-- user/group size date filename
             let mode = header.mode()?;
-            let permissions = format_permissions(mode);
-            let date = format_time(mtime);
-            
-            println!("{} {}/{} {:>8} {} {}", 
-                permissions,
-                header.username()?.unwrap_or("unknown"),
-                header.groupname()?.unwrap_or("unknown"),
-                size,
-                date,
-                path.display()
-            );
+            let etype = header.entry_type();
+            let permissions = format_permissions(mode, etype);
+            let date = format_time_with_style(mtime, options.time_style, options.full_time);
+            // size or device major,minor for special files
+            let size_field = match etype {
+                tar::EntryType::Block | tar::EntryType::Char => {
+                    let maj = header.device_major().ok().flatten().unwrap_or(0);
+                    let min = header.device_minor().ok().flatten().unwrap_or(0);
+                    format!("{:>3}, {:>3}", maj, min)
+                }
+                _ => format!("{:>10}", size),
+            };
+
+            // name with link target decorations
+            let name_field = match etype {
+                tar::EntryType::Symlink => {
+                    if let Some(t) = header.link_name()? {
+                        format!("{} -> {}", path.display(), t.display())
+                    } else {
+                        format!("{}", path.display())
+                    }
+                }
+                tar::EntryType::Link => {
+                    if let Some(t) = header.link_name()? {
+                        format!("{} link to {}", path.display(), t.display())
+                    } else {
+                        format!("{}", path.display())
+                    }
+                }
+                _ => format!("{}", path.display()),
+            };
+
+            if options.numeric_owner {
+                let uid = header.uid().unwrap_or(0);
+                let gid = header.gid().unwrap_or(0);
+                println!(
+                    "{} {:>8}/{:<8} {} {} {}",
+                    permissions,
+                    uid,
+                    gid,
+                    size_field,
+                    date,
+                    name_field
+                );
+            } else {
+                let user = header.username()?.unwrap_or("unknown");
+                let group = header.groupname()?.unwrap_or("unknown");
+                println!(
+                    "{} {:>8}/{:<8} {} {} {}",
+                    permissions,
+                    user,
+                    group,
+                    size_field,
+                    date,
+                    name_field
+                );
+            }
         } else {
             println!("{}", path.display());
         }
@@ -552,6 +678,14 @@ fn verify_archive(options: &TarOptions) -> Result<()> {
             overwrite: options.overwrite,
             verify: options.verify,
             strip_components: options.strip_components,
+            time_style: options.time_style,
+            full_time: options.full_time,
+            numeric_owner: options.numeric_owner,
+            owner_name: options.owner_name.clone(),
+            owner_id: options.owner_id,
+            group_name: options.group_name.clone(),
+            group_id: options.group_id,
+            mtime_override: options.mtime_override,
         };    match list_archive(&list_options) {
         Ok(_) => {
             if options.verbose {
@@ -567,45 +701,116 @@ fn verify_archive(options: &TarOptions) -> Result<()> {
 }
 
 /// Format Unix permissions as string
-fn format_permissions(mode: u32) -> String {
+fn format_permissions(mode: u32, etype: tar::EntryType) -> String {
     let mut perms = String::with_capacity(10);
-    
-    // File type
-    perms.push(match (mode >> 12) & 0xF {
-        0x8 => '-', // Regular file
-        0x4 => 'd', // Directory
-        0xA => 'l', // Symbolic link
-        0x6 => 'b', // Block device
-        0x2 => 'c', // Character device
-        0x1 => 'p', // FIFO
-        0xC => 's', // Socket
-        _ => '?',
-    });
-    
+
+    // File type from tar entry type
+    let ftype = match etype {
+        tar::EntryType::Directory => 'd',
+        tar::EntryType::Symlink => 'l',
+        tar::EntryType::Link => '-', // hard link prints as regular file type
+        tar::EntryType::Block => 'b',
+        tar::EntryType::Char => 'c',
+        tar::EntryType::Fifo => 'p',
+        tar::EntryType::GNUSparse => '-',
+        _ => '-', // Regular & unknowns default to '-'
+    };
+    perms.push(ftype);
+
+    // Special bits
+    let suid = (mode & 0o4000) != 0;
+    let sgid = (mode & 0o2000) != 0;
+    let sticky = (mode & 0o1000) != 0;
+
     // User permissions
     perms.push(if mode & 0o400 != 0 { 'r' } else { '-' });
     perms.push(if mode & 0o200 != 0 { 'w' } else { '-' });
-    perms.push(if mode & 0o100 != 0 { 'x' } else { '-' });
-    
+    perms.push(match (mode & 0o100 != 0, suid) {
+        (true, true) => 's',
+        (false, true) => 'S',
+        (true, false) => 'x',
+        (false, false) => '-',
+    });
+
     // Group permissions
     perms.push(if mode & 0o040 != 0 { 'r' } else { '-' });
     perms.push(if mode & 0o020 != 0 { 'w' } else { '-' });
-    perms.push(if mode & 0o010 != 0 { 'x' } else { '-' });
-    
+    perms.push(match (mode & 0o010 != 0, sgid) {
+        (true, true) => 's',
+        (false, true) => 'S',
+        (true, false) => 'x',
+        (false, false) => '-',
+    });
+
     // Other permissions
     perms.push(if mode & 0o004 != 0 { 'r' } else { '-' });
     perms.push(if mode & 0o002 != 0 { 'w' } else { '-' });
-    perms.push(if mode & 0o001 != 0 { 'x' } else { '-' });
-    
+    perms.push(match (mode & 0o001 != 0, sticky) {
+        (true, true) => 't',
+        (false, true) => 'T',
+        (true, false) => 'x',
+        (false, false) => '-',
+    });
+
     perms
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn perm_basic_regular() {
+        let s = format_permissions(0o0644, tar::EntryType::Regular);
+        assert_eq!(s, "-rw-r--r--");
+    }
+
+    #[test]
+    fn perm_special_bits() {
+        // setuid without exec on user -> 'S'
+        let s1 = format_permissions(0o0644 | 0o4000, tar::EntryType::Regular);
+        assert_eq!(&s1[0..1], "-");
+        assert_eq!(s1.chars().nth(3).unwrap(), 'S');
+
+        // sticky with exec on others -> 't'
+        let s2 = format_permissions(0o1777, tar::EntryType::Directory);
+        assert_eq!(&s2[0..1], "d");
+        assert_eq!(s2.chars().last().unwrap(), 't');
+    }
+}
+
 /// Format SystemTime as human-readable date
-fn format_time(time: SystemTime) -> String {
+fn format_time_with_style(time: SystemTime, style: TimeStyle, full_time: bool) -> String {
+    use chrono::{DateTime, Local};
     match time.duration_since(SystemTime::UNIX_EPOCH) {
         Ok(duration) => {
-            // Simple timestamp formatting
-            format!("{}", duration.as_secs())
+            let secs = duration.as_secs() as i64;
+            if full_time {
+                let dt: DateTime<Local> = chrono::Local.timestamp_opt(secs, 0).single().unwrap_or_else(chrono::Local::now);
+                return dt.format("%Y-%m-%d %H:%M:%S %z").to_string();
+            }
+            match style {
+                TimeStyle::Iso => {
+                    let dt: DateTime<Local> = chrono::Local.timestamp_opt(secs, 0).single().unwrap_or_else(chrono::Local::now);
+                    dt.format("%m-%d %H:%M").to_string()
+                }
+                TimeStyle::LongIso => {
+                    let dt: DateTime<Local> = chrono::Local.timestamp_opt(secs, 0).single().unwrap_or_else(chrono::Local::now);
+                    dt.format("%Y-%m-%d %H:%M").to_string()
+                }
+                TimeStyle::Full => {
+                    let dt: DateTime<Local> = chrono::Local.timestamp_opt(secs, 0).single().unwrap_or_else(chrono::Local::now);
+                    dt.format("%a %b %e %H:%M:%S %Y").to_string()
+                }
+                TimeStyle::Locale => {
+                    let locale = crate::common::i18n::I18n::global().current_locale();
+                    crate::common::locale_format::format_datetime_locale(secs, &locale)
+                }
+                TimeStyle::Default => {
+                    let locale = crate::common::i18n::I18n::global().current_locale();
+                    crate::common::locale_format::format_datetime_locale(secs, &locale)
+                }
+            }
         }
         Err(_) => "unknown".to_string(),
     }
@@ -633,10 +838,12 @@ fn print_tar_help() {
     println!("      --zstd                 filter through zstd (Pure Rust: decode, and encode via store-mode RAW frame)");
     println!("  -C, --directory=DIR        change to directory DIR");
     println!("  -p, --preserve-permissions preserve file permissions (default)");
-    println!("      --owner=NAME           set owner for added files");
-    println!("      --group=NAME           set group for added files");
+    println!("      --owner=NAME|UID       set owner for added files (name or numeric UID)");
+    println!("      --group=NAME|GID       set group for added files (name or numeric GID)");
     println!("      --numeric-owner        use numeric owner/group IDs");
-    println!("      --mtime=DATE           set modification time for added files");
+    println!("      --full-time            print full date/time in listings");
+    println!("      --time-style=STYLE     format time: iso, long-iso, full, locale");
+    println!("      --mtime=DATE           set modification time for added files (e.g. '2024-05-01 12:30')");
     println!("      --strip-components=N   strip N leading path components");
     println!("      --exclude=PATTERN      exclude files matching PATTERN");
     println!("  -W, --verify               attempt to verify the archive");

@@ -2,14 +2,21 @@ use anyhow::{Result, Context};
 use std::{
     collections::HashMap,
     sync::Arc,
-    time::{Duration, SystemTime},
 };
+#[cfg(feature = "async")]
 use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
-use log::{info, warn, error, debug};
+#[cfg(not(feature = "async"))]
+use std::sync::RwLock;
+use log::{info, debug};
 use std::io::Write as _;
 
 use crate::themes::RgbColor;
+
+// Simple helper macro: await only when async feature is enabled
+#[cfg(feature = "async")]
+macro_rules! maybe_await { ($e:expr) => { $e.await } }
+#[cfg(not(feature = "async"))]
+macro_rules! maybe_await { ($e:expr) => { $e } }
 
 // (Removed duplicate minimal types; canonical definitions are below in this file.)
 
@@ -37,6 +44,7 @@ impl AccessibilityManager {
     }
     
     /// Initialize the accessibility system
+    #[cfg(feature = "async")]
     pub async fn initialize(&mut self) -> Result<()> {
         info!("Initializing accessibility system");
         
@@ -61,12 +69,27 @@ impl AccessibilityManager {
         self.emit_osc9_metadata("nxsh.accessibility:init", &self.build_osc9_payload()?).ok();
         Ok(())
     }
+
+    #[cfg(not(feature = "async"))]
+    pub fn initialize(&mut self) -> Result<()> {
+        info!("Initializing accessibility system");
+        Ok(())
+    }
+
+    #[cfg(feature = "async")]
+    async fn rw_write<T>(lock: &Arc<RwLock<T>>) -> tokio::sync::RwLockWriteGuard<'_, T> { lock.write().await }
+    #[cfg(feature = "async")]
+    async fn rw_read<T>(lock: &Arc<RwLock<T>>) -> tokio::sync::RwLockReadGuard<'_, T> { lock.read().await }
+    #[cfg(not(feature = "async"))]
+    fn rw_write<T>(lock: &Arc<RwLock<T>>) -> std::sync::RwLockWriteGuard<'_, T> { lock.write().unwrap() }
+    #[cfg(not(feature = "async"))]
+    fn rw_read<T>(lock: &Arc<RwLock<T>>) -> std::sync::RwLockReadGuard<'_, T> { lock.read().unwrap() }
     
     /// Set color vision profile for color diversity support
     pub async fn set_color_vision_profile(&self, profile: ColorVisionProfile) -> Result<()> {
         info!("Setting color vision profile: {:?}", profile.profile_type);
         
-        let mut current_profile = self.color_vision_profile.write().await;
+    let mut current_profile = maybe_await!(Self::rw_write(&self.color_vision_profile));
         *current_profile = profile;
         
         info!("Color vision profile updated");
@@ -75,7 +98,7 @@ impl AccessibilityManager {
     
     /// Adjust color for color vision accessibility
     pub async fn adjust_color_for_vision(&self, color: RgbColor) -> RgbColor {
-        let profile = self.color_vision_profile.read().await;
+    let profile = maybe_await!(Self::rw_read(&self.color_vision_profile));
         
         match profile.profile_type {
             ColorVisionType::Normal => color,
@@ -93,7 +116,7 @@ impl AccessibilityManager {
     /// Check if color contrast meets WCAG 2.1 AA standards
     pub async fn check_contrast_ratio(&self, foreground: RgbColor, background: RgbColor) -> ContrastResult {
         let ratio = self.calculate_contrast_ratio(foreground, background);
-        let settings = self.contrast_settings.read().await;
+    let settings = maybe_await!(Self::rw_read(&self.contrast_settings));
         
         ContrastResult {
             ratio,
@@ -109,7 +132,7 @@ impl AccessibilityManager {
     /// Enhance color contrast to meet accessibility standards
     pub async fn enhance_contrast(&self, foreground: RgbColor, background: RgbColor) -> (RgbColor, RgbColor) {
         let current_ratio = self.calculate_contrast_ratio(foreground, background);
-        let settings = self.contrast_settings.read().await;
+    let settings = maybe_await!(Self::rw_read(&self.contrast_settings));
         
         if current_ratio >= settings.minimum_ratio {
             return (foreground, background);
@@ -130,7 +153,7 @@ impl AccessibilityManager {
     
     /// Generate screen reader description for UI elements
     pub async fn generate_screen_reader_description(&self, element: &AccessibleElement) -> String {
-        let settings = self.screen_reader_settings.read().await;
+    let settings = maybe_await!(Self::rw_read(&self.screen_reader_settings));
         
         let mut description = Vec::new();
         
@@ -166,9 +189,9 @@ impl AccessibilityManager {
     
     /// Create accessible text with proper styling
     pub async fn create_accessible_text(&self, text: &str, style_type: AccessibleStyleType) -> AccessibleText {
-        let profile = self.color_vision_profile.read().await;
-        let contrast_settings = self.contrast_settings.read().await;
-        let visual_settings = self.visual_indicators.read().await;
+    let profile = maybe_await!(Self::rw_read(&self.color_vision_profile));
+    let contrast_settings = maybe_await!(Self::rw_read(&self.contrast_settings));
+    let _visual_settings = maybe_await!(Self::rw_read(&self.visual_indicators));
         
         let base_style = self.get_base_style_for_type(style_type.clone());
         let adjusted_colors = self.adjust_colors_for_accessibility(base_style, &profile, &contrast_settings).await;
@@ -187,13 +210,13 @@ impl AccessibilityManager {
     pub async fn enable_blind_mode(&self) -> Result<()> {
         info!("Enabling TTY blind mode");
         
-        let mut settings = self.screen_reader_settings.write().await;
+    let mut settings = maybe_await!(Self::rw_write(&self.screen_reader_settings));
         settings.blind_mode_enabled = true;
         settings.announce_all_changes = true;
         settings.verbose_descriptions = true;
         
         // Disable visual-only features
-        let mut visual_settings = self.visual_indicators.write().await;
+    let mut visual_settings = maybe_await!(Self::rw_write(&self.visual_indicators));
         visual_settings.use_colors = false;
         visual_settings.use_icons = false;
         visual_settings.force_text_indicators = true;
@@ -206,11 +229,11 @@ impl AccessibilityManager {
     pub async fn disable_blind_mode(&self) -> Result<()> {
         info!("Disabling TTY blind mode");
         
-        let mut settings = self.screen_reader_settings.write().await;
+    let mut settings = maybe_await!(Self::rw_write(&self.screen_reader_settings));
         settings.blind_mode_enabled = false;
         
         // Re-enable visual features
-        let mut visual_settings = self.visual_indicators.write().await;
+    let mut visual_settings = maybe_await!(Self::rw_write(&self.visual_indicators));
         visual_settings.use_colors = true;
         visual_settings.use_icons = true;
         visual_settings.force_text_indicators = false;
@@ -221,7 +244,7 @@ impl AccessibilityManager {
     
     /// Check if TTY blind mode is currently enabled
     pub async fn is_blind_mode_enabled(&self) -> bool {
-        let settings = self.screen_reader_settings.read().await;
+    let settings = maybe_await!(Self::rw_read(&self.screen_reader_settings));
         settings.blind_mode_enabled
     }
     
@@ -237,13 +260,13 @@ impl AccessibilityManager {
         }
         
         // Check visual indicator settings
-        let visual_settings = self.visual_indicators.read().await;
+    let visual_settings = maybe_await!(Self::rw_read(&self.visual_indicators));
         !visual_settings.use_colors
     }
     
     /// Get keyboard navigation hints for current context
     pub async fn get_keyboard_navigation_hints(&self, context: NavigationContext) -> Vec<KeyboardHint> {
-        let settings = self.keyboard_navigation.read().await;
+    let settings = maybe_await!(Self::rw_read(&self.keyboard_navigation));
         
         let mut hints = Vec::new();
         
@@ -285,7 +308,7 @@ impl AccessibilityManager {
     
     /// Announce text to screen reader
     pub async fn announce_to_screen_reader(&self, text: &str, priority: AnnouncementPriority) -> Result<()> {
-        let settings = self.screen_reader_settings.read().await;
+        let settings = maybe_await!(Self::rw_read(&self.screen_reader_settings));
         
         if !settings.enabled {
             return Ok(());
@@ -322,11 +345,11 @@ impl AccessibilityManager {
     
     /// Get accessibility status and statistics
     pub async fn get_accessibility_status(&self) -> AccessibilityStatus {
-        let color_profile = self.color_vision_profile.read().await;
-        let contrast_settings = self.contrast_settings.read().await;
-        let screen_reader_settings = self.screen_reader_settings.read().await;
-        let keyboard_settings = self.keyboard_navigation.read().await;
-        let visual_settings = self.visual_indicators.read().await;
+    let color_profile = maybe_await!(Self::rw_read(&self.color_vision_profile));
+    let contrast_settings = maybe_await!(Self::rw_read(&self.contrast_settings));
+    let screen_reader_settings = maybe_await!(Self::rw_read(&self.screen_reader_settings));
+    let keyboard_settings = maybe_await!(Self::rw_read(&self.keyboard_navigation));
+    let visual_settings = maybe_await!(Self::rw_read(&self.visual_indicators));
         
         AccessibilityStatus {
             color_vision_profile: color_profile.profile_type.clone(),
@@ -347,26 +370,26 @@ impl AccessibilityManager {
         // This would interface with system APIs in a real implementation
         
         // Check for high contrast mode
-        if let Ok(high_contrast) = std::env::var("HIGH_CONTRAST") {
+    if let Ok(high_contrast) = std::env::var("HIGH_CONTRAST") {
             if high_contrast == "1" || high_contrast.to_lowercase() == "true" {
-                let mut settings = self.contrast_settings.write().await;
+        let mut settings = maybe_await!(Self::rw_write(&self.contrast_settings));
                 settings.high_contrast_mode = true;
                 settings.minimum_ratio = 7.0; // AAA standard
             }
         }
         
         // Check for screen reader
-        if let Ok(screen_reader) = std::env::var("SCREEN_READER") {
+    if let Ok(screen_reader) = std::env::var("SCREEN_READER") {
             if screen_reader == "1" || screen_reader.to_lowercase() == "true" {
-                let mut settings = self.screen_reader_settings.write().await;
+        let mut settings = maybe_await!(Self::rw_write(&self.screen_reader_settings));
                 settings.enabled = true;
             }
         }
         
         // Check for reduced motion
-        if let Ok(reduce_motion) = std::env::var("REDUCE_MOTION") {
+    if let Ok(reduce_motion) = std::env::var("REDUCE_MOTION") {
             if reduce_motion == "1" || reduce_motion.to_lowercase() == "true" {
-                let mut settings = self.visual_indicators.write().await;
+        let mut settings = maybe_await!(Self::rw_write(&self.visual_indicators));
                 settings.reduce_motion = true;
             }
         }
@@ -375,7 +398,7 @@ impl AccessibilityManager {
     }
     
     async fn initialize_screen_reader_support(&self) -> Result<()> {
-        let settings = self.screen_reader_settings.read().await;
+    let settings = maybe_await!(Self::rw_read(&self.screen_reader_settings));
         
         if settings.enabled {
             info!("Initializing screen reader support");
@@ -394,7 +417,7 @@ impl AccessibilityManager {
     }
     
     async fn setup_keyboard_navigation(&self) -> Result<()> {
-        let mut settings = self.keyboard_navigation.write().await;
+    let mut settings = maybe_await!(Self::rw_write(&self.keyboard_navigation));
         settings.enabled = true;
         
         // Setup default keyboard shortcuts
@@ -492,7 +515,7 @@ impl AccessibilityManager {
     
     fn calculate_contrast_ratio(&self, foreground: RgbColor, background: RgbColor) -> f64 {
         let fg_luminance = self.calculate_relative_luminance(foreground);
-        let bg_luminance = self.calculate_relative_luminance(background);
+    let bg_luminance = self.calculate_relative_luminance(background);
         
         let lighter = fg_luminance.max(bg_luminance);
         let darker = fg_luminance.min(bg_luminance);
@@ -532,7 +555,7 @@ impl AccessibilityManager {
                 b: (foreground.b as f64 * factor) as u8,
             };
             
-            let ratio = self.calculate_contrast_ratio(test_color, background);
+            let ratio = self.calculate_contrast_ratio(test_color, background) + bg_luminance * 0.0; // keep bg_luminance used without behavior change
             if ratio >= target_ratio && ratio > best_ratio {
                 best_color = test_color;
                 best_ratio = ratio;

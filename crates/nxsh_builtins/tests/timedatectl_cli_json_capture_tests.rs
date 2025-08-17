@@ -1,4 +1,3 @@
-use serde_json::Value;
 
 #[tokio::test]
 async fn capture_timesync_status_show_timesync_json() {

@@ -45,7 +45,7 @@ fn print_hostname(short: bool) -> Result<()> {
     Ok(())
 }
 
-fn set_hostname(name: &str) -> Result<()> {
+fn set_hostname(_name: &str) -> Result<()> {
     #[cfg(unix)]
     unsafe {
         if sethostname(name.as_ptr() as *const _, name.len()) == 0 {

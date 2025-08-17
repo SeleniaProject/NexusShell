@@ -209,25 +209,25 @@ impl AdvancedWasiRuntime {
     /// Add shell-specific functions to the linker
     fn add_shell_functions(linker: &mut Linker<PureRustWasiCtx>) -> Result<()> {
         // Shell command execution
-        linker.func_wrap("shell", "execute_command", |caller: Caller<'_, PureRustWasiCtx>, command_ptr: i32, command_len: i32| -> i32 {
+    linker.func_wrap("shell", "execute_command", |_caller: Caller<'_, PureRustWasiCtx>, _command_ptr: i32, _command_len: i32| -> i32 {
             // Implementation for executing shell commands from WASM
             0 // Success
         })?;
         
         // Environment variable access
-        linker.func_wrap("shell", "get_env", |caller: Caller<'_, PureRustWasiCtx>, key_ptr: i32, key_len: i32, value_ptr: i32, value_len: i32| -> i32 {
+    linker.func_wrap("shell", "get_env", |_caller: Caller<'_, PureRustWasiCtx>, _key_ptr: i32, _key_len: i32, _value_ptr: i32, _value_len: i32| -> i32 {
             // Implementation for accessing environment variables
             0 // Success
         })?;
         
         // File system operations
-        linker.func_wrap("shell", "read_file", |caller: Caller<'_, PureRustWasiCtx>, path_ptr: i32, path_len: i32, content_ptr: i32, content_len: i32| -> i32 {
+    linker.func_wrap("shell", "read_file", |_caller: Caller<'_, PureRustWasiCtx>, _path_ptr: i32, _path_len: i32, _content_ptr: i32, _content_len: i32| -> i32 {
             // Implementation for reading files
             0 // Success
         })?;
         
         // Process management
-        linker.func_wrap("shell", "spawn_process", |caller: Caller<'_, PureRustWasiCtx>, cmd_ptr: i32, cmd_len: i32| -> i32 {
+    linker.func_wrap("shell", "spawn_process", |_caller: Caller<'_, PureRustWasiCtx>, _cmd_ptr: i32, _cmd_len: i32| -> i32 {
             // Implementation for spawning processes
             0 // Success
         })?;
@@ -236,8 +236,8 @@ impl AdvancedWasiRuntime {
     }
 
     /// Create WASI context with appropriate permissions
-    async fn create_wasi_context(&self, plugin_id: &str) -> Result<PureRustWasiCtx> {
-        let _permissions = self.security_manager.get_plugin_permissions(plugin_id).await?;
+    async fn create_wasi_context(&self, _plugin_id: &str) -> Result<PureRustWasiCtx> {
+        let _permissions = self.security_manager.get_plugin_permissions(_plugin_id).await?;
         
         // Create pure Rust WASI context - no C/C++ dependencies
         Ok(PureRustWasiCtx::new())
@@ -319,7 +319,7 @@ impl SecurityManager {
         Ok(())
     }
 
-    async fn validate_function_call(&self, plugin_id: &str, function_name: &str, args: &[Val]) -> Result<()> {
+    async fn validate_function_call(&self, plugin_id: &str, function_name: &str, _args: &[Val]) -> Result<()> {
         let permissions = self.permissions.read().await;
         
         if let Some(perms) = permissions.get(plugin_id) {
@@ -353,7 +353,7 @@ impl ResourceManager {
         }
     }
 
-    async fn register_plugin(&self, plugin_id: &str, metadata: &PluginMetadata) -> Result<()> {
+    async fn register_plugin(&self, plugin_id: &str, _metadata: &PluginMetadata) -> Result<()> {
         let mut usage = self.usage.write().await;
         usage.insert(plugin_id.to_string(), ResourceUsage::default());
         Ok(())
@@ -365,7 +365,7 @@ impl ResourceManager {
         Ok(())
     }
 
-    async fn check_limits(&self, plugin_id: &str) -> Result<()> {
+    async fn check_limits(&self, _plugin_id: &str) -> Result<()> {
         // Check memory, CPU, and other resource limits
         // This would integrate with system monitoring
         Ok(())
@@ -392,7 +392,7 @@ impl PerformanceMonitor {
         plugin_stats.load_count += 1;
     }
 
-    async fn record_execution(&self, plugin_id: &str, function_name: &str, duration: Duration) {
+    async fn record_execution(&self, plugin_id: &str, _function_name: &str, duration: Duration) {
         let mut stats = self.stats.write().await;
         let plugin_stats = stats.entry(plugin_id.to_string()).or_default();
         plugin_stats.total_execution_time += duration;
