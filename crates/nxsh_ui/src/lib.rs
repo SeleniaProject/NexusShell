@@ -24,6 +24,9 @@ pub mod ui_ux; // Advanced UI/UX system
 pub mod themes;
 pub mod theme_validator; // Theme validation and schema support
 pub mod completion;
+pub mod completion_engine; // 🚀 高性能補完エンジン
+pub mod completion_metrics; // 補完パフォーマンス測定
+pub mod completion_integration; // 高性能補完統合ヘルパー
 pub mod config;
 pub mod accessibility; // Accessibility support for TTY blind mode and color vision
 pub mod ansi_render; // ANSI-to-PNG rendering helpers
