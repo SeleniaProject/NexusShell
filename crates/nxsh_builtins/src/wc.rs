@@ -1,16 +1,19 @@
-//! `wc` command  Eprint newline, word, and byte counts.
+//! `wc` command - Print newline, word, and byte counts.
 //!
-//! Supported subset:
-//!   wc [-lwmc] [FILE...]
-//!   • -l : print newline count
-//!   • -w : print word count (runs of non-whitespace)
-//!   • -m : print character count (UTF-8 aware)
-//!   • -c : print byte count
+//! GNU coreutils compatible implementation with extensive options:
+//!   wc [OPTION]... [FILE]...
+//!   • -l, --lines : print newline count
+//!   • -w, --words : print word count (runs of non-whitespace)
+//!   • -m, --chars : print character count (UTF-8 aware)
+//!   • -c, --bytes : print byte count
+//!   • -L, --max-line-length : print maximum line length
 //!   • With no OPTION, defaults to -lwc (like GNU coreutils)
 //!   • FILE of "-" means STDIN; no FILE defaults to STDIN.
 //!
-//! Supports a subset of GNU flags:
+//! GNU flags:
 //!   --files0-from=FILE   read filenames, separated by NUL, from FILE
+//!   --help               display help and exit
+//!   --version            output version information and exit
 
 use anyhow::{anyhow, Result};
 use std::fs::File;
@@ -51,6 +54,14 @@ pub fn wc_cli(args: &[String]) -> Result<()> {
                     idx += 1;
                     if idx >= args.len() { return Err(anyhow!("wc: option '--files0-from' requires an argument")); }
                     files0_from = Some(args[idx].clone());
+                }
+                "--help" => {
+                    print_help();
+                    return Ok(());
+                }
+                "--version" => {
+                    print_version();
+                    return Ok(());
                 }
                 _ => return Err(anyhow!(format!("wc: invalid option '{}'", arg))),
             }
@@ -114,6 +125,41 @@ pub fn wc_cli(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+fn print_help() {
+    println!("Usage: wc [OPTION]... [FILE]...");
+    println!("Print newline, word, and byte counts for each FILE, and a total line if");
+    println!("more than one FILE is specified.  A word is a non-zero-length sequence of");
+    println!("characters delimited by white space.");
+    println!();
+    println!("With no FILE, or when FILE is -, read standard input.");
+    println!();
+    println!("  -c, --bytes            print the byte counts");
+    println!("  -m, --chars            print the character counts");
+    println!("  -l, --lines            print the newline counts");
+    println!("      --files0-from=F    read input from the files specified by");
+    println!("                           NUL-terminated names in file F;");
+    println!("                           If F is - then read names from standard input");
+    println!("  -L, --max-line-length  print the maximum display width");
+    println!("  -w, --words            print the word counts");
+    println!("      --help     display this help and exit");
+    println!("      --version  output version information and exit");
+    println!();
+    println!("The options below may be used to select which counts are printed, always in");
+    println!("the following order: newline, word, character, byte, maximum line length.");
+    println!("  -l, --lines            print the newline counts");
+    println!("  -w, --words            print the word counts");
+    println!("  -m, --chars            print the character counts");
+    println!("  -c, --bytes            print the byte counts");
+    println!("  -L, --max-line-length  print the maximum display width");
+}
+
+fn print_version() {
+    println!("wc (nxsh coreutils) 1.0.0");
+    println!("This is free software; see the source for copying conditions.");
+    println!("There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A");
+    println!("PARTICULAR PURPOSE.");
+}
+
 fn accumulate(acc: &mut (usize, usize, usize, usize, usize), add: (usize, usize, usize, usize, usize)) {
     acc.0 += add.0;
     acc.1 += add.1;
@@ -138,21 +184,34 @@ fn count_stream(path: &str, mode: Mode) -> Result<(usize, usize, usize, usize, u
     let mut maxline = 0usize;
 
     if mode.contains(Mode::LINES) || mode.contains(Mode::WORDS) || mode.contains(Mode::CHARS) || mode.contains(Mode::MAXLINE) {
-        let s = std::str::from_utf8(&buf).unwrap_or(unsafe { std::str::from_utf8_unchecked(&buf) });
+        // Handle invalid UTF-8 gracefully by replacing invalid sequences
+        let s = String::from_utf8_lossy(&buf);
+        
         if mode.contains(Mode::LINES) {
+            // Count newlines - GNU wc counts \n characters
             lines = s.as_bytes().iter().filter(|&&b| b == b'\n').count();
-            // If file doesn't end with newline, GNU wc doesn't count the last partial line addition; we follow same.
         }
+        
         if mode.contains(Mode::WORDS) {
+            // GNU wc definition: words are separated by whitespace
             words = s.split_whitespace().count();
         }
-        if mode.contains(Mode::CHARS) || mode.contains(Mode::MAXLINE) {
-            if mode.contains(Mode::CHARS) { chars = s.chars().count(); }
-            if mode.contains(Mode::MAXLINE) {
-                maxline = s.split_inclusive('\n')
-                    .map(|line| line.trim_end_matches('\n').chars().count())
-                    .max().unwrap_or_else(|| s.chars().count());
-            }
+        
+        if mode.contains(Mode::CHARS) {
+            // Character count (multi-byte aware)
+            chars = s.chars().count();
+        }
+        
+        if mode.contains(Mode::MAXLINE) {
+            // Maximum line length in characters
+            maxline = if s.is_empty() {
+                0
+            } else {
+                s.lines()
+                    .map(|line| line.chars().count())
+                    .max()
+                    .unwrap_or(0)
+            };
         }
     }
     Ok((lines, words, bytes, chars, maxline))
@@ -220,5 +279,76 @@ mod tests {
         let path = f.path().to_str().unwrap().to_string();
         let _ = count_stream(&path, Mode::LINES | Mode::WORDS | Mode::BYTES | Mode::CHARS).unwrap();
         // Note: full stdin redirection test would be in integration tests
+    }
+
+    #[test]
+    fn test_help_and_version() {
+        let result = wc_cli(&["--help".to_string()]);
+        assert!(result.is_ok());
+        
+        let result = wc_cli(&["--version".to_string()]);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_empty_file() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        let counts = count_stream(&path, Mode::LINES | Mode::WORDS | Mode::BYTES | Mode::CHARS | Mode::MAXLINE).unwrap();
+        assert_eq!(counts, (0, 0, 0, 0, 0));
+    }
+
+    #[test]
+    fn test_single_line_no_newline() {
+        let mut tmp = NamedTempFile::new().unwrap();
+        write!(tmp, "hello world").unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        let counts = count_stream(&path, Mode::LINES | Mode::WORDS | Mode::BYTES | Mode::CHARS).unwrap();
+        assert_eq!(counts.0, 0); // no newlines
+        assert_eq!(counts.1, 2); // two words
+        assert_eq!(counts.2, 11); // 11 bytes
+        assert_eq!(counts.3, 11); // 11 characters
+    }
+
+    #[test]
+    fn test_utf8_characters() {
+        let mut tmp = NamedTempFile::new().unwrap();
+        write!(tmp, "こんにちは\n").unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        let counts = count_stream(&path, Mode::LINES | Mode::WORDS | Mode::BYTES | Mode::CHARS).unwrap();
+        assert_eq!(counts.0, 1); // one newline
+        assert_eq!(counts.1, 1); // one word
+        assert!(counts.2 > counts.3); // bytes > chars for UTF-8
+        assert_eq!(counts.3, 6); // 5 Japanese chars + 1 newline
+    }
+
+    #[test]
+    fn test_max_line_length() {
+        let mut tmp = NamedTempFile::new().unwrap();
+        writeln!(tmp, "short").unwrap();
+        writeln!(tmp, "much longer line").unwrap();
+        writeln!(tmp, "med").unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        let counts = count_stream(&path, Mode::MAXLINE).unwrap();
+        assert_eq!(counts.4, 16); // "much longer line" is 16 chars
+    }
+
+    #[test]
+    fn test_invalid_options() {
+        let result = wc_cli(&["-x".to_string()]);
+        assert!(result.is_err());
+        
+        let result = wc_cli(&["--invalid".to_string()]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_combined_flags() {
+        let mut tmp = NamedTempFile::new().unwrap();
+        writeln!(tmp, "test line").unwrap();
+        let path = tmp.path().to_str().unwrap().to_string();
+        
+        let result = wc_cli(&["-lwc".to_string(), path]);
+        assert!(result.is_ok());
     }
 }
