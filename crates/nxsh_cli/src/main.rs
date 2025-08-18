@@ -282,30 +282,78 @@ async fn main() -> anyhow::Result<()> {
 
 /// Execute a single command with comprehensive functionality
 async fn execute_single_command(cmd: &str, start_time: Instant) -> anyhow::Result<()> {
-    // Use nxsh_core for proper command execution instead of system shell
-    // This provides full NexusShell command parsing and execution
+    use nxsh_core::{context::ShellContext, executor::Executor};
+    use nxsh_parser::Parser;
+    use std::io::Write;
     
     let execution_time = start_time.elapsed();
     
-    // For now, fallback to system execution but with performance tracking
-    let shell_cmd = if cfg!(target_os = "windows") { ("cmd", "/C") } else { ("sh", "-c") };
-    
-    let output = std::process::Command::new(shell_cmd.0)
-        .arg(shell_cmd.1)
-        .arg(cmd)
-        .output()?;
-    
-    // Print output directly
-    std::io::stdout().write_all(&output.stdout)?;
-    std::io::stderr().write_all(&output.stderr)?;
-    
-    // Performance reporting
-    if execution_time.as_millis() > 100 {
-        eprintln!("⚠️  Command execution: {:.2}ms", execution_time.as_millis());
+    // Parse the command to extract command name and args
+    let cmd_parts: Vec<&str> = cmd.split_whitespace().collect();
+    if cmd_parts.is_empty() {
+        return Ok(());
     }
     
-    // Exit with command's exit code
-    std::process::exit(output.status.code().unwrap_or(1));
+    let command_name = cmd_parts[0];
+    let args: Vec<String> = cmd_parts[1..].iter().map(|s| s.to_string()).collect();
+    
+    // Try nxsh_builtins first for comprehensive command support
+    if nxsh_builtins::is_builtin_name(command_name) {
+        match nxsh_builtins::execute_builtin(command_name, &args) {
+            Ok(()) => {
+                // Performance reporting
+                let total_time = start_time.elapsed();
+                if total_time.as_millis() > 100 {
+                    eprintln!("⚠️  Command execution: {:.2}ms", total_time.as_millis());
+                }
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+    
+    // Fallback to NexusShell's native command execution system
+    let mut shell_context = ShellContext::new();
+    let mut executor = Executor::new();
+    let parser = Parser::new();
+    
+    match parser.parse(cmd) {
+        Ok(ast) => {
+            match executor.execute(&ast, &mut shell_context) {
+                Ok(result) => {
+                    // Print output directly to stdout/stderr
+                    if !result.stdout.is_empty() {
+                        std::io::stdout().write_all(result.stdout.as_bytes())?;
+                        std::io::stdout().flush()?;
+                    }
+                    if !result.stderr.is_empty() {
+                        std::io::stderr().write_all(result.stderr.as_bytes())?;
+                        std::io::stderr().flush()?;
+                    }
+                    
+                    // Performance reporting
+                    let total_time = start_time.elapsed();
+                    if total_time.as_millis() > 100 {
+                        eprintln!("⚠️  Command execution: {:.2}ms", total_time.as_millis());
+                    }
+                    
+                    // Exit with command's exit code
+                    std::process::exit(result.exit_code);
+                }
+                Err(e) => {
+                    eprintln!("NexusShell execution error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Err(parse_error) => {
+            eprintln!("NexusShell parse error: {}", parse_error);
+            std::process::exit(1);
+        }
+    }
 }
 
 // Synchronous tiny main for busybox-min (no clap, no tokio)
