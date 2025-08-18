@@ -1,0 +1,13 @@
+[package]
+name = "nexusshell_structured_test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nxsh_core = { path = "crates/nxsh_core", features = ["error-rich", "heavy-time"] }
+nxsh_builtins = { path = "crates/nxsh_builtins" }
+anyhow = "1.0"
+
+[[bin]]
+name = "structured_test"
+path = "examples/real_structured_test.rs"
