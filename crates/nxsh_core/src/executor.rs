@@ -507,7 +507,9 @@ impl Executor {
     
     /// Register all built-in commands
     fn register_all_builtins(&mut self) {
+        // Use standard builtins from nxsh_core
         let builtins = crate::builtins::register_all_builtins();
+        
         eprintln!("DEBUG: Registering {} builtins", builtins.len());
         for builtin in builtins {
             let name = builtin.name();
