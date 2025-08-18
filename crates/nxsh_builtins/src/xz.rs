@@ -4,6 +4,8 @@ use std::fs::File;
 use std::path::Path;
 #[cfg(feature = "compression-lzma")]
 use lzma_rs;
+#[cfg(test)]
+use tempfile;
 
 #[derive(Debug, Clone)]
 pub struct XzOptions {
@@ -42,7 +44,7 @@ impl Default for XzOptions {
             force: false,
             verbose: false,
             level: 6,  // Default compression level
-            format: CompressionFormat::Xz,
+            format: CompressionFormat::Auto,
             check: CheckType::Crc64,
         }
     }
@@ -137,6 +139,10 @@ pub fn xz_cli(args: &[String]) -> Result<()> {
                 options.decompress = true;
                 options.stdout = false; // Discard output for testing
                 return test_xz_files(args, &options);
+            }
+            "--test-format" => {
+                // Test format compatibility without decompressing
+                return test_format_compatibility(args);
             }
             arg if arg.starts_with('-') => {
                 return Err(anyhow::anyhow!("Unknown option: {}", arg));
@@ -522,18 +528,180 @@ fn test_xz_files(files: &[String], options: &XzOptions) -> Result<()> {
     Ok(())
 }
 
+/// Test format compatibility without full decompression
+fn test_format_compatibility(args: &[String]) -> Result<()> {
+    let files: Vec<&String> = args.iter().skip_while(|arg| arg.starts_with('-')).collect();
+    
+    if files.is_empty() {
+        return Err(anyhow::anyhow!("No files specified for format testing"));
+    }
+
+    for filename in files {
+        match test_file_format(filename) {
+            Ok(format) => println!("{}: {}", filename, format_name(&format)),
+            Err(e) => {
+                eprintln!("Error testing '{}': {}", filename, e);
+                return Err(e);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Test and identify the format of a compressed file
+fn test_file_format(filename: &str) -> Result<CompressionFormat> {
+    let mut file = File::open(filename)
+        .with_context(|| format!("Cannot open file '{}'", filename))?;
+    
+    let mut magic = [0u8; 16];
+    let bytes_read = file.read(&mut magic)
+        .with_context(|| format!("Cannot read file '{}'", filename))?;
+    
+    if bytes_read < 4 {
+        return Err(anyhow::anyhow!("File too small to determine format"));
+    }
+
+    // XZ format magic: 0xFD 0x37 0x7A 0x58 0x5A 0x00
+    if magic.starts_with(&[0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00]) {
+        Ok(CompressionFormat::Xz)
+    }
+    // LZMA format magic: varies, but usually starts with specific patterns
+    else if magic[0] <= 225 && bytes_read >= 13 {
+        // Basic LZMA format check
+        Ok(CompressionFormat::Lzma)
+    }
+    // Raw LZMA stream (no magic, just check if it looks like LZMA properties)
+    else if bytes_read >= 5 && magic[0] <= 225 {
+        Ok(CompressionFormat::Raw)
+    } else {
+        Err(anyhow::anyhow!("Unknown or unsupported compression format"))
+    }
+}
+
+/// Get human-readable format name
+fn format_name(format: &CompressionFormat) -> &'static str {
+    match format {
+        CompressionFormat::Xz => "XZ format",
+        CompressionFormat::Lzma => "Legacy LZMA format",
+        CompressionFormat::Raw => "Raw LZMA stream",
+        CompressionFormat::Auto => "Auto-detect format",
+    }
+}
+
 /// Test integrity of a single compressed file
 fn test_single_file(filename: &str, options: &XzOptions) -> Result<()> {
+    println!("Testing integrity of '{}'...", filename);
+    
     let file = File::open(filename)
-        .with_context(|| format!("Cannot open file '{filename}'"))?;
+        .with_context(|| format!("Cannot open file '{}'", filename))?;
     
     let mut reader = BufReader::new(file);
-    let mut null_writer = NullWriter;
+    let mut writer = NullWriter;
     
-    decompress_stream(&mut reader, &mut null_writer, options)
-        .with_context(|| format!("Integrity test failed for '{filename}'"))?;
+    match options.format {
+        CompressionFormat::Xz => {
+            lzma_rs::xz_decompress(&mut reader, &mut writer)
+                .with_context(|| format!("Failed to decompress XZ file '{}'", filename))?;
+        }
+        CompressionFormat::Lzma => {
+            lzma_rs::lzma_decompress(&mut reader, &mut writer)
+                .with_context(|| format!("Failed to decompress LZMA file '{}'", filename))?;
+        }
+        _ => {
+            return Err(anyhow::anyhow!("Unsupported format for integrity testing"));
+        }
+    }
     
+    println!("OK: '{}'", filename);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_format_detection_empty_file() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let result = test_file_format(temp_file.path().to_str().unwrap());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("too small"));
+    }
+
+    #[test]
+    fn test_format_detection_xz_magic() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        // Write XZ magic bytes: 0xFD 0x37 0x7A 0x58 0x5A 0x00
+        temp_file.write_all(&[0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00, 0x01, 0x02]).unwrap();
+        temp_file.flush().unwrap();
+        
+        let result = test_file_format(temp_file.path().to_str().unwrap());
+        assert!(result.is_ok());
+        assert!(matches!(result.unwrap(), CompressionFormat::Xz));
+    }
+
+    #[test]
+    fn test_format_detection_lzma_properties() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        // Write LZMA properties byte (valid range: 0-225) and some data
+        temp_file.write_all(&[93, 0x00, 0x00, 0x10, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00]).unwrap();
+        temp_file.flush().unwrap();
+        
+        let result = test_file_format(temp_file.path().to_str().unwrap());
+        assert!(result.is_ok());
+        assert!(matches!(result.unwrap(), CompressionFormat::Lzma));
+    }
+
+    #[test]
+    fn test_format_detection_unknown() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        // Write random bytes that don't match any known format
+        temp_file.write_all(&[0xFF, 0xFF, 0xFF, 0xFF, 0xFF]).unwrap();
+        temp_file.flush().unwrap();
+        
+        let result = test_file_format(temp_file.path().to_str().unwrap());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Unknown or unsupported"));
+    }
+
+    #[test]
+    fn test_format_name_mapping() {
+        assert_eq!(format_name(&CompressionFormat::Xz), "XZ format");
+        assert_eq!(format_name(&CompressionFormat::Lzma), "Legacy LZMA format");
+        assert_eq!(format_name(&CompressionFormat::Raw), "Raw LZMA stream");
+        assert_eq!(format_name(&CompressionFormat::Auto), "Auto-detect format");
+    }
+
+    #[test]
+    fn test_detect_format_from_extension() {
+        assert!(matches!(detect_format_from_extension("test.xz"), CompressionFormat::Xz));
+        assert!(matches!(detect_format_from_extension("test.lzma"), CompressionFormat::Lzma));
+        assert!(matches!(detect_format_from_extension("test.lz"), CompressionFormat::Lzma));
+        assert!(matches!(detect_format_from_extension("test.txt"), CompressionFormat::Xz)); // Default
+    }
+
+    #[test]
+    fn test_format_size() {
+        assert_eq!(format_size(0), "0 B");
+        assert_eq!(format_size(512), "512 B");
+        assert_eq!(format_size(1024), "1.0 KiB");
+        assert_eq!(format_size(1536), "1.5 KiB");
+        assert_eq!(format_size(1024 * 1024), "1.0 MiB");
+        assert_eq!(format_size(1024 * 1024 * 1024), "1.0 GiB");
+    }
+
+    #[test]
+    fn test_xz_options_default() {
+        let options = XzOptions::default();
+        assert!(!options.decompress);
+        assert!(!options.keep);
+        assert!(!options.force);
+        assert!(!options.stdout);
+        assert_eq!(options.level, 6);
+        assert!(matches!(options.format, CompressionFormat::Auto));
+    }
 }
 
 /// Null writer that discards all data (for testing)
