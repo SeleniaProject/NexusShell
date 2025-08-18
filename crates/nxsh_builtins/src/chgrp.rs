@@ -20,13 +20,7 @@ use which::which;
 use nix::unistd::{Group, Gid};
 
 #[cfg(windows)]
-use windows::Win32::{
-    Foundation::BOOL,
-    Security::{
-        LookupAccountNameW,
-        SID_NAME_USE,
-    },
-};
+use windows::Win32::Security::SID_NAME_USE;
 
 pub fn chgrp_cli(args: &[String]) -> Result<()> {
     // Parse arguments first to handle our enhanced options
@@ -101,7 +95,7 @@ fn parse_chgrp_args(args: &[String]) -> Result<ChgrpArgs> {
                 return Err(anyhow!("chgrp: invalid option -- '{}'", arg));
             },
             _ => {
-                if parsed.group.is_empty() {
+                if parsed.group.is_empty() && parsed.reference_file.is_none() {
                     parsed.group = arg.clone();
                 } else {
                     parsed.files.push(arg.clone());
@@ -137,7 +131,7 @@ fn execute_chgrp_fallback(args: ChgrpArgs) -> Result<()> {
         if args.recursive && Path::new(file).is_dir() {
             change_group_recursive(file, target_gid, args.verbose)?;
         } else {
-            change_file_group(file, target_gid)?;
+            change_file_group(file, target_gid, true)?;
         }
     }
 
@@ -213,7 +207,7 @@ fn get_file_gid(file_path: &str) -> Result<u32> {
     }
 }
 
-fn change_file_group(file_path: &str, gid: u32) -> Result<()> {
+fn change_file_group(file_path: &str, gid: u32, _dereference: bool) -> Result<()> {
     let path = Path::new(file_path);
     if !path.exists() {
         return Err(anyhow!("chgrp: cannot access '{}': No such file or directory", file_path));
@@ -261,7 +255,7 @@ fn change_group_recursive(dir_path: &str, gid: u32, verbose: bool) -> Result<()>
             println!("changing group of '{}' to {}", dir.display(), gid);
         }
         
-        change_file_group(&dir.to_string_lossy(), gid)?;
+        change_file_group(&dir.to_string_lossy(), gid, true)?;
         
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
@@ -273,7 +267,7 @@ fn change_group_recursive(dir_path: &str, gid: u32, verbose: bool) -> Result<()>
                 if verbose {
                     println!("changing group of '{}' to {}", path.display(), gid);
                 }
-                change_file_group(&path.to_string_lossy(), gid)?;
+                change_file_group(&path.to_string_lossy(), gid, true)?;
             }
         }
         
@@ -288,7 +282,7 @@ fn change_group_recursive(dir_path: &str, gid: u32, verbose: bool) -> Result<()>
     if path.is_dir() {
         visit_dir(path, gid, verbose)
     } else {
-        change_file_group(dir_path, gid)
+        change_file_group(dir_path, gid, true)
     }
 }
 
@@ -318,9 +312,8 @@ fn print_chgrp_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::{self, File};
-    use std::io::Write;
-    use tempfile::TempDir;
+    use std::fs;
+    use std::path::Path;
 
     #[test]
     fn test_parse_chgrp_args_basic() {
@@ -405,7 +398,7 @@ mod tests {
 
     #[test]
     fn test_change_file_group_nonexistent() {
-        let result = change_file_group("/nonexistent/file", 1000);
+        let result = change_file_group("/nonexistent/file", 1000, true);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("No such file"));
     }
@@ -425,23 +418,23 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn test_chgrp_integration_with_temp_file() {
+    fn test_chgrp_integration_basic() {
         use std::os::unix::fs::MetadataExt;
         
-        let temp_dir = TempDir::new().unwrap();
-        let file_path = temp_dir.path().join("test_file.txt");
+        // Create a temporary file for testing
+        let temp_file = std::env::temp_dir().join("chgrp_test.txt");
+        fs::write(&temp_file, "test content").unwrap();
         
-        // Create a test file
-        let mut file = File::create(&file_path).unwrap();
-        writeln!(file, "test content").unwrap();
-        
-        // Get current GID
-        let metadata = fs::metadata(&file_path).unwrap();
+        // Get current group ownership
+        let metadata = fs::metadata(&temp_file).unwrap();
         let current_gid = metadata.gid();
         
-        // Test changing to the same GID (should succeed)
-        let result = change_file_group(&file_path.to_string_lossy(), current_gid);
+        // Test changing to the same group (should succeed)
+        let result = change_file_group(&temp_file.to_string_lossy(), current_gid, true);
         assert!(result.is_ok());
+        
+        // Clean up
+        let _ = fs::remove_file(&temp_file);
     }
 
     #[test]
