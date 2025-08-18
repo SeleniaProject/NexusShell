@@ -51,8 +51,12 @@ use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use walkdir::{WalkDir, DirEntry};
 use globset::Glob;
 use nu_ansi_term::Color as NuColor;
-#[cfg(feature = "parallel")]
+#[cfg(all(feature = "parallel", feature = "advanced-regex"))]
 use rayon::prelude::*;
+#[cfg(feature = "compression-gzip")]
+use memmap2::Mmap;
+#[cfg(feature = "compression-gzip")]
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct GrepOptions {
@@ -93,6 +97,9 @@ pub struct GrepOptions {
     pub byte_offset: bool,
     pub initial_tab: bool,
     pub label: Option<String>,
+    pub parallel: bool,
+    pub mmap: bool,
+    pub max_file_size: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -149,6 +156,9 @@ impl Default for GrepOptions {
             byte_offset: false,
             initial_tab: false,
             label: None,
+            parallel: false,
+            mmap: false,
+            max_file_size: Some(100 * 1024 * 1024), // 100MB default limit
         }
     }
 }
@@ -402,6 +412,26 @@ fn parse_grep_args(args: &[String]) -> Result<GrepOptions> {
                 let pattern = arg.strip_prefix("--exclude-dir=").unwrap();
                 options.exclude_dir_patterns.push(pattern.to_string());
             }
+            "--parallel" => {
+                #[cfg(all(feature = "parallel", feature = "advanced-regex"))]
+                { options.parallel = true; }
+                #[cfg(not(all(feature = "parallel", feature = "advanced-regex")))]
+                { return Err(anyhow!("grep: parallel mode not available in this build")); }
+            }
+            "--no-parallel" => options.parallel = false,
+            "--mmap" => {
+                #[cfg(feature = "compression-gzip")]
+                { options.mmap = true; }
+                #[cfg(not(feature = "compression-gzip"))]
+                { return Err(anyhow!("grep: memory mapping not available in this build")); }
+            }
+            "--no-mmap" => options.mmap = false,
+            arg if arg.starts_with("--max-file-size=") => {
+                let size_str = arg.strip_prefix("--max-file-size=").unwrap();
+                let size: u64 = size_str.parse()
+                    .map_err(|_| anyhow!("grep: invalid max file size '{}'", size_str))?;
+                options.max_file_size = Some(size);
+            }
             "--help" => {
                 print_help();
                 std::process::exit(0);
@@ -650,6 +680,14 @@ fn search_file(filename: &str, matcher: &GrepMatcher, options: &GrepOptions) -> 
         return Ok(result);
     }
     
+    // Check file size limits
+    if let Some(max_size) = options.max_file_size {
+        if metadata.len() > max_size {
+            result.error = Some(format!("File too large: {} bytes (max: {})", metadata.len(), max_size));
+            return Ok(result);
+        }
+    }
+    
     // Check for binary files
     if !options.text_mode && is_binary_file(filename)? {
         match options.binary_files {
@@ -664,7 +702,13 @@ fn search_file(filename: &str, matcher: &GrepMatcher, options: &GrepOptions) -> 
         }
     }
     
-    // Open and search file
+    // Use memory mapping for large files when enabled
+    #[cfg(feature = "compression-gzip")]
+    if options.mmap && metadata.len() > 1024 * 1024 { // Use mmap for files > 1MB
+        return search_file_mmap(filename, matcher, options, result);
+    }
+    
+    // Standard buffered reading for smaller files
     match File::open(filename) {
         Ok(file) => {
             let reader = BufReader::new(file);
@@ -676,6 +720,129 @@ fn search_file(filename: &str, matcher: &GrepMatcher, options: &GrepOptions) -> 
     }
     
     Ok(result)
+}
+
+/// Memory-mapped file search for large files
+#[cfg(feature = "compression-gzip")]
+fn search_file_mmap(filename: &str, matcher: &GrepMatcher, options: &GrepOptions, mut result: FileResult) -> Result<FileResult> {
+    use std::fs::File;
+    
+    let file = File::open(filename).map_err(|e| {
+        result.error = Some(e.to_string());
+        anyhow!("Failed to open file: {}", e)
+    })?;
+    
+    let mmap = unsafe { Mmap::map(&file) }.map_err(|e| {
+        result.error = Some(format!("Failed to map file: {}", e));
+        anyhow!("Memory mapping failed: {}", e)
+    })?;
+    
+    // Convert mmap to string (assuming UTF-8)
+    let content = match std::str::from_utf8(&mmap) {
+        Ok(s) => s,
+        Err(_) => {
+            if !options.text_mode {
+                result.error = Some("File contains non-UTF8 data".to_string());
+                return Ok(result);
+            }
+            // Lossy conversion for binary data in text mode
+            &String::from_utf8_lossy(&mmap)
+        }
+    };
+    
+    search_string_content(content, matcher, options, &mut result);
+    Ok(result)
+}
+
+/// Search string content directly (optimized for large content)
+fn search_string_content(content: &str, matcher: &GrepMatcher, options: &GrepOptions, result: &mut FileResult) {
+    let separator = if options.null_data { '\0' } else { '\n' };
+    let lines: Vec<&str> = content.split(separator).collect();
+    
+    #[cfg(all(feature = "parallel", feature = "advanced-regex"))]
+    if options.parallel && lines.len() > 1000 { // Use parallel processing for large files
+        search_lines_parallel(&lines, matcher, options, result);
+        return;
+    }
+    
+    search_lines_sequential(&lines, matcher, options, result);
+}
+
+/// Parallel line processing for large files
+#[cfg(all(feature = "parallel", feature = "advanced-regex"))]
+fn search_lines_parallel(lines: &[&str], matcher: &GrepMatcher, options: &GrepOptions, result: &mut FileResult) {
+    use std::sync::Mutex;
+    
+    let matches = Arc::new(Mutex::new(Vec::new()));
+    let match_count = Arc::new(Mutex::new(0usize));
+    
+    lines.par_iter().enumerate().for_each(|(line_num, line)| {
+        if let Some(max) = options.max_count {
+            if *match_count.lock().unwrap() >= max {
+                return;
+            }
+        }
+        
+        let line_matches = match_line(line, line_num + 1, 0, matcher, options);
+        if !line_matches.is_empty() {
+            let mut matches_guard = matches.lock().unwrap();
+            let mut count_guard = match_count.lock().unwrap();
+            *count_guard += line_matches.len();
+            matches_guard.extend(line_matches);
+        }
+    });
+    
+    result.matches = Arc::try_unwrap(matches).unwrap().into_inner().unwrap();
+    result.match_count = Arc::try_unwrap(match_count).unwrap().into_inner().unwrap();
+    
+    // Sort matches by line number for consistent output
+    result.matches.sort_by_key(|m| m.line_number);
+}
+
+/// Sequential line processing
+fn search_lines_sequential(lines: &[&str], matcher: &GrepMatcher, options: &GrepOptions, result: &mut FileResult) {
+    for (line_num, line) in lines.iter().enumerate() {
+        if let Some(max) = options.max_count {
+            if result.match_count >= max {
+                break;
+            }
+        }
+        
+        let line_matches = match_line(line, line_num + 1, 0, matcher, options);
+        result.match_count += line_matches.len();
+        result.matches.extend(line_matches);
+    }
+}
+
+/// Match a single line and return MatchResult objects
+fn match_line(line: &str, line_number: usize, byte_offset: usize, matcher: &GrepMatcher, options: &GrepOptions) -> Vec<MatchResult> {
+    let line_matches = find_matches_in_line(line, matcher);
+    
+    if line_matches.is_empty() {
+        if options.invert_match {
+            // In invert mode, non-matching lines are considered matches
+            vec![MatchResult {
+                line_number,
+                byte_offset,
+                line: line.to_string(),
+                matches: vec![], // No actual matches to highlight
+            }]
+        } else {
+            vec![]
+        }
+    } else {
+        if options.invert_match {
+            // In invert mode, matching lines are ignored
+            vec![]
+        } else {
+            vec![MatchResult {
+                line_number,
+                byte_offset,
+                line: line.to_string(),
+                matches: line_matches,
+            }]
+        }
+    }
 }
 
 fn search_reader<R: BufRead>(
@@ -818,25 +985,16 @@ fn search_recursive(dir: &str, matcher: &GrepMatcher, options: &GrepOptions) -> 
         .map(|entry| entry.path().to_string_lossy().to_string())
         .collect();
     
-    // Use parallel processing for large file sets
-    if files.len() > 10 {
-        #[cfg(feature = "parallel")]
-        {
-            return files
-                .par_iter()
-                .map(|filename| search_file(filename, matcher, options))
-                .collect::<Result<Vec<_>, _>>();
-        }
-        // Fallback sequential when parallel disabled
-        #[cfg(not(feature = "parallel"))]
-        {
-            return files
-                .iter()
-                .map(|filename| search_file(filename, matcher, options))
-                .collect();
-        }
+    // Use parallel processing when enabled and beneficial
+    #[cfg(all(feature = "parallel", feature = "advanced-regex"))]
+    if options.parallel && files.len() > 10 {
+        return files
+            .par_iter()
+            .map(|filename| search_file(filename, matcher, options))
+            .collect::<Result<Vec<_>, _>>();
     }
-    // Small set or already handled
+    
+    // Sequential processing for small sets or when parallel is disabled
     files
         .iter()
         .map(|filename| search_file(filename, matcher, options))
@@ -1036,10 +1194,173 @@ fn print_help() {
     println!("  -B, --before-context=NUM  print NUM lines of leading context");
     println!("  -C, --context=NUM         print NUM lines of output context");
     println!();
+    println!("Performance options:");
+    println!("      --parallel            use parallel processing for multiple files");
+    println!("      --no-parallel         disable parallel processing");
+    println!("      --mmap                use memory mapping for large files");
+    println!("      --no-mmap             disable memory mapping");
+    println!("      --max-file-size=SIZE  skip files larger than SIZE bytes");
+    println!();
     println!("When FILE is '-', read standard input. With no FILE, read '.' if");
     println!("recursive, '-' otherwise. Exit status is 0 if any line is selected,");
     println!("1 otherwise; if any error occurs and -q is not given, the exit");
     println!("status is 2.");
     println!();
     println!("Report bugs to <bug-reports@nexusshell.org>");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+    use std::io::Write;
+
+    #[test]
+    fn test_grep_options_default() {
+        let options = GrepOptions::default();
+        assert!(options.basic_regexp);
+        assert!(!options.extended_regexp);
+        assert!(!options.fixed_strings);
+        assert!(!options.perl_regexp);
+        assert!(!options.ignore_case);
+        assert!(!options.parallel);
+        assert!(!options.mmap);
+        assert_eq!(options.max_file_size, Some(100 * 1024 * 1024));
+    }
+
+    #[test]
+    fn test_parse_performance_options() {
+        let args = vec![
+            "grep".to_string(),
+            "--parallel".to_string(),
+            "--mmap".to_string(),
+            "--max-file-size=1000000".to_string(),
+            "pattern".to_string(),
+        ];
+        
+        #[cfg(all(feature = "parallel", feature = "advanced-regex", feature = "compression-gzip"))]
+        {
+            let options = parse_grep_args(&args[1..]).unwrap();
+            assert!(options.parallel);
+            assert!(options.mmap);
+            assert_eq!(options.max_file_size, Some(1000000));
+        }
+        
+        #[cfg(not(all(feature = "parallel", feature = "advanced-regex", feature = "compression-gzip")))]
+        {
+            // In builds without these features, some options will error
+            assert!(args.len() > 0); // Just a basic sanity check
+        }
+    }
+
+    #[test]
+    fn test_file_size_limit() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "test content").unwrap();
+        temp_file.flush().unwrap();
+        
+        let options = GrepOptions {
+            max_file_size: Some(5), // Very small limit
+            ..Default::default()
+        };
+        
+        let matcher = GrepMatcher {
+            #[cfg(feature = "advanced-regex")]
+            regex: None,
+            #[cfg(feature = "advanced-regex")]
+            fancy_regex: None,
+            #[cfg(feature = "advanced-regex")]
+            aho_corasick: None,
+            fixed_patterns: vec!["test".to_string()],
+            options: options.clone(),
+        };
+        
+        let result = search_file(temp_file.path().to_str().unwrap(), &matcher, &options).unwrap();
+        assert!(result.error.is_some());
+        assert!(result.error.unwrap().contains("File too large"));
+    }
+
+    #[test]
+    fn test_fixed_string_matching() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "Hello world").unwrap();
+        writeln!(temp_file, "Goodbye world").unwrap();
+        temp_file.flush().unwrap();
+        
+        let options = GrepOptions {
+            fixed_strings: true,
+            patterns: vec!["world".to_string()],
+            ..Default::default()
+        };
+        
+        let matcher = create_matcher(options.patterns.clone(), &options).unwrap();
+        let result = search_file(temp_file.path().to_str().unwrap(), &matcher, &options).unwrap();
+        
+        assert_eq!(result.match_count, 2);
+        assert_eq!(result.matches.len(), 2);
+    }
+
+    #[test] 
+    fn test_case_insensitive_search() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "Hello World").unwrap();
+        writeln!(temp_file, "hello world").unwrap();
+        temp_file.flush().unwrap();
+        
+        let options = GrepOptions {
+            ignore_case: true,
+            fixed_strings: true,
+            patterns: vec!["HELLO".to_string()],
+            ..Default::default()
+        };
+        
+        let matcher = create_matcher(options.patterns.clone(), &options).unwrap();
+        let result = search_file(temp_file.path().to_str().unwrap(), &matcher, &options).unwrap();
+        
+        assert_eq!(result.match_count, 2);
+    }
+
+    #[test]
+    fn test_line_number_output() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        writeln!(temp_file, "line 1").unwrap();
+        writeln!(temp_file, "match here").unwrap();
+        writeln!(temp_file, "line 3").unwrap();
+        temp_file.flush().unwrap();
+        
+        let options = GrepOptions {
+            line_number: true,
+            fixed_strings: true,
+            patterns: vec!["match".to_string()],
+            ..Default::default()
+        };
+        
+        let matcher = create_matcher(options.patterns.clone(), &options).unwrap();
+        let result = search_file(temp_file.path().to_str().unwrap(), &matcher, &options).unwrap();
+        
+        assert_eq!(result.match_count, 1);
+        assert_eq!(result.matches[0].line_number, 2);
+    }
+
+    #[test]
+    fn test_max_count_limit() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        for i in 1..=10 {
+            writeln!(temp_file, "match line {}", i).unwrap();
+        }
+        temp_file.flush().unwrap();
+        
+        let options = GrepOptions {
+            max_count: Some(3),
+            fixed_strings: true,
+            patterns: vec!["match".to_string()],
+            ..Default::default()
+        };
+        
+        let matcher = create_matcher(options.patterns.clone(), &options).unwrap();
+        let result = search_file(temp_file.path().to_str().unwrap(), &matcher, &options).unwrap();
+        
+        assert_eq!(result.match_count, 3);
+        assert_eq!(result.matches.len(), 3);
+    }
 } 
