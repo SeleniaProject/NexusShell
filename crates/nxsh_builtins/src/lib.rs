@@ -42,11 +42,20 @@ pub enum BuiltinCommand {
     Uniq,
     Head,
     Tail,
+    Less,
     Wc,
     Cut,
     Awk,
     Sed,
     Tr,
+    // Structured Data Commands (Nushell-inspired)
+    FromJson,
+    ToJson,
+    Select,
+    Where,
+    Sys,
+    DemoTable,
+    LsStructured,
     Fold,
     Ps,
     Top,
@@ -196,6 +205,9 @@ pub use head::head_cli;
 pub mod tail;
 pub use tail::tail_cli;
 
+pub mod less;
+pub use less::less_cli;
+
 pub mod wc;
 pub use wc::wc_cli;
 
@@ -228,6 +240,13 @@ pub use sed::sed_cli;
 
 pub mod tr;
 pub use tr::tr_cli;
+
+// Structured Data Commands (Nushell-inspired)
+pub mod json_commands;
+pub use json_commands::{from_json_cli, to_json_cli, select_cli as json_select_cli, where_cli, sys_cli, demo_table_cli};
+
+pub mod ls_structured;
+pub use ls_structured::ls_table_cli;
 
 pub mod fold;
 pub use fold::fold_cli;
@@ -315,6 +334,9 @@ pub use cksum::cksum_cli;
 
 pub mod id;
 pub use id::id_cli;
+
+pub mod groups;
+pub use groups::groups_cli;
 
 pub mod hostname;
 pub use hostname::hostname_cli;
@@ -1029,6 +1051,7 @@ pub fn execute_builtin(command: &str, args: &[String]) -> BuiltinResult<()> {
         "free" => free_cli(args).map_err(shellerr_from_anyhow),
         "uptime" => uptime_cli(args).map_err(shellerr_from_anyhow),
         "id" => id_cli(args).map_err(shellerr_from_anyhow),
+        "groups" => groups_cli(args).map_err(shellerr_from_anyhow),
         "whoami" => whoami_cli(args).map_err(shellerr_from_anyhow),
         "hostname" => hostname_cli(args).map_err(shellerr_from_anyhow),
         "uname" => uname_cli(args).map_err(shellerr_from_anyhow),
