@@ -91,7 +91,7 @@ minimal-compression = ["compression-core"]
 
 
 [dependencies]
-nxsh_core = { path = "../nxsh_core", default-features = false }
+nxsh_core = { path = "../nxsh_core", default-features = false, features = ["error-rich", "heavy-time"] }
 nxsh_hal = { path = "../nxsh_hal" }
 anyhow = { version = "1", features = ["backtrace"] }
 tracing = "0.1"
