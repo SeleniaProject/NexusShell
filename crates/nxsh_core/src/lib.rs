@@ -28,6 +28,9 @@ pub use structured_logging::{StructuredLogger, LogConfig, LogFormat, RotationCon
 #[cfg(feature = "monitoring")] pub use monitoring::{MonitoringSystem, MonitoringConfig, SystemMetrics, AlertConfig, AlertLevel, Alert, DashboardData};
 #[cfg(feature = "advanced_scheduler")] pub use advanced_scheduler::{AdvancedJobScheduler, ScheduledJob, JobSchedule, JobExecutionResult, JobStatistics};
 #[cfg(feature = "security_auditor")] pub use security_auditor::{SecurityAuditor, SecurityAuditReport, AuditScope, AuditFinding};
+// NexusShell-inspired structured data processing
+pub use structured_data::{StructuredValue, PipelineData, StructuredCommand};
+pub use structured_commands::*;
 #[cfg(feature = "system_optimizer")] pub use system_optimizer::{SystemOptimizer, SystemOptimizationReport, OptimizationProfile};
 #[cfg(feature = "performance_profiler")] pub use performance_profiler::{PerformanceProfiler, ProfilingSession, BenchmarkResult, BottleneckAnalysis};
 #[cfg(feature = "documentation_system")] pub use documentation_system::{DocumentationSystem, ApiDocumentationReport, UserDocumentationReport, DeveloperDocumentationReport};
@@ -65,6 +68,8 @@ pub mod namespace; // Namespace and module system
 pub mod safe; // Safe error handling to eliminate panic! calls
 pub mod performance; // Performance optimization system
 pub mod startup; // Startup time optimization system
+pub mod structured_data; // NexusShell-inspired structured data processing
+pub mod structured_commands; // Commands for structured data
 pub mod memory;
 pub mod io_optimization;
 pub mod shell;
