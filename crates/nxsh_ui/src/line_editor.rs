@@ -1,7 +1,8 @@
 //! Standard CUI Line Editor for NexusShell
 //! 
 //! This module provides a simple readline-style line editing experience
-//! with basic history management and standard Tab completion.
+//! with basic history management and ultra-fast Tab completion powered by
+//! the Advanced Completion Engine.
 //! All complex TUI-specific features have been removed.
 
 use anyhow::{Result, Context};
@@ -20,8 +21,13 @@ use rustyline::{
 use std::{
     path::{Path, PathBuf},
     fs,
+    sync::{Arc, Mutex},
 };
-use crate::history_crypto;
+use crate::{
+    history_crypto,
+    completion::NexusCompleter,
+    completion_engine::AdvancedCompletionEngine,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc as StdArc, Mutex as StdMutex};
 
