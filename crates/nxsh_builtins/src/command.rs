@@ -59,33 +59,69 @@ pub const BUILTIN_NAMES: &[&str] = &[
 
 /// Entry function.
 pub fn command_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
-    if args.is_empty() { return Err(anyhow!("command: missing arguments")); }
+    if args.is_empty() { return print_help(); }
 
     let mut verbose = false;
     let mut list_only = false;
+    let mut use_default_path = false;
 
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
-        if arg == "-v" {
-            list_only = true;
-        } else if arg == "-V" {
-            verbose = true;
-            list_only = true;
-        } else if arg == "-p" {
-            // POSIX -p: use default PATH. Our shell already uses env PATH; treat as no-op.
-        } else if arg.starts_with('-') {
-            return Err(anyhow!("command: unsupported option '{}'.", arg));
-        } else {
-            // First non-option
-            let mut names = vec![arg.clone()];
-            names.extend(iter.cloned());
-            if list_only {
-                return handle_query(names, ctx, list_only, verbose);
-            } else {
-                return execute_direct(&names);
+        match arg.as_str() {
+            "-v" => list_only = true,
+            "-V" => {
+                verbose = true;
+                list_only = true;
+            }
+            "-p" => {
+                // POSIX -p: use default PATH instead of current PATH
+                use_default_path = true;
+            }
+            "-h" | "--help" => return print_help(),
+            "--version" => return print_version(),
+            arg if arg.starts_with('-') => {
+                return Err(anyhow!("command: unknown option '{}'", arg));
+            }
+            _ => {
+                // First non-option
+                let mut names = vec![arg.clone()];
+                names.extend(iter.cloned());
+                if list_only {
+                    return handle_query(names, ctx, list_only, verbose);
+                } else {
+                    return execute_direct(&names, use_default_path);
+                }
             }
         }
     }
+    
+    // If only options were provided without command names
+    if list_only {
+        return Err(anyhow!("command: missing command name(s) for listing"));
+    }
+    
+    Ok(())
+}
+
+fn print_help() -> Result<()> {
+    println!("command - execute commands bypassing shell functions and aliases");
+    println!("Usage: command [OPTIONS] COMMAND [ARGS...]");
+    println!("       command [OPTIONS] -v|-V COMMAND...");
+    println!();
+    println!("Options:");
+    println!("  -v            Print description of COMMAND (similar to 'type')");
+    println!("  -V            More verbose description of COMMAND");
+    println!("  -p            Use default PATH, ignoring current PATH");
+    println!("  -h, --help    Show this help");
+    println!("  --version     Show version information");
+    println!();
+    println!("Execute COMMAND with ARGS, bypassing shell functions and aliases.");
+    println!("With -v or -V, show what COMMAND would resolve to.");
+    Ok(())
+}
+
+fn print_version() -> Result<()> {
+    println!("command (NexusShell) 1.0.0");
     Ok(())
 }
 
@@ -126,17 +162,51 @@ fn handle_query(names: Vec<String>, ctx: &ShellContext, _list_only: bool, verbos
     Ok(())
 }
 
-fn execute_direct(words: &[String]) -> Result<()> {
+fn execute_direct(words: &[String], use_default_path: bool) -> Result<()> {
     if words.is_empty() { return Ok(()); }
     let cmd = &words[0];
     let args = &words[1..];
-    // Direct PATH lookup
-    let path = lookup_path(cmd).unwrap_or_else(|| PathBuf::from(cmd));
+    
+    // Direct PATH lookup, with optional default PATH
+    let path = if use_default_path {
+        lookup_default_path(cmd)
+    } else {
+        lookup_path(cmd)
+    }.unwrap_or_else(|| PathBuf::from(cmd));
+    
     let status = PCommand::new(path).args(args).status()?;
     if !status.success() {
         return Err(anyhow!("command: '{}' exited with status {}", cmd, status.code().unwrap_or(-1)));
     }
     Ok(())
+}
+
+fn lookup_default_path(cmd: &str) -> Option<PathBuf> {
+    // POSIX default PATH
+    let default_path = if cfg!(windows) {
+        "C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\Wbem"
+    } else {
+        "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    };
+    
+    for dir in env::split_paths(default_path) {
+        let p = dir.join(cmd);
+        if p.is_file() && is_executable(&p) {
+            return Some(p);
+        }
+        
+        // On Windows, also try with common extensions
+        #[cfg(windows)]
+        {
+            for ext in ["exe", "bat", "cmd"] {
+                let p_ext = p.with_extension(ext);
+                if p_ext.is_file() {
+                    return Some(p_ext);
+                }
+            }
+        }
+    }
+    None
 }
 
 fn lookup_path(cmd: &str) -> Option<PathBuf> {
@@ -145,6 +215,19 @@ fn lookup_path(cmd: &str) -> Option<PathBuf> {
         let p = dir.join(cmd);
         if p.is_file() && is_executable(&p) {
             return Some(p);
+        }
+        
+        // On Windows, also try with common extensions if not already specified
+        #[cfg(windows)]
+        {
+            if !cmd.contains('.') {
+                for ext in ["exe", "bat", "cmd"] {
+                    let p_ext = p.with_extension(ext);
+                    if p_ext.is_file() {
+                        return Some(p_ext);
+                    }
+                }
+            }
         }
     }
     None
@@ -267,5 +350,43 @@ mod tests {
             matches!(*name, "grep" | "sed" | "awk" | "cut" | "sort" | "uniq" | "tr" | "wc")
         }).cloned().collect();
         assert!(!text_processing.is_empty(), "Should have text processing commands");
+    }
+
+    #[test]
+    fn test_help_and_version() {
+        assert!(print_help().is_ok());
+        assert!(print_version().is_ok());
+    }
+
+    #[test]
+    fn test_command_options() {
+        let ctx = ShellContext::new();
+        
+        // Test help option
+        let result = command_cli(&["--help".into()], &ctx);
+        assert!(result.is_ok());
+        
+        // Test version option
+        let result = command_cli(&["--version".into()], &ctx);
+        assert!(result.is_ok());
+        
+        // Test invalid option
+        let result = command_cli(&["--invalid".into()], &ctx);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_empty_args() {
+        let ctx = ShellContext::new();
+        let result = command_cli(&[], &ctx);
+        assert!(result.is_ok()); // Should show help
+    }
+
+    #[test]
+    fn test_path_lookup() {
+        // Test that we can look up basic commands
+        // This might vary by system but should at least not panic
+        let _result = lookup_path("echo");
+        let _result = lookup_default_path("echo");
     }
 } 
