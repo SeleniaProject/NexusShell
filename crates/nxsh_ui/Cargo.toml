@@ -47,6 +47,12 @@ battery = { version = "0.7", optional = true }
 fuzzy-matcher = "0.3"
 # Async support for high-performance operations
 tokio = { version = "1.0", features = ["full", "sync"], optional = true }
+# High-performance parallel processing for completion
+rayon = "1.8"
+# LRU cache for ultra-fast file completion
+lru = "0.12"
+# Futures for async coordination
+futures = "0.3"
 # Crypto for history encryption
 aes-gcm = { version = "0.10", features = ["aes"] }
 argon2 = "0.5"
@@ -74,6 +80,10 @@ battery-metrics = ["battery"]
 [[example]]
 name = "theme_system_test"
 path = "src/theme_system_test.rs"
+
+[[example]]
+name = "completion_demo"
+path = "src/completion_demo.rs"
 
 [dev-dependencies]
 tempfile = "3.8"
