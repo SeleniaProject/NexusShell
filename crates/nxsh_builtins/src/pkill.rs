@@ -48,10 +48,51 @@ pub fn pkill_cli(args: &[String]) -> Result<()> {
 }
 
 fn parse_signal(s: &str) -> Result<i32> {
+    // Try numeric first
     if let Ok(num) = s.parse::<i32>() {
-        Ok(num)
+        return Ok(num);
+    }
+
+    // Handle signal names (with or without SIG prefix)
+    let signal_name = if s.starts_with("SIG") {
+        &s[3..]
     } else {
-        Err(anyhow!("pkill: only numeric signals supported for now"))
+        s
+    };
+
+    match signal_name.to_uppercase().as_str() {
+        "HUP" => Ok(1),
+        "INT" => Ok(2),
+        "QUIT" => Ok(3),
+        "ILL" => Ok(4),
+        "TRAP" => Ok(5),
+        "ABRT" | "IOT" => Ok(6),
+        "BUS" => Ok(7),
+        "FPE" => Ok(8),
+        "KILL" => Ok(9),
+        "USR1" => Ok(10),
+        "SEGV" => Ok(11),
+        "USR2" => Ok(12),
+        "PIPE" => Ok(13),
+        "ALRM" => Ok(14),
+        "TERM" => Ok(15),
+        "STKFLT" => Ok(16),
+        "CHLD" | "CLD" => Ok(17),
+        "CONT" => Ok(18),
+        "STOP" => Ok(19),
+        "TSTP" => Ok(20),
+        "TTIN" => Ok(21),
+        "TTOU" => Ok(22),
+        "URG" => Ok(23),
+        "XCPU" => Ok(24),
+        "XFSZ" => Ok(25),
+        "VTALRM" => Ok(26),
+        "PROF" => Ok(27),
+        "WINCH" => Ok(28),
+        "IO" | "POLL" => Ok(29),
+        "PWR" => Ok(30),
+        "SYS" => Ok(31),
+        _ => Err(anyhow!("pkill: unknown signal name '{}'", s)),
     }
 }
 
@@ -82,4 +123,38 @@ fn send_signal(pid: i32, _sig: i32) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_signal_numeric() {
+        assert_eq!(parse_signal("15").unwrap(), 15);
+        assert_eq!(parse_signal("9").unwrap(), 9);
+    }
+
+    #[test]
+    fn test_parse_signal_names() {
+        assert_eq!(parse_signal("TERM").unwrap(), 15);
+        assert_eq!(parse_signal("SIGTERM").unwrap(), 15);
+        assert_eq!(parse_signal("KILL").unwrap(), 9);
+        assert_eq!(parse_signal("SIGKILL").unwrap(), 9);
+        assert_eq!(parse_signal("HUP").unwrap(), 1);
+        assert_eq!(parse_signal("INT").unwrap(), 2);
+    }
+
+    #[test]
+    fn test_parse_signal_case_insensitive() {
+        assert_eq!(parse_signal("term").unwrap(), 15);
+        assert_eq!(parse_signal("kill").unwrap(), 9);
+        assert_eq!(parse_signal("hup").unwrap(), 1);
+    }
+
+    #[test]
+    fn test_parse_signal_invalid() {
+        assert!(parse_signal("INVALID").is_err());
+        assert!(parse_signal("999").is_ok()); // Large numbers are allowed
+    }
 } 
