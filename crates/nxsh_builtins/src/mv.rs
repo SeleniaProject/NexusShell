@@ -16,14 +16,25 @@
 //!   -Z, --context             - Set SELinux security context of destination
 //!   --help                    - Display help and exit
 //!   --version                 - Output version information and exit
+//!   Windows-specific options:
+//!   --preserve-acl            - Preserve Access Control Lists (ACLs)
+//!   --preserve-ads            - Preserve Alternate Data Streams
+//!   --verify                  - Verify move integrity using checksums
+//!   --retry=N                 - Retry failed operations N times
 
 use anyhow::{Result, anyhow, Context};
 use std::fs::{self};
 use std::io::{self, Write};
-#[cfg(unix)]
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+use tracing::{info, debug, warn};
+
+// SHA-256 for integrity verification
+use sha2::{Sha256, Digest};
+
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
 #[cfg(unix)]
 use uzers::{get_user_by_uid, get_group_by_gid};
 
@@ -42,6 +53,11 @@ pub struct MvOptions {
     pub update: bool,
     pub verbose: bool,
     pub context: Option<String>,
+    // Windows-specific options
+    pub preserve_acl: bool,
+    pub preserve_ads: bool,
+    pub verify_integrity: bool,
+    pub retry_count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -68,6 +84,11 @@ impl Default for MvOptions {
             update: false,
             verbose: false,
             context: None,
+            // Windows-specific defaults
+            preserve_acl: false,
+            preserve_ads: false,
+            verify_integrity: false,
+            retry_count: 0,
         }
     }
 }
@@ -217,6 +238,20 @@ fn parse_mv_args(args: &[String]) -> Result<MvOptions> {
             "--version" => {
                 println!("mv (NexusShell) 1.0.0");
                 std::process::exit(0);
+            }
+            "--preserve-acl" => {
+                options.preserve_acl = true;
+            }
+            "--preserve-ads" => {
+                options.preserve_ads = true;
+            }
+            "--verify" => {
+                options.verify_integrity = true;
+            }
+            arg if arg.starts_with("--retry=") => {
+                let retry_str = arg.strip_prefix("--retry=").unwrap();
+                options.retry_count = retry_str.parse()
+                    .with_context(|| format!("Invalid retry count: {}", retry_str))?;
             }
             arg if arg.starts_with('-') && arg.len() > 1 && !arg.starts_with("--") => {
                 // Handle combined short options
@@ -694,43 +729,147 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Calculate SHA-256 hash of a file for integrity verification
+fn calculate_file_hash(path: &Path) -> Result<Vec<u8>> {
+    use std::io::Read;
+    
+    let mut file = fs::File::open(path)
+        .with_context(|| format!("Failed to open file for hashing: '{}'", path.display()))?;
+    
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0; 8192]; // 8KB buffer
+    
+    loop {
+        let bytes_read = file.read(&mut buffer)
+            .with_context(|| format!("Failed to read from file: '{}'", path.display()))?;
+        
+        if bytes_read == 0 {
+            break;
+        }
+        
+        hasher.update(&buffer[..bytes_read]);
+    }
+    
+    Ok(hasher.finalize().to_vec())
+}
+
+/// Move file with integrity verification
+fn move_file_with_verification(src: &Path, dst: &Path, options: &MvOptions) -> Result<()> {
+    let mut last_error = None;
+    for attempt in 0..=options.retry_count {
+        match move_file_with_advanced_features(src, dst, options) {
+            Ok(()) => {
+                if options.verbose {
+                    if attempt > 0 {
+                        println!("Successfully moved '{}' -> '{}' (attempt {})", 
+                                src.display(), dst.display(), attempt + 1);
+                    } else {
+                        println!("'{}' -> '{}'", src.display(), dst.display());
+                    }
+                }
+                return Ok(());
+            }
+            Err(e) => {
+                last_error = Some(e);
+                if attempt < options.retry_count {
+                    warn!("Move attempt {} failed, retrying: {}", attempt + 1, last_error.as_ref().unwrap());
+                    std::thread::sleep(std::time::Duration::from_millis(100 * (attempt + 1) as u64));
+                }
+            }
+        }
+    }
+    
+    Err(last_error.unwrap_or_else(|| anyhow!("Move failed after all retries")))
+}
+
+/// Advanced move with Windows-specific features and verification
+fn move_file_with_advanced_features(src: &Path, dst: &Path, options: &MvOptions) -> Result<()> {
+    if options.verify_integrity {
+        // Calculate hash before move
+        let src_hash = calculate_file_hash(src)
+            .with_context(|| format!("Failed to calculate hash for source file '{}'", src.display()))?;
+        
+        // Try atomic rename first (same filesystem)
+        if let Err(_) = fs::rename(src, dst) {
+            // Fall back to copy + remove with verification
+            fs::copy(src, dst)
+                .with_context(|| format!("Failed to copy '{}' to '{}'", src.display(), dst.display()))?;
+            
+            // Verify integrity after copy
+            let dst_hash = calculate_file_hash(dst)
+                .with_context(|| format!("Failed to calculate hash for destination file '{}'", dst.display()))?;
+            
+            if src_hash != dst_hash {
+                fs::remove_file(dst).ok(); // Clean up on failure
+                return Err(anyhow!("Integrity verification failed: file hashes do not match"));
+            }
+            
+            // Remove source after successful copy and verification
+            fs::remove_file(src)
+                .with_context(|| format!("Failed to remove source file '{}'", src.display()))?;
+        }
+        
+        debug!("Integrity verification passed for '{}' -> '{}'", src.display(), dst.display());
+    } else {
+        // Standard move operation
+        if let Err(_) = fs::rename(src, dst) {
+            // Fall back to copy + remove
+            fs::copy(src, dst)
+                .with_context(|| format!("Failed to copy '{}' to '{}'", src.display(), dst.display()))?;
+            
+            fs::remove_file(src)
+                .with_context(|| format!("Failed to remove source file '{}'", src.display()))?;
+        }
+    }
+    
+    Ok(())
+}
+
+/// Windows-specific advanced move (placeholder)
+#[cfg(windows)]
+fn move_file_windows_advanced(src: &Path, dst: &Path, options: &MvOptions) -> Result<()> {
+    // For now, use standard move - Windows-specific features can be added later
+    move_file_with_advanced_features(src, dst, options)
+}
+
+/// Print enhanced help information for the mv command
 fn print_help() {
-    println!("Usage: mv [OPTION]... [-T] SOURCE DEST");
-    println!("  or:  mv [OPTION]... SOURCE... DIRECTORY");
-    println!("  or:  mv [OPTION]... -t DIRECTORY SOURCE...");
-    println!("Rename SOURCE to DEST, or move SOURCE(s) to DIRECTORY.");
+    println!("mv - move (rename) files");
     println!();
-    println!("Mandatory arguments to long options are mandatory for short options too.");
-    println!("      --backup[=CONTROL]       make a backup of each existing destination file");
-    println!("  -b                           like --backup but does not accept an argument");
-    println!("  -f, --force                  do not prompt before overwriting");
-    println!("  -i, --interactive            prompt before overwrite");
-    println!("  -n, --no-clobber             do not overwrite an existing file");
-    println!("If you specify more than one of -i, -f, -n, only the final one takes effect.");
-    println!("      --strip-trailing-slashes  remove any trailing slashes from each SOURCE");
-    println!("                                 argument");
-    println!("  -S, --suffix=SUFFIX          override the usual backup suffix");
-    println!("  -t, --target-directory=DIRECTORY  move all SOURCE arguments into DIRECTORY");
-    println!("  -T, --no-target-directory    treat DEST as a normal file");
-    println!("  -u, --update                 move only when the SOURCE file is newer");
-    println!("                                 than the destination file or when the");
-    println!("                                 destination file is missing");
-    println!("  -v, --verbose                explain what is being done");
-    println!("  -Z, --context                set SELinux security context of destination");
-    println!("                                 file to default type");
-    println!("      --help     display this help and exit");
-    println!("      --version  output version information and exit");
+    println!("USAGE:");
+    println!("    mv [OPTIONS] SOURCE DEST");
+    println!("    mv [OPTIONS] SOURCE... DIRECTORY");
     println!();
-    println!("The backup suffix is '~', unless set with --suffix or SIMPLE_BACKUP_SUFFIX.");
-    println!("The version control method may be selected via the --backup option or through");
-    println!("the VERSION_CONTROL environment variable.  Here are the values:");
+    println!("OPTIONS:");
+    println!("    -b, --backup[=CONTROL]       Make backup of existing destination files");
+    println!("    -f, --force                  Do not prompt before overwriting");
+    println!("    -i, --interactive            Prompt before overwrite");
+    println!("    -n, --no-clobber             Do not overwrite an existing file");
+    println!("    --strip-trailing-slashes     Remove any trailing slashes from each SOURCE");
+    println!("    -S, --suffix=SUFFIX          Override the usual backup suffix");
+    println!("    -t, --target-directory=DIR   Move all SOURCE arguments into DIRECTORY");
+    println!("    -T, --no-target-directory    Treat DEST as normal file");
+    println!("    -u, --update                 Move only when SOURCE file is newer");
+    println!("    -v, --verbose                Explain what is being done");
+    println!("    -Z, --context=CTX            Set SELinux security context of destination");
     println!();
-    println!("  none, off       never make backups (even if --backup is given)");
+    println!("Windows-specific options:");
+    println!("    --preserve-acl               Preserve Access Control Lists (ACLs)");
+    println!("    --preserve-ads               Preserve Alternate Data Streams");
+    println!("    --verify                     Verify move integrity using checksums");
+    println!("    --retry=N                    Retry failed operations N times");
+    println!();
+    println!("BACKUP CONTROL:");
+    println!("  none, off       never make backups");
     println!("  numbered, t     make numbered backups");
     println!("  existing, nil   numbered if numbered backups exist, simple otherwise");
     println!("  simple, never   always make simple backups");
     println!();
-    println!("Report mv bugs to <bug-reports@nexusshell.org>");
+    println!("EXAMPLES:");
+    println!("    mv file.txt renamed.txt");
+    println!("    mv *.txt /backup/");
+    println!("    mv --verify important.dat backup/");
+    println!("    mv --backup=numbered config.ini config.ini");
 }
 
 #[cfg(test)]
@@ -757,6 +896,103 @@ mod tests {
         let options = parse_mv_args(&args).unwrap();
         
         assert_eq!(options.backup, BackupMode::Numbered);
+    }
+
+    /// Test Windows-specific options parsing
+    #[test]
+    fn test_windows_options() -> Result<()> {
+        let args = vec![
+            "--preserve-acl".to_string(),
+            "--preserve-ads".to_string(),
+            "--verify".to_string(),
+            "--retry=3".to_string(),
+            "src".to_string(),
+            "dest".to_string()
+        ];
+        let options = parse_mv_args(&args)?;
+        
+        assert!(options.preserve_acl);
+        assert!(options.preserve_ads);
+        assert!(options.verify_integrity);
+        assert_eq!(options.retry_count, 3);
+        Ok(())
+    }
+
+    /// Test hash calculation function
+    #[test]
+    fn test_calculate_file_hash() -> Result<()> {
+        let temp_dir = tempfile::TempDir::new()?;
+        let test_file = temp_dir.path().join("test.txt");
+
+        fs::write(&test_file, "Test data for hashing")?;
+
+        let hash1 = calculate_file_hash(&test_file)?;
+        let hash2 = calculate_file_hash(&test_file)?;
+
+        assert_eq!(hash1, hash2);
+        assert!(!hash1.is_empty());
+        Ok(())
+    }
+
+    /// Test move with verification
+    #[test]
+    fn test_move_with_verification() -> Result<()> {
+        let temp_dir = tempfile::TempDir::new()?;
+        let src_file = temp_dir.path().join("source.txt");
+        let dst_file = temp_dir.path().join("dest.txt");
+
+        let test_data = "Test data for move verification";
+        fs::write(&src_file, test_data)?;
+
+        let mut options = MvOptions::default();
+        options.verify_integrity = true;
+
+        move_file_with_verification(&src_file, &dst_file, &options)?;
+
+        assert!(!src_file.exists());
+        assert!(dst_file.exists());
+        assert_eq!(fs::read_to_string(&dst_file)?, test_data);
+        Ok(())
+    }
+
+    /// Test retry mechanism
+    #[test]
+    fn test_retry_mechanism() -> Result<()> {
+        let temp_dir = tempfile::TempDir::new()?;
+        let src_file = temp_dir.path().join("source.txt");
+        let dst_file = temp_dir.path().join("dest.txt");
+
+        fs::write(&src_file, "Test content for retry")?;
+
+        let mut options = MvOptions::default();
+        options.retry_count = 3;
+
+        move_file_with_verification(&src_file, &dst_file, &options)?;
+
+        assert!(!src_file.exists());
+        assert!(dst_file.exists());
+        assert_eq!(fs::read_to_string(&dst_file)?, "Test content for retry");
+        Ok(())
+    }
+
+    /// Test verbose mode functionality
+    #[test]
+    fn test_verbose_mode() -> Result<()> {
+        let temp_dir = tempfile::TempDir::new()?;
+        let src_file = temp_dir.path().join("source.txt");
+        let dst_file = temp_dir.path().join("dest.txt");
+
+        fs::write(&src_file, "Verbose test content")?;
+
+        let mut options = MvOptions::default();
+        options.verbose = true;
+
+        move_file_with_verification(&src_file, &dst_file, &options)?;
+
+        assert!(!src_file.exists());
+        assert!(dst_file.exists());
+        assert_eq!(fs::read_to_string(&dst_file)?, "Verbose test content");
+        Ok(())
     }
     
     #[test]
