@@ -188,6 +188,64 @@ CROSS-PLATFORM NOTES:
     }
 }
 
+fn show_kill_help() {
+    println!("kill - Enhanced process termination with comprehensive signal handling and job control
+
+USAGE:
+    kill [OPTIONS] PID...
+    kill [OPTIONS] %JOB...
+    kill [OPTIONS] PROCESS_NAME...
+    kill [OPTIONS] -SIGNAL TARGET...
+    kill -l [SIGNAL]
+    kill -L
+
+OPTIONS:
+    -s SIGNAL, --signal=SIGNAL    Signal to send (name or number)
+    -n SIGNAL                     Signal number to send
+    -l, --list                    List signal names
+    -L, --table                   List signal names in a table format
+    -v, --verbose                 Verbose output
+    -t TIMEOUT, --timeout=TIMEOUT Wait TIMEOUT seconds between TERM and KILL
+    --help                        Display this help and exit
+
+SIGNALS:
+    Standard POSIX signals (use kill -l for complete list):
+    1  HUP     Hangup
+    2  INT     Interrupt (Ctrl+C)
+    3  QUIT    Quit (Ctrl+\\)
+    9  KILL    Kill (cannot be caught or ignored)
+    15 TERM    Terminate (default)
+    18 CONT    Continue
+    19 STOP    Stop (cannot be caught or ignored)
+    20 TSTP    Terminal stop (Ctrl+Z)
+    10 USR1    User defined signal 1
+    12 USR2    User defined signal 2
+
+TARGETS:
+    PID        Process ID (e.g., 1234)
+    %JOB       Job ID (e.g., %1, %+, %-)
+    -PID       Process group ID (e.g., -1234)
+    NAME       Process name (kills all matching processes)
+    
+EXAMPLES:
+    kill 1234                    # Send TERM signal to PID 1234
+    kill -9 1234                 # Send KILL signal to PID 1234
+    kill -TERM 1234              # Send TERM signal using name
+    kill -s USR1 1234            # Send USR1 signal
+    kill %1                      # Send TERM signal to job 1
+    kill -9 %2                   # Send KILL signal to job 2
+    kill firefox                 # Kill all processes named firefox
+    kill -HUP -1234              # Send HUP to process group 1234
+    kill -l                      # List all available signals
+    kill -L                      # Show signals in table format
+
+CROSS-PLATFORM NOTES:
+    - Unix/Linux: Full signal support with libc
+    - Windows: Limited to TERM (graceful) and KILL (force) termination
+    - Job control: Integrated with nxsh JobManager on all platforms
+    - Process groups: Unix/Linux only");
+}
+
 fn parse_kill_args(args: &[String]) -> ShellResult<KillOptions> {
     let mut options = KillOptions {
         signal: 15, // SIGTERM
@@ -260,7 +318,10 @@ fn parse_kill_args(args: &[String]) -> ShellResult<KillOptions> {
                 options.timeout = Some(args[i].parse()
                     .map_err(|_| ShellError::command_not_found("Invalid timeout value"))?);
             }
-            "--help" => return Err(ShellError::command_not_found("Help requested")),
+            "--help" => {
+                show_kill_help();
+                return Ok(options);
+            }
             _ if arg.starts_with("-") && arg.len() > 1 => {
                 // Handle -SIGNAL format, but check if it's a process group first
                 let signal_str = &arg[1..];
@@ -716,6 +777,18 @@ fn list_signals_table() {
 /// CLI wrapper function for kill command
 pub fn kill_cli(args: &[String]) -> anyhow::Result<()> {
     let options = parse_kill_args(args)?;
+    
+    // Handle special cases
+    if options.list_signals {
+        list_signals();
+        return Ok(());
+    }
+    
+    // Check if no targets provided
+    if options.targets.is_empty() {
+        return Err(anyhow::anyhow!("kill: missing operand\nTry 'kill --help' for more information."));
+    }
+    
     let pid = match &options.targets[0] {
         KillTarget::Pid(p) => *p,
         KillTarget::ProcessGroup(p) => *p,

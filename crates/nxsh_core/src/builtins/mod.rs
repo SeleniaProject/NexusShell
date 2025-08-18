@@ -11,9 +11,11 @@ pub mod fg;
 pub mod bg;
 pub mod id;
 pub mod testutils;
+pub mod kill;
 
 pub use id::IdBuiltin;
 use testutils::ArgDumpBuiltin;
+use kill::KillBuiltin;
 
 /// Register all built-in commands
 pub fn register_all_builtins() -> Vec<Arc<dyn Builtin>> {
@@ -23,6 +25,7 @@ pub fn register_all_builtins() -> Vec<Arc<dyn Builtin>> {
         Arc::new(bg::BgBuiltin),
         Arc::new(IdBuiltin),
         Arc::new(ArgDumpBuiltin),
+        Arc::new(KillBuiltin),
         // Minimal echo builtin to ensure tests relying on `echo` run under strict timeout env
         Arc::new(testutils::EchoBuiltin),
     ]
