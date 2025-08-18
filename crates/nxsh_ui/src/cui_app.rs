@@ -30,11 +30,13 @@ use tokio::sync::Mutex;
 #[cfg(not(feature = "async"))]
 type Mutex<T> = std::sync::Mutex<T>;
 
+use rustyline::completion::Completer;
 use crate::{
     config::ConfigManager,
     themes::ThemeManager,
     line_editor::NexusLineEditor,
     completion::NexusCompleter,
+    completion_integration::FastCompletionHelper,
     ui_ux::{UIUXSystem, PromptContext},
     status_line::{StatusMetricsCollector, format_status_line},
     startup_profiler,
@@ -85,6 +87,9 @@ pub struct CUIApp {
     
     /// Command completer for tab completion
     completer: Arc<Mutex<NexusCompleter>>,
+    
+    /// High-performance completion helper
+    fast_completion: Option<Arc<FastCompletionHelper>>,
     
     /// Shell execution context
     shell_context: Arc<Mutex<ShellContext>>,
@@ -192,6 +197,18 @@ impl CUIApp {
         let completer = Arc::new(Mutex::new(
             NexusCompleter::new()?
         ));
+
+        // Initialize high-performance completion helper
+        let fast_completion = match FastCompletionHelper::new() {
+            Ok(helper) => {
+                println!("🚀 高性能補完システムが初期化されました");
+                Some(Arc::new(helper))
+            }
+            Err(e) => {
+                eprintln!("⚠️  高性能補完の初期化に失敗、標準モードで動作: {}", e);
+                None
+            }
+        };
         
         let startup_time_ms = startup_start.elapsed().as_millis() as u64;
         
@@ -230,6 +247,7 @@ impl CUIApp {
             theme_manager,
             line_editor,
             completer,
+            fast_completion,
             shell_context,
             executor,
             should_quit: false,
@@ -302,6 +320,12 @@ impl CUIApp {
                 .context("Failed to initialize completer")?
         ));
         
+        // Initialize high-performance completion helper
+        let fast_completion = Arc::new(
+            FastCompletionHelper::new()
+                .context("Failed to initialize fast completion helper")?
+        );
+        
         let startup_time_ms = startup_start.elapsed().as_millis() as u64;
         
         let metrics: MetricsArc = Arc::new(StdMutex::new(SimpleMetrics { 
@@ -344,6 +368,7 @@ impl CUIApp {
             theme_manager,
             line_editor,
             completer,
+            fast_completion: Some(fast_completion),
             shell_context,
             executor,
             should_quit: false,
@@ -782,6 +807,40 @@ impl CUIApp {
             return Ok(output);
         }
 
+        // Parse command to check if it's a nxsh_builtins command
+        let cmd_parts: Vec<&str> = command.split_whitespace().collect();
+        if !cmd_parts.is_empty() {
+            let command_name = cmd_parts[0];
+            
+            // Try nxsh_builtins for comprehensive command support
+            if nxsh_builtins::is_builtin_name(command_name) {
+                let args: Vec<String> = cmd_parts[1..].iter().map(|s| s.to_string()).collect();
+                let (output, exit_code): (String, i32) = match nxsh_builtins::execute_builtin(command_name, &args) {
+                    Ok(()) => {
+                        ("".to_string(), 0) // nxsh_builtins writes directly to stdout/stderr
+                    }
+                    Err(e) => {
+                        (format!("Error: {}", e), 1)
+                    }
+                };
+                // Update metrics and exit code
+                self.last_exit_code = exit_code;
+                self.record_event_output(&output, exit_code);
+                let execution_time = start_time.elapsed();
+                self.last_command_time = Some(execution_time);
+                let exec_time_ms = execution_time.as_millis() as f64;
+                {
+                    let mut m = self.metrics.lock().unwrap();
+                    if m.commands_executed == 1 { 
+                        m.avg_execution_time_ms = exec_time_ms; 
+                    } else { 
+                        m.avg_execution_time_ms = ((m.avg_execution_time_ms * (m.commands_executed - 1) as f64) + exec_time_ms) / m.commands_executed as f64; 
+                    }
+                }
+                return Ok(output);
+            }
+        }
+
         // Dispatch full-feature builtins from nxsh_builtins before shell parsing/external fallback
         // This enables complete in-process implementations (ls, grep, find, etc.) in CUI mode.
         // Note: Most builtins print directly to stdout/stderr. We therefore
@@ -869,6 +928,41 @@ impl CUIApp {
         }
         self.record_event_command(command);
         if let Some(output) = self.handle_builtin_command(command)? { return Ok(output); }
+        
+        // Parse command to check if it's a nxsh_builtins command
+        let cmd_parts: Vec<&str> = command.split_whitespace().collect();
+        if !cmd_parts.is_empty() {
+            let command_name = cmd_parts[0];
+            
+            // Try nxsh_builtins for comprehensive command support
+            if nxsh_builtins::is_builtin_name(command_name) {
+                let args: Vec<String> = cmd_parts[1..].iter().map(|s| s.to_string()).collect();
+                let (output, exit_code): (String, i32) = match nxsh_builtins::execute_builtin(command_name, &args) {
+                    Ok(()) => {
+                        ("".to_string(), 0) // nxsh_builtins writes directly to stdout/stderr
+                    }
+                    Err(e) => {
+                        (format!("Error: {}", e), 1)
+                    }
+                };
+                // Update metrics and exit code
+                self.last_exit_code = exit_code;
+                self.record_event_output(&output, exit_code);
+                let execution_time = start_time.elapsed();
+                self.last_command_time = Some(execution_time);
+                let exec_time_ms = execution_time.as_millis() as f64;
+                {
+                    let mut m = self.metrics.lock().unwrap();
+                    if m.commands_executed == 1 { 
+                        m.avg_execution_time_ms = exec_time_ms; 
+                    } else { 
+                        m.avg_execution_time_ms = ((m.avg_execution_time_ms * (m.commands_executed - 1) as f64) + exec_time_ms) / m.commands_executed as f64; 
+                    }
+                }
+                return Ok(output);
+            }
+        }
+        
         use nxsh_parser::Parser;
         let parser = Parser::new();
         let (output, exit_code): (String, i32) = match parser.parse(command) {
@@ -1356,7 +1450,41 @@ impl CUIApp {
     pub async fn get_completions(&self, input: &str) -> Result<Vec<String>> {
         let completion_start = Instant::now();
         
-        // Use the completer to get suggestions
+        // 高性能補完システムを優先的に使用
+        if let Some(ref fast_completion) = self.fast_completion {
+            // 高性能補完エンジン経由でアクセス（直接的なアクセス）
+            // Note: FastCompletionHelperは内部でAdvancedCompletionEngineを使用
+            match tokio::task::spawn_blocking({
+                let input_str = input.to_string();
+                let fast_comp = Arc::clone(fast_completion);
+                move || {
+                    // 空の履歴を作成してダミーコンテキストとして使用
+                    let history = rustyline::history::DefaultHistory::new();
+                    let dummy_ctx = rustyline::Context::new(&history);
+                    fast_comp.complete(&input_str, input_str.len(), &dummy_ctx)
+                }
+            }).await {
+                Ok(Ok((_, pairs))) => {
+                    let completion_time = completion_start.elapsed().as_millis();
+                    if completion_time > 1 {
+                        eprintln!("⚠️  高性能補完レイテンシ警告: {}ms", completion_time);
+                    } else {
+                        println!("🚀 高性能補完: {}ms", completion_time);
+                    }
+                    
+                    // ペアから補完テキストを抽出
+                    return Ok(pairs.into_iter().map(|p| p.replacement).collect());
+                }
+                Ok(Err(e)) => {
+                    eprintln!("高性能補完エラー: {:?}, フォールバック中", e);
+                }
+                Err(e) => {
+                    eprintln!("高性能補完タスクエラー: {:?}, フォールバック中", e);
+                }
+            }
+        }
+        
+        // フォールバック：基本補完システムを使用
         let completer = self.completer.lock().await;
         let completions = completer.get_completions(input)
             .await
@@ -1365,7 +1493,7 @@ impl CUIApp {
         // Monitor completion latency
         let completion_time = completion_start.elapsed().as_millis();
         if completion_time > 1 {
-            eprintln!("⚠️  Warning: Completion latency {completion_time}ms exceeds SPEC.md requirement of 1ms");
+            eprintln!("⚠️  基本補完レイテンシ警告: {}ms", completion_time);
         }
         
         Ok(completions)
@@ -1374,12 +1502,36 @@ impl CUIApp {
     #[cfg(not(feature = "async"))]
     pub fn get_completions_blocking(&self, input: &str) -> Result<Vec<String>> {
         let completion_start = Instant::now();
+        
+        // 高性能補完システムを優先的に使用
+        if let Some(ref fast_completion) = self.fast_completion {
+            let history = rustyline::history::DefaultHistory::new();
+            let dummy_ctx = rustyline::Context::new(&history);
+            match fast_completion.complete(input, input.len(), &dummy_ctx) {
+                Ok((_, pairs)) => {
+                    let completion_time = completion_start.elapsed().as_millis();
+                    if completion_time > 1 {
+                        eprintln!("⚠️  高性能補完レイテンシ警告: {}ms", completion_time);
+                    } else {
+                        println!("🚀 高性能補完: {}ms", completion_time);
+                    }
+                    
+                    return Ok(pairs.into_iter().map(|p| p.replacement).collect());
+                }
+                Err(e) => {
+                    eprintln!("高性能補完エラー: {:?}, フォールバック中", e);
+                }
+            }
+        }
+        
+        // フォールバック：基本補完システム
         let completer = self.completer.lock().unwrap();
-        // 非asyncビルドでは同期APIを使用
         let completions = completer.get_completions_sync(input)
             .context("Failed to get completions")?;
         let completion_time = completion_start.elapsed().as_millis();
-        if completion_time > 1 { eprintln!("⚠️  Warning: Completion latency {completion_time}ms exceeds SPEC.md requirement of 1ms"); }
+        if completion_time > 1 { 
+            eprintln!("⚠️  基本補完レイテンシ警告: {}ms", completion_time); 
+        }
         Ok(completions)
     }
 
