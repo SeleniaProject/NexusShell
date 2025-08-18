@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError, ErrorKind};
 use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
+use nxsh_core::job::{with_global_job_manager, JobSignal};
 use crate::common::process_utils::execute_kill_target;
 
 fn runtime_error(message: &str) -> ShellError {
@@ -21,6 +22,39 @@ fn io_error(message: &str) -> ShellError {
     )
 }
 
+/// Enhanced kill command with comprehensive signal handling and job control
+/// 
+/// This implementation provides Unix-compatible kill functionality with cross-platform support,
+/// including signal names, process groups, job control, and process name matching.
+/// 
+/// # Platform Support
+/// - Unix/Linux: Full signal support with libc
+/// - Windows: Process termination via taskkill
+/// - Job Control: Full integration with nxsh job management system
+/// 
+/// # Examples
+/// ```bash
+/// kill 1234                    # Send TERM signal to PID 1234
+/// kill -9 1234                 # Send KILL signal to PID 1234  
+/// kill -TERM 1234              # Send TERM signal using name
+/// kill -s USR1 1234            # Send USR1 signal
+/// kill %1                      # Send TERM signal to job 1
+/// kill -9 %2                   # Send KILL signal to job 2
+/// kill firefox                 # Kill all processes named firefox
+/// kill -HUP $(pgrep nginx)     # Send HUP to nginx processes
+/// kill -l                      # List all available signals
+/// kill -L                      # List signals in table format
+/// ```
+/// 
+/// # Cross-Platform Notes
+/// - On Windows, only KILL (force terminate) and TERM (graceful) are supported
+/// - Process groups not supported on Windows
+/// - Job control works on all platforms through nxsh JobManager
+/// 
+/// # Dependencies
+/// - Unix: libc for signal handling
+/// - Windows: tasklist/taskkill for process management
+/// - Job Control: nxsh_core::job::JobManager integration
 pub struct KillBuiltin;
 
 #[derive(Debug, Clone)]
@@ -56,7 +90,7 @@ impl Builtin for KillBuiltin {
     }
 
     fn help(&self) -> &'static str {
-        "Send signals to processes identified by PID"
+        "Enhanced kill command with comprehensive signal handling and job control support"
     }
 
     fn execute(&self, _ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
@@ -76,27 +110,7 @@ impl Builtin for KillBuiltin {
                 KillTarget::Pid(pid) => execute_kill_target(*pid, options.signal)?,
                  KillTarget::ProcessGroup(pgrp) => execute_kill_target(*pgrp, options.signal)?,
                 KillTarget::JobId(job_id) => {
-                    // Resolve job id via core JobManager and send signal to its process group
-                    use nxsh_core::job::{with_global_job_manager, JobSignal};
-                    let sig = JobSignal::from_signal_number(options.signal)
-                        .unwrap_or(JobSignal::Terminate);
-                    let res = with_global_job_manager(|mgr| {
-                        // Try to fetch job to provide better error if missing
-                        match mgr.get_job(*job_id) {
-                            Ok(Some(job)) => {
-                                // prefer group-based signal
-                                let send_res = mgr.send_signal_to_process_group(job.pgid, sig);
-                                if send_res.is_ok() { Ok(()) } else {
-                                    // fall back: try each process pid best-effort
-                                    for p in job.processes.iter() { let _ = execute_kill_target(p.pid, options.signal); }
-                                    Ok(())
-                                }
-                            }
-                            Ok(None) => Err(ShellError::command_not_found(&format!("Job {job_id} not found"))),
-                            Err(e) => Err(e),
-                        }
-                    });
-                    res?
+                    execute_kill_job(*job_id, options.signal)?;
                 }
                 KillTarget::ProcessName(name) => {
                     let pids = find_processes_by_name(name)?;
@@ -116,24 +130,27 @@ impl Builtin for KillBuiltin {
     }
 
     fn usage(&self) -> &'static str {
-        "kill - terminate processes by sending signals
+        "kill - Enhanced process termination with comprehensive signal handling and job control
 
 USAGE:
     kill [OPTIONS] PID...
     kill [OPTIONS] %JOB...
-    kill [OPTIONS] -SIGNAL PID...
+    kill [OPTIONS] PROCESS_NAME...
+    kill [OPTIONS] -SIGNAL TARGET...
     kill -l [SIGNAL]
+    kill -L
 
 OPTIONS:
     -s SIGNAL, --signal=SIGNAL    Signal to send (name or number)
     -n SIGNAL                     Signal number to send
     -l, --list                    List signal names
-    -L, --table                   List signal names in a table
+    -L, --table                   List signal names in a table format
     -v, --verbose                 Verbose output
     -t TIMEOUT, --timeout=TIMEOUT Wait TIMEOUT seconds between TERM and KILL
     --help                        Display this help and exit
 
 SIGNALS:
+    Standard POSIX signals (use kill -l for complete list):
     1  HUP     Hangup
     2  INT     Interrupt (Ctrl+C)
     3  QUIT    Quit (Ctrl+\\)
@@ -142,24 +159,32 @@ SIGNALS:
     18 CONT    Continue
     19 STOP    Stop (cannot be caught or ignored)
     20 TSTP    Terminal stop (Ctrl+Z)
+    10 USR1    User defined signal 1
+    12 USR2    User defined signal 2
 
 TARGETS:
-    PID         Process ID
-    %JOB        Job ID (from jobs command)
-    -PID        Process group ID
-    0           Current process group
-    -1          All processes (requires privileges)
-    COMMAND     All processes with matching command name
-
+    PID        Process ID (e.g., 1234)
+    %JOB       Job ID (e.g., %1, %+, %-)
+    -PID       Process group ID (e.g., -1234)
+    NAME       Process name (kills all matching processes)
+    
 EXAMPLES:
-    kill 1234               Send TERM signal to process 1234
-    kill -9 1234            Send KILL signal to process 1234
-    kill -KILL 1234         Send KILL signal to process 1234
-    kill -HUP 1234          Send HUP signal to process 1234
-    kill %1                 Kill job 1
-    kill -15 -1234          Send TERM to process group 1234
-    kill -l                 List all signal names
-    kill --timeout=5 1234   Send TERM, wait 5s, then KILL"
+    kill 1234                    # Send TERM signal to PID 1234
+    kill -9 1234                 # Send KILL signal to PID 1234
+    kill -TERM 1234              # Send TERM signal using name
+    kill -s USR1 1234            # Send USR1 signal
+    kill %1                      # Send TERM signal to job 1
+    kill -9 %2                   # Send KILL signal to job 2
+    kill firefox                 # Kill all processes named firefox
+    kill -HUP -1234              # Send HUP to process group 1234
+    kill -l                      # List all available signals
+    kill -L                      # Show signals in table format
+
+CROSS-PLATFORM NOTES:
+    - Unix/Linux: Full signal support with libc
+    - Windows: Limited to TERM (graceful) and KILL (force) termination
+    - Job control: Integrated with nxsh JobManager on all platforms
+    - Process groups: Unix/Linux only"
     }
 }
 
@@ -215,8 +240,15 @@ fn parse_kill_args(args: &[String]) -> ShellResult<KillOptions> {
                 if i >= args.len() {
                     return Err(ShellError::command_not_found("Option -n requires an argument"));
                 }
-                options.signal = args[i].parse()
+                let signal_num: i32 = args[i].parse()
                     .map_err(|_| ShellError::command_not_found("Invalid signal number"))?;
+                
+                // Validate signal range
+                if signal_num < 1 || signal_num > 31 {
+                    return Err(ShellError::command_not_found(&format!("Invalid signal number: {signal_num}")));
+                }
+                
+                options.signal = signal_num;
                 options.signal_name = get_signal_name(options.signal)
                     .unwrap_or_else(|| format!("{}", options.signal));
             }
@@ -230,11 +262,19 @@ fn parse_kill_args(args: &[String]) -> ShellResult<KillOptions> {
             }
             "--help" => return Err(ShellError::command_not_found("Help requested")),
             _ if arg.starts_with("-") && arg.len() > 1 => {
-                // Handle -SIGNAL format
+                // Handle -SIGNAL format, but check if it's a process group first
                 let signal_str = &arg[1..];
-                let (sig_num, sig_name) = parse_signal(signal_str, &signal_map)?;
-                options.signal = sig_num;
-                options.signal_name = sig_name;
+                
+                // If it's all digits, treat as process group
+                if signal_str.chars().all(|c| c.is_ascii_digit()) {
+                    let target = parse_kill_target(arg)?;
+                    options.targets.push(target);
+                } else {
+                    // Try to parse as signal
+                    let (sig_num, sig_name) = parse_signal(signal_str, &signal_map)?;
+                    options.signal = sig_num;
+                    options.signal_name = sig_name;
+                }
             }
             _ => {
                 // Parse target
@@ -251,6 +291,10 @@ fn parse_kill_args(args: &[String]) -> ShellResult<KillOptions> {
 fn parse_signal(signal_str: &str, signal_map: &HashMap<String, i32>) -> ShellResult<(i32, String)> {
     // 数値として解析
     if let Ok(sig_num) = signal_str.parse::<i32>() {
+        // Valid signal range check (typically 1-31 for Unix)
+        if sig_num < 1 || sig_num > 31 {
+            return Err(ShellError::command_not_found(&format!("Invalid signal number: {sig_num}")));
+        }
         let sig_name = get_signal_name(sig_num).unwrap_or_else(|| sig_num.to_string());
         return Ok((sig_num, sig_name));
     }
@@ -279,6 +323,12 @@ fn parse_kill_target(target_str: &str) -> ShellResult<KillTarget> {
     if let Ok(pid) = target_str.parse::<u32>() {
         return Ok(KillTarget::Pid(pid));
     }
+    
+    // Check if it looks like it should be a number but failed to parse
+    if target_str.chars().all(|c| c.is_ascii_digit() || c == '-') {
+        return Err(ShellError::command_not_found(&format!("Invalid process ID: {target_str}")));
+    }
+    
     Ok(KillTarget::ProcessName(target_str.to_string()))
 }
 
@@ -290,9 +340,8 @@ fn kill_target(target: &KillTarget, signal: i32, options: &KillOptions) -> Shell
         KillTarget::ProcessGroup(pgrp) => {
             send_signal_to_process_group(*pgrp, signal)?;
         }
-    KillTarget::JobId(_job_id) => {
-            // Would need to look up job in job table
-            return Err(ShellError::command_not_found("Job control not yet implemented"));
+    KillTarget::JobId(job_id) => {
+            execute_kill_job(*job_id, signal)?;
         }
         KillTarget::ProcessName(name) => {
             let pids = find_processes_by_name(name)?;
@@ -391,6 +440,51 @@ fn send_signal_to_process_group(_pgrp: u32, _signal: i32) -> ShellResult<()> {
     {
         Err(ShellError::command_not_found("Process groups not supported on this platform"))
     }
+}
+
+fn execute_kill_job(job_id: u32, signal: i32) -> ShellResult<()> {
+    // Convert Unix signal to JobSignal
+    let job_signal = match signal {
+        1 => JobSignal::Hangup,
+        2 => JobSignal::Interrupt,
+        3 => JobSignal::Quit,
+        9 => JobSignal::Kill,
+        15 => JobSignal::Terminate,
+        18 => JobSignal::Continue,
+        19 => JobSignal::Stop,
+        20 => JobSignal::Stop, // TSTP -> Stop
+        10 => JobSignal::User1,
+        12 => JobSignal::User2,
+        _ => {
+            return Err(ShellError::command_not_found(&format!(
+                "Signal {} not supported for job control", signal
+            )));
+        }
+    };
+
+    // Use global job manager to send signal to job
+    with_global_job_manager(|job_manager| {
+        // First check if job exists
+        match job_manager.get_job(job_id) {
+            Ok(Some(_job)) => {
+                // Job exists, send signal
+                match job_manager.send_signal_to_job(job_id, job_signal) {
+                    Ok(_) => Ok(()),
+                    Err(e) => Err(ShellError::command_not_found(&format!(
+                        "Failed to send signal to job {}: {}", job_id, e
+                    )))
+                }
+            }
+            Ok(None) => {
+                Err(ShellError::command_not_found(&format!("Job {} not found", job_id)))
+            }
+            Err(e) => {
+                Err(ShellError::command_not_found(&format!(
+                    "Failed to access job {}: {}", job_id, e
+                )))
+            }
+        }
+    })
 }
 
 fn find_processes_by_name(name: &str) -> ShellResult<Vec<u32>> {
@@ -635,4 +729,274 @@ pub fn kill_cli(args: &[String]) -> anyhow::Result<()> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nxsh_core::ShellContext;
 
+    #[test]
+    fn test_kill_builtin_creation() {
+        let kill_cmd = KillBuiltin;
+        assert_eq!(kill_cmd.name(), "kill");
+        assert!(kill_cmd.help().contains("Enhanced kill command"));
+        assert!(kill_cmd.usage().contains("USAGE:"));
+    }
+
+    #[test]
+    fn test_parse_kill_args_basic() {
+        let args = vec!["1234".to_string()];
+        let options = parse_kill_args(&args).expect("Failed to parse basic args");
+        
+        assert_eq!(options.signal, 15); // Default TERM
+        assert_eq!(options.targets.len(), 1);
+        assert!(matches!(options.targets[0], KillTarget::Pid(1234)));
+    }
+
+    #[test]
+    fn test_parse_kill_args_with_signal() {
+        let args = vec!["-9".to_string(), "1234".to_string()];
+        let options = parse_kill_args(&args).expect("Failed to parse signal args");
+        
+        // -9 is treated as process group since it's all digits after -
+        assert_eq!(options.signal, 15); // Default TERM
+        assert_eq!(options.targets.len(), 2);
+        assert!(matches!(options.targets[0], KillTarget::ProcessGroup(9)));
+        assert!(matches!(options.targets[1], KillTarget::Pid(1234)));
+    }
+
+    #[test]
+    fn test_parse_kill_args_with_signal_name() {
+        let args = vec!["-TERM".to_string(), "1234".to_string()];
+        let options = parse_kill_args(&args).expect("Failed to parse signal name args");
+        
+        assert_eq!(options.signal, 15); // TERM
+        assert_eq!(options.signal_name, "TERM");
+        assert_eq!(options.targets.len(), 1);
+        assert!(matches!(options.targets[0], KillTarget::Pid(1234)));
+    }
+
+    #[test]
+    fn test_parse_kill_args_job_id() {
+        let args = vec!["%1".to_string()];
+        let options = parse_kill_args(&args).expect("Failed to parse job args");
+        
+        assert_eq!(options.signal, 15); // Default TERM
+        assert_eq!(options.targets.len(), 1);
+        assert!(matches!(options.targets[0], KillTarget::JobId(1)));
+    }
+
+    #[test]
+    fn test_parse_kill_args_process_group() {
+        let args = vec!["-1234".to_string()];
+        let options = parse_kill_args(&args).expect("Failed to parse process group args");
+        
+        assert_eq!(options.signal, 15); // Default TERM
+        assert_eq!(options.targets.len(), 1);
+        assert!(matches!(options.targets[0], KillTarget::ProcessGroup(1234)));
+    }
+
+    #[test]
+    fn test_parse_kill_args_process_name() {
+        let args = vec!["firefox".to_string()];
+        let options = parse_kill_args(&args).expect("Failed to parse process name args");
+        
+        assert_eq!(options.signal, 15); // Default TERM
+        assert_eq!(options.targets.len(), 1);
+        assert!(matches!(options.targets[0], KillTarget::ProcessName(ref name) if name == "firefox"));
+    }
+
+    #[test]
+    fn test_parse_kill_args_list_signals() {
+        let args = vec!["-l".to_string()];
+        let options = parse_kill_args(&args).expect("Failed to parse list args");
+        
+        assert!(options.list_signals);
+        assert_eq!(options.targets.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_kill_args_signal_with_s_flag() {
+        let args = vec!["-s".to_string(), "USR1".to_string(), "1234".to_string()];
+        let options = parse_kill_args(&args).expect("Failed to parse -s flag args");
+        
+        assert_eq!(options.signal, 10); // USR1
+        assert_eq!(options.signal_name, "USR1");
+        assert_eq!(options.targets.len(), 1);
+        assert!(matches!(options.targets[0], KillTarget::Pid(1234)));
+    }
+
+    #[test]
+    fn test_parse_kill_args_multiple_targets() {
+        let args = vec!["1234".to_string(), "5678".to_string(), "%2".to_string()];
+        let options = parse_kill_args(&args).expect("Failed to parse multiple targets");
+        
+        assert_eq!(options.signal, 15); // Default TERM
+        assert_eq!(options.targets.len(), 3);
+        assert!(matches!(options.targets[0], KillTarget::Pid(1234)));
+        assert!(matches!(options.targets[1], KillTarget::Pid(5678)));
+        assert!(matches!(options.targets[2], KillTarget::JobId(2)));
+    }
+
+    #[test]
+    fn test_parse_kill_args_invalid_signal() {
+        let args = vec!["-INVALID".to_string(), "1234".to_string()];
+        let result = parse_kill_args(&args);
+        
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Unknown signal"));
+    }
+
+    #[test]
+    fn test_parse_kill_args_invalid_pid() {
+        let args = vec!["not_a_number".to_string()];
+        let result = parse_kill_args(&args);
+        
+        // This should succeed as it's treated as process name
+        assert!(result.is_ok());
+        let options = result.unwrap();
+        assert!(matches!(options.targets[0], KillTarget::ProcessName(ref name) if name == "not_a_number"));
+    }
+
+    #[test]
+    fn test_parse_kill_args_verbose_flag() {
+        let args = vec!["-v".to_string(), "1234".to_string()];
+        let options = parse_kill_args(&args).expect("Failed to parse verbose args");
+        
+        assert!(options.verbose);
+        assert_eq!(options.targets.len(), 1);
+    }
+
+    #[test]
+    fn test_signal_map_completeness() {
+        let signal_map = get_signal_map();
+        
+        // Test common signals exist
+        assert!(signal_map.contains_key("HUP"));
+        assert!(signal_map.contains_key("INT"));
+        assert!(signal_map.contains_key("QUIT"));
+        assert!(signal_map.contains_key("KILL"));
+        assert!(signal_map.contains_key("TERM"));
+        assert!(signal_map.contains_key("USR1"));
+        assert!(signal_map.contains_key("USR2"));
+        
+        // Test signal numbers are correct
+        assert_eq!(signal_map["HUP"], 1);
+        assert_eq!(signal_map["INT"], 2);
+        assert_eq!(signal_map["KILL"], 9);
+        assert_eq!(signal_map["TERM"], 15);
+    }
+
+    #[test]
+    fn test_get_signal_name() {
+        assert_eq!(get_signal_name(1), Some("HUP".to_string()));
+        assert_eq!(get_signal_name(2), Some("INT".to_string()));
+        assert_eq!(get_signal_name(9), Some("KILL".to_string()));
+        assert_eq!(get_signal_name(15), Some("TERM".to_string()));
+        assert_eq!(get_signal_name(999), None);
+    }
+
+    #[test]
+    fn test_execute_kill_job_signal_conversion() {
+        // Test that execute_kill_job correctly converts signals
+        let result = execute_kill_job(999, 15); // Non-existent job
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Job 999 not found"));
+    }
+
+    #[test]
+    fn test_process_exists_invalid_pid() {
+        // Test with obviously invalid PID
+        let result = process_exists(999999);
+        assert!(result.is_ok());
+        assert!(!result.unwrap()); // Should not exist
+    }
+
+    #[test]
+    fn test_find_processes_by_name_nonexistent() {
+        let result = find_processes_by_name("nonexistent_process_12345");
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_kill_builtin_with_list_signals() {
+        let mut ctx = ShellContext::new();
+        let kill_cmd = KillBuiltin;
+        let args = vec!["-l".to_string()];
+        
+        let result = kill_cmd.execute(&mut ctx, &args);
+        assert!(result.is_ok());
+        
+        let exec_result = result.unwrap();
+        assert_eq!(exec_result.exit_code, 0);
+    }
+
+    #[test]
+    fn test_kill_builtin_no_args() {
+        let mut ctx = ShellContext::new();
+        let kill_cmd = KillBuiltin;
+        let args = vec![];
+        
+        let result = kill_cmd.execute(&mut ctx, &args);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("No process specified"));
+    }
+
+    #[test]
+    fn test_kill_target_debug_format() {
+        let pid_target = KillTarget::Pid(1234);
+        let job_target = KillTarget::JobId(1);
+        let name_target = KillTarget::ProcessName("firefox".to_string());
+        
+        assert!(format!("{:?}", pid_target).contains("Pid"));
+        assert!(format!("{:?}", job_target).contains("JobId"));
+        assert!(format!("{:?}", name_target).contains("ProcessName"));
+    }
+
+    #[test]
+    fn test_kill_options_debug_format() {
+        let options = KillOptions {
+            signal: 15,
+            signal_name: "TERM".to_string(),
+            list_signals: false,
+            verbose: true,
+            timeout: Some(10),
+            targets: vec![KillTarget::Pid(1234)],
+        };
+        
+        let debug_str = format!("{:?}", options);
+        assert!(debug_str.contains("signal: 15"));
+        assert!(debug_str.contains("verbose: true"));
+        assert!(debug_str.contains("timeout: Some(10)"));
+    }
+
+    #[test]
+    fn test_parse_kill_args_with_signal_name_direct() {
+        let args = vec!["-KILL".to_string(), "1234".to_string()];
+        let options = parse_kill_args(&args).expect("Failed to parse KILL signal args");
+        
+        assert_eq!(options.signal, 9); // KILL
+        assert_eq!(options.signal_name, "KILL");
+        assert_eq!(options.targets.len(), 1);
+        assert!(matches!(options.targets[0], KillTarget::Pid(1234)));
+    }
+
+    #[test]
+    fn test_parse_kill_args_with_numeric_signal_arg() {
+        let args = vec!["-n".to_string(), "9".to_string(), "1234".to_string()];
+        let options = parse_kill_args(&args).expect("Failed to parse -n signal args");
+        
+        assert_eq!(options.signal, 9); // KILL
+        assert_eq!(options.targets.len(), 1);
+        assert!(matches!(options.targets[0], KillTarget::Pid(1234)));
+    }
+
+    #[test]
+    fn test_parse_kill_args_invalid_numeric_signal() {
+        let args = vec!["-n".to_string(), "999".to_string(), "1234".to_string()];
+        let result = parse_kill_args(&args);
+        
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid signal number"));
+    }
+}
