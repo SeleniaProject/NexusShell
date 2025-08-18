@@ -10,30 +10,52 @@
 //! • -s suppresses lines with no delimiter.
 //! • --output-delimiter sets output delimiter (default: input delimiter).
 //!
-//! Character (-c) and byte (-b) mode are out of scope for this minimal implementation.
+//! Character mode (-c) extracts Unicode characters (UTF-8 aware).
+//! • Byte mode (-b) extracts raw bytes.
 
 use anyhow::{anyhow, Result};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 
+#[derive(Debug, Clone, Copy)]
+enum CutMode {
+    Fields,
+    Characters, 
+    Bytes,
+}
+
 pub fn cut_cli(args: &[String]) -> Result<()> {
     if args.is_empty() {
         return Err(anyhow!("cut: missing options"));
     }
     let mut idx = 0;
-    let mut fields_spec = None::<String>;
+    let mut list_spec = None::<String>;
     let mut delim = b'\t'; // default TAB
     let mut pad_missing = false;
     let mut suppress_no_delim = false; // -s
     let mut out_delim: Option<u8> = None; // --output-delimiter
+    let mut mode = None::<CutMode>;
 
     while idx < args.len() {
         match args[idx].as_str() {
             "-f" => {
                 idx += 1;
                 if idx >= args.len() { return Err(anyhow!("cut: option requires argument -- f")); }
-                fields_spec = Some(args[idx].clone());
+                list_spec = Some(args[idx].clone());
+                mode = Some(CutMode::Fields);
+            }
+            "-c" => {
+                idx += 1;
+                if idx >= args.len() { return Err(anyhow!("cut: option requires argument -- c")); }
+                list_spec = Some(args[idx].clone());
+                mode = Some(CutMode::Characters);
+            }
+            "-b" => {
+                idx += 1;
+                if idx >= args.len() { return Err(anyhow!("cut: option requires argument -- b")); }
+                list_spec = Some(args[idx].clone());
+                mode = Some(CutMode::Bytes);
             }
             "-d" => {
                 idx += 1;
@@ -65,22 +87,44 @@ pub fn cut_cli(args: &[String]) -> Result<()> {
         idx += 1;
     }
 
-    let fields_spec = fields_spec.ok_or_else(|| anyhow!("cut: you must specify a list of fields with -f"))?;
-    let ranges = parse_field_list(&fields_spec)?; // Vec of (start,end)
+    let mode = mode.ok_or_else(|| anyhow!("cut: you must specify a list with -f, -c, or -b"))?;
+    let list_spec = list_spec.ok_or_else(|| anyhow!("cut: you must specify a list"))?;
+    let ranges = parse_list(&list_spec)?; // Vec of (start,end)
+
+    // Check mode compatibility with options
+    match mode {
+        CutMode::Characters | CutMode::Bytes => {
+            if suppress_no_delim {
+                return Err(anyhow!("cut: option -s is only valid with field mode (-f)"));
+            }
+            if out_delim.is_some() {
+                return Err(anyhow!("cut: --output-delimiter is only valid with field mode (-f)"));
+            }
+        }
+        CutMode::Fields => {}
+    }
 
     // Remaining args are files; if none, read stdin
     if idx >= args.len() {
-        process_reader(delim, out_delim.unwrap_or(delim), &ranges, pad_missing, suppress_no_delim, BufReader::new(io::stdin()))?;
+        process_input(mode, delim, out_delim.unwrap_or(delim), &ranges, pad_missing, suppress_no_delim, BufReader::new(io::stdin()))?;
     } else {
         for p in &args[idx..] {
             let file = File::open(Path::new(p))?;
-            process_reader(delim, out_delim.unwrap_or(delim), &ranges, pad_missing, suppress_no_delim, BufReader::new(file))?;
+            process_input(mode, delim, out_delim.unwrap_or(delim), &ranges, pad_missing, suppress_no_delim, BufReader::new(file))?;
         }
     }
     Ok(())
 }
 
-fn process_reader<R: BufRead>(delim: u8, out_delim: u8, ranges: &[(usize, usize)], pad_missing: bool, suppress_no_delim: bool, mut reader: R) -> Result<()> {
+fn process_input<R: BufRead>(mode: CutMode, delim: u8, out_delim: u8, ranges: &[(usize, usize)], pad_missing: bool, suppress_no_delim: bool, mut reader: R) -> Result<()> {
+    match mode {
+        CutMode::Fields => process_fields(delim, out_delim, ranges, pad_missing, suppress_no_delim, reader),
+        CutMode::Characters => process_characters(ranges, reader),
+        CutMode::Bytes => process_bytes(ranges, reader),
+    }
+}
+
+fn process_fields<R: BufRead>(delim: u8, out_delim: u8, ranges: &[(usize, usize)], pad_missing: bool, suppress_no_delim: bool, mut reader: R) -> Result<()> {
     let stdout = io::stdout();
     let mut handle = stdout.lock();
     let mut buf = Vec::new();
@@ -122,8 +166,71 @@ fn process_reader<R: BufRead>(delim: u8, out_delim: u8, ranges: &[(usize, usize)
     Ok(())
 }
 
+fn process_characters<R: BufRead>(ranges: &[(usize, usize)], mut reader: R) -> Result<()> {
+    let mut buf = Vec::new();
+    
+    while reader.read_until(b'\n', &mut buf)? != 0 {
+        if let Some(&last) = buf.last() {
+            if last == b'\n' { buf.pop(); }
+        }
+        
+        let line_str = String::from_utf8_lossy(&buf);
+        let chars: Vec<char> = line_str.chars().collect();
+        
+        let mut first_output = true;
+        for (start, end) in ranges {
+            let start_idx = start.saturating_sub(1); // Convert to 0-based
+            let end_idx = if *end == usize::MAX { chars.len() } else { (*end).min(chars.len()) };
+            
+            for i in start_idx..end_idx {
+                if i < chars.len() {
+                    if !first_output {
+                        // No delimiter for character mode - continuous output
+                    }
+                    print!("{}", chars[i]);
+                    first_output = false;
+                }
+            }
+        }
+        println!();
+        buf.clear();
+    }
+    Ok(())
+}
+
+fn process_bytes<R: BufRead>(ranges: &[(usize, usize)], mut reader: R) -> Result<()> {
+    let stdout = io::stdout();
+    let mut handle = stdout.lock();
+    let mut buf = Vec::new();
+    
+    while reader.read_until(b'\n', &mut buf)? != 0 {
+        if let Some(&last) = buf.last() {
+            if last == b'\n' { buf.pop(); }
+        }
+        
+        let mut first_output = true;
+        for (start, end) in ranges {
+            let start_idx = start.saturating_sub(1); // Convert to 0-based
+            let end_idx = if *end == usize::MAX { buf.len() } else { (*end).min(buf.len()) };
+            
+            for i in start_idx..end_idx {
+                if i < buf.len() {
+                    if !first_output {
+                        // No delimiter for byte mode - continuous output
+                    }
+                    handle.write_all(&[buf[i]])?;
+                    first_output = false;
+                }
+            }
+        }
+        handle.write_all(b"\n")?;
+        buf.clear();
+    }
+    Ok(())
+}
+
 /// Parse LIST like "1,3-4" into vector of inclusive ranges (start,end)
-fn parse_field_list(spec: &str) -> Result<Vec<(usize, usize)>> {
+fn parse_list(spec: &str) -> Result<Vec<(usize, usize)>> {
     let mut ranges = Vec::new();
     for part in spec.split(',') {
         if let Some(idx) = part.find('-') {
@@ -160,8 +267,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn field_parse() {
-        let r = parse_field_list("1,3-4").unwrap();
+    fn test_parse_list() {
+        let r = parse_list("1,3-4").unwrap();
         assert_eq!(r, vec![(1,1),(3,4)]);
+        
+        let r = parse_list("2-").unwrap();
+        assert_eq!(r, vec![(2, usize::MAX)]);
+        
+        let r = parse_list("1,5,7-9").unwrap();
+        assert_eq!(r, vec![(1,1), (5,5), (7,9)]);
+    }
+
+    #[test]
+    fn test_parse_list_invalid() {
+        assert!(parse_list("0").is_err()); // 0-based not allowed
+        assert!(parse_list("0-3").is_err()); // 0-based not allowed
+    }
+
+    #[test]
+    fn test_unescape() {
+        assert_eq!(unescape("\\t").unwrap(), "\t");
+        assert_eq!(unescape("\\n").unwrap(), "\n");
+        assert_eq!(unescape("\\r").unwrap(), "\r");
+        assert_eq!(unescape("abc").unwrap(), "abc");
     }
 } 
