@@ -19,7 +19,7 @@ pub fn whoami_cli(args: &[String]) -> Result<()> {
     match std::env::var("USERNAME").or_else(|_| std::env::var("USER")) {
         Ok(username) => {
             let colors = ColorPalette::new();
-            let icons = Icons::new(true);
+            let icons = Icons::new();
             println!("{}{} Current user: {}{}{}", 
                 colors.primary, icons.user, colors.bright, username, colors.reset);
         },

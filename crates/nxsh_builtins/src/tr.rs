@@ -15,6 +15,7 @@ use std::io::{self, Read, Write};
 
 // Beautiful CUI design
 use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
+use color_eyre::owo_colors::OwoColorize;
 
 pub fn tr_cli(args: &[String]) -> Result<()> {
     if args.is_empty() {

@@ -68,6 +68,10 @@ impl Default for CutOptions {
 }
 
 pub fn cut(args: &[String]) -> Result<()> {
+    cut_cli(args)
+}
+
+pub fn cut_cli(args: &[String]) -> Result<()> {
     let options = parse_args(args)?;
     
     if options.ranges.is_empty() {

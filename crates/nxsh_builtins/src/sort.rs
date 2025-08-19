@@ -13,6 +13,7 @@ use std::io::{BufRead, BufReader, BufWriter};
 
 // Beautiful CUI design
 use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
+use color_eyre::owo_colors::OwoColorize;
 
 // Helper function to create runtime errors more concisely
 fn runtime_error(msg: &str) -> ShellError {

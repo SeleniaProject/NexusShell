@@ -7,7 +7,7 @@ use nxsh_core::{Builtin, ExecutionResult, executor::{ExecutionStrategy, Executio
 use nxsh_core::context::ShellContext;
 use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
 use nxsh_hal::{ProcessInfo, ProcessManager};
-use crate::ui_design::{TableFormatter, Colorize, TableOptions, BorderStyle, TextAlignment, Animation, ProgressBar, ProgressStyle, Notification, Theme, set_theme};
+use crate::ui_design::{TableFormatter, Colorize, TableOptions, BorderStyle, Alignment, Animation, ProgressBar, Notification};
 // use std::io::BufRead; // Removed unused BufRead import
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -601,21 +601,27 @@ fn display_processes(processes: &[ProcessEntry], options: &PsOptions) -> ShellRe
     
     // Show loading animation for many processes
     if processes.len() > 200 {
-        Animation::spinner(300, "Analyzing processes...");
+        Animation::spinner();
     }
     
     // Configure beautiful table options for process display
     let table_options = TableOptions {
-        border_style: if processes.len() > 50 { BorderStyle::classic() } else { BorderStyle::rounded() },
+        show_borders: true,
+        zebra_striping: processes.len() > 20,
+        compact_mode: false,
+        max_width: Some(150),
         show_header: !options.no_headers,
         alternating_rows: processes.len() > 20,
-        alignment: TextAlignment::Left,
-        max_width: Some(150),
+        align_columns: true,
+        compact: false,
+        border_style: if processes.len() > 50 { BorderStyle::Simple } else { BorderStyle::Rounded },
+        header_alignment: Alignment::Left,
     };
     
     // Add header with process count
     if !options.no_headers {
-        println!("{}", formatter.create_header(&format!("Process List ({} processes)", processes.len())));
+        let header_text = format!("Process List ({} processes)", processes.len());
+        println!("{}", formatter.create_header(&[&header_text]));
     }
     
     // Print the beautiful advanced table
@@ -734,7 +740,7 @@ fn create_process_row(process: &ProcessEntry, fields: &[&str], _options: &PsOpti
 fn print_beautiful_process_tree(processes: &[ProcessEntry], fields: &[&str], options: &PsOptions) -> ShellResult<()> {
     let formatter = TableFormatter::new();
     
-    println!("{}", formatter.create_header("Process Tree"));
+    println!("{}", formatter.create_header(&["Process Tree"]));
     
     // Build process tree structure
     let mut children: HashMap<u32, Vec<&ProcessEntry>> = HashMap::new();

@@ -37,7 +37,7 @@ use std::sync::Mutex;
 use chrono::{DateTime, Local};
 use nu_ansi_term::{Color as NuColor, Style};
 use humansize::{format_size, BINARY};
-use crate::ui_design::{TableFormatter, Colorize, TableOptions, BorderStyle, TextAlignment, Theme, set_theme, Animation, ProgressBar, ProgressStyle, Notification};
+use crate::ui_design::{TableFormatter, Colorize, TableOptions, BorderStyle, Alignment, Animation, ProgressBar, Notification};
 #[cfg(windows)]
 use windows_sys::Win32::{
     Security::{

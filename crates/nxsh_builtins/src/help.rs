@@ -5,10 +5,8 @@ use anyhow::Result;
 use nxsh_core::{Context, ExecutionResult};
 use std::collections::HashMap;
 use crate::ui_design::{
-    TableFormatter, Colorize, CommandWizard, WizardStep, InputType,
-    StatusDashboard, DashboardSection, StatusItem, ItemStatus, SectionStyle,
-    Animation, ProgressBar, Notification, NotificationType, create_advanced_table,
-    TableOptions, BorderStyle, TextAlignment
+    TableFormatter, Colorize, Animation, ProgressBar, Notification, NotificationType,
+    TableOptions, BorderStyle, Alignment
 };
 
 /// Help information for a command

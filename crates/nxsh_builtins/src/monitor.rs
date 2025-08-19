@@ -3,9 +3,8 @@
 
 use anyhow::Result;
 use crate::ui_design::{
-    TableFormatter, Colorize, StatusDashboard, DashboardSection, StatusItem, 
-    ItemStatus, SectionStyle, Animation, ProgressBar, create_advanced_table,
-    TableOptions, BorderStyle, TextAlignment
+    TableFormatter, Colorize, Animation, ProgressBar, create_advanced_table,
+    TableOptions, BorderStyle, Alignment
 };
 use std::time::{Duration, Instant};
 use std::thread;
@@ -42,7 +41,8 @@ impl SystemMonitor {
     
     pub fn run_dashboard(&self) -> Result<()> {
         println!("{}", "🖥️  Starting System Monitor Dashboard...".primary());
-        println!("{}", Animation::typewriter("Initializing monitoring systems...", 20));
+        let _animation = Animation::spinner();
+        println!("Initializing monitoring systems...");
         
         let mut iteration = 0;
         let start_time = Instant::now();
@@ -315,10 +315,16 @@ impl SystemMonitor {
         ];
         
         let options = TableOptions {
-            border_style: BorderStyle::Rounded,
+            show_borders: true,
+            zebra_striping: false,
+            compact_mode: false,
+            max_width: None,
+            show_header: true,
             alternating_rows: true,
-            header_alignment: TextAlignment::Center,
-            cell_alignment: TextAlignment::Left,
+            align_columns: true,
+            compact: false,
+            border_style: BorderStyle::Rounded,
+            header_alignment: Alignment::Center,
         };
         
         println!("{}", create_advanced_table(&headers, &rows, options));

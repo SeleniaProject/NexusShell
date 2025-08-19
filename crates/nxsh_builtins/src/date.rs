@@ -30,8 +30,6 @@ type Tz = chrono::Utc; // Stub type: no parsing / variants
 use serde::{Deserialize, Serialize};
 use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
 
-// Beautiful CUI design
-use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
 use std::{
     collections::HashMap,
     fmt,

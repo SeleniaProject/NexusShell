@@ -20,7 +20,7 @@ use std::fs::File;
 use std::io::{self, Read, Write};
 use crate::ui_design::{
     TableFormatter, Colorize, ProgressBar, Animation, TableOptions, BorderStyle, 
-    TextAlignment, Notification, NotificationType, create_advanced_table
+    Alignment, Notification, NotificationType
 };
 use std::path::Path;
 use std::time::{Duration, Instant};

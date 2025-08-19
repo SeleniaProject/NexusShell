@@ -18,6 +18,7 @@ use owo_colors::OwoColorize;
 
 // Beautiful CUI design
 use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
+use color_eyre::owo_colors::OwoColorize;
 
 pub fn uname_cli(args: &[String]) -> Result<()> {
     let flags = if args.is_empty() {
@@ -74,7 +75,7 @@ pub fn uname_cli(args: &[String]) -> Result<()> {
     if show_table || outputs.len() > 1 {
         // Beautiful system information table
         let colors = ColorPalette::new();
-        let icons = Icons::new(true);
+        let icons = Icons::new();
         
         println!("\n{}{}┌─── {} System Information ───┐{}", 
             colors.primary, "═".repeat(5), icons.system, colors.reset);

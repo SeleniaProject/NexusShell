@@ -1,26 +1,4 @@
-//! `df` co#[cfg(feature = "async-runtime")] use tokio::task;
-use std::thread;
-use std::time::{Duration, Instant};
-
 //! df command - report filesystem disk space usage.
-//! Usage: df [-h] [PATH]
-//!   -h : human readable sizes
-//! If PATH omitted, uses current directory.
-
-use anyhow::{anyhow, Result};report filesystem disk space usage.
-//! Usage: df [-h] [PATH]
-//!   -h : human readable sizes
-//! If PATH omitted, uses current directory.
-
-use anyhow::{anyhow, Result};
-use std::path::Path;
-use crate::ui_design::{
-    TableFormatter, Colorize, ProgressBar, Animation, TableOptions, BorderStyle, 
-    TextAlignment, Notification, NotificationType, create_advanced_table
-};
-#[cfg(feature = "async-runtime")] use tokio::task;
-use std::thread;
-use std::time::{Duration, Instant};command  Ereport filesystem disk space usage.
 //! Usage: df [-h] [PATH]
 //!   -h : human readable sizes
 //! If PATH omitted, uses current directory.
@@ -28,318 +6,214 @@ use std::time::{Duration, Instant};command  Ereport filesystem disk space usag
 use anyhow::{anyhow, Result};
 use std::path::Path;
 use crate::ui_design::{TableFormatter, Colorize};
-#[cfg(feature = "async-runtime")] use tokio::task;
+
+#[cfg(windows)]
+use std::ffi::{CString, OsStr};
+#[cfg(windows)]
+use std::os::windows::ffi::OsStrExt;
+#[cfg(windows)]
+use winapi::um::fileapi::GetDiskFreeSpaceExW;
+#[cfg(windows)]
+use winapi::shared::winerror::ERROR_SUCCESS;
 
 #[cfg(unix)]
-use nix::libc::{statvfs, c_ulong};
-#[cfg(unix)]
-use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::MetadataExt;
 
-#[cfg(not(feature = "async-runtime"))]
+/// Display filesystem information
+pub fn main(args: Vec<String>) -> Result<()> {
+    df_cli(&args)
+}
+
 pub fn df_cli(args: &[String]) -> Result<()> {
-    let mut human = false;
-    let mut path = ".".to_string();
-    for arg in args { 
-        if arg == "-h" { 
-            human = true; 
-            continue; 
-        } 
-        path = arg.clone(); 
-    }
+    let human_readable = args.contains(&"-h".to_string());
     
+    let path = if args.len() > 1 && !args[1].starts_with('-') {
+        &args[1]
+    } else {
+        "."
+    };
+
+    show_disk_space(path, human_readable)
+}
+
+fn show_disk_space(path: &str, human_readable: bool) -> Result<()> {
+    let path = Path::new(path);
+    
+    if !path.exists() {
+        return Err(anyhow!("Path does not exist: {}", path.display()));
+    }
+
     let formatter = TableFormatter::new();
     
-    // Show analysis progress
-    println!("{}", formatter.create_header("Disk Space Analysis"));
-    println!("{}", Animation::typewriter("Analyzing filesystem...", 20));
+    #[cfg(windows)]
+    let (total, free, available) = get_disk_space_windows(path)?;
     
-    let start = Instant::now();
-    let mut progress = ProgressBar::new(4, "Scanning disk usage");
+    #[cfg(unix)]
+    let (total, free, available) = get_disk_space_unix(path)?;
     
-    progress.update(1, "Reading filesystem info");
-    thread::sleep(Duration::from_millis(200));
-    
-    let (blocks, _bfree, bavail, bsize) = stat_fs(Path::new(&path).to_path_buf())?;
-    progress.update(2, "Calculating space usage");
-    thread::sleep(Duration::from_millis(150));
-    
-    let total = blocks * bsize; 
-    let avail = bavail * bsize; 
-    let used = total - avail;
-    let usage_percent = if total > 0 { (used * 100) / total } else { 0 };
-    
-    progress.update(3, "Formatting results");
-    thread::sleep(Duration::from_millis(100));
-    
-    // Create beautiful table with advanced options
-    let headers = vec!["Filesystem", "Total Size", "Used Space", "Available", "Usage %", "Mount Point"];
-    let mut rows = vec![];
-    
-    let size_str = if human {
-        bytesize::ByteSize::b(total).to_string_as(true)
+    let used = total - free;
+    let use_percent = if total > 0 {
+        (used as f64 / total as f64 * 100.0) as u64
     } else {
-        format!("{}K", total/1024)
+        0
+    };
+
+    let headers = vec!["Filesystem", "Size", "Used", "Available", "Use%", "Mounted on"];
+    
+    let size_formatter = if human_readable {
+        |bytes: u64| format_human_readable(bytes)
+    } else {
+        |bytes: u64| bytes.to_string()
     };
     
-    let used_str = if human {
-        bytesize::ByteSize::b(used).to_string_as(true)
+    let filesystem = if cfg!(windows) {
+        get_filesystem_name_windows(path).unwrap_or_else(|| "NTFS".to_string())
     } else {
-        format!("{}K", used/1024)
-    };
-    
-    let avail_str = if human {
-        bytesize::ByteSize::b(avail).to_string_as(true)
-    } else {
-        format!("{}K", avail/1024)
-    };
-    
-    // Enhanced usage percentage with visual indicators
-    let usage_str = match usage_percent {
-        90..=100 => format!("{}% ⚠️ CRITICAL", usage_percent).error(),
-        80..=89 => format!("{}% ⚠️ HIGH", usage_percent).warning(),
-        70..=79 => format!("{}% ⚡ MODERATE", usage_percent).warning(),
-        50..=69 => format!("{}% ✓ NORMAL", usage_percent).info(),
-        _ => format!("{}% ✓ LOW", usage_percent).success(),
-    };
-    
-    // Create usage bar visualization
-    let bar_width = 20;
-    let filled = (usage_percent * bar_width / 100) as usize;
-    let empty = bar_width - filled;
-    let usage_bar = if usage_percent > 90 {
-        format!("[{}{}]", "█".repeat(filled).error(), "░".repeat(empty).dim())
-    } else if usage_percent > 80 {
-        format!("[{}{}]", "█".repeat(filled).warning(), "░".repeat(empty).dim())
-    } else {
-        format!("[{}{}]", "█".repeat(filled).success(), "░".repeat(empty).dim())
+        get_filesystem_name_unix(path).unwrap_or_else(|| "Unknown".to_string())
     };
     
     let row = vec![
-        format!("{} {}", formatter.icons.archive, path.clone()).primary(),
-        size_str.info(),
-        used_str.secondary(),
-        avail_str.success(),
-        format!("{} {}", usage_str, usage_bar),
-        path.dim(),
+        filesystem,
+        size_formatter(total),
+        size_formatter(used),
+        size_formatter(available),
+        format!("{}%", use_percent),
+        path.display().to_string(),
     ];
-    rows.push(row);
     
-    progress.update(4, "Analysis complete");
-    progress.complete("Disk analysis finished");
-    
-    let analysis_time = start.elapsed();
-    
-    // Create table with enhanced styling
-    let options = TableOptions {
-        border_style: BorderStyle::Rounded,
-        alternating_rows: false,
-        header_alignment: TextAlignment::Center,
-        cell_alignment: TextAlignment::Left,
-    };
-    
-    println!("{}", create_advanced_table(&headers, &rows, options));
-    
-    // Performance and status notifications
-    if analysis_time.as_millis() > 500 {
-        println!("{}", Notification::new(
-            NotificationType::Info,
-            "Performance",
-            &format!("Analysis completed in {:.2}s", analysis_time.as_secs_f32())
-        ).format());
-    }
-    
-    // Storage health warnings
-    if usage_percent > 90 {
-        println!("{}", Notification::new(
-            NotificationType::Warning,
-            "Storage Alert",
-            "Disk usage is critically high! Consider cleaning up files."
-        ).format());
-    } else if usage_percent > 80 {
-        println!("{}", Notification::new(
-            NotificationType::Warning,
-            "Storage Notice",
-            "Disk usage is getting high. Monitor space regularly."
-        ).format());
-    }
-    
-    // Additional disk info
-    if human {
-        println!("\n{}", "📊 Storage Summary:".primary());
-        println!("   • Total Capacity: {}", bytesize::ByteSize::b(total).to_string_as(true).info());
-        println!("   • Space Used: {}", bytesize::ByteSize::b(used).to_string_as(true).warning());
-        println!("   • Free Space: {}", bytesize::ByteSize::b(avail).to_string_as(true).success());
-        println!("   • Utilization: {}%", usage_percent.to_string().primary());
-    }
+    let table = formatter.create_table(&headers, &[row]);
+    print!("{}", table);
     
     Ok(())
-}
-
-#[cfg(feature = "async-runtime")]
-pub async fn df_cli(args: &[String]) -> Result<()> {
-    let mut human = false;
-    let mut path = ".".to_string();
-    for arg in args {
-        if arg == "-h" { 
-            human = true; 
-            continue; 
-        }
-        path = arg.clone();
-    }
-    
-    let formatter = TableFormatter::new();
-    
-    // Show analysis progress
-    println!("{}", formatter.create_header("Disk Space Analysis"));
-    println!("{}", Animation::typewriter("Analyzing filesystem...", 20));
-    
-    let start = Instant::now();
-    let mut progress = ProgressBar::new(4, "Scanning disk usage");
-    
-    progress.update(1, "Reading filesystem info");
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    
-    let p = Path::new(&path).to_path_buf();
-    let (blocks, _bfree, bavail, bsize) = task::spawn_blocking(move || stat_fs(p)).await??;
-    
-    progress.update(2, "Calculating space usage");
-    tokio::time::sleep(Duration::from_millis(150)).await;
-    
-    let total = blocks * bsize;
-    let avail = bavail * bsize;
-    let used = total - avail;
-    let usage_percent = if total > 0 { (used * 100) / total } else { 0 };
-    
-    progress.update(3, "Formatting results");
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    
-    // Create beautiful table with advanced options
-    let headers = vec!["Filesystem", "Total Size", "Used Space", "Available", "Usage %", "Mount Point"];
-    let mut rows = vec![];
-    
-    let size_str = if human {
-        bytesize::ByteSize::b(total).to_string_as(true)
-    } else {
-        format!("{}K", total/1024)
-    };
-    
-    let used_str = if human {
-        bytesize::ByteSize::b(used).to_string_as(true)
-    } else {
-        format!("{}K", used/1024)
-    };
-    
-    let avail_str = if human {
-        bytesize::ByteSize::b(avail).to_string_as(true)
-    } else {
-        format!("{}K", avail/1024)
-    };
-    
-    // Enhanced usage percentage with visual indicators
-    let usage_str = match usage_percent {
-        90..=100 => format!("{}% ⚠️ CRITICAL", usage_percent).error(),
-        80..=89 => format!("{}% ⚠️ HIGH", usage_percent).warning(),
-        70..=79 => format!("{}% ⚡ MODERATE", usage_percent).warning(),
-        50..=69 => format!("{}% ✓ NORMAL", usage_percent).info(),
-        _ => format!("{}% ✓ LOW", usage_percent).success(),
-    };
-    
-    // Create usage bar visualization
-    let bar_width = 20;
-    let filled = (usage_percent * bar_width / 100) as usize;
-    let empty = bar_width - filled;
-    let usage_bar = if usage_percent > 90 {
-        format!("[{}{}]", "█".repeat(filled).error(), "░".repeat(empty).dim())
-    } else if usage_percent > 80 {
-        format!("[{}{}]", "█".repeat(filled).warning(), "░".repeat(empty).dim())
-    } else {
-        format!("[{}{}]", "█".repeat(filled).success(), "░".repeat(empty).dim())
-    };
-    
-    let row = vec![
-        format!("{} {}", formatter.icons.archive, path.clone()).primary(),
-        size_str.info(),
-        used_str.secondary(),
-        avail_str.success(),
-        format!("{} {}", usage_str, usage_bar),
-        path.dim(),
-    ];
-    rows.push(row);
-    
-    progress.update(4, "Analysis complete");
-    progress.complete("Disk analysis finished");
-    
-    let analysis_time = start.elapsed();
-    
-    // Create table with enhanced styling
-    let options = TableOptions {
-        border_style: BorderStyle::Rounded,
-        alternating_rows: false,
-        header_alignment: TextAlignment::Center,
-        cell_alignment: TextAlignment::Left,
-    };
-    
-    println!("{}", create_advanced_table(&headers, &rows, options));
-    
-    // Performance and status notifications
-    if analysis_time.as_millis() > 500 {
-        println!("{}", Notification::new(
-            NotificationType::Info,
-            "Performance",
-            &format!("Analysis completed in {:.2}s", analysis_time.as_secs_f32())
-        ).format());
-    }
-    
-    // Storage health warnings
-    if usage_percent > 90 {
-        println!("{}", Notification::new(
-            NotificationType::Warning,
-            "Storage Alert",
-            "Disk usage is critically high! Consider cleaning up files."
-        ).format());
-    } else if usage_percent > 80 {
-        println!("{}", Notification::new(
-            NotificationType::Warning,
-            "Storage Notice",
-            "Disk usage is getting high. Monitor space regularly."
-        ).format());
-    }
-    
-    // Additional disk info
-    if human {
-        println!("\n{}", "📊 Storage Summary:".primary());
-        println!("   • Total Capacity: {}", bytesize::ByteSize::b(total).to_string_as(true).info());
-        println!("   • Space Used: {}", bytesize::ByteSize::b(used).to_string_as(true).warning());
-        println!("   • Free Space: {}", bytesize::ByteSize::b(avail).to_string_as(true).success());
-        println!("   • Utilization: {}%", usage_percent.to_string().primary());
-    }
-    
-    Ok(())
-}
-
-#[cfg(unix)]
-fn stat_fs(p: std::path::PathBuf) -> Result<(u64,u64,u64,u64)> {
-    let mut vfs: statvfs = unsafe { std::mem::zeroed() };
-    let ret = unsafe { statvfs(p.as_os_str().as_bytes().as_ptr() as *const i8, &mut vfs) };
-    if ret != 0 { return Err(anyhow!("df: statvfs failed")); }
-    Ok((vfs.f_blocks as u64, vfs.f_bfree as u64, vfs.f_bavail as u64, vfs.f_bsize as u64))
 }
 
 #[cfg(windows)]
-fn stat_fs(p: std::path::PathBuf) -> Result<(u64,u64,u64,u64)> {
-    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
-    use std::os::windows::ffi::OsStrExt;
+fn get_disk_space_windows(path: &Path) -> Result<(u64, u64, u64)> {
+    use std::ptr;
     
-    let mut free_bytes: u64 = 0;
-    let mut total_bytes: u64 = 0;
-    let mut avail_bytes: u64 = 0;
-    let wide_path: Vec<u16> = p.as_os_str().encode_wide().chain(Some(0)).collect();
-    let ok = unsafe {
-        GetDiskFreeSpaceExW(wide_path.as_ptr(), &mut avail_bytes, &mut total_bytes, &mut free_bytes)
-    }!=0;
-    if !ok { return Err(anyhow!("df: GetDiskFreeSpaceEx failed")); }
-    Ok((total_bytes/4096, free_bytes/4096, avail_bytes/4096, 4096))
+    let path_wide: Vec<u16> = OsStr::new(path)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    
+    let mut free_bytes = 0u64;
+    let mut total_bytes = 0u64;
+    let mut total_free = 0u64;
+    
+    unsafe {
+        let result = GetDiskFreeSpaceExW(
+            path_wide.as_ptr(),
+            &mut free_bytes as *mut u64,
+            &mut total_bytes as *mut u64,
+            &mut total_free as *mut u64,
+        );
+        
+        if result == 0 {
+            return Err(anyhow!("Failed to get disk space information"));
+        }
+    }
+    
+    Ok((total_bytes, total_free, free_bytes))
+}
+
+#[cfg(unix)]
+fn get_disk_space_unix(path: &Path) -> Result<(u64, u64, u64)> {
+    use std::fs;
+    use std::mem;
+    use std::os::raw::{c_char, c_int, c_ulong};
+    
+    #[repr(C)]
+    struct Statvfs {
+        f_bsize: c_ulong,
+        f_frsize: c_ulong,
+        f_blocks: u64,
+        f_bfree: u64,
+        f_bavail: u64,
+        f_files: u64,
+        f_ffree: u64,
+        f_favail: u64,
+        f_fsid: c_ulong,
+        f_flag: c_ulong,
+        f_namemax: c_ulong,
+    }
+    
+    extern "C" {
+        fn statvfs(path: *const c_char, buf: *mut Statvfs) -> c_int;
+    }
+    
+    let path_cstring = CString::new(path.to_string_lossy().as_ref())?;
+    let mut stat: Statvfs = unsafe { mem::zeroed() };
+    
+    let result = unsafe {
+        statvfs(path_cstring.as_ptr(), &mut stat as *mut Statvfs)
+    };
+    
+    if result != 0 {
+        return Err(anyhow!("Failed to get filesystem statistics"));
+    }
+    
+    let block_size = stat.f_frsize;
+    let total = stat.f_blocks * block_size;
+    let free = stat.f_bfree * block_size;
+    let available = stat.f_bavail * block_size;
+    
+    Ok((total, free, available))
+}
+
+#[cfg(unix)]
+fn get_filesystem_name_unix(_path: &Path) -> Option<String> {
+    // This would require parsing /proc/mounts or similar
+    // For now, return a generic name
+    Some("filesystem".to_string())
+}
+
+#[cfg(windows)]
+fn get_filesystem_name_windows(_path: &Path) -> Option<String> {
+    // For now, just return NTFS as it's most common on Windows
+    Some("NTFS".to_string())
+}
+
+#[cfg(unix)]
+fn get_filesystem_name_unix(_path: &Path) -> Option<String> {
+    // This would require parsing /proc/mounts or similar
+    // For now, return a generic name
+    Some("filesystem".to_string())
+}
+
+fn format_human_readable(bytes: u64) -> String {
+    const UNITS: &[&str] = &["B", "K", "M", "G", "T", "P"];
+    let mut size = bytes as f64;
+    let mut unit_index = 0;
+    
+    while size >= 1024.0 && unit_index < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit_index += 1;
+    }
+    
+    if unit_index == 0 {
+        format!("{}", bytes)
+    } else {
+        format!("{:.1}{}", size, UNITS[unit_index])
+    }
 }
 
 #[cfg(test)]
-mod tests { use super::*; #[cfg(feature = "async-runtime")] #[tokio::test] async fn df_runs(){ df_cli(&[]).await.unwrap(); } #[cfg(not(feature = "async-runtime"))] #[test] fn df_runs_sync(){ df_cli(&[]).unwrap(); } } 
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_format_human_readable() {
+        assert_eq!(format_human_readable(0), "0");
+        assert_eq!(format_human_readable(1023), "1023");
+        assert_eq!(format_human_readable(1024), "1.0K");
+        assert_eq!(format_human_readable(1536), "1.5K");
+        assert_eq!(format_human_readable(1048576), "1.0M");
+    }
+    
+    #[test]
+    fn test_show_disk_space_current_dir() {
+        // Test with current directory - should not panic
+        let result = show_disk_space(".", false);
+        assert!(result.is_ok());
+    }
+}

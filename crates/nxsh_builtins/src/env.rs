@@ -44,7 +44,7 @@ pub fn env_cli(args: &[String]) -> Result<()> {
             Ok(val) => {
                 println!("{} {} = {}", 
                     Icons::ENVIRONMENT,
-                    key.colorize(&ColorPalette::ACCENT),
+                    key.clone().colorize(&ColorPalette::ACCENT),
                     val.colorize(&ColorPalette::SUCCESS)
                 );
             },

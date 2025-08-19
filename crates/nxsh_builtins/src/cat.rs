@@ -28,8 +28,8 @@ use std::cmp::min;
 // Beautiful CUI design
 use crate::ui_design::{
     TableFormatter, ColorPalette, Icons, Colorize, ProgressBar as UIProgressBar, 
-    Animation, TableOptions, BorderStyle, TextAlignment, Notification, 
-    NotificationType, create_advanced_table
+    Animation, TableOptions, BorderStyle, Alignment, Notification, 
+    NotificationType
 };
 
 // Advanced dependencies

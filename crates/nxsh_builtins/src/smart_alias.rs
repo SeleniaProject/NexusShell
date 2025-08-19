@@ -3,10 +3,8 @@
 
 use anyhow::Result;
 use crate::ui_design::{
-    TableFormatter, Colorize, CommandWizard, WizardStep, InputType,
-    StatusDashboard, DashboardSection, StatusItem, ItemStatus, SectionStyle,
-    Animation, ProgressBar, Notification, NotificationType, create_advanced_table,
-    TableOptions, BorderStyle, TextAlignment, FilePreview
+    TableFormatter, Colorize, Animation, ProgressBar, Notification, NotificationType, create_advanced_table,
+    TableOptions, BorderStyle, Alignment
 };
 use std::collections::HashMap;
 use std::fs;
@@ -47,7 +45,7 @@ pub struct AliasSuggestion {
     pub category: AliasCategory,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AliasCategory {
     FileManagement,
     ProcessControl,
@@ -308,11 +306,11 @@ impl SmartAliasManager {
             println!("\n{}. {} {} {}", 
                 (i + 1).to_string().primary(),
                 category_icon,
-                suggestion.suggested_alias.info(),
+                suggestion.suggested_alias.clone().info(),
                 confidence_bar
             );
-            println!("   Command: {}", suggestion.command_pattern.success());
-            println!("   Reason: {}", suggestion.reason.dim());
+            println!("   Command: {}", suggestion.command_pattern.clone().success());
+            println!("   Reason: {}", suggestion.reason.clone().dim());
             println!("   Confidence: {:.0}%", (suggestion.confidence * 100.0).to_string().info());
         }
         
@@ -379,8 +377,8 @@ impl SmartAliasManager {
             println!("\n{}", "📋 Alias Preview".primary());
             println!("{}", "─".repeat(40).dim());
             
-            println!("Name: {}", alias.name.info());
-            println!("Command: {}", alias.command.success());
+            println!("Name: {}", alias.name.clone().info());
+            println!("Command: {}", alias.command.clone().success());
             println!("Description: {}", alias.description);
             println!("Category: {} {:?}", self.get_category_icon(&alias.category), alias.category);
             println!("Complexity: {:?}", alias.complexity);
@@ -550,9 +548,9 @@ fn export_aliases(manager: &SmartAliasManager) -> Result<()> {
     
     for alias in manager.aliases.values() {
         println!("alias {}='{}'  # {}", 
-            alias.name.success(),
+            alias.name.clone().success(),
             alias.command,
-            alias.description.dim()
+            alias.description.clone().dim()
         );
     }
     

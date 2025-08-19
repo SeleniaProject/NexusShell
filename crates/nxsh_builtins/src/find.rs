@@ -27,8 +27,7 @@ use std::time::{SystemTime, Duration, UNIX_EPOCH};
 // Beautiful CUI design
 use crate::ui_design::{
     TableFormatter, ColorPalette, Icons, Colorize, ProgressBar, Animation, 
-    TableOptions, BorderStyle, TextAlignment, Notification, NotificationType, 
-    create_advanced_table
+    TableOptions, BorderStyle, Alignment, Notification, NotificationType
 };
 
 // Platform-specific metadata access

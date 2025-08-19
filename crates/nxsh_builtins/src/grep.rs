@@ -44,7 +44,7 @@ use std::path::Path;
 use std::collections::VecDeque;
 use crate::ui_design::{
     TableFormatter, Colorize, ProgressBar, Animation, TableOptions, BorderStyle, 
-    TextAlignment, Notification, NotificationType, create_advanced_table
+    Alignment, Notification, NotificationType
 };
 #[cfg(feature = "advanced-regex")]
 use regex::{Regex, RegexBuilder};
@@ -1058,13 +1058,13 @@ fn print_file_results(
     
     if result.match_count == 0 {
         if options.files_without_match {
-            println!("{} {}", formatter.icons.error, result.filename.muted());
+            println!("{} {}", formatter.icons.error, result.filename.clone().muted());
         }
         return Ok(());
     }
     
     if options.files_with_matches {
-        println!("{} {}", formatter.icons.success, result.filename.success());
+        println!("{} {}", formatter.icons.success, result.filename.clone().success());
         return Ok(());
     }
     
@@ -1072,7 +1072,7 @@ fn print_file_results(
         if show_filename {
             println!("{} {} {} {}", 
                 formatter.icons.bullet,
-                result.filename.primary(),
+                result.filename.clone().primary(),
                 "matches:".muted(),
                 result.match_count.to_string().bright()
             );
@@ -1093,7 +1093,7 @@ fn print_file_results(
         if show_filename {
             output.push_str(&format!("{} {} ", 
                 formatter.icons.code, 
-                result.filename.primary()
+                result.filename.clone().primary()
             ));
         }
         
@@ -1155,7 +1155,7 @@ fn print_file_results(
             "Found".muted(),
             result.matches.len().to_string().success(),
             "matches in".muted(),
-            result.filename.primary()
+            result.filename.clone().primary()
         );
     }
     
