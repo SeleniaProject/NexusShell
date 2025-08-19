@@ -4,6 +4,7 @@ use anyhow::Result;
 use tabled::{Table, Tabled};
 use std::sync::{Arc, Mutex};
 use once_cell::sync::Lazy;
+use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
 
 static JOB_TABLE: Lazy<Arc<Mutex<HashMap<u32, Job>>>> = Lazy::new(|| {
     Arc::new(Mutex::new(HashMap::new()))

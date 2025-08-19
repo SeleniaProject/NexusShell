@@ -3,6 +3,7 @@ use std::env;
 use anyhow::Result;
 use nxsh_core::{ErrorKind, ShellError};
 use crate::function::{get_function, list_functions};
+use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
 
 pub fn export_cli(args: Vec<String>) -> Result<()> {
     if args.contains(&"-h".to_string()) || args.contains(&"--help".to_string()) {

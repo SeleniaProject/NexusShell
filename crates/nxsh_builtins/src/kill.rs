@@ -7,6 +7,7 @@ use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError,
 use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
 use nxsh_core::job::{with_global_job_manager, JobSignal};
 use crate::common::process_utils::execute_kill_target;
+use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
 
 fn runtime_error(message: &str) -> ShellError {
     ShellError::new(

@@ -6,6 +6,7 @@
 use anyhow::Result;
 use nxsh_core::context::ShellContext;
 use std::env;
+use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
 
 pub fn pwd_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
     let mut physical = false;
@@ -21,7 +22,11 @@ pub fn pwd_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
     } else {
         ctx.get_var("PWD").map(|s| s.into()).unwrap_or(env::current_dir()?)
     };
-    println!("{}", path.display());
+    
+    println!("{} {}", 
+        Icons::FOLDER, 
+        path.display().to_string().colorize(&ColorPalette::SUCCESS)
+    );
     Ok(())
 }
 

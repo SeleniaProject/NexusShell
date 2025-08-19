@@ -5,6 +5,7 @@
 
 use std::io::Write;
 use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError, context::ShellContext};
+use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
 
 /// The `alias` builtin command implementation
 pub struct AliasCommand;

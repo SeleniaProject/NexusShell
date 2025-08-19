@@ -10,6 +10,7 @@ use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
 use std::env;
 use std::path::{Path, PathBuf};
 use std::fs;
+use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
 
 /// The `cd` builtin command implementation
 pub struct CdCommand;
