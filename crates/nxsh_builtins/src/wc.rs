@@ -18,8 +18,13 @@
 use anyhow::{anyhow, Result};
 use std::fs::File;
 use std::io::{self, Read, Write};
-use crate::ui_design::{TableFormatter, Colorize};
+use crate::ui_design::{
+    TableFormatter, Colorize, ProgressBar, Animation, TableOptions, BorderStyle, 
+    TextAlignment, Notification, NotificationType, create_advanced_table
+};
 use std::path::Path;
+use std::time::{Duration, Instant};
+use std::thread;
 
 bitflags::bitflags! {
     struct Mode: u8 {

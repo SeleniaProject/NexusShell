@@ -7,7 +7,7 @@ use nxsh_core::{Builtin, ExecutionResult, executor::{ExecutionStrategy, Executio
 use nxsh_core::context::ShellContext;
 use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
 use nxsh_hal::{ProcessInfo, ProcessManager};
-use crate::ui_design::{TableFormatter, Colorize};
+use crate::ui_design::{TableFormatter, Colorize, TableOptions, BorderStyle, TextAlignment, Animation, ProgressBar, ProgressStyle, Notification, Theme, set_theme};
 // use std::io::BufRead; // Removed unused BufRead import
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -599,13 +599,33 @@ fn display_processes(processes: &[ProcessEntry], options: &PsOptions) -> ShellRe
         }
     }
     
+    // Show loading animation for many processes
+    if processes.len() > 200 {
+        Animation::spinner(300, "Analyzing processes...");
+    }
+    
+    // Configure beautiful table options for process display
+    let table_options = TableOptions {
+        border_style: if processes.len() > 50 { BorderStyle::classic() } else { BorderStyle::rounded() },
+        show_header: !options.no_headers,
+        alternating_rows: processes.len() > 20,
+        alignment: TextAlignment::Left,
+        max_width: Some(150),
+    };
+    
     // Add header with process count
     if !options.no_headers {
         println!("{}", formatter.create_header(&format!("Process List ({} processes)", processes.len())));
     }
     
-    // Print the beautiful table
-    print!("{}", formatter.create_table(&headers, &rows));
+    // Print the beautiful advanced table
+    let headers_string: Vec<String> = headers.iter().map(|s| s.to_string()).collect();
+    print!("{}", formatter.create_advanced_table(headers_string, rows, table_options));
+    
+    // Show performance summary for system monitoring
+    if processes.len() > 100 {
+        Notification::info(&format!("System monitoring: {} active processes detected", processes.len()));
+    }
     
     Ok(())
 }

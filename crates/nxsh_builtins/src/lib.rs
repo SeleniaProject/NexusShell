@@ -245,6 +245,13 @@ pub use tr::tr_cli;
 pub mod ui_design;
 pub use ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
 
+// Enhanced Command Systems
+pub mod smart_alias;
+pub use smart_alias::smart_alias_cli;
+
+pub mod monitor;
+pub use monitor::monitor_cli;
+
 // Structured Data Commands (Nushell-inspired)
 pub mod json_commands;
 pub use json_commands::{from_json_cli, to_json_cli, select_cli as json_select_cli, where_cli, sys_cli, demo_table_cli};

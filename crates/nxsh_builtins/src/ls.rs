@@ -37,7 +37,7 @@ use std::sync::Mutex;
 use chrono::{DateTime, Local};
 use nu_ansi_term::{Color as NuColor, Style};
 use humansize::{format_size, BINARY};
-use crate::ui_design::{TableFormatter, Colorize};
+use crate::ui_design::{TableFormatter, Colorize, TableOptions, BorderStyle, TextAlignment, Theme, set_theme, Animation, ProgressBar, ProgressStyle, Notification};
 #[cfg(windows)]
 use windows_sys::Win32::{
     Security::{
@@ -884,18 +884,32 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
 
     let formatter = TableFormatter::new();
     
+    // Show loading animation for large directories
+    if entries.len() > 100 {
+        Animation::spinner(500, "Preparing file listing...");
+    }
+    
+    // Configure advanced table options
+    let table_options = TableOptions {
+        border_style: BorderStyle::rounded(),
+        show_header: true,
+        alternating_rows: entries.len() > 10,
+        alignment: TextAlignment::Left,
+        max_width: Some(120),
+    };
+    
     // Define table headers
     let mut headers = vec![];
     
     if options.show_inode {
-        headers.push("Inode");
+        headers.push("Inode".to_string());
     }
     
-    headers.push("Permissions");
-    headers.push("Links");
+    headers.push("Permissions".to_string());
+    headers.push("Links".to_string());
     
     if !options.long_no_owner {
-        headers.push("Owner");
+        headers.push("Owner".to_string());
     }
     
     if !options.long_no_group && !options.no_group {
@@ -1013,14 +1027,15 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
             format!("{}{}", name_with_icon, suffix)
         } else {
             name_with_icon
-        };
-        
-        row.push(final_name);
-        rows.push(row);
     }
     
-    // Print the beautiful table
-    print!("{}", formatter.create_table(&headers, &rows));
+    // Print the beautiful advanced table
+    print!("{}", formatter.create_advanced_table(headers, rows, table_options));
+    
+    // Show summary for large directories
+    if entries.len() > 50 {
+        Notification::info(&format!("Listed {} items", entries.len()));
+    }
     
     Ok(())
 }

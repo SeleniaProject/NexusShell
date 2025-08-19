@@ -1,11 +1,15 @@
 /// Advanced CUI Design System for NexusShell
 /// 
 /// This module provides a comprehensive, beautiful UI design system for all shell commands.
-/// Features modern terminal UI with colors, icons, tables, and sophisticated formatting.
+/// Features modern terminal UI with colors, icons, tables, sophisticated formatting,
+/// animations, progress indicators, and dynamic theming capabilities.
 
 use std::fmt;
+use std::time::{Duration, Instant};
+use std::thread;
+use std::io::{self, Write};
 
-/// Color palette for consistent theming
+/// Advanced color palette with gradient and theme support
 #[derive(Debug, Clone)]
 pub struct ColorPalette {
     pub primary: &'static str,
@@ -17,20 +21,28 @@ pub struct ColorPalette {
     pub muted: &'static str,
     pub bright: &'static str,
     pub dim: &'static str,
+    pub accent: &'static str,
+    pub highlight: &'static str,
+    pub background: &'static str,
+    pub border: &'static str,
 }
 
 impl Default for ColorPalette {
     fn default() -> Self {
         Self {
-            primary: "\x1b[38;5;39m",    // Bright blue
-            secondary: "\x1b[38;5;141m", // Purple
-            success: "\x1b[38;5;46m",    // Green
-            warning: "\x1b[38;5;220m",   // Yellow
-            error: "\x1b[38;5;196m",     // Red
-            info: "\x1b[38;5;51m",       // Cyan
-            muted: "\x1b[38;5;244m",     // Gray
-            bright: "\x1b[1m",           // Bold
-            dim: "\x1b[2m",              // Dim
+            primary: "\x1b[38;5;39m",     // Bright blue
+            secondary: "\x1b[38;5;141m",  // Purple
+            success: "\x1b[38;5;46m",     // Green
+            warning: "\x1b[38;5;220m",    // Yellow
+            error: "\x1b[38;5;196m",      // Red
+            info: "\x1b[38;5;51m",        // Cyan
+            muted: "\x1b[38;5;244m",      // Gray
+            bright: "\x1b[1m",            // Bold
+            dim: "\x1b[2m",               // Dim
+            accent: "\x1b[38;5;208m",     // Orange
+            highlight: "\x1b[48;5;234m",  // Dark gray background
+            background: "\x1b[48;5;235m", // Darker background
+            border: "\x1b[38;5;240m",     // Border gray
         }
     }
 }
@@ -265,6 +277,106 @@ impl TableFormatter {
     /// Create a simple separator
     fn create_separator(&self, widths: &[usize]) -> String {
         self.create_border(widths, false, true, false)
+    
+    /// Create an advanced table with multiple formatting options
+    pub fn create_advanced_table(&self, headers: Vec<String>, rows: Vec<Vec<String>>, options: TableOptions) -> String {
+        if headers.is_empty() || rows.is_empty() {
+            return String::new();
+        }
+
+        let num_cols = headers.len();
+        let mut col_widths = vec![0; num_cols];
+        
+        // Calculate column widths
+        for (i, header) in headers.iter().enumerate() {
+            col_widths[i] = col_widths[i].max(self.display_width(header));
+        }
+        
+        for row in &rows {
+            for (i, cell) in row.iter().enumerate().take(num_cols) {
+                col_widths[i] = col_widths[i].max(self.display_width(cell));
+            }
+        }
+        
+        let mut table = String::new();
+        
+        // Table header with styling
+        if options.show_header {
+            table.push_str(&self.create_border(&col_widths, BorderType::Top, &options));
+            table.push('\n');
+            
+            // Header row
+            table.push_str(&options.border_style.vertical);
+            for (i, header) in headers.iter().enumerate() {
+                let padded = self.pad_text(header, col_widths[i], options.alignment);
+                table.push_str(&format!(" {} ", padded.bright()));
+                table.push_str(&options.border_style.vertical);
+            }
+            table.push('\n');
+            
+            table.push_str(&self.create_border(&col_widths, BorderType::Middle, &options));
+            table.push('\n');
+        }
+        
+        // Data rows with alternating colors
+        for (row_idx, row) in rows.iter().enumerate() {
+            table.push_str(&options.border_style.vertical);
+            for (i, cell) in row.iter().enumerate().take(num_cols) {
+                let padded = self.pad_text(cell, col_widths[i], options.alignment);
+                let colored_cell = if options.alternating_rows && row_idx % 2 == 1 {
+                    padded.colorize(&current_theme().color_palette().highlight)
+                } else {
+                    padded
+                };
+                table.push_str(&format!(" {} ", colored_cell));
+                table.push_str(&options.border_style.vertical);
+            }
+            table.push('\n');
+        }
+        
+        // Bottom border
+        table.push_str(&self.create_border(&col_widths, BorderType::Bottom, &options));
+        
+        table
+    }
+    
+    fn create_border(&self, col_widths: &[usize], border_type: BorderType, options: &TableOptions) -> String {
+        let mut border = String::new();
+        
+        let (start, middle, end, horizontal) = match border_type {
+            BorderType::Top => (&options.border_style.top_left, &options.border_style.top_middle, &options.border_style.top_right, &options.border_style.horizontal),
+            BorderType::Middle => (&options.border_style.middle_left, &options.border_style.cross, &options.border_style.middle_right, &options.border_style.horizontal),
+            BorderType::Bottom => (&options.border_style.bottom_left, &options.border_style.bottom_middle, &options.border_style.bottom_right, &options.border_style.horizontal),
+        };
+        
+        border.push_str(start);
+        for (i, &width) in col_widths.iter().enumerate() {
+            border.push_str(&horizontal.repeat(width + 2));
+            if i < col_widths.len() - 1 {
+                border.push_str(middle);
+            }
+        }
+        border.push_str(end);
+        
+        border.colorize(&current_theme().color_palette().border)
+    }
+    
+    fn pad_text(&self, text: &str, width: usize, alignment: TextAlignment) -> String {
+        let text_width = self.display_width(text);
+        if text_width >= width {
+            return text.to_string();
+        }
+        
+        let padding = width - text_width;
+        match alignment {
+            TextAlignment::Left => format!("{}{}", text, " ".repeat(padding)),
+            TextAlignment::Right => format!("{}{}", " ".repeat(padding), text),
+            TextAlignment::Center => {
+                let left_pad = padding / 2;
+                let right_pad = padding - left_pad;
+                format!("{}{}{}", " ".repeat(left_pad), text, " ".repeat(right_pad))
+            }
+        }
     }
     
     /// Calculate display width ignoring ANSI escape codes
@@ -555,5 +667,795 @@ impl Colorize for String {
     
     fn dim(&self) -> String {
         self.as_str().dim()
+    }
+}
+
+/// Advanced progress bar with customizable styling
+#[derive(Debug, Clone)]
+pub struct ProgressBar {
+    pub total: u64,
+    pub current: u64,
+    pub width: usize,
+    pub style: ProgressStyle,
+    pub label: String,
+    pub start_time: Instant,
+}
+
+#[derive(Debug, Clone)]
+pub enum ProgressStyle {
+    Classic,
+    Modern,
+    Minimal,
+    Animated,
+}
+
+impl ProgressBar {
+    pub fn new(total: u64, width: usize) -> Self {
+        Self {
+            total,
+            current: 0,
+            width,
+            style: ProgressStyle::Modern,
+            label: String::new(),
+            start_time: Instant::now(),
+        }
+    }
+    
+    pub fn with_style(mut self, style: ProgressStyle) -> Self {
+        self.style = style;
+        self
+    }
+    
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = label.into();
+        self
+    }
+    
+    pub fn update(&mut self, current: u64) {
+        self.current = current;
+        self.render();
+    }
+    
+    pub fn increment(&mut self) {
+        self.current = (self.current + 1).min(self.total);
+        self.render();
+    }
+    
+    pub fn finish(&mut self) {
+        self.current = self.total;
+        self.render();
+        println!(); // New line after completion
+    }
+    
+    fn render(&self) {
+        let percentage = if self.total > 0 {
+            (self.current as f64 / self.total as f64 * 100.0) as u64
+        } else {
+            0
+        };
+        
+        let filled = (self.current as f64 / self.total as f64 * self.width as f64) as usize;
+        let empty = self.width.saturating_sub(filled);
+        
+        let elapsed = self.start_time.elapsed();
+        let eta = if self.current > 0 {
+            let rate = self.current as f64 / elapsed.as_secs_f64();
+            let remaining = (self.total - self.current) as f64 / rate;
+            Duration::from_secs_f64(remaining)
+        } else {
+            Duration::from_secs(0)
+        };
+        
+        let bar = match self.style {
+            ProgressStyle::Classic => {
+                format!("[{}{}]", "=".repeat(filled), " ".repeat(empty))
+            },
+            ProgressStyle::Modern => {
+                format!("{}{}{}{}",
+                    "█".repeat(filled).colorize(&ColorPalette::SUCCESS),
+                    "░".repeat(empty).colorize(&ColorPalette::MUTED),
+                    "",
+                    ""
+                )
+            },
+            ProgressStyle::Minimal => {
+                format!("{}{}",
+                    "▓".repeat(filled).colorize(&ColorPalette::PRIMARY),
+                    "▒".repeat(empty).colorize(&ColorPalette::MUTED)
+                )
+            },
+            ProgressStyle::Animated => {
+                let spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+                let spinner_idx = (elapsed.as_millis() / 100) as usize % spinner_chars.len();
+                format!("{} {}{}",
+                    spinner_chars[spinner_idx].colorize(&ColorPalette::INFO),
+                    "▓".repeat(filled).colorize(&ColorPalette::SUCCESS),
+                    "▒".repeat(empty).colorize(&ColorPalette::MUTED)
+                )
+            }
+        };
+        
+        print!("\r{} {} {}% ETA: {:02}:{:02} ",
+            if !self.label.is_empty() { &self.label } else { "Progress" },
+            bar,
+            percentage,
+            eta.as_secs() / 60,
+            eta.as_secs() % 60
+        );
+        io::stdout().flush().ok();
+    }
+}
+
+/// Animation utilities for enhanced UX
+pub struct Animation;
+
+impl Animation {
+    /// Typewriter effect for text output
+    pub fn typewriter(text: &str, delay_ms: u64) {
+        for ch in text.chars() {
+            print!("{}", ch);
+            io::stdout().flush().ok();
+            thread::sleep(Duration::from_millis(delay_ms));
+        }
+        println!();
+    }
+    
+    /// Loading spinner animation
+    pub fn spinner(duration_ms: u64, message: &str) {
+        let chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        let start = Instant::now();
+        let mut i = 0;
+        
+        while start.elapsed().as_millis() < duration_ms as u128 {
+            print!("\r{} {}", chars[i % chars.len()].colorize(&ColorPalette::INFO), message);
+            io::stdout().flush().ok();
+            thread::sleep(Duration::from_millis(100));
+            i += 1;
+        }
+        print!("\r{} {}\n", Icons::CHECK.colorize(&ColorPalette::SUCCESS), message);
+    }
+    
+    /// Pulsing text effect
+    pub fn pulse_text(text: &str, cycles: u32) {
+        for _ in 0..cycles {
+            print!("\r{}", text.bright());
+            io::stdout().flush().ok();
+            thread::sleep(Duration::from_millis(300));
+            print!("\r{}", text.dim());
+            io::stdout().flush().ok();
+            thread::sleep(Duration::from_millis(300));
+        }
+        println!("\r{}", text); // Reset to normal
+    }
+}
+
+/// Theme management system
+#[derive(Debug, Clone)]
+pub enum Theme {
+    Default,
+    Dark,
+    Light,
+    Ocean,
+    Forest,
+    Sunset,
+}
+
+impl Theme {
+    pub fn color_palette(&self) -> ColorPalette {
+        match self {
+            Theme::Default => ColorPalette::default(),
+            Theme::Dark => ColorPalette {
+                primary: "\x1b[38;5;75m",
+                secondary: "\x1b[38;5;105m",
+                success: "\x1b[38;5;76m",
+                warning: "\x1b[38;5;178m",
+                error: "\x1b[38;5;160m",
+                info: "\x1b[38;5;87m",
+                muted: "\x1b[38;5;59m",
+                bright: "\x1b[1m",
+                dim: "\x1b[2m",
+                accent: "\x1b[38;5;215m",
+                highlight: "\x1b[48;5;236m",
+                background: "\x1b[48;5;233m",
+                border: "\x1b[38;5;102m",
+            },
+            Theme::Light => ColorPalette {
+                primary: "\x1b[38;5;25m",
+                secondary: "\x1b[38;5;55m",
+                success: "\x1b[38;5;22m",
+                warning: "\x1b[38;5;94m",
+                error: "\x1b[38;5;88m",
+                info: "\x1b[38;5;23m",
+                muted: "\x1b[38;5;102m",
+                bright: "\x1b[1m",
+                dim: "\x1b[2m",
+                accent: "\x1b[38;5;130m",
+                highlight: "\x1b[48;5;254m",
+                background: "\x1b[48;5;255m",
+                border: "\x1b[38;5;145m",
+            },
+            Theme::Ocean => ColorPalette {
+                primary: "\x1b[38;5;33m",
+                secondary: "\x1b[38;5;69m",
+                success: "\x1b[38;5;36m",
+                warning: "\x1b[38;5;172m",
+                error: "\x1b[38;5;124m",
+                info: "\x1b[38;5;45m",
+                muted: "\x1b[38;5;67m",
+                bright: "\x1b[1m",
+                dim: "\x1b[2m",
+                accent: "\x1b[38;5;74m",
+                highlight: "\x1b[48;5;17m",
+                background: "\x1b[48;5;16m",
+                border: "\x1b[38;5;24m",
+            },
+            Theme::Forest => ColorPalette {
+                primary: "\x1b[38;5;28m",
+                secondary: "\x1b[38;5;58m",
+                success: "\x1b[38;5;34m",
+                warning: "\x1b[38;5;136m",
+                error: "\x1b[38;5;88m",
+                info: "\x1b[38;5;37m",
+                muted: "\x1b[38;5;101m",
+                bright: "\x1b[1m",
+                dim: "\x1b[2m",
+                accent: "\x1b[38;5;64m",
+                highlight: "\x1b[48;5;22m",
+                background: "\x1b[48;5;16m",
+                border: "\x1b[38;5;58m",
+            },
+            Theme::Sunset => ColorPalette {
+                primary: "\x1b[38;5;202m",
+                secondary: "\x1b[38;5;198m",
+                success: "\x1b[38;5;214m",
+                warning: "\x1b[38;5;220m",
+                error: "\x1b[38;5;196m",
+                info: "\x1b[38;5;211m",
+                muted: "\x1b[38;5;95m",
+                bright: "\x1b[1m",
+                dim: "\x1b[2m",
+                accent: "\x1b[38;5;208m",
+                highlight: "\x1b[48;5;52m",
+                background: "\x1b[48;5;16m",
+                border: "\x1b[38;5;130m",
+            },
+        }
+    }
+}
+
+/// Global theme state
+static mut CURRENT_THEME: Theme = Theme::Default;
+
+pub fn set_theme(theme: Theme) {
+    unsafe {
+        CURRENT_THEME = theme;
+    }
+}
+
+pub fn current_theme() -> &'static Theme {
+    unsafe { &CURRENT_THEME }
+}
+
+/// Advanced table formatting options
+#[derive(Debug, Clone)]
+pub struct TableOptions {
+    pub border_style: BorderStyle,
+    pub show_header: bool,
+    pub alternating_rows: bool,
+    pub alignment: TextAlignment,
+    pub max_width: Option<usize>,
+}
+
+impl Default for TableOptions {
+    fn default() -> Self {
+        Self {
+            border_style: BorderStyle::rounded(),
+            show_header: true,
+            alternating_rows: false,
+            alignment: TextAlignment::Left,
+            max_width: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BorderStyle {
+    pub horizontal: String,
+    pub vertical: String,
+    pub top_left: String,
+    pub top_right: String,
+    pub bottom_left: String,
+    pub bottom_right: String,
+    pub top_middle: String,
+    pub bottom_middle: String,
+    pub middle_left: String,
+    pub middle_right: String,
+    pub cross: String,
+}
+
+impl BorderStyle {
+    pub fn rounded() -> Self {
+        Self {
+            horizontal: "─".to_string(),
+            vertical: "│".to_string(),
+            top_left: "╭".to_string(),
+            top_right: "╮".to_string(),
+            bottom_left: "╰".to_string(),
+            bottom_right: "╯".to_string(),
+            top_middle: "┬".to_string(),
+            bottom_middle: "┴".to_string(),
+            middle_left: "├".to_string(),
+            middle_right: "┤".to_string(),
+            cross: "┼".to_string(),
+        }
+    }
+    
+    pub fn classic() -> Self {
+        Self {
+            horizontal: "-".to_string(),
+            vertical: "|".to_string(),
+            top_left: "+".to_string(),
+            top_right: "+".to_string(),
+            bottom_left: "+".to_string(),
+            bottom_right: "+".to_string(),
+            top_middle: "+".to_string(),
+            bottom_middle: "+".to_string(),
+            middle_left: "+".to_string(),
+            middle_right: "+".to_string(),
+            cross: "+".to_string(),
+        }
+    }
+    
+    pub fn double() -> Self {
+        Self {
+            horizontal: "═".to_string(),
+            vertical: "║".to_string(),
+            top_left: "╔".to_string(),
+            top_right: "╗".to_string(),
+            bottom_left: "╚".to_string(),
+            bottom_right: "╝".to_string(),
+            top_middle: "╦".to_string(),
+            bottom_middle: "╩".to_string(),
+            middle_left: "╠".to_string(),
+            middle_right: "╣".to_string(),
+            cross: "╬".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum TextAlignment {
+    Left,
+    Right,
+    Center,
+}
+
+#[derive(Debug, Clone)]
+enum BorderType {
+    Top,
+    Middle,
+    Bottom,
+}
+
+/// Interactive elements for enhanced user experience
+pub struct Interactive;
+
+impl Interactive {
+    /// Create a confirmation prompt with styling
+    pub fn confirm(message: &str, default: bool) -> bool {
+        let default_text = if default { "Y/n" } else { "y/N" };
+        print!("{} {} [{}]: ", 
+            Icons::QUESTION.colorize(&ColorPalette::INFO),
+            message,
+            default_text.colorize(&ColorPalette::MUTED)
+        );
+        io::stdout().flush().ok();
+        
+        let mut input = String::new();
+        if io::stdin().read_line(&mut input).is_ok() {
+            let input = input.trim().to_lowercase();
+            match input.as_str() {
+                "y" | "yes" => true,
+                "n" | "no" => false,
+                "" => default,
+                _ => default,
+            }
+        } else {
+            default
+        }
+    }
+    
+    /// Create a selection menu
+    pub fn select(prompt: &str, options: &[&str]) -> Option<usize> {
+        println!("{} {}", Icons::MENU.colorize(&ColorPalette::INFO), prompt);
+        
+        for (i, option) in options.iter().enumerate() {
+            println!("  {}. {}", 
+                (i + 1).to_string().colorize(&ColorPalette::ACCENT),
+                option
+            );
+        }
+        
+        print!("Enter choice (1-{}): ", options.len());
+        io::stdout().flush().ok();
+        
+        let mut input = String::new();
+        if io::stdin().read_line(&mut input).is_ok() {
+            if let Ok(choice) = input.trim().parse::<usize>() {
+                if choice > 0 && choice <= options.len() {
+                    return Some(choice - 1);
+                }
+            }
+        }
+        None
+    }
+}
+
+/// Notification system for user feedback
+pub struct Notification;
+
+impl Notification {
+    pub fn success(message: &str) {
+        println!("{} {}", Icons::CHECK.colorize(&ColorPalette::SUCCESS), message);
+    }
+    
+    pub fn warning(message: &str) {
+        println!("{} {}", Icons::WARNING.colorize(&ColorPalette::WARNING), message);
+    }
+    
+    pub fn error(message: &str) {
+        println!("{} {}", Icons::ERROR.colorize(&ColorPalette::ERROR), message);
+    }
+    
+    pub fn info(message: &str) {
+        println!("{} {}", Icons::INFO.colorize(&ColorPalette::INFO), message);
+    }
+    
+    pub fn banner(title: &str, subtitle: Option<&str>) {
+        let width = 60;
+        let border = "═".repeat(width);
+        
+        println!("{}", border.colorize(&ColorPalette::BORDER));
+        println!("{}", format!("  {}", title).colorize(&ColorPalette::BRIGHT));
+        
+        if let Some(sub) = subtitle {
+            println!("{}", format!("  {}", sub).colorize(&ColorPalette::MUTED));
+        }
+        
+        println!("{}", border.colorize(&ColorPalette::BORDER));
+    }
+}
+
+// ============================================================================
+// Advanced Interactive Command Wizard System
+// ============================================================================
+
+#[derive(Debug, Clone)]
+pub struct CommandWizard {
+    pub title: String,
+    pub steps: Vec<WizardStep>,
+    pub current_step: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct WizardStep {
+    pub title: String,
+    pub description: String,
+    pub input_type: InputType,
+    pub options: Vec<String>,
+    pub required: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum InputType {
+    Text,
+    Number,
+    Selection,
+    MultiSelection,
+    Boolean,
+    FilePath,
+    DirectoryPath,
+}
+
+impl CommandWizard {
+    pub fn new(title: &str) -> Self {
+        Self {
+            title: title.to_string(),
+            steps: Vec::new(),
+            current_step: 0,
+        }
+    }
+    
+    pub fn add_step(&mut self, step: WizardStep) {
+        self.steps.push(step);
+    }
+    
+    pub fn run(&mut self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let mut results = Vec::new();
+        
+        println!("{}", format!("🧙‍♂️ {} Wizard", self.title).primary());
+        println!("{}", "═".repeat(50).dim());
+        
+        for (index, step) in self.steps.iter().enumerate() {
+            self.current_step = index;
+            
+            println!("\n{} {} {}/{}", 
+                "Step".info(), 
+                (index + 1).to_string().primary(),
+                (index + 1).to_string().dim(),
+                self.steps.len().to_string().dim()
+            );
+            
+            println!("{}", step.title.primary());
+            if !step.description.is_empty() {
+                println!("   {}", step.description.dim());
+            }
+            
+            let result = self.handle_input(step)?;
+            results.push(result);
+            
+            // Show progress
+            let progress = ((index + 1) as f32 / self.steps.len() as f32 * 100.0) as usize;
+            let bar_width = 30;
+            let filled = (progress * bar_width / 100).min(bar_width);
+            let empty = bar_width - filled;
+            println!("   Progress: [{}{}] {}%", 
+                "█".repeat(filled).success(),
+                "░".repeat(empty).dim(),
+                progress.to_string().info()
+            );
+        }
+        
+        println!("\n{}", "✅ Wizard completed successfully!".success());
+        Ok(results)
+    }
+    
+    fn handle_input(&self, step: &WizardStep) -> Result<String, Box<dyn std::error::Error>> {
+        use std::io;
+        use std::io::Write;
+        
+        match step.input_type {
+            InputType::Selection => {
+                println!("\n{}", "Available options:".info());
+                for (i, option) in step.options.iter().enumerate() {
+                    println!("   {}. {}", (i + 1).to_string().primary(), option);
+                }
+                print!("Enter your choice (1-{}): ", step.options.len());
+                io::stdout().flush()?;
+                
+                let mut input = String::new();
+                io::stdin().read_line(&mut input)?;
+                let choice: usize = input.trim().parse().unwrap_or(0);
+                
+                if choice > 0 && choice <= step.options.len() {
+                    Ok(step.options[choice - 1].clone())
+                } else {
+                    Err("Invalid selection".into())
+                }
+            },
+            InputType::Boolean => {
+                print!("   {} (y/n): ", step.title);
+                io::stdout().flush()?;
+                
+                let mut input = String::new();
+                io::stdin().read_line(&mut input)?;
+                let response = input.trim().to_lowercase();
+                
+                Ok(if response == "y" || response == "yes" { "true" } else { "false" }.to_string())
+            },
+            _ => {
+                print!("   Enter value: ");
+                io::stdout().flush()?;
+                
+                let mut input = String::new();
+                io::stdin().read_line(&mut input)?;
+                Ok(input.trim().to_string())
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Advanced Status Dashboard System  
+// ============================================================================
+
+#[derive(Debug, Clone)]
+pub struct StatusDashboard {
+    pub title: String,
+    pub sections: Vec<DashboardSection>,
+    pub auto_refresh: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct DashboardSection {
+    pub title: String,
+    pub items: Vec<StatusItem>,
+    pub style: SectionStyle,
+}
+
+#[derive(Debug, Clone)]
+pub struct StatusItem {
+    pub label: String,
+    pub value: String,
+    pub status: ItemStatus,
+    pub icon: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum SectionStyle {
+    Simple,
+    Boxed,
+    Highlighted,
+    Compact,
+}
+
+#[derive(Debug, Clone)]
+pub enum ItemStatus {
+    Good,
+    Warning,
+    Error,
+    Info,
+    Unknown,
+}
+
+impl StatusDashboard {
+    pub fn new(title: &str) -> Self {
+        Self {
+            title: title.to_string(),
+            sections: Vec::new(),
+            auto_refresh: false,
+        }
+    }
+    
+    pub fn add_section(&mut self, section: DashboardSection) {
+        self.sections.push(section);
+    }
+    
+    pub fn render(&self) -> String {
+        let mut output = String::new();
+        
+        // Header
+        output.push_str(&format!("📊 {}\n", self.title.primary()));
+        output.push_str(&format!("{}\n", "═".repeat(60).dim()));
+        
+        // Sections
+        for section in &self.sections {
+            output.push_str(&self.render_section(section));
+            output.push('\n');
+        }
+        
+        output
+    }
+    
+    fn render_section(&self, section: &DashboardSection) -> String {
+        let mut output = String::new();
+        
+        match section.style {
+            SectionStyle::Boxed => {
+                let title_len = section.title.len();
+                let remaining = if title_len < 50 { 50 - title_len } else { 5 };
+                output.push_str(&format!("┌─ {} ─{}\n", 
+                    section.title.primary(),
+                    "─".repeat(remaining).dim()));
+                
+                for item in &section.items {
+                    output.push_str(&format!("│ {} {} {} {}\n",
+                        item.icon,
+                        item.label.info(),
+                        "│".dim(),
+                        self.format_value(&item.value, &item.status)));
+                }
+                
+                output.push_str(&format!("└{}\n", "─".repeat(58).dim()));
+            },
+            SectionStyle::Highlighted => {
+                output.push_str(&format!("▶ {}\n", section.title.primary()));
+                for item in &section.items {
+                    output.push_str(&format!("  {} {} {}\n",
+                        item.icon,
+                        item.label.info(),
+                        self.format_value(&item.value, &item.status)));
+                }
+            },
+            _ => {
+                output.push_str(&format!("{}\n", section.title.primary()));
+                for item in &section.items {
+                    output.push_str(&format!("  {} {} {}\n",
+                        item.icon,
+                        item.label,
+                        self.format_value(&item.value, &item.status)));
+                }
+            }
+        }
+        
+        output
+    }
+    
+    fn format_value(&self, value: &str, status: &ItemStatus) -> String {
+        match status {
+            ItemStatus::Good => value.success(),
+            ItemStatus::Warning => value.warning(),
+            ItemStatus::Error => value.error(),
+            ItemStatus::Info => value.info(),
+            ItemStatus::Unknown => value.dim(),
+        }
+    }
+}
+
+// ============================================================================
+// Enhanced File Preview System
+// ============================================================================
+
+#[derive(Debug, Clone)]
+pub struct FilePreview {
+    pub file_path: String,
+    pub preview_type: PreviewType,
+    pub max_lines: usize,
+    pub show_line_numbers: bool,
+    pub syntax_highlighting: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum PreviewType {
+    Text,
+    Binary,
+    Image,
+    Archive,
+    Unknown,
+}
+
+impl FilePreview {
+    pub fn new(file_path: &str) -> Self {
+        Self {
+            file_path: file_path.to_string(),
+            preview_type: PreviewType::Unknown,
+            max_lines: 20,
+            show_line_numbers: true,
+            syntax_highlighting: false,
+        }
+    }
+    
+    pub fn render(&self) -> Result<String, Box<dyn std::error::Error>> {
+        let mut output = String::new();
+        
+        // Header
+        output.push_str(&format!("📄 File Preview: {}\n", self.file_path.info()));
+        output.push_str(&format!("{}\n", "─".repeat(60).dim()));
+        
+        // File info
+        if let Ok(metadata) = std::fs::metadata(&self.file_path) {
+            output.push_str(&format!("📏 Size: {}\n", 
+                bytesize::ByteSize::b(metadata.len()).to_string().info()));
+        }
+        
+        output.push('\n');
+        
+        // Content preview
+        match std::fs::read_to_string(&self.file_path) {
+            Ok(content) => {
+                let lines: Vec<&str> = content.lines().collect();
+                let preview_lines = std::cmp::min(lines.len(), self.max_lines);
+                
+                for (i, line) in lines.iter().take(preview_lines).enumerate() {
+                    if self.show_line_numbers {
+                        output.push_str(&format!("{:3} │ {}\n", 
+                            (i + 1).to_string().dim(), 
+                            line));
+                    } else {
+                        output.push_str(&format!("{}\n", line));
+                    }
+                }
+                
+                if lines.len() > self.max_lines {
+                    output.push_str(&format!("... {} more lines\n", 
+                        (lines.len() - self.max_lines).to_string().dim()));
+                }
+            },
+            Err(_) => {
+                output.push_str(&"📋 Binary file or access denied\n".warning());
+            }
+        }
+        
+        Ok(output)
     }
 }

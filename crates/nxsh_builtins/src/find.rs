@@ -25,7 +25,11 @@ use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
 use std::time::{SystemTime, Duration, UNIX_EPOCH};
 
 // Beautiful CUI design
-use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
+use crate::ui_design::{
+    TableFormatter, ColorPalette, Icons, Colorize, ProgressBar, Animation, 
+    TableOptions, BorderStyle, TextAlignment, Notification, NotificationType, 
+    create_advanced_table
+};
 
 // Platform-specific metadata access
 #[cfg(unix)]
@@ -37,6 +41,7 @@ use walkdir::{WalkDir, DirEntry as WalkDirEntry};
 use regex::RegexBuilder;
 use glob::{Pattern, MatchOptions};
 use chrono::{DateTime, Local};
+use std::time::Instant;
 #[cfg(windows)]
 use windows_sys::Win32::{
     Security::{LookupAccountSidW, SID_NAME_USE, PSID},

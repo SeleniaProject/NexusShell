@@ -19,7 +19,13 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::Path;
 
 // Beautiful CUI design
-use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
+use crate::ui_design::{
+    TableFormatter, ColorPalette, Icons, Colorize, ProgressBar, Animation, 
+    TableOptions, BorderStyle, TextAlignment, Notification, NotificationType, 
+    create_advanced_table
+};
+use std::time::{Duration, Instant};
+use std::thread;
 
 #[derive(Debug, Clone)]
 pub struct HeadOptions {

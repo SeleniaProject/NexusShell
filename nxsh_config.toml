@@ -1,0 +1,104 @@
+# NexusShell Advanced CUI Configuration
+# Global theme and interface settings
+
+[ui]
+default_theme = "ocean"
+enable_animations = true
+enable_progress_bars = true
+enable_notifications = true
+table_style = "rounded"
+animation_speed = "normal"
+
+[performance]
+enable_performance_monitoring = true
+show_timing_info = true
+adaptive_ui_based_on_size = true
+large_dataset_threshold = 1000
+
+[smart_alias]
+enable_ai_suggestions = true
+auto_learn_patterns = true
+suggest_based_on_usage = true
+max_suggestions = 10
+
+[monitoring]
+default_update_interval = 1
+auto_refresh = false
+show_graphs = true
+compact_mode = false
+enable_alerts = true
+
+[help_system]
+enable_interactive_tutorials = true
+show_beginner_tips = true
+enable_command_wizard = true
+personalized_recommendations = true
+
+[themes.ocean]
+primary = "#0EA5E9"
+secondary = "#3B82F6" 
+success = "#10B981"
+warning = "#F59E0B"
+error = "#EF4444"
+info = "#06B6D4"
+dim = "#6B7280"
+
+[themes.forest]
+primary = "#059669"
+secondary = "#065F46"
+success = "#10B981"
+warning = "#D97706"
+error = "#DC2626"
+info = "#0891B2"
+dim = "#4B5563"
+
+[themes.sunset]
+primary = "#EA580C"
+secondary = "#DC2626"
+success = "#16A34A"
+warning = "#CA8A04"
+error = "#DC2626"
+info = "#0284C7"
+dim = "#6B7280"
+
+[themes.dark]
+primary = "#8B5CF6"
+secondary = "#7C3AED"
+success = "#10B981"
+warning = "#F59E0B"
+error = "#EF4444"
+info = "#06B6D4"
+dim = "#6B7280"
+
+[themes.light]
+primary = "#2563EB"
+secondary = "#1D4ED8"
+success = "#059669"
+warning = "#D97706"
+error = "#DC2626"
+info = "#0891B2"
+dim = "#9CA3AF"
+
+[features]
+enable_typewriter_effect = true
+enable_loading_spinners = true
+enable_pulse_animations = true
+enable_interactive_confirmations = true
+enable_selection_menus = true
+enable_advanced_tables = true
+enable_usage_bars = true
+enable_breadcrumb_navigation = true
+enable_file_preview = true
+enable_syntax_highlighting = false
+enable_status_dashboard = true
+enable_command_suggestions = true
+
+[display]
+show_headers = true
+show_icons = true
+show_file_details = true
+show_performance_stats = true
+show_context_info = true
+max_table_width = 120
+truncate_long_lines = true
+preview_max_lines = 20

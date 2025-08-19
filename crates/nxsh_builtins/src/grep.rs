@@ -42,12 +42,17 @@ use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read};
 use std::path::Path;
 use std::collections::VecDeque;
-use crate::ui_design::{TableFormatter, Colorize};
+use crate::ui_design::{
+    TableFormatter, Colorize, ProgressBar, Animation, TableOptions, BorderStyle, 
+    TextAlignment, Notification, NotificationType, create_advanced_table
+};
 #[cfg(feature = "advanced-regex")]
 use regex::{Regex, RegexBuilder};
 #[cfg(feature = "advanced-regex")]
 use fancy_regex::Regex as FancyRegex;
 #[cfg(feature = "advanced-regex")]
+use std::time::{Duration, Instant};
+use std::thread;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use walkdir::{WalkDir, DirEntry};
 use globset::Glob;

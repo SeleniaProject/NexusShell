@@ -1,4 +1,17 @@
-//! `df` command  Ereport filesystem disk space usage.
+//! `df` command - report filesystem disk space usage.
+//! Usage: df [-h] [PATH]
+//!   -h : human readable sizes
+//! If PATH omitted, uses current directory.
+
+use anyhow::{anyhow, Result};
+use std::path::Path;
+use crate::ui_design::{
+    TableFormatter, Colorize, ProgressBar, Animation, TableOptions, BorderStyle, 
+    TextAlignment, Notification, NotificationType, create_advanced_table
+};
+#[cfg(feature = "async-runtime")] use tokio::task;
+use std::thread;
+use std::time::{Duration, Instant};command  Ereport filesystem disk space usage.
 //! Usage: df [-h] [PATH]
 //!   -h : human readable sizes
 //! If PATH omitted, uses current directory.
@@ -26,14 +39,31 @@ pub fn df_cli(args: &[String]) -> Result<()> {
     }
     
     let formatter = TableFormatter::new();
+    
+    // Show analysis progress
+    println!("{}", formatter.create_header("Disk Space Analysis"));
+    println!("{}", Animation::typewriter("Analyzing filesystem...", 20));
+    
+    let start = Instant::now();
+    let mut progress = ProgressBar::new(4, "Scanning disk usage");
+    
+    progress.update(1, "Reading filesystem info");
+    thread::sleep(Duration::from_millis(200));
+    
     let (blocks, _bfree, bavail, bsize) = stat_fs(Path::new(&path).to_path_buf())?;
+    progress.update(2, "Calculating space usage");
+    thread::sleep(Duration::from_millis(150));
+    
     let total = blocks * bsize; 
     let avail = bavail * bsize; 
     let used = total - avail;
     let usage_percent = if total > 0 { (used * 100) / total } else { 0 };
     
-    // Create beautiful table
-    let headers = vec!["Filesystem", "Size", "Used", "Available", "Use%", "Mounted on"];
+    progress.update(3, "Formatting results");
+    thread::sleep(Duration::from_millis(100));
+    
+    // Create beautiful table with advanced options
+    let headers = vec!["Filesystem", "Total Size", "Used Space", "Available", "Usage %", "Mount Point"];
     let mut rows = vec![];
     
     let size_str = if human {
@@ -54,12 +84,25 @@ pub fn df_cli(args: &[String]) -> Result<()> {
         format!("{}K", avail/1024)
     };
     
-    let usage_str = if usage_percent > 90 {
-        format!("{}%", usage_percent).error()
+    // Enhanced usage percentage with visual indicators
+    let usage_str = match usage_percent {
+        90..=100 => format!("{}% ⚠️ CRITICAL", usage_percent).error(),
+        80..=89 => format!("{}% ⚠️ HIGH", usage_percent).warning(),
+        70..=79 => format!("{}% ⚡ MODERATE", usage_percent).warning(),
+        50..=69 => format!("{}% ✓ NORMAL", usage_percent).info(),
+        _ => format!("{}% ✓ LOW", usage_percent).success(),
+    };
+    
+    // Create usage bar visualization
+    let bar_width = 20;
+    let filled = (usage_percent * bar_width / 100) as usize;
+    let empty = bar_width - filled;
+    let usage_bar = if usage_percent > 90 {
+        format!("[{}{}]", "█".repeat(filled).error(), "░".repeat(empty).dim())
     } else if usage_percent > 80 {
-        format!("{}%", usage_percent).warning()
+        format!("[{}{}]", "█".repeat(filled).warning(), "░".repeat(empty).dim())
     } else {
-        format!("{}%", usage_percent).success()
+        format!("[{}{}]", "█".repeat(filled).success(), "░".repeat(empty).dim())
     };
     
     let row = vec![
@@ -67,13 +110,58 @@ pub fn df_cli(args: &[String]) -> Result<()> {
         size_str.info(),
         used_str.secondary(),
         avail_str.success(),
-        usage_str,
+        format!("{} {}", usage_str, usage_bar),
         path.dim(),
     ];
     rows.push(row);
     
-    println!("{}", formatter.create_header("Disk Usage"));
-    print!("{}", formatter.create_table(&headers, &rows));
+    progress.update(4, "Analysis complete");
+    progress.complete("Disk analysis finished");
+    
+    let analysis_time = start.elapsed();
+    
+    // Create table with enhanced styling
+    let options = TableOptions {
+        border_style: BorderStyle::Rounded,
+        alternating_rows: false,
+        header_alignment: TextAlignment::Center,
+        cell_alignment: TextAlignment::Left,
+    };
+    
+    println!("{}", create_advanced_table(&headers, &rows, options));
+    
+    // Performance and status notifications
+    if analysis_time.as_millis() > 500 {
+        println!("{}", Notification::new(
+            NotificationType::Info,
+            "Performance",
+            &format!("Analysis completed in {:.2}s", analysis_time.as_secs_f32())
+        ).format());
+    }
+    
+    // Storage health warnings
+    if usage_percent > 90 {
+        println!("{}", Notification::new(
+            NotificationType::Warning,
+            "Storage Alert",
+            "Disk usage is critically high! Consider cleaning up files."
+        ).format());
+    } else if usage_percent > 80 {
+        println!("{}", Notification::new(
+            NotificationType::Warning,
+            "Storage Notice",
+            "Disk usage is getting high. Monitor space regularly."
+        ).format());
+    }
+    
+    // Additional disk info
+    if human {
+        println!("\n{}", "📊 Storage Summary:".primary());
+        println!("   • Total Capacity: {}", bytesize::ByteSize::b(total).to_string_as(true).info());
+        println!("   • Space Used: {}", bytesize::ByteSize::b(used).to_string_as(true).warning());
+        println!("   • Free Space: {}", bytesize::ByteSize::b(avail).to_string_as(true).success());
+        println!("   • Utilization: {}%", usage_percent.to_string().primary());
+    }
     
     Ok(())
 }
@@ -91,15 +179,33 @@ pub async fn df_cli(args: &[String]) -> Result<()> {
     }
     
     let formatter = TableFormatter::new();
+    
+    // Show analysis progress
+    println!("{}", formatter.create_header("Disk Space Analysis"));
+    println!("{}", Animation::typewriter("Analyzing filesystem...", 20));
+    
+    let start = Instant::now();
+    let mut progress = ProgressBar::new(4, "Scanning disk usage");
+    
+    progress.update(1, "Reading filesystem info");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    
     let p = Path::new(&path).to_path_buf();
     let (blocks, _bfree, bavail, bsize) = task::spawn_blocking(move || stat_fs(p)).await??;
+    
+    progress.update(2, "Calculating space usage");
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    
     let total = blocks * bsize;
     let avail = bavail * bsize;
     let used = total - avail;
     let usage_percent = if total > 0 { (used * 100) / total } else { 0 };
     
-    // Create beautiful table
-    let headers = vec!["Filesystem", "Size", "Used", "Available", "Use%", "Mounted on"];
+    progress.update(3, "Formatting results");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    
+    // Create beautiful table with advanced options
+    let headers = vec!["Filesystem", "Total Size", "Used Space", "Available", "Usage %", "Mount Point"];
     let mut rows = vec![];
     
     let size_str = if human {
@@ -120,12 +226,25 @@ pub async fn df_cli(args: &[String]) -> Result<()> {
         format!("{}K", avail/1024)
     };
     
-    let usage_str = if usage_percent > 90 {
-        format!("{}%", usage_percent).error()
+    // Enhanced usage percentage with visual indicators
+    let usage_str = match usage_percent {
+        90..=100 => format!("{}% ⚠️ CRITICAL", usage_percent).error(),
+        80..=89 => format!("{}% ⚠️ HIGH", usage_percent).warning(),
+        70..=79 => format!("{}% ⚡ MODERATE", usage_percent).warning(),
+        50..=69 => format!("{}% ✓ NORMAL", usage_percent).info(),
+        _ => format!("{}% ✓ LOW", usage_percent).success(),
+    };
+    
+    // Create usage bar visualization
+    let bar_width = 20;
+    let filled = (usage_percent * bar_width / 100) as usize;
+    let empty = bar_width - filled;
+    let usage_bar = if usage_percent > 90 {
+        format!("[{}{}]", "█".repeat(filled).error(), "░".repeat(empty).dim())
     } else if usage_percent > 80 {
-        format!("{}%", usage_percent).warning()
+        format!("[{}{}]", "█".repeat(filled).warning(), "░".repeat(empty).dim())
     } else {
-        format!("{}%", usage_percent).success()
+        format!("[{}{}]", "█".repeat(filled).success(), "░".repeat(empty).dim())
     };
     
     let row = vec![
@@ -133,13 +252,58 @@ pub async fn df_cli(args: &[String]) -> Result<()> {
         size_str.info(),
         used_str.secondary(),
         avail_str.success(),
-        usage_str,
+        format!("{} {}", usage_str, usage_bar),
         path.dim(),
     ];
     rows.push(row);
     
-    println!("{}", formatter.create_header("Disk Usage"));
-    print!("{}", formatter.create_table(&headers, &rows));
+    progress.update(4, "Analysis complete");
+    progress.complete("Disk analysis finished");
+    
+    let analysis_time = start.elapsed();
+    
+    // Create table with enhanced styling
+    let options = TableOptions {
+        border_style: BorderStyle::Rounded,
+        alternating_rows: false,
+        header_alignment: TextAlignment::Center,
+        cell_alignment: TextAlignment::Left,
+    };
+    
+    println!("{}", create_advanced_table(&headers, &rows, options));
+    
+    // Performance and status notifications
+    if analysis_time.as_millis() > 500 {
+        println!("{}", Notification::new(
+            NotificationType::Info,
+            "Performance",
+            &format!("Analysis completed in {:.2}s", analysis_time.as_secs_f32())
+        ).format());
+    }
+    
+    // Storage health warnings
+    if usage_percent > 90 {
+        println!("{}", Notification::new(
+            NotificationType::Warning,
+            "Storage Alert",
+            "Disk usage is critically high! Consider cleaning up files."
+        ).format());
+    } else if usage_percent > 80 {
+        println!("{}", Notification::new(
+            NotificationType::Warning,
+            "Storage Notice",
+            "Disk usage is getting high. Monitor space regularly."
+        ).format());
+    }
+    
+    // Additional disk info
+    if human {
+        println!("\n{}", "📊 Storage Summary:".primary());
+        println!("   • Total Capacity: {}", bytesize::ByteSize::b(total).to_string_as(true).info());
+        println!("   • Space Used: {}", bytesize::ByteSize::b(used).to_string_as(true).warning());
+        println!("   • Free Space: {}", bytesize::ByteSize::b(avail).to_string_as(true).success());
+        println!("   • Utilization: {}%", usage_percent.to_string().primary());
+    }
     
     Ok(())
 }
