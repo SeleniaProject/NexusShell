@@ -1,10 +1,10 @@
 # NexusShell .gitignore
 
 # Rust/Cargo build directory
-target/*
-target_ci/*
-target_vscode/*
-target_temp/*
+target/
+target_*/
+**/target/
+**/target_*/
 
 # Binaries, build logs, and backup files
 **/*.rs.bk
