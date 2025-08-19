@@ -1151,7 +1151,74 @@ fn evaluate_expression(
             Ok(true)
         }
         
-        _ => Ok(false), // Placeholder for unimplemented expressions
+        // Advanced expression evaluation - implementing comprehensive find functionality
+        Expression::Regex(pattern) => {
+            use regex::Regex;
+            let regex = Regex::new(pattern)
+                .with_context(|| format!("Invalid regex pattern: {}", pattern))?;
+            let filename = path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            Ok(regex.is_match(filename))
+        }
+        
+        Expression::IRegex(pattern) => {
+            use regex::RegexBuilder;
+            let regex = RegexBuilder::new(pattern)
+                .case_insensitive(true)
+                .build()
+                .with_context(|| format!("Invalid case-insensitive regex pattern: {}", pattern))?;
+            let filename = path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            Ok(regex.is_match(filename))
+        }
+        
+        Expression::Path(pattern) => {
+            // Match against full path
+            use glob::Pattern;
+            let pattern = Pattern::new(pattern)
+                .with_context(|| format!("Invalid path pattern: {}", pattern))?;
+            Ok(pattern.matches_path(path))
+        }
+        
+        Expression::IPath(pattern) => {
+            // Case-insensitive path matching
+            use glob::Pattern;
+            let pattern = Pattern::new(&pattern.to_lowercase())
+                .with_context(|| format!("Invalid ipath pattern: {}", pattern))?;
+            let path_str = path.to_string_lossy().to_lowercase();
+            Ok(pattern.matches(&path_str))
+        }
+        
+        Expression::Readable => {
+            Ok(is_readable(path))
+        }
+        
+        Expression::Writable => {
+            Ok(is_writable(path))
+        }
+        
+        Expression::Executable => {
+            Ok(is_executable(path, metadata))
+        }
+        
+        Expression::Empty => {
+            if metadata.is_dir() {
+                Ok(is_directory_empty(path)?)
+            } else {
+                Ok(metadata.len() == 0)
+            }
+        }
+        
+        Expression::False => Ok(false),
+        Expression::True => Ok(true),
+        
+        // Add more comprehensive expression handling here
+        _ => {
+            // For any remaining unimplemented expressions, provide a detailed error
+            Err(anyhow!("Expression type {:?} is not yet implemented. Please file an issue for this missing functionality.", expr))
+        }
     }
 }
 
@@ -1555,13 +1622,15 @@ fn print_formatted(format: &str, path: &Path, metadata: &Metadata) -> Result<()>
                         // Extended attributes indicator
                         #[cfg(unix)]
                         {
-                            // Check for extended attributes (simplified)
-                            let has_xattr = false; // Placeholder - would need xattr crate
+                            // Check for extended attributes using getfattr command
+                            let has_xattr = check_extended_attributes(path);
                             format_and_push(&mut result, if has_xattr { "+" } else { "" }, &flags, width, precision);
                         }
                         #[cfg(not(unix))]
                         {
-                            format_and_push(&mut result, "", &flags, width, precision);
+                            // Windows: Check for alternate data streams
+                            let has_ads = check_alternate_data_streams(path);
+                            format_and_push(&mut result, if has_ads { "+" } else { "" }, &flags, width, precision);
                         }
                     }
                     '%' => result.push('%'),
@@ -2449,6 +2518,333 @@ fn is_primary_start(tok: &str) -> bool {
         "-name"|"-iname"|"-path"|"-ipath"|"-regex"|"-iregex"|"-type"|"-size"|"-empty"|
         "-executable"|"-readable"|"-writable"|"-perm"|"-user"|"-group"|"-uid"|"-gid"|"-newer"|
         "-mtime"|"-atime"|"-ctime"|"-inum"|"-exec"|"-execdir"|"-ok"|"-okdir")
+}
+
+/// Check if a file is readable by the current user
+fn is_readable(path: &Path) -> bool {
+    use std::fs::File;
+    File::open(path).is_ok()
+}
+
+/// Check if a file is writable by the current user
+fn is_writable(path: &Path) -> bool {
+    use std::fs::OpenOptions;
+    if path.is_dir() {
+        // Test if we can create a temporary file in the directory
+        let temp_path = path.join(".nxsh_write_test");
+        match std::fs::File::create(&temp_path) {
+            Ok(_) => {
+                let _ = std::fs::remove_file(&temp_path);
+                true
+            }
+            Err(_) => false,
+        }
+    } else {
+        // Test if we can open the file for writing
+        OpenOptions::new()
+            .write(true)
+            .open(path)
+            .is_ok()
+    }
+}
+
+/// Check if a file is executable
+fn is_executable(path: &Path, metadata: &Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = metadata.permissions().mode();
+        (mode & 0o111) != 0
+    }
+    
+    #[cfg(windows)]
+    {
+        // On Windows, check file extension for executables
+        if let Some(ext) = path.extension() {
+            let ext = ext.to_string_lossy().to_lowercase();
+            matches!(ext.as_str(), "exe" | "bat" | "cmd" | "com" | "ps1" | "vbs" | "wsf")
+        } else {
+            false
+        }
+    }
+}
+
+/// Check if a directory is empty
+fn is_directory_empty(path: &Path) -> Result<bool> {
+    let mut entries = std::fs::read_dir(path)
+        .with_context(|| format!("Failed to read directory: {}", path.display()))?;
+    Ok(entries.next().is_none())
+}
+
+/// Check if two files are the same (same device and inode on Unix)
+fn are_same_file(meta1: &Metadata, meta2: &Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        meta1.dev() == meta2.dev() && meta1.ino() == meta2.ino()
+    }
+    
+    #[cfg(windows)]
+    {
+        // On Windows, fallback to size and time comparison
+        // file_index() is unstable, so we use more portable comparison
+        meta1.len() == meta2.len() && 
+        meta1.modified().ok() == meta2.modified().ok()
+    }
+}
+
+/// Get access time from metadata
+fn get_access_time(metadata: &Metadata) -> Result<std::time::SystemTime> {
+    metadata.accessed()
+        .with_context(|| "Failed to get access time")
+}
+
+/// Get modification time from metadata
+fn get_modification_time(metadata: &Metadata) -> Result<std::time::SystemTime> {
+    metadata.modified()
+        .with_context(|| "Failed to get modification time")
+}
+
+/// Check filesystem type (platform-specific implementation)
+fn check_filesystem_type(path: &Path, expected_type: &str) -> Result<bool> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::ffi::CString;
+        use std::mem;
+        use std::os::raw::{c_char, c_int, c_long};
+        
+        #[repr(C)]
+        struct Statfs {
+            f_type: c_long,
+            f_bsize: c_long,
+            f_blocks: c_long,
+            f_bfree: c_long,
+            f_bavail: c_long,
+            f_files: c_long,
+            f_ffree: c_long,
+            f_fsid: [c_int; 2],
+            f_namelen: c_long,
+            f_frsize: c_long,
+            f_flags: c_long,
+            f_spare: [c_long; 4],
+        }
+        
+        extern "C" {
+            fn statfs(path: *const c_char, buf: *mut Statfs) -> c_int;
+        }
+        
+        let path_cstr = CString::new(path.to_string_lossy().as_bytes())
+            .map_err(|_| anyhow!("Invalid path for filesystem check"))?;
+        
+        let mut stat: Statfs = unsafe { mem::zeroed() };
+        let result = unsafe { statfs(path_cstr.as_ptr(), &mut stat) };
+        
+        if result == 0 {
+            // Map filesystem magic numbers to names
+            let fs_name = match stat.f_type {
+                0x9123683E => "btrfs",
+                0xEF53 => "ext2/ext3/ext4",
+                0x3153464A => "jfs",
+                0x858458F6 => "ramfs",
+                0x6969 => "nfs",
+                0x9FA0 => "proc",
+                0x62656572 => "sysfs",
+                0x01021994 => "tmpfs",
+                0x52654973 => "reiserfs",
+                0x73717368 => "squashfs",
+                0x6A656873 => "xfs",
+                0x5346544E => "ntfs",
+                0x4D44 => "msdos/fat",
+                0x73717368 => "squashfs",
+                _ => "unknown",
+            };
+            
+            Ok(fs_name == expected_type || 
+               (expected_type == "ext" && fs_name.starts_with("ext")))
+        } else {
+            Ok(false)
+        }
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        use std::ffi::CString;
+        use std::mem;
+        use std::os::raw::{c_char, c_int, c_uint};
+        
+        #[repr(C)]
+        struct Statfs {
+            f_bsize: c_uint,
+            f_iosize: c_int,
+            f_blocks: u64,
+            f_bfree: u64,
+            f_bavail: u64,
+            f_files: u64,
+            f_ffree: u64,
+            f_fsid: [c_int; 2],
+            f_owner: c_uint,
+            f_type: c_uint,
+            f_flags: c_uint,
+            f_fssubtype: c_uint,
+            f_fstypename: [c_char; 16],
+            f_mntonname: [c_char; 1024],
+            f_mntfromname: [c_char; 1024],
+            f_reserved: [c_uint; 8],
+        }
+        
+        extern "C" {
+            fn statfs(path: *const c_char, buf: *mut Statfs) -> c_int;
+        }
+        
+        let path_cstr = CString::new(path.to_string_lossy().as_bytes())
+            .map_err(|_| anyhow!("Invalid path for filesystem check"))?;
+        
+        let mut stat: Statfs = unsafe { mem::zeroed() };
+        let result = unsafe { statfs(path_cstr.as_ptr(), &mut stat) };
+        
+        if result == 0 {
+            let fs_name = unsafe {
+                std::ffi::CStr::from_ptr(stat.f_fstypename.as_ptr())
+                    .to_string_lossy()
+                    .to_lowercase()
+            };
+            Ok(fs_name == expected_type.to_lowercase())
+        } else {
+            Ok(false)
+        }
+    }
+    
+    #[cfg(windows)]
+    {
+        // Windows filesystem type detection via GetVolumeInformation
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        use std::ptr;
+        
+        let root_path = if let Some(root) = path.ancestors().last() {
+            root
+        } else {
+            path
+        };
+        
+        let root_path_wide: Vec<u16> = OsStr::new(&root_path.to_string_lossy().to_string())
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        
+        let mut fs_name_buffer = [0u16; 256];
+        
+        let success = unsafe {
+            winapi::um::fileapi::GetVolumeInformationW(
+                root_path_wide.as_ptr(),
+                ptr::null_mut(),
+                0,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                fs_name_buffer.as_mut_ptr(),
+                fs_name_buffer.len() as u32,
+            )
+        } != 0;
+        
+        if success {
+            let fs_name = String::from_utf16_lossy(&fs_name_buffer)
+                .trim_end_matches('\0')
+                .to_lowercase();
+            Ok(fs_name.starts_with(&expected_type.to_lowercase()))
+        } else {
+            Ok(false)
+        }
+    }
+    
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+    {
+        // For other platforms, always return false
+        Ok(false)
+    }
+}
+
+/// Check SELinux context (Linux-specific)
+#[cfg(target_os = "linux")]
+fn check_selinux_context(path: &Path, expected_context: &str) -> Result<bool> {
+    // This would require libselinux, which is C-based
+    // For now, we'll implement a basic check using getfattr
+    use std::process::Command;
+    
+    let output = Command::new("getfattr")
+        .arg("-n")
+        .arg("security.selinux")
+        .arg("--only-values")
+        .arg(path)
+        .output();
+    
+    match output {
+        Ok(output) if output.status.success() => {
+            let context = String::from_utf8_lossy(&output.stdout);
+            Ok(context.trim() == expected_context)
+        }
+        _ => Ok(false), // SELinux not available or context not set
+    }
+}
+
+/// Check for extended attributes on Unix systems
+#[cfg(unix)]
+fn check_extended_attributes(path: &Path) -> bool {
+    use std::process::Command;
+    
+    // Use getfattr to check for extended attributes
+    let output = Command::new("getfattr")
+        .arg("--dump")
+        .arg(path)
+        .output();
+    
+    match output {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            // If there are any extended attributes, there will be content beyond just the file name
+            stdout.lines().count() > 1
+        }
+        _ => {
+            // Fallback: try using attr command
+            let output = Command::new("attr")
+                .arg("-l")
+                .arg(path)
+                .output();
+            
+            match output {
+                Ok(output) if output.status.success() => {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    !stdout.trim().is_empty()
+                }
+                _ => false, // No extended attributes or tools not available
+            }
+        }
+    }
+}
+
+/// Check for alternate data streams on Windows
+#[cfg(windows)]
+fn check_alternate_data_streams(path: &Path) -> bool {
+    use std::process::Command;
+    
+    // Use dir /R to check for alternate data streams
+    let output = Command::new("cmd")
+        .arg("/C")
+        .arg("dir")
+        .arg("/R")
+        .arg(path)
+        .output();
+    
+    match output {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            // Look for the ADS indicator (colon in filename)
+            stdout.lines().any(|line| {
+                line.contains(":$DATA") && !line.ends_with(":$DATA")
+            })
+        }
+        _ => false, // No alternate data streams or command failed
+    }
 }
 
 #[cfg(test)]

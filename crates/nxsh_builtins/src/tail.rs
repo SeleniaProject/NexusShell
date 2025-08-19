@@ -509,7 +509,7 @@ fn follow_single_file(
             let file_icon = if state.path.ends_with(".log") { icons.log_file } 
                            else { icons.file };
             println!("\n{}{}┌─── {} {} (reloaded) ───┐{}", 
-                colors.warning, "═".repeat(5), file_icon, state.path.bright_yellow(), colors.reset);
+                colors.warning, "═".repeat(5), file_icon, state.path.clone().bright_yellow(), colors.reset);
         }
         state.position = 0;
     }
@@ -528,7 +528,7 @@ fn follow_single_file(
                 let file_icon = if state.path.ends_with(".log") { icons.log_file } 
                                else { icons.file };
                 println!("\n{}{}┌─── {} {} (updated) ───┐{}", 
-                    colors.success, "═".repeat(5), file_icon, state.path.bright_green(), colors.reset);
+                    colors.success, "═".repeat(5), file_icon, state.path.clone().bright_green(), colors.reset);
             }
             
             io::stdout().write_all(&buffer)?;

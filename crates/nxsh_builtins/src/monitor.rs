@@ -110,7 +110,7 @@ impl SystemMonitor {
     }
     
     fn render_dashboard(&self, metrics: &SystemMetrics, iteration: u32, elapsed: Duration) -> Result<()> {
-        let mut dashboard = StatusDashboard::new("System Monitor Dashboard");
+        let mut dashboard = StatusDashboard::new("System Monitor Dashboard".to_string());
         
         // System Overview Section
         let mut overview_section = DashboardSection {
@@ -120,6 +120,7 @@ impl SystemMonitor {
         };
         
         overview_section.items.push(StatusItem {
+            name: "cpu_usage".to_string(),
             label: "CPU Usage".to_string(),
             value: format!("{:.1}%", metrics.cpu_usage),
             status: self.get_cpu_status(metrics.cpu_usage),
@@ -127,6 +128,7 @@ impl SystemMonitor {
         });
         
         overview_section.items.push(StatusItem {
+            name: "memory_usage".to_string(),
             label: "Memory Usage".to_string(),
             value: format!("{:.1}%", metrics.memory_usage),
             status: self.get_memory_status(metrics.memory_usage),
@@ -134,6 +136,7 @@ impl SystemMonitor {
         });
         
         overview_section.items.push(StatusItem {
+            name: "disk_usage".to_string(),
             label: "Disk Usage".to_string(),
             value: format!("{:.1}%", metrics.disk_usage),
             status: self.get_disk_status(metrics.disk_usage),
@@ -141,6 +144,7 @@ impl SystemMonitor {
         });
         
         overview_section.items.push(StatusItem {
+            name: "process_count".to_string(),
             label: "Process Count".to_string(),
             value: metrics.process_count.to_string(),
             status: ItemStatus::Info,
@@ -157,6 +161,7 @@ impl SystemMonitor {
         };
         
         performance_section.items.push(StatusItem {
+            name: "load_average".to_string(),
             label: "Load Average".to_string(),
             value: format!("{:.2}, {:.2}, {:.2}", 
                 metrics.load_average.0,
@@ -168,6 +173,7 @@ impl SystemMonitor {
         });
         
         performance_section.items.push(StatusItem {
+            name: "uptime".to_string(),
             label: "Uptime".to_string(),
             value: self.format_uptime(metrics.uptime),
             status: ItemStatus::Good,
@@ -184,6 +190,7 @@ impl SystemMonitor {
         };
         
         network_section.items.push(StatusItem {
+            name: "network_rx".to_string(),
             label: "Received".to_string(),
             value: bytesize::ByteSize::b(metrics.network_rx).to_string(),
             status: ItemStatus::Info,
@@ -191,6 +198,7 @@ impl SystemMonitor {
         });
         
         network_section.items.push(StatusItem {
+            name: "network_tx".to_string(),
             label: "Transmitted".to_string(),
             value: bytesize::ByteSize::b(metrics.network_tx).to_string(),
             status: ItemStatus::Info,

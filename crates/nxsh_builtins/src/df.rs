@@ -69,7 +69,7 @@ fn show_disk_space(path: &str, human_readable: bool) -> Result<()> {
     let filesystem = if cfg!(windows) {
         get_filesystem_name_windows(path).unwrap_or_else(|| "NTFS".to_string())
     } else {
-        get_filesystem_name_unix(path).unwrap_or_else(|| "Unknown".to_string())
+        get_filesystem_name_windows(path).unwrap_or_else(|| "Unknown".to_string())
     };
     
     let row = vec![
@@ -96,24 +96,34 @@ fn get_disk_space_windows(path: &Path) -> Result<(u64, u64, u64)> {
         .chain(std::iter::once(0))
         .collect();
     
-    let mut free_bytes = 0u64;
-    let mut total_bytes = 0u64;
-    let mut total_free = 0u64;
+    use winapi::shared::ntdef::ULARGE_INTEGER;
+    
+    let mut free_bytes = ULARGE_INTEGER::default();
+    let mut total_bytes = ULARGE_INTEGER::default();
+    let mut total_free = ULARGE_INTEGER::default();
     
     unsafe {
         let result = GetDiskFreeSpaceExW(
             path_wide.as_ptr(),
-            &mut free_bytes as *mut u64,
-            &mut total_bytes as *mut u64,
-            &mut total_free as *mut u64,
+            &mut free_bytes,
+            &mut total_bytes,
+            &mut total_free,
         );
         
         if result == 0 {
             return Err(anyhow!("Failed to get disk space information"));
         }
+        
+        // Convert to u64 values
+        let free_bytes_val = *free_bytes.QuadPart() as u64;
+        let total_bytes_val = *total_bytes.QuadPart() as u64;
+        let total_free_val = *total_free.QuadPart() as u64;
+        
+        return Ok((total_bytes_val, total_free_val, free_bytes_val));
     }
     
-    Ok((total_bytes, total_free, free_bytes))
+    // この関数は到達しないはずです
+    Err(anyhow!("Unsupported platform"))
 }
 
 #[cfg(unix)]

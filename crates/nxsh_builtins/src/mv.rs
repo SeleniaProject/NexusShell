@@ -23,12 +23,16 @@
 //!   --retry=N                 - Retry failed operations N times
 
 use anyhow::{Result, anyhow, Context};
+use color_eyre::owo_colors::OwoColorize;  // Fix OwoColorize import  
 use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
 use std::fs::{self};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-use tracing::{info, debug, warn};
+use std::ffi::OsStr;  // Add OsStr import
+use std::ptr;  // Add ptr import
+use std::os::windows::ffi::OsStrExt;  // Add OsStrExt import for Windows
+use tracing::{debug, warn};
 
 // SHA-256 for integrity verification
 use sha2::{Sha256, Digest};
@@ -148,7 +152,7 @@ pub fn mv_cli(args: &[String]) -> Result<()> {
         if options.verbose {
             println!("{} {} {} {}", 
                 Icons::MOVE, 
-                source.colorize(&ColorPalette::ACCENT),
+                source.clone().colorize(&ColorPalette::ACCENT),
                 "→".colorize(&ColorPalette::INFO),
                 dest_path.display().to_string().colorize(&ColorPalette::SUCCESS)
             );
@@ -831,11 +835,188 @@ fn move_file_with_advanced_features(src: &Path, dst: &Path, options: &MvOptions)
     Ok(())
 }
 
-/// Windows-specific advanced move (placeholder)
+/// Windows-specific advanced move with enhanced features
 #[cfg(windows)]
 fn move_file_windows_advanced(src: &Path, dst: &Path, options: &MvOptions) -> Result<()> {
-    // For now, use standard move - Windows-specific features can be added later
-    move_file_with_advanced_features(src, dst, options)
+    use std::os::windows::ffi::OsStrExt;
+    
+    // Convert paths to wide strings for Windows API
+    let src_wide: Vec<u16> = OsStr::new(&src.to_string_lossy().to_string())
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    
+    let dst_wide: Vec<u16> = OsStr::new(&dst.to_string_lossy().to_string())
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    
+    let dst_wide: Vec<u16> = OsStr::new(&dst.to_string_lossy().to_string())
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    
+    // Use Windows API for advanced move operations
+    let mut flags = winapi::um::winbase::MOVEFILE_COPY_ALLOWED;
+    
+    if options.update {
+        // Only move if source is newer than destination
+        if dst.exists() {
+            let src_time = src.metadata()?.modified()?;
+            let dst_time = dst.metadata()?.modified()?;
+            if src_time <= dst_time {
+                if options.verbose {
+                    println!("{}", format!("Skipping '{}' (not newer than destination)", 
+                            src.display()).bright_black());
+                }
+                return Ok(());
+            }
+        }
+    }
+    
+    if !options.force && dst.exists() {
+        if options.interactive {
+            use std::io::{self, Write};
+            print!("mv: overwrite '{}'? ", dst.display());
+            io::stdout().flush()?;
+            
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+            
+            if !input.trim().to_lowercase().starts_with('y') {
+                return Ok(()); // User chose not to overwrite
+            }
+        } else {
+            return Err(anyhow!("Destination '{}' exists and would be overwritten", dst.display()));
+        }
+    }
+    
+    // Enable replace existing for overwrite scenarios
+    if options.force || options.interactive {
+        flags |= winapi::um::winbase::MOVEFILE_REPLACE_EXISTING;
+    }
+    
+    // Attempt atomic move operation
+    let success = unsafe {
+        winapi::um::winbase::MoveFileExW(
+            src_wide.as_ptr(),
+            dst_wide.as_ptr(),
+            flags,
+        )
+    } != 0;
+    
+    if success {
+        if options.verbose {
+            println!("{}", format!("'{}' -> '{}'", src.display(), dst.display()).success());
+        }
+        Ok(())
+    } else {
+        let error_code = unsafe { winapi::um::errhandlingapi::GetLastError() };
+        
+        // Handle specific Windows error codes
+        let error_msg = match error_code {
+            winapi::shared::winerror::ERROR_FILE_NOT_FOUND => "Source file not found",
+            winapi::shared::winerror::ERROR_PATH_NOT_FOUND => "Source path not found",
+            winapi::shared::winerror::ERROR_ACCESS_DENIED => "Access denied",
+            winapi::shared::winerror::ERROR_SHARING_VIOLATION => "File is in use by another process",
+            winapi::shared::winerror::ERROR_DISK_FULL => "Insufficient disk space",
+            winapi::shared::winerror::ERROR_ALREADY_EXISTS => "Destination already exists",
+            _ => "Unknown Windows error",
+        };
+        
+        // Fallback to standard move if Windows API fails
+        if error_code == winapi::shared::winerror::ERROR_NOT_SAME_DEVICE {
+            // Cross-device move - fall back to copy and delete
+            if options.verbose {
+                println!("{}", "Cross-device move detected, using copy-and-delete".info());
+            }
+            
+            // Copy with metadata preservation
+            copy_with_metadata(src, dst)?;
+            
+            // Remove source after successful copy
+            std::fs::remove_file(src)
+                .with_context(|| format!("Failed to remove source file: {}", src.display()))?;
+            
+            if options.verbose {
+                println!("{}", format!("'{}' -> '{}' (copied)", src.display(), dst.display()).success());
+            }
+            
+            Ok(())
+        } else {
+            Err(anyhow!("Windows move operation failed: {} (error code: {})", error_msg, error_code))
+        }
+    }
+}
+
+/// Copy file with metadata preservation
+#[cfg(windows)]
+fn copy_with_metadata(src: &Path, dst: &Path) -> Result<()> {
+    // Copy file content
+    std::fs::copy(src, dst)
+        .with_context(|| format!("Failed to copy file content from '{}' to '{}'", 
+                                src.display(), dst.display()))?;
+    
+    // Preserve timestamps
+    let src_metadata = src.metadata()
+        .with_context(|| format!("Failed to read source metadata: {}", src.display()))?;
+    
+    if let Ok(accessed) = src_metadata.accessed() {
+        if let Ok(modified) = src_metadata.modified() {
+            use std::os::windows::fs::OpenOptionsExt;
+            use std::fs::OpenOptions;
+            use winapi::um::fileapi::SetFileTime;
+            use winapi::shared::minwindef::FILETIME;
+            
+            // Convert SystemTime to FILETIME
+            let to_filetime = |st: std::time::SystemTime| -> Result<FILETIME> {
+                let duration = st.duration_since(std::time::UNIX_EPOCH)?;
+                let intervals = duration.as_nanos() / 100 + 116444736000000000; // Windows epoch adjustment
+                
+                Ok(FILETIME {
+                    dwLowDateTime: (intervals & 0xFFFFFFFF) as u32,
+                    dwHighDateTime: (intervals >> 32) as u32,
+                })
+            };
+            
+            let access_time = to_filetime(accessed)?;
+            let modify_time = to_filetime(modified)?;
+            
+            // Open file to set timestamps
+            let file = OpenOptions::new()
+                .write(true)
+                .custom_flags(winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS)
+                .open(dst)?;
+            
+            use std::os::windows::io::AsRawHandle;
+            let handle = file.as_raw_handle();
+            
+            unsafe {
+                SetFileTime(
+                    handle as *mut _,
+                    ptr::null(),     // Creation time (keep existing)
+                    &access_time,    // Last access time
+                    &modify_time,    // Last write time
+                );
+            }
+        }
+    }
+    
+    // Preserve file attributes
+    use std::os::windows::fs::MetadataExt;
+    let attributes = src_metadata.file_attributes();
+    
+    use winapi::um::fileapi::SetFileAttributesW;
+    let dst_wide: Vec<u16> = OsStr::new(&dst.to_string_lossy().to_string())
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    
+    unsafe {
+        SetFileAttributesW(dst_wide.as_ptr(), attributes);
+    }
+    
+    Ok(())
 }
 
 /// Print enhanced help information for the mv command

@@ -780,7 +780,10 @@ mod tests {
     #[test]
     fn test_cui_creation() {
         let cui = AdvancedCUI::new().unwrap();
-        assert!(!cui.theme.primary.to_string().is_empty());
+        // Test that we have a valid theme by checking default color values
+        assert!(matches!(cui.theme.primary, crossterm::style::Color::Blue | 
+                                           crossterm::style::Color::Rgb { .. } | 
+                                           crossterm::style::Color::AnsiValue(_)));
     }
 
     #[test]

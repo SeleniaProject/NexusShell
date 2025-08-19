@@ -8,6 +8,7 @@ use std::fmt;
 use std::time::{Duration, Instant};
 use std::thread;
 use std::io::{self, Write};
+use color_eyre::owo_colors::OwoColorize;  // Fix OwoColorize import
 
 /// Advanced string colorization trait  
 pub trait Colorize {
@@ -181,6 +182,9 @@ pub enum InputType {
     Boolean,
     Select,
     MultiSelect,
+    Choice(Vec<String>),
+    Path,
+    Password,
 }
 
 /// Basic command wizard types  
@@ -196,6 +200,7 @@ pub struct WizardStep {
     pub description: String,
     pub input_type: InputType,
     pub title: String,
+    pub prompt: String,
     pub options: Vec<String>,
     pub required: bool,
 }
@@ -242,8 +247,217 @@ impl CommandWizard {
     }
     
     pub fn run(&self) -> Result<Vec<String>, String> {
-        // Simple implementation for now
-        Ok(vec!["sample".to_string()])
+        use std::io::{self, Write};
+        
+        let mut results = Vec::new();
+        
+        println!("\n{}", format!("🧙 {}", self.title).primary());
+        println!("{}", "─".repeat(60).dimmed());
+        
+        for (i, step) in self.steps.iter().enumerate() {
+            println!("\n{} {}", 
+                format!("Step {}/{}", i + 1, self.steps.len()).warning(),
+                step.prompt.clone().info()
+            );
+            
+            if !step.description.is_empty() {
+                println!("{}", step.description.dimmed());
+            }
+            
+            match &step.input_type {
+                InputType::Text => {
+                    print!("📝 Enter text: ");
+                    io::stdout().flush().map_err(|e| e.to_string())?;
+                    
+                    let mut input = String::new();
+                    io::stdin().read_line(&mut input).map_err(|e| e.to_string())?;
+                    results.push(input.trim().to_string());
+                }
+                
+                InputType::Choice(options) => {
+                    println!("📋 Choose an option:");
+                    for (j, option) in options.iter().enumerate() {
+                        println!("  {}. {}", j + 1, option);
+                    }
+                    
+                    loop {
+                        print!("🔢 Enter choice (1-{}): ", options.len());
+                        io::stdout().flush().map_err(|e| e.to_string())?;
+                        
+                        let mut input = String::new();
+                        io::stdin().read_line(&mut input).map_err(|e| e.to_string())?;
+                        
+                        match input.trim().parse::<usize>() {
+                            Ok(choice) if choice >= 1 && choice <= options.len() => {
+                                results.push(options[choice - 1].clone());
+                                break;
+                            }
+                            _ => {
+                                println!("❌ Invalid choice. Please enter a number between 1 and {}", options.len());
+                            }
+                        }
+                    }
+                }
+                
+                InputType::Boolean => {
+                    loop {
+                        print!("❓ {} (y/n): ", step.prompt);
+                        io::stdout().flush().map_err(|e| e.to_string())?;
+                        
+                        let mut input = String::new();
+                        io::stdin().read_line(&mut input).map_err(|e| e.to_string())?;
+                        
+                        match input.trim().to_lowercase().as_str() {
+                            "y" | "yes" | "true" | "1" => {
+                                results.push("true".to_string());
+                                break;
+                            }
+                            "n" | "no" | "false" | "0" => {
+                                results.push("false".to_string());
+                                break;
+                            }
+                            _ => {
+                                println!("❌ Please enter 'y' for yes or 'n' for no");
+                            }
+                        }
+                    }
+                }
+                
+                InputType::Number => {
+                    loop {
+                        print!("🔢 Enter a number: ");
+                        io::stdout().flush().map_err(|e| e.to_string())?;
+                        
+                        let mut input = String::new();
+                        io::stdin().read_line(&mut input).map_err(|e| e.to_string())?;
+                        
+                        match input.trim().parse::<f64>() {
+                            Ok(_) => {
+                                results.push(input.trim().to_string());
+                                break;
+                            }
+                            Err(_) => {
+                                println!("❌ Invalid number. Please enter a valid numeric value");
+                            }
+                        }
+                    }
+                }
+                
+                InputType::Path => {
+                    loop {
+                        print!("📂 Enter path: ");
+                        io::stdout().flush().map_err(|e| e.to_string())?;
+                        
+                        let mut input = String::new();
+                        io::stdin().read_line(&mut input).map_err(|e| e.to_string())?;
+                        
+                        let path_str = input.trim();
+                        let path = std::path::Path::new(path_str);
+                        
+                        if path_str.is_empty() {
+                            println!("❌ Path cannot be empty");
+                            continue;
+                        }
+                        
+                        if step.required && !path.exists() {
+                            println!("❌ Path does not exist: {}", path_str);
+                            println!("💡 Tip: Use tab completion or ensure the path is correct");
+                            continue;
+                        }
+                        
+                        results.push(path_str.to_string());
+                        break;
+                    }
+                }
+                
+                InputType::Password => {
+                    print!("🔐 Enter password: ");
+                    io::stdout().flush().map_err(|e| e.to_string())?;
+                    
+                    // In a real implementation, you'd want to use a library like `rpassword`
+                    // to hide password input. For now, we'll use regular input with a warning.
+                    println!("⚠️  Warning: Password will be visible on screen");
+                    
+                    let mut input = String::new();
+                    io::stdin().read_line(&mut input).map_err(|e| e.to_string())?;
+                    results.push(input.trim().to_string());
+                }
+                
+                InputType::Select => {
+                    println!("📋 Select an option:");
+                    for (j, option) in step.options.iter().enumerate() {
+                        println!("  {}. {}", j + 1, option);
+                    }
+                    
+                    loop {
+                        print!("🔢 Enter choice (1-{}): ", step.options.len());
+                        io::stdout().flush().map_err(|e| e.to_string())?;
+                        
+                        let mut input = String::new();
+                        io::stdin().read_line(&mut input).map_err(|e| e.to_string())?;
+                        
+                        match input.trim().parse::<usize>() {
+                            Ok(choice) if choice >= 1 && choice <= step.options.len() => {
+                                results.push(step.options[choice - 1].clone());
+                                break;
+                            }
+                            _ => {
+                                println!("❌ Invalid choice. Please enter a number between 1 and {}", step.options.len());
+                            }
+                        }
+                    }
+                }
+                
+                InputType::MultiSelect => {
+                    println!("☑️  Select multiple options (comma-separated numbers):");
+                    for (j, option) in step.options.iter().enumerate() {
+                        println!("  {}. {}", j + 1, option);
+                    }
+                    
+                    loop {
+                        print!("🔢 Enter choices (e.g., 1,3,5): ");
+                        io::stdout().flush().map_err(|e| e.to_string())?;
+                        
+                        let mut input = String::new();
+                        io::stdin().read_line(&mut input).map_err(|e| e.to_string())?;
+                        
+                        let selections: Result<Vec<String>, String> = input
+                            .trim()
+                            .split(',')
+                            .map(|s| s.trim().parse::<usize>()
+                                .map_err(|_| format!("Invalid number: {}", s))
+                                .and_then(|choice| {
+                                    if choice >= 1 && choice <= step.options.len() {
+                                        Ok(step.options[choice - 1].clone())
+                                    } else {
+                                        Err(format!("Choice {} out of range", choice))
+                                    }
+                                }))
+                            .collect();
+                        
+                        match selections {
+                            Ok(selected_options) => {
+                                results.push(selected_options.join(","));
+                                break;
+                            }
+                            Err(e) => {
+                                println!("❌ {}", e);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Validation
+            if step.required && results.last().unwrap().is_empty() {
+                return Err(format!("Step {}: {} is required", i + 1, step.prompt));
+            }
+            
+            println!("{}", "✅ Step completed".success());
+        }
+        
+        println!("\n{}", "🎉 Wizard completed successfully!".success());
+        Ok(results)
     }
 }
 
@@ -406,6 +620,12 @@ impl Icons {
             audio: "[AUD]",
             document: "[DOC]",
             code: "[CODE]",
+            folder: "[DIR]",
+            symlink: "[LINK]",
+            terminal: "[TERM]",
+            log_file: "[LOG]",
+            text_file: "[TXT]",
+            loading: "[...]",
             arrow_right: ">",
             arrow_down: "v",
             bullet: "*",
