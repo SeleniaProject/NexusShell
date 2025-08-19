@@ -11,6 +11,9 @@ use std::cmp::Ordering;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter};
 
+// Beautiful CUI design
+use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
+
 // Helper function to create runtime errors more concisely
 fn runtime_error(msg: &str) -> ShellError {
     ShellError::new(
@@ -473,6 +476,16 @@ fn collect_lines(options: &SortOptions) -> ShellResult<Vec<String>> {
 }
 
 fn sort_lines(lines: &mut [String], options: &SortOptions) -> ShellResult<()> {
+    let colors = ColorPalette::new();
+    let icons = Icons::new(true);
+    
+    // Beautiful progress message
+    if lines.len() > 1000 {
+        eprintln!("{}{} {} Sorting {} lines...{}", 
+            colors.primary, icons.loading, "Processing".bright_blue(), 
+            lines.len().to_string().bright_yellow(), colors.reset);
+    }
+    
     if options.parallel > 1 && lines.len() > 1000 {
         // Use parallel sorting for large datasets
         #[cfg(feature = "parallel")]

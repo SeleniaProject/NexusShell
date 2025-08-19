@@ -25,6 +25,9 @@ use std::time::{Duration, SystemTime};
 use std::thread;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
+// Beautiful CUI design
+use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
+
 #[derive(Debug, Clone)]
 pub struct TailOptions {
     pub count: usize,
@@ -233,10 +236,17 @@ fn tail_file(
     _total_files: usize,
 ) -> Result<()> {
     if show_header {
+        let colors = ColorPalette::new();
+        let icons = Icons::new(true);
         if path == "-" {
-            println!("==> standard input <==");
+            println!("\n{}{}┌─── {} Standard Input ───┐{}", 
+                colors.primary, "═".repeat(5), icons.terminal, colors.reset);
         } else {
-            println!("==> {path} <==");
+            let file_icon = if path.ends_with(".log") { icons.log_file } 
+                           else if path.ends_with(".txt") { icons.text_file }
+                           else { icons.file };
+            println!("\n{}{}┌─── {} {} ───┐{}", 
+                colors.primary, "═".repeat(5), file_icon, path.bright_cyan(), colors.reset);
         }
     }
 
@@ -490,7 +500,12 @@ fn follow_single_file(
 
     if file_changed {
         if show_header {
-            println!("\n==> {} <==", state.path);
+            let colors = ColorPalette::new();
+            let icons = Icons::new(true);
+            let file_icon = if state.path.ends_with(".log") { icons.log_file } 
+                           else { icons.file };
+            println!("\n{}{}┌─── {} {} (reloaded) ───┐{}", 
+                colors.warning, "═".repeat(5), file_icon, state.path.bright_yellow(), colors.reset);
         }
         state.position = 0;
     }
@@ -504,7 +519,12 @@ fn follow_single_file(
         
         if !buffer.is_empty() {
             if show_header && !file_changed {
-                println!("\n==> {} <==", state.path);
+                let colors = ColorPalette::new();
+                let icons = Icons::new(true);
+                let file_icon = if state.path.ends_with(".log") { icons.log_file } 
+                               else { icons.file };
+                println!("\n{}{}┌─── {} {} (updated) ───┐{}", 
+                    colors.success, "═".repeat(5), file_icon, state.path.bright_green(), colors.reset);
             }
             
             io::stdout().write_all(&buffer)?;

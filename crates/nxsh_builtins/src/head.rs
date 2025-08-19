@@ -18,6 +18,9 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::Path;
 
+// Beautiful CUI design
+use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
+
 #[derive(Debug, Clone)]
 pub struct HeadOptions {
     pub count: usize,
@@ -184,10 +187,23 @@ fn print_head_file(
     _total_files: usize,
 ) -> Result<()> {
     if show_header {
+        let colors = ColorPalette::new();
+        let icons = Icons::new(true);
         if path == "-" {
-            println!("==> standard input <==");
+            println!("\n{}{}┌─── {} Standard Input (first {} {}) ───┐{}", 
+                colors.primary, "═".repeat(3), icons.terminal, 
+                options.count, 
+                if matches!(options.mode, CountMode::Lines) { "lines" } else { "bytes" },
+                colors.reset);
         } else {
-            println!("==> {path} <==");
+            let file_icon = if path.ends_with(".log") { icons.log_file } 
+                           else if path.ends_with(".txt") { icons.text_file }
+                           else { icons.file };
+            println!("\n{}{}┌─── {} {} (first {} {}) ───┐{}", 
+                colors.primary, "═".repeat(3), file_icon, path.bright_cyan(),
+                options.count,
+                if matches!(options.mode, CountMode::Lines) { "lines" } else { "bytes" },
+                colors.reset);
         }
     }
 

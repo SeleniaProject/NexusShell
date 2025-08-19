@@ -9,6 +9,9 @@ use std::path::Path;
 #[cfg(feature = "async-runtime")]
 use tokio::task;
 
+// Beautiful CUI design
+use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
+
 #[cfg(not(feature = "async-runtime"))]
 pub fn du_cli(args: &[String]) -> Result<()> {
     let mut human = false;
@@ -17,8 +20,29 @@ pub fn du_cli(args: &[String]) -> Result<()> {
         if arg == "-h" { human = true; continue; }
         path = arg.clone();
     }
+    
+    let colors = ColorPalette::new();
+    let icons = Icons::new(true);
+    
+    // Beautiful header
+    println!("\n{}{}┌─── {} Disk Usage Analysis for {} ───┐{}", 
+        colors.primary, "═".repeat(5), icons.folder, path.bright_cyan(), colors.reset);
+    
     let size = calc_size(Path::new(&path).to_path_buf())?;
-    if human { println!("{}", bytesize::ByteSize::b(size).to_string_as(true)); } else { println!("{size}"); }
+    let human_size = bytesize::ByteSize::b(size).to_string_as(true);
+    
+    // Beautiful table output
+    let table = TableFormatter::new(true);
+    let mut rows = vec![
+        vec!["Path".to_string(), "Size".to_string(), "Type".to_string()],
+        vec![
+            path.bright_yellow().to_string(),
+            if human { human_size.bright_green().to_string() } else { size.to_string().bright_green().to_string() },
+            "Directory".bright_blue().to_string()
+        ]
+    ];
+    
+    table.print_table(&rows, &["Path", "Size", "Type"]);
     Ok(())
 }
 
