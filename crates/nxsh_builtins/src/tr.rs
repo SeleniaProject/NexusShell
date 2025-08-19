@@ -13,6 +13,9 @@ use anyhow::{anyhow, Result};
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Read, Write};
 
+// Beautiful CUI design
+use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
+
 pub fn tr_cli(args: &[String]) -> Result<()> {
     if args.is_empty() {
         return Err(anyhow!("tr: missing operands"));
@@ -55,8 +58,21 @@ pub fn tr_cli(args: &[String]) -> Result<()> {
 fn process_delete(del: HashSet<char>) -> Result<()> {
     let mut input = String::new();
     io::stdin().read_to_string(&mut input)?;
+    
+    let input_chars = input.chars().count();
     let output: String = input.chars().filter(|c| !del.contains(c)).collect();
+    let output_chars = output.chars().count();
+    let deleted_chars = input_chars - output_chars;
+    
     io::stdout().write_all(output.as_bytes())?;
+    
+    // Beautiful statistics to stderr
+    if deleted_chars > 0 {
+        let colors = ColorPalette::new();
+        eprintln!("\n{}{} Deleted {} characters{}", 
+            colors.warning, "✓".bright_green(), deleted_chars.to_string().bright_red(), colors.reset);
+    }
+    
     Ok(())
 }
 
@@ -64,7 +80,28 @@ fn process_translate(map: HashMap<char, char>) -> Result<()> {
     let mut input = String::new();
     io::stdin().read_to_string(&mut input)?;
     let mut out = String::with_capacity(input.len());
+    let mut translated_count = 0;
+    
     for ch in input.chars() {
+        if let Some(&replacement) = map.get(&ch) {
+            out.push(replacement);
+            translated_count += 1;
+        } else {
+            out.push(ch);
+        }
+    }
+    
+    io::stdout().write_all(out.as_bytes())?;
+    
+    // Beautiful statistics to stderr
+    if translated_count > 0 {
+        let colors = ColorPalette::new();
+        eprintln!("\n{}{} Translated {} characters{}", 
+            colors.success, "✓".bright_green(), translated_count.to_string().bright_blue(), colors.reset);
+    }
+    
+    Ok(())
+}
         if let Some(rep) = map.get(&ch) {
             out.push(*rep);
         } else {

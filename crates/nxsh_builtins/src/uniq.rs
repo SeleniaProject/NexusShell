@@ -7,6 +7,9 @@ use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError}
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter};
 
+// Beautiful CUI design
+use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
+
 // Helper function to create runtime errors more concisely
 fn runtime_error(msg: &str) -> ShellError {
     ShellError::new(
@@ -340,7 +343,13 @@ fn process_group<W: Write>(
         // Output all lines in the group
         for (i, line) in group_lines.iter().enumerate() {
             if options.count {
-                write!(writer, "{count:7} {line}")?;
+                let colors = ColorPalette::new();
+                let count_str = if count > 1 {
+                    format!("{}{:7}{}", colors.warning, count, colors.reset)
+                } else {
+                    format!("{}{:7}{}", colors.dim, count, colors.reset)
+                };
+                write!(writer, "{count_str} {line}")?;
             } else {
                 write!(writer, "{line}")?;
             }
@@ -356,7 +365,13 @@ fn process_group<W: Write>(
         let line = &group_lines[0];
         
         if options.count {
-            write!(writer, "{count:7} {line}")?;
+            let colors = ColorPalette::new();
+            let count_str = if count > 1 {
+                format!("{}{:7}{}", colors.warning, count, colors.reset)
+            } else {
+                format!("{}{:7}{}", colors.dim, count, colors.reset)
+            };
+            write!(writer, "{count_str} {line}")?;
         } else {
             write!(writer, "{line}")?;
         }

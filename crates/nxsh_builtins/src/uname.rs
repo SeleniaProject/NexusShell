@@ -15,6 +15,9 @@ use anyhow::{anyhow, Result};
 #[cfg(feature = "system-info")]
 use sysinfo::{System, SystemExt};
 
+// Beautiful CUI design
+use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
+
 pub fn uname_cli(args: &[String]) -> Result<()> {
     let flags = if args.is_empty() {
         vec!["-s".to_string()]
@@ -43,21 +46,23 @@ pub fn uname_cli(args: &[String]) -> Result<()> {
     let machine = std::env::consts::ARCH;
 
     let mut outputs = Vec::new();
-
+    let mut show_table = false;
+    
     for flag in flags {
         match flag.as_str() {
-            "-s" => outputs.push(kernel_name.clone()),
-            "-r" => outputs.push(kernel_release.clone()),
-            "-v" => outputs.push(kernel_version.clone()),
-            "-n" => outputs.push(hostname.clone()),
-            "-m" => outputs.push(machine.to_string()),
+            "-s" => outputs.push(("Kernel Name", kernel_name.clone())),
+            "-r" => outputs.push(("Release", kernel_release.clone())),
+            "-v" => outputs.push(("Version", kernel_version.clone())),
+            "-n" => outputs.push(("Hostname", hostname.clone())),
+            "-m" => outputs.push(("Architecture", machine.to_string())),
             "-a" => {
+                show_table = true;
                 outputs = vec![
-                    kernel_name.clone(),
-                    hostname.clone(),
-                    kernel_release.clone(),
-                    kernel_version.clone(),
-                    machine.to_string(),
+                    ("Kernel Name", kernel_name.clone()),
+                    ("Hostname", hostname.clone()),
+                    ("Release", kernel_release.clone()),
+                    ("Version", kernel_version.clone()),
+                    ("Architecture", machine.to_string()),
                 ];
                 break;
             }
@@ -65,6 +70,30 @@ pub fn uname_cli(args: &[String]) -> Result<()> {
         }
     }
 
-    println!("{}", outputs.join(" "));
+    if show_table || outputs.len() > 1 {
+        // Beautiful system information table
+        let colors = ColorPalette::new();
+        let icons = Icons::new(true);
+        
+        println!("\n{}{}┌─── {} System Information ───┐{}", 
+            colors.primary, "═".repeat(5), icons.system, colors.reset);
+        
+        let table = TableFormatter::new(true);
+        let mut rows = vec![vec!["Property".to_string(), "Value".to_string()]];
+        
+        for (key, value) in outputs {
+            rows.push(vec![
+                key.bright_blue().to_string(),
+                value.bright_green().to_string()
+            ]);
+        }
+        
+        table.print_table(&rows, &["Property", "Value"]);
+    } else {
+        // Simple output for single flags
+        let values: Vec<String> = outputs.into_iter().map(|(_, v)| v).collect();
+        println!("{}", values.join(" "));
+    }
+
     Ok(())
-} 
+}

@@ -1,5 +1,8 @@
 use anyhow::Result;
 
+// Beautiful CUI design
+use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
+
 /// CLI wrapper function for whoami command
 pub fn whoami_cli(args: &[String]) -> Result<()> {
     // Parse arguments
@@ -14,7 +17,12 @@ pub fn whoami_cli(args: &[String]) -> Result<()> {
     
     // Get current username
     match std::env::var("USERNAME").or_else(|_| std::env::var("USER")) {
-        Ok(username) => println!("{username}"),
+        Ok(username) => {
+            let colors = ColorPalette::new();
+            let icons = Icons::new(true);
+            println!("{}{} Current user: {}{}{}", 
+                colors.primary, icons.user, colors.bright, username, colors.reset);
+        },
         Err(_) => {
             // Fallback to current user detection
             #[cfg(unix)]
