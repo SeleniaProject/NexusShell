@@ -20,20 +20,20 @@
 
 use anyhow::{anyhow, Result, Context};
 #[cfg(feature = "progress-ui")]
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{ProgressBar as IndicatifProgressBar, ProgressStyle as IndicatifProgressStyle};
 #[cfg(not(feature = "progress-ui"))]
 #[derive(Clone)]
 #[allow(dead_code)]
-struct ProgressBar;
+struct IndicatifProgressBar;
 #[cfg(not(feature = "progress-ui"))]
 #[allow(dead_code)]
-struct ProgressStyle;
+struct IndicatifProgressStyle;
 #[cfg(not(feature = "progress-ui"))]
 #[allow(dead_code)]
-impl ProgressBar {
+impl IndicatifProgressBar {
     fn new(_len: u64) -> Self { Self }
     fn new_spinner() -> Self { Self }
-    fn set_style(&self, _style: ProgressStyle) -> &Self { self }
+    fn set_style(&self, _style: IndicatifProgressStyle) -> &Self { self }
     fn set_message<S: Into<String>>(&self, _msg: S) {}
     fn set_position(&self, _pos: u64) {}
     fn finish_with_message<S: Into<String>>(&self, _msg: S) {}
@@ -41,7 +41,7 @@ impl ProgressBar {
 }
 #[cfg(not(feature = "progress-ui"))]
 #[allow(dead_code)]
-impl ProgressStyle {
+impl IndicatifProgressStyle {
     fn default_bar() -> Self { Self }
     fn default_spinner() -> Self { Self }
     fn template(self, _t: &str) -> Result<Self, ()> { Ok(Self) }
@@ -339,10 +339,10 @@ impl SleepManager {
     }
 
     async fn sleep_with_progress(&self, duration: Duration, _label: &Option<String>, method: SleepMethod) -> Result<()> {
-        let pb = ProgressBar::new(duration.as_millis() as u64);
+        let pb = IndicatifProgressBar::new(duration.as_millis() as u64);
         #[cfg(feature = "progress-ui")]
         pb.set_style(
-            ProgressStyle::default_bar()
+            IndicatifProgressStyle::default_bar()
                 .template(&format!("{{spinner:.green}} {} [{{wide_bar:.cyan/blue}}] {{pos}}/{{len}}ms ({{eta}})", 
                     _label.as_deref().unwrap_or(&self.i18n.get("sleep.progress.sleeping", None))))
                 .unwrap()

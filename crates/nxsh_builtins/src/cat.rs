@@ -37,24 +37,24 @@ use memmap2::MmapOptions;
 use encoding_rs::{Encoding, UTF_8, UTF_16LE, UTF_16BE, WINDOWS_1252, ISO_8859_2};
 use content_inspector::{ContentType, inspect};
 #[cfg(feature = "progress-ui")]
-use indicatif::{ProgressBar, ProgressStyle, MultiProgress}; // progress bars optional
+use indicatif::{ProgressBar as IndicatifProgressBar, ProgressStyle as IndicatifProgressStyle, MultiProgress as IndicatifMultiProgress}; // progress bars optional
 // When progress-ui feature is disabled, provide no-op stubs so code still compiles
 #[cfg(not(feature = "progress-ui"))]
 #[derive(Clone)]
 #[allow(dead_code)]
-struct ProgressBar;
+struct IndicatifProgressBar;
 #[cfg(not(feature = "progress-ui"))]
 #[allow(dead_code)]
-struct ProgressStyle;
+struct IndicatifProgressStyle;
 #[cfg(not(feature = "progress-ui"))]
 #[allow(dead_code)]
-struct MultiProgress;
+struct IndicatifMultiProgress;
 #[cfg(not(feature = "progress-ui"))]
 #[allow(dead_code)]
-impl ProgressBar {
+impl IndicatifProgressBar {
     fn new(_len: u64) -> Self { Self }
     fn new_spinner() -> Self { Self }
-    fn set_style(&self, _style: ProgressStyle) -> &Self { self }
+    fn set_style(&self, _style: IndicatifProgressStyle) -> &Self { self }
     fn set_message<S: Into<String>>(&self, _msg: S) {}
     fn inc(&self, _n: u64) {}
     fn set_position(&self, _pos: u64) {}
@@ -63,7 +63,7 @@ impl ProgressBar {
 }
 #[cfg(not(feature = "progress-ui"))]
 #[allow(dead_code)]
-impl ProgressStyle {
+impl IndicatifProgressStyle {
     fn default_bar() -> Self { Self }
     fn default_spinner() -> Self { Self }
     fn template(self, _t: &str) -> Result<Self, ()> { Ok(Self) }
@@ -71,9 +71,9 @@ impl ProgressStyle {
 }
 #[cfg(not(feature = "progress-ui"))]
 #[allow(dead_code)]
-impl MultiProgress {
+impl IndicatifMultiProgress {
     fn new() -> Self { Self }
-    fn add(&self, pb: ProgressBar) -> ProgressBar { pb }
+    fn add(&self, pb: IndicatifProgressBar) -> IndicatifProgressBar { pb }
 }
 use console::style;
 // Removed unused async streaming imports (no async read operations implemented yet)
@@ -443,7 +443,7 @@ fn process_files_sequential(options: &CatOptions) -> Result<()> {
     };
     
     let multi_progress = if options.show_progress {
-        Some(MultiProgress::new())
+        Some(IndicatifMultiProgress::new())
     } else {
         None
     };
@@ -565,7 +565,7 @@ fn process_files_parallel(options: &CatOptions) -> Result<()> {
 fn process_single_file(
     _filename: &str,
     options: &CatOptions,
-    multi_progress: Option<&MultiProgress>,
+    multi_progress: Option<&IndicatifMultiProgress>,
 ) -> Result<FileStats> {
     let start_time = Instant::now();
     
@@ -669,7 +669,7 @@ fn process_file_mmap<W: Write>(
     writer: &mut W,
     options: &CatOptions,
     _filename: &str,
-    multi_progress: Option<&MultiProgress>,
+    multi_progress: Option<&IndicatifMultiProgress>,
 ) -> Result<FileStats> {
     let file = File::open(path)
         .context(t!("error-io-error"))?;
@@ -681,10 +681,10 @@ fn process_file_mmap<W: Write>(
     };
     
     let progress_bar = if let Some(mp) = multi_progress {
-        let pb = mp.add(ProgressBar::new(mmap.len() as u64));
+        let pb = mp.add(IndicatifProgressBar::new(mmap.len() as u64));
         #[cfg(feature = "progress-ui")]
         pb.set_style(
-            ProgressStyle::default_bar()
+            IndicatifProgressStyle::default_bar()
                 .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} {msg}")
                 .unwrap()
                 .progress_chars("#>-"),
@@ -750,7 +750,7 @@ fn process_file_stream<W: Write + ?Sized>(
     writer: &mut W,
     options: &CatOptions,
     filename: &str,
-    multi_progress: Option<&MultiProgress>,
+    multi_progress: Option<&IndicatifMultiProgress>,
     compression: Option<CompressionType>,
 ) -> Result<FileStats> {
     let file = File::open(path)
@@ -759,10 +759,10 @@ fn process_file_stream<W: Write + ?Sized>(
     let file_size = file.metadata()?.len();
     
     let progress_bar = if let Some(mp) = multi_progress {
-        let pb = mp.add(ProgressBar::new(file_size));
+        let pb = mp.add(IndicatifProgressBar::new(file_size));
         #[cfg(feature = "progress-ui")]
         pb.set_style(
-            ProgressStyle::default_bar()
+            IndicatifProgressStyle::default_bar()
                 .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} {msg}")
                 .unwrap()
                 .progress_chars("#>-"),
@@ -835,7 +835,7 @@ fn process_reader_with_progress<R: BufRead + ?Sized, W: Write + ?Sized>(
     writer: &mut W,
     options: &CatOptions,
     _filename: &str,
-    progress_bar: Option<&ProgressBar>,
+    progress_bar: Option<&IndicatifProgressBar>,
 ) -> Result<FileStats> {
     let mut stats = FileStats {
         bytes_read: 0,
@@ -1062,7 +1062,7 @@ fn process_file_to_memory(filename: &str, options: &CatOptions) -> Result<(Vec<u
 fn process_url(
     url: &Url,
     options: &CatOptions,
-    multi_progress: Option<&MultiProgress>,
+    multi_progress: Option<&IndicatifMultiProgress>,
 ) -> Result<FileStats> {
     // Use stdout writer by default; tests can use the writer-injectable variant.
     let stdout = io::stdout();
@@ -1073,7 +1073,7 @@ fn process_url(
 fn process_url_to_writer(
     url: &Url,
     options: &CatOptions,
-    multi_progress: Option<&MultiProgress>,
+    multi_progress: Option<&IndicatifMultiProgress>,
     writer: &mut dyn Write,
 ) -> Result<FileStats> {
     let scheme = url.scheme().to_ascii_lowercase();
@@ -1141,7 +1141,7 @@ fn process_url_to_writer(
 
         // Optional progress bar based on Content-Length
         let progress_bar = if let (Some(mp), Some(total)) = (multi_progress, len_opt) {
-            let pb = mp.add(ProgressBar::new(total));
+            let pb = mp.add(IndicatifProgressBar::new(total));
             #[cfg(feature = "progress-ui")]
             pb.set_message(url.as_str().to_string());
             Some(pb)

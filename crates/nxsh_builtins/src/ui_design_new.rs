@@ -75,10 +75,6 @@ pub struct ColorPalette {
 }
 
 impl ColorPalette {
-    pub fn new() -> Self {
-        Self::default()
-    }
-    
     // Constant access methods for backward compatibility
     pub const BORDER: &'static str = "\x1b[38;5;240m";
     pub const ACCENT: &'static str = "\x1b[38;5;208m";
@@ -119,116 +115,6 @@ pub struct TableOptions {
     pub zebra_striping: bool,
     pub compact_mode: bool,
     pub max_width: Option<usize>,
-    pub show_header: bool,
-    pub alternating_rows: bool,
-    pub align_columns: bool,
-    pub compact: bool,
-    pub border_style: BorderStyle,
-    pub header_alignment: Alignment,
-}
-
-#[derive(Debug, Clone)]
-pub enum BorderStyle {
-    None,
-    Simple,
-    Heavy,
-    Double,
-    Rounded,
-}
-
-#[derive(Debug, Clone)]
-pub enum Alignment {
-    Left,
-    Center,
-    Right,
-}
-
-/// Basic types for status management
-#[derive(Debug, Clone)]
-pub enum ItemStatus {
-    Good,
-    Warning,
-    Critical,
-    Unknown,
-}
-
-#[derive(Debug, Clone)]
-pub enum SectionStyle {
-    Default,
-    Compact,
-    Detailed,
-    Minimal,
-}
-
-#[derive(Debug, Clone)]
-pub enum InputType {
-    Text,
-    Number,
-    Boolean,
-    Select,
-    MultiSelect,
-}
-
-/// Basic command wizard types  
-#[derive(Debug, Clone)]
-pub struct CommandWizard {
-    pub title: String,
-    pub steps: Vec<WizardStep>,
-}
-
-#[derive(Debug, Clone)]
-pub struct WizardStep {
-    pub name: String,
-    pub description: String,
-    pub input_type: InputType,
-}
-
-/// Status dashboard types
-#[derive(Debug, Clone)]
-pub struct StatusDashboard {
-    pub title: String,
-    pub sections: Vec<DashboardSection>,
-}
-
-#[derive(Debug, Clone)]
-pub struct DashboardSection {
-    pub title: String,
-    pub items: Vec<StatusItem>,
-    pub style: SectionStyle,
-}
-
-#[derive(Debug, Clone)]
-pub struct StatusItem {
-    pub name: String,
-    pub value: String,
-    pub status: ItemStatus,
-}
-
-/// File preview functionality
-#[derive(Debug, Clone)]
-pub struct FilePreview {
-    pub path: String,
-    pub content: String,
-    pub line_count: usize,
-}
-
-// Placeholder implementations
-impl CommandWizard {
-    pub fn new(title: String) -> Self {
-        Self { title, steps: Vec::new() }
-    }
-}
-
-impl StatusDashboard {
-    pub fn new(title: String) -> Self {
-        Self { title, sections: Vec::new() }
-    }
-}
-
-impl FilePreview {
-    pub fn new(path: String) -> Self {
-        Self { path, content: String::new(), line_count: 0 }
-    }
 }
 
 impl Default for TableOptions {
@@ -238,12 +124,6 @@ impl Default for TableOptions {
             zebra_striping: false,
             compact_mode: false,
             max_width: None,
-            show_header: true,
-            alternating_rows: false,
-            align_columns: true,
-            compact: false,
-            border_style: BorderStyle::Simple,
-            header_alignment: Alignment::Left,
         }
     }
 }
@@ -272,10 +152,6 @@ pub struct Icons {
     pub error: &'static str,
     pub info: &'static str,
     pub spinner: [&'static str; 4],
-    
-    // Additional icons used by commands
-    pub user: &'static str,
-    pub system: &'static str,
 }
 
 impl Icons {
@@ -289,14 +165,6 @@ impl Icons {
     pub const CLOCK: &'static str = "🕐";
     pub const CPU: &'static str = "⚙️";
     pub const SYSTEM: &'static str = "🖥️";
-    pub const GLOBE: &'static str = "🌐";
-    pub const ERROR: &'static str = "❌";
-    pub const FOLDER: &'static str = "📁";
-    pub const FILE_ICON: &'static str = "📄";
-    pub const NETWORK: &'static str = "🌐";
-    pub const TREE: &'static str = "🌳";
-    pub const CHECKMARK: &'static str = "✅";
-    pub const WARNING_ICON: &'static str = "⚠️";
 }
 
 impl Default for Icons {
@@ -323,10 +191,6 @@ impl Default for Icons {
             error: "✗",
             info: "ℹ",
             spinner: ["⠋", "⠙", "⠹", "⠸"],
-            
-            // Additional icons
-            user: "👤",
-            system: "🖥️",
         }
     }
 }
@@ -353,8 +217,6 @@ impl Icons {
             error: "[X]",
             info: "[i]",
             spinner: ["|", "/", "-", "\\"],
-            user: "[USER]",
-            system: "[SYS]",
         }
     }
 }
@@ -632,40 +494,6 @@ impl TableFormatter {
             self.icons.file
         }
     }
-    
-    /// Create header row with proper formatting
-    pub fn create_header(&self, headers: &[&str]) -> String {
-        let header_strings: Vec<String> = headers.iter().map(|s| s.to_string()).collect();
-        let widths: Vec<_> = header_strings.iter()
-            .map(|h| self.display_width(h))
-            .collect();
-        self.create_row(header_strings, &widths, true)
-    }
-    
-    /// Format file size with human-readable units
-    pub fn format_size(&self, size: u64) -> String {
-        const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
-        let mut size_f = size as f64;
-        let mut unit_index = 0;
-        
-        while size_f >= 1024.0 && unit_index < UNITS.len() - 1 {
-            size_f /= 1024.0;
-            unit_index += 1;
-        }
-        
-        if unit_index == 0 {
-            format!("{} {}", size, UNITS[unit_index])
-        } else {
-            format!("{:.1} {}", size_f, UNITS[unit_index])
-        }
-    }
-}
-
-/// Create advanced table with multiple formatting options
-pub fn create_advanced_table(headers: &[&str], rows: &[Vec<String>], options: TableOptions) -> String {
-    let formatter = TableFormatter::new();
-    let header_strings: Vec<String> = headers.iter().map(|s| s.to_string()).collect();
-    formatter.create_advanced_table(header_strings, rows.to_vec(), options)
 }
 
 impl Default for TableFormatter {

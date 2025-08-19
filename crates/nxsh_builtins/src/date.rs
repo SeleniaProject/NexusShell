@@ -1366,7 +1366,7 @@ pub async fn date_cli(args: &[String]) -> Result<()> {
                 let timezone_info = format!(
                     "{} Timezone: {} | Day of Week: {}",
                     Icons::GLOBE,
-                    now.timezone().name().unwrap_or("Local").colorize(&ColorPalette::ACCENT),
+                    "Local".colorize(&ColorPalette::ACCENT),
                     format!("{:?}", now.weekday()).colorize(&ColorPalette::INFO)
                 );
                 

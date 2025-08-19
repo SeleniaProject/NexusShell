@@ -886,15 +886,15 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
     
     // Show loading animation for large directories
     if entries.len() > 100 {
-        Animation::spinner(500, "Preparing file listing...");
+        Animation::spinner();
     }
     
     // Configure advanced table options
     let table_options = TableOptions {
-        border_style: BorderStyle::rounded(),
+        border_style: BorderStyle::Rounded,
         show_header: true,
         alternating_rows: entries.len() > 10,
-        alignment: TextAlignment::Left,
+        alignment: Alignment::Left,
         max_width: Some(120),
     };
     
@@ -913,12 +913,12 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
     }
     
     if !options.long_no_group && !options.no_group {
-        headers.push("Group");
+        headers.push("Group".to_string());
     }
     
-    headers.push("Size");
-    headers.push("Modified");
-    headers.push("Name");
+    headers.push("Size".to_string());
+    headers.push("Modified".to_string());
+    headers.push("Name".to_string());
     
     // Prepare table rows
     let mut rows = Vec::new();

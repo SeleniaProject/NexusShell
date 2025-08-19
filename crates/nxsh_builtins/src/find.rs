@@ -99,7 +99,7 @@ struct IndicatifProgressBar;
 struct IndicatifProgressStyle;
 #[cfg(not(feature = "progress-ui"))]
 #[allow(dead_code)]
-impl ProgressBar {
+impl IndicatifProgressBar {
     fn new(_len: u64) -> Self { Self }
     fn new_spinner() -> Self { Self }
     fn set_style(&self, _style: IndicatifProgressStyle) -> &Self { self }
@@ -108,7 +108,7 @@ impl ProgressBar {
 }
 #[cfg(not(feature = "progress-ui"))]
 #[allow(dead_code)]
-impl ProgressStyle {
+impl IndicatifProgressStyle {
     fn default_bar() -> Self { Self }
     fn default_spinner() -> Self { Self }
     fn template(self, _t: &str) -> Result<Self, ()> { Ok(Self) }
