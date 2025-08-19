@@ -1,5 +1,7 @@
 # NexusShell .gitignore
 
+.git-rewrite/
+
 # Rust/Cargo build directory
 target/
 target_*/
