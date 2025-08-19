@@ -14,6 +14,7 @@
 use anyhow::{anyhow, Result};
 #[cfg(feature = "system-info")]
 use sysinfo::{System, SystemExt};
+use owo_colors::OwoColorize;
 
 // Beautiful CUI design
 use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
@@ -78,7 +79,7 @@ pub fn uname_cli(args: &[String]) -> Result<()> {
         println!("\n{}{}┌─── {} System Information ───┐{}", 
             colors.primary, "═".repeat(5), icons.system, colors.reset);
         
-        let table = TableFormatter::new(true);
+        let table = TableFormatter::new();
         let mut rows = vec![vec!["Property".to_string(), "Value".to_string()]];
         
         for (key, value) in outputs {

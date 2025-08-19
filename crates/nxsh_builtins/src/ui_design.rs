@@ -22,6 +22,7 @@ pub trait Colorize {
     fn dim(self) -> String;
     fn accent(self) -> String;
     fn highlight(self) -> String;
+    fn colorize(self, color: &str) -> String;
 }
 
 impl Colorize for &str {
@@ -36,6 +37,7 @@ impl Colorize for &str {
     fn dim(self) -> String { format!("\x1b[2m{}\x1b[0m", self) }
     fn accent(self) -> String { format!("\x1b[38;5;208m{}\x1b[0m", self) }
     fn highlight(self) -> String { format!("\x1b[48;5;234m{}\x1b[0m", self) }
+    fn colorize(self, color: &str) -> String { format!("{}{}\x1b[0m", color, self) }
 }
 
 impl Colorize for String {
@@ -50,6 +52,7 @@ impl Colorize for String {
     fn dim(self) -> String { format!("\x1b[2m{}\x1b[0m", self) }
     fn accent(self) -> String { format!("\x1b[38;5;208m{}\x1b[0m", self) }
     fn highlight(self) -> String { format!("\x1b[48;5;234m{}\x1b[0m", self) }
+    fn colorize(self, color: &str) -> String { format!("{}{}\x1b[0m", color, self) }
 }
 
 /// Advanced color palette with gradient and theme support
@@ -68,6 +71,16 @@ pub struct ColorPalette {
     pub highlight: &'static str,
     pub background: &'static str,
     pub border: &'static str,
+}
+
+impl ColorPalette {
+    // Constant access methods for backward compatibility
+    pub const BORDER: &'static str = "\x1b[38;5;240m";
+    pub const ACCENT: &'static str = "\x1b[38;5;208m";
+    pub const INFO: &'static str = "\x1b[38;5;51m";
+    pub const SUCCESS: &'static str = "\x1b[38;5;46m";
+    pub const WARNING: &'static str = "\x1b[38;5;220m";
+    pub const ERROR: &'static str = "\x1b[38;5;196m";
 }
 
 impl Default for ColorPalette {
@@ -92,6 +105,26 @@ impl Default for ColorPalette {
 
 /// Reset color sequence
 pub const RESET: &str = "\x1b[0m";
+
+/// Table formatting options
+#[derive(Debug, Clone)]
+pub struct TableOptions {
+    pub show_borders: bool,
+    pub zebra_striping: bool,
+    pub compact_mode: bool,
+    pub max_width: Option<usize>,
+}
+
+impl Default for TableOptions {
+    fn default() -> Self {
+        Self {
+            show_borders: true,
+            zebra_striping: false,
+            compact_mode: false,
+            max_width: None,
+        }
+    }
+}
 
 /// Icon set for file types and UI elements
 #[derive(Debug, Clone)]
@@ -148,6 +181,10 @@ impl Default for Icons {
 }
 
 impl Icons {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    
     // Additional icon constants used by various commands
     pub const ENVIRONMENT: &'static str = "🌍";
     pub const STOPWATCH: &'static str = "⏱️";
@@ -266,6 +303,20 @@ impl TableFormatter {
     }
     
     /// Create an advanced table with multiple formatting options
+    pub fn create_advanced_table(&self, headers: Vec<String>, rows: Vec<Vec<String>>, options: TableOptions) -> String {
+        if headers.is_empty() || rows.is_empty() {
+            return String::new();
+        }
+        
+        // Calculate column widths
+        let mut widths = vec![0; headers.len()];
+        
+        // Header widths
+        for (i, header) in headers.iter().enumerate() {
+            widths[i] = widths[i].max(self.display_width(header));
+        }
+        
+        // Row widths
         for row in rows {
             for (i, cell) in row.iter().enumerate() {
                 if i < widths.len() {
@@ -671,7 +722,6 @@ impl TableFormatter {
             corner.chars().nth(3).unwrap(),
             RESET)
     }
-}
 
 impl Default for TableFormatter {
     fn default() -> Self {

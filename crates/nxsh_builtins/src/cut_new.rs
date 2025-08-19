@@ -255,11 +255,10 @@ fn process_fields(line: &str, options: &CutOptions) -> Result<()> {
         }
     }
     
-    let default_delim = options.delimiter.to_string();
     let output_delim = options.output_delimiter
         .as_ref()
         .map(|s| s.as_str())
-        .unwrap_or(&default_delim);
+        .unwrap_or(&options.delimiter.to_string());
     
     println!("{}", selected_fields.join(output_delim));
     Ok(())
@@ -312,7 +311,7 @@ fn process_bytes(line: &str, options: &CutOptions) -> Result<()> {
     }
     
     // Convert bytes back to string (may not be valid UTF-8)
-    match String::from_utf8(selected_bytes.clone()) {
+    match String::from_utf8(selected_bytes) {
         Ok(s) => println!("{}", s),
         Err(_) => {
             // Print as lossy UTF-8
