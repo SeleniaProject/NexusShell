@@ -14,7 +14,6 @@
 use anyhow::{anyhow, Result};
 #[cfg(feature = "system-info")]
 use sysinfo::{System, SystemExt};
-use owo_colors::OwoColorize;
 
 // Beautiful CUI design
 use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};

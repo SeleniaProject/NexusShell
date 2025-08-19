@@ -4,7 +4,7 @@
 use anyhow::Result;
 use crate::ui_design::{
     TableFormatter, Colorize, Animation, ProgressBar, create_advanced_table,
-    TableOptions, BorderStyle, Alignment
+    TableOptions, BorderStyle, Alignment, ItemStatus, StatusItem, StatusDashboard, DashboardSection, SectionStyle
 };
 use std::time::{Duration, Instant};
 use std::thread;

@@ -102,7 +102,7 @@ struct IndicatifProgressStyle;
 impl ProgressBar {
     fn new(_len: u64) -> Self { Self }
     fn new_spinner() -> Self { Self }
-    fn set_style(&self, _style: ProgressStyle) -> &Self { self }
+    fn set_style(&self, _style: IndicatifProgressStyle) -> &Self { self }
     fn set_message<S: Into<String>>(&self, _msg: S) {}
     fn finish_with_message<S: Into<String>>(&self, _msg: S) {}
 }
