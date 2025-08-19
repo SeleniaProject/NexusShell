@@ -28,6 +28,8 @@ thiserror = "1.0"
 log = "0.4"
 # Signal handling for graceful shutdown
 ctrlc = "3.4"
+# Unicode text width calculation
+unicode-width = "0.1"
 # Color handling with advanced features (maintained alternative)
 nu-ansi-term = "0.50"
 # Terminal detection for color support (std-based)

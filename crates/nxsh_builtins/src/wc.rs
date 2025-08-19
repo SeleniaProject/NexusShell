@@ -18,6 +18,7 @@
 use anyhow::{anyhow, Result};
 use std::fs::File;
 use std::io::{self, Read, Write};
+use crate::ui_design::{TableFormatter, Colorize};
 use std::path::Path;
 
 bitflags::bitflags! {
@@ -218,13 +219,79 @@ fn count_stream(path: &str, mode: Mode) -> Result<(usize, usize, usize, usize, u
 }
 
 fn print_counts(counts: (usize, usize, usize, usize, usize), label: &str, mode: Mode, show_label: bool) -> Result<()> {
-    let mut out = io::stdout();
-    if mode.contains(Mode::LINES) { write!(out, "{:>8}", counts.0)?; }
-    if mode.contains(Mode::WORDS) { write!(out, "{:>8}", counts.1)?; }
-    if mode.contains(Mode::BYTES) { write!(out, "{:>8}", counts.2)?; }
-    if mode.contains(Mode::CHARS) { write!(out, "{:>8}", counts.3)?; }
-    if mode.contains(Mode::MAXLINE) { write!(out, "{:>8}", counts.4)?; }
-    if show_label { writeln!(out, " {label}")?; } else { writeln!(out)?; }
+    let formatter = TableFormatter::new();
+    
+    if show_label && label != "-" {
+        // For file output, create a beautiful table
+        let mut headers = vec![];
+        let mut values = vec![];
+        
+        if mode.contains(Mode::LINES) { 
+            headers.push("Lines");
+            values.push(counts.0.to_string().info());
+        }
+        if mode.contains(Mode::WORDS) { 
+            headers.push("Words");
+            values.push(counts.1.to_string().primary());
+        }
+        if mode.contains(Mode::BYTES) { 
+            headers.push("Bytes");
+            values.push(formatter.format_size(counts.2 as u64));
+        }
+        if mode.contains(Mode::CHARS) { 
+            headers.push("Characters");
+            values.push(counts.3.to_string().secondary());
+        }
+        if mode.contains(Mode::MAXLINE) { 
+            headers.push("Max Line");
+            values.push(counts.4.to_string().warning());
+        }
+        
+        if headers.len() > 1 {
+            // Multiple columns - use table format
+            println!("{} {}", formatter.icons.document, label.bright());
+            let rows = vec![values];
+            print!("{}", formatter.create_table(&headers, &rows));
+        } else {
+            // Single column - use simple format
+            print!("{} {} {} {}", 
+                formatter.icons.bullet,
+                values[0],
+                headers[0].muted(),
+                label.dim()
+            );
+        }
+    } else {
+        // Simple format for stdin or totals
+        let mut out_parts = vec![];
+        
+        if mode.contains(Mode::LINES) { 
+            out_parts.push(format!("{} {}", counts.0.to_string().info(), "lines".muted()));
+        }
+        if mode.contains(Mode::WORDS) { 
+            out_parts.push(format!("{} {}", counts.1.to_string().primary(), "words".muted()));
+        }
+        if mode.contains(Mode::BYTES) { 
+            out_parts.push(format!("{} {}", formatter.format_size(counts.2 as u64), "bytes".muted()));
+        }
+        if mode.contains(Mode::CHARS) { 
+            out_parts.push(format!("{} {}", counts.3.to_string().secondary(), "chars".muted()));
+        }
+        if mode.contains(Mode::MAXLINE) { 
+            out_parts.push(format!("{} {}", counts.4.to_string().warning(), "max".muted()));
+        }
+        
+        if show_label {
+            println!("{} {} {}", 
+                formatter.icons.info,
+                out_parts.join(", "),
+                label.dim()
+            );
+        } else {
+            println!("{}", out_parts.join(", "));
+        }
+    }
+    
     Ok(())
 }
 

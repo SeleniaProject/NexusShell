@@ -241,6 +241,10 @@ pub use sed::sed_cli;
 pub mod tr;
 pub use tr::tr_cli;
 
+// Advanced UI Design System
+pub mod ui_design;
+pub use ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
+
 // Structured Data Commands (Nushell-inspired)
 pub mod json_commands;
 pub use json_commands::{from_json_cli, to_json_cli, select_cli as json_select_cli, where_cli, sys_cli, demo_table_cli};

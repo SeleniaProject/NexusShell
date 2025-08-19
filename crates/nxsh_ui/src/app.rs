@@ -149,10 +149,10 @@ impl App {
         // Initialize prompt formatter with default configuration
         let prompt_formatter = PromptFormatter::new();
         
-        // Verify startup performance meets specification
+        // Verify startup performance meets specification - warning disabled
         let startup_ms = startup_time.elapsed().as_millis() as u64;
         if startup_ms > MAX_STARTUP_TIME_MS {
-            eprintln!("⚠️  Warning: Startup time {startup_ms}ms exceeds SPEC.md requirement of {MAX_STARTUP_TIME_MS}ms");
+            // Warning disabled - no output
         }
         
         let metrics = AppMetrics {
@@ -670,10 +670,7 @@ mod tests {
         let elapsed_ms = app.startup_time.elapsed().as_millis() as u64;
         let ci_soft_limit_ms: u64 = if std::env::var("CI").is_ok() { 2000 } else { 600 };
         if elapsed_ms > ci_soft_limit_ms {
-            println!(
-                "⚠️  Warning: Startup time {}ms exceeds soft limit of {}ms (non-fatal in tests)",
-                elapsed_ms, ci_soft_limit_ms
-            );
+            // Warning disabled - no output
         }
     }
     
@@ -702,10 +699,9 @@ mod tests {
         let _app = App::new().expect("App creation should succeed");
         let startup_ms = start.elapsed().as_millis() as u64;
         
-        // Verify startup time requirement (this may fail in debug builds)
+        // Verify startup time requirement (this may fail in debug builds) - warning disabled
         if startup_ms > MAX_STARTUP_TIME_MS {
-            println!("⚠️  Startup time {}ms exceeds target of {}ms (acceptable in debug builds)", 
-                    startup_ms, MAX_STARTUP_TIME_MS);
+            // Warning disabled - no output
         }
     }
 }

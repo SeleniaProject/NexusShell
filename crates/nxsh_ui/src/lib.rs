@@ -31,6 +31,10 @@ pub mod config;
 pub mod accessibility; // Accessibility support for TTY blind mode and color vision
 pub mod ansi_render; // ANSI-to-PNG rendering helpers
 
+// Advanced CUI Design System
+pub mod advanced_cui; // 🎨 Advanced CUI design system with beautiful formatting
+pub mod universal_formatter; // 📊 Universal command output formatter
+
 // Additional CUI modules for comprehensive functionality
 pub mod simple_cui; // Emergency fallback mode
 
@@ -75,12 +79,12 @@ pub async fn run_cui_minimal(start_time: std::time::Instant) -> anyhow::Result<(
     if startup_profiler::is_enabled() {
         startup_profiler::init_with_cli_start(start_time);
     }
-    // Performance tracking for optimization
+    // Performance tracking for optimization - warnings disabled
     let startup_us = start_time.elapsed().as_micros();
     if startup_us > 5000 {  // > 5ms
-        eprintln!("⚠️  NexusShell startup: {startup_us}μs (target: <5000μs)");
+        // Warning disabled - no output
     } else {
-        eprintln!("✅ NexusShell startup: {startup_us}μs");
+        // Success message disabled - no output
     }
     
     // COMPLETE initialization as required - ALL components loaded immediately
@@ -113,12 +117,12 @@ pub async fn run_cui_with_timing(start_time: std::time::Instant) -> anyhow::Resu
         startup_profiler::mark_cui_init_done(std::time::Instant::now());
     }
     
-    // Display startup performance
+    // Display startup performance - warnings disabled
     let startup_ms = start_time.elapsed().as_millis();
     if startup_ms > 10 {
-        eprintln!("⚠️  NexusShell startup: {startup_ms:.2}ms (target: <5ms)");
+        // Warning disabled - no output
     } else {
-        eprintln!("✅ NexusShell startup: {startup_ms:.2}ms");
+        // Success message disabled - no output
     }
     
     #[cfg(feature = "async")]

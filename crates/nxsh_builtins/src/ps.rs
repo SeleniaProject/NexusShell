@@ -7,6 +7,7 @@ use nxsh_core::{Builtin, ExecutionResult, executor::{ExecutionStrategy, Executio
 use nxsh_core::context::ShellContext;
 use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
 use nxsh_hal::{ProcessInfo, ProcessManager};
+use crate::ui_design::{TableFormatter, Colorize};
 // use std::io::BufRead; // Removed unused BufRead import
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -560,8 +561,11 @@ fn sort_processes(processes: &mut [ProcessEntry], sort_spec: &str) -> ShellResul
 
 fn display_processes(processes: &[ProcessEntry], options: &PsOptions) -> ShellResult<()> {
     if processes.is_empty() {
+        println!("{}", "No processes found".muted());
         return Ok(());
     }
+    
+    let formatter = TableFormatter::new();
     
     // Determine output format
     let format = if let Some(ref custom_format) = options.output_format {
@@ -578,21 +582,288 @@ fn display_processes(processes: &[ProcessEntry], options: &PsOptions) -> ShellRe
     
     let fields: Vec<&str> = format.split(',').collect();
     
-    // Print headers
-    if !options.no_headers {
-        print_headers(&fields, options);
-    }
+    // Create headers
+    let headers = get_beautiful_headers(&fields);
     
-    // Print processes
+    // Create table rows
+    let mut rows = Vec::new();
+    
     if options.tree_format {
-        print_process_tree(processes, &fields, options)?;
+        // For tree format, we'll create a special display
+        print_beautiful_process_tree(processes, &fields, options)?;
+        return Ok(());
     } else {
         for process in processes {
-            print_process_line(process, &fields, options)?;
+            let row = create_process_row(process, &fields, options)?;
+            rows.push(row);
+        }
+    }
+    
+    // Add header with process count
+    if !options.no_headers {
+        println!("{}", formatter.create_header(&format!("Process List ({} processes)", processes.len())));
+    }
+    
+    // Print the beautiful table
+    print!("{}", formatter.create_table(&headers, &rows));
+    
+    Ok(())
+}
+
+fn get_beautiful_headers<'a>(fields: &'a [&'a str]) -> Vec<&'a str> {
+    fields.iter().map(|field| {
+        match *field {
+            "pid" => "PID",
+            "ppid" => "Parent",
+            "uid" => "UID",
+            "gid" => "GID",
+            "user" => "User",
+            "group" => "Group",
+            "comm" => "Command",
+            "args" => "Arguments",
+            "stat" | "state" => "Status",
+            "pcpu" => "CPU%",
+            "pmem" => "Memory%",
+            "rss" => "RSS",
+            "vsz" => "Virtual",
+            "stime" | "start" => "Started",
+            "time" => "Time",
+            "pri" => "Priority",
+            "ni" => "Nice",
+            "tty" => "Terminal",
+            "f" => "Flags",
+            "s" => "State",
+            "c" => "CPU",
+            "addr" => "Address",
+            "sz" => "Size",
+            "wchan" => "Wait Channel",
+            _ => field,
+        }
+    }).collect()
+}
+
+fn create_process_row(process: &ProcessEntry, fields: &[&str], _options: &PsOptions) -> ShellResult<Vec<String>> {
+    let mut row = Vec::new();
+    
+    for field in fields {
+        let value = match *field {
+            "pid" => process.pid.to_string().primary(),
+            "ppid" => process.ppid.to_string().secondary(),
+            "uid" => process.uid.to_string().muted(),
+            "gid" => process.gid.to_string().muted(),
+            "user" => process.user.clone().info(),
+            "group" => process.group.clone().dim(),
+            "comm" => {
+                // Color-code different types of processes
+                if process.command.contains("kernel") || process.command.starts_with('[') {
+                    process.command.clone().muted()
+                } else if process.command.contains("systemd") || process.command.contains("init") {
+                    process.command.clone().warning()
+                } else if process.cpu_percent > 10.0 {
+                    process.command.clone().error()
+                } else if process.cpu_percent > 5.0 {
+                    process.command.clone().warning()
+                } else {
+                    process.command.clone().success()
+                }
+            },
+            "args" => process.args.join(" ").dim(),
+            "stat" | "state" => {
+                match process.state.as_str() {
+                    "R" => "Running".success(),
+                    "S" => "Sleeping".info(),
+                    "D" => "Disk Sleep".warning(),
+                    "Z" => "Zombie".error(),
+                    "T" => "Stopped".muted(),
+                    _ => process.state.clone().dim(),
+                }
+            },
+            "pcpu" => {
+                if process.cpu_percent > 50.0 {
+                    format!("{:.1}%", process.cpu_percent).error()
+                } else if process.cpu_percent > 10.0 {
+                    format!("{:.1}%", process.cpu_percent).warning()
+                } else {
+                    format!("{:.1}%", process.cpu_percent).success()
+                }
+            },
+            "pmem" => {
+                if process.memory_percent > 20.0 {
+                    format!("{:.1}%", process.memory_percent).error()
+                } else if process.memory_percent > 5.0 {
+                    format!("{:.1}%", process.memory_percent).warning()
+                } else {
+                    format!("{:.1}%", process.memory_percent).success()
+                }
+            },
+            "rss" => format_memory_size(process.memory_rss).info(),
+            "vsz" => format_memory_size(process.memory_vsz).muted(),
+            "stime" | "start" => format_systemtime(process.start_time).dim(),
+            "time" => format_cpu_duration(process.cpu_time).dim(),
+            "pri" => process.priority.to_string().muted(),
+            "ni" => process.nice.to_string().muted(),
+            "tty" => process.tty.clone().dim(),
+            _ => "-".muted(),
+        };
+        row.push(value);
+    }
+    
+    Ok(row)
+}
+
+fn print_beautiful_process_tree(processes: &[ProcessEntry], fields: &[&str], options: &PsOptions) -> ShellResult<()> {
+    let formatter = TableFormatter::new();
+    
+    println!("{}", formatter.create_header("Process Tree"));
+    
+    // Build process tree structure
+    let mut children: HashMap<u32, Vec<&ProcessEntry>> = HashMap::new();
+    let mut roots = Vec::new();
+    
+    for process in processes {
+        if process.ppid == 0 || processes.iter().find(|p| p.pid == process.ppid).is_none() {
+            roots.push(process);
+        } else {
+            children.entry(process.ppid).or_insert_with(Vec::new).push(process);
+        }
+    }
+    
+    for root in roots {
+        print_tree_node(root, &children, 0, "", true, fields)?;
+    }
+    
+    Ok(())
+}
+
+fn print_tree_node(
+    process: &ProcessEntry,
+    children: &HashMap<u32, Vec<&ProcessEntry>>,
+    depth: usize,
+    prefix: &str,
+    is_last: bool,
+    fields: &[&str],
+) -> ShellResult<()> {
+    let formatter = TableFormatter::new();
+    
+    // Create tree symbols
+    let current_prefix = if depth == 0 {
+        "".to_string()
+    } else {
+        format!("{}{}── ", 
+            prefix,
+            if is_last { "└" } else { "├" }
+        )
+    };
+    
+    // Format process info
+    let pid_str = process.pid.to_string().primary();
+    let name_str = if process.command.contains("kernel") || process.command.starts_with('[') {
+        process.command.clone().muted()
+    } else {
+        process.command.clone().success()
+    };
+    let cpu_str = if process.cpu_percent > 10.0 {
+        format!("({:.1}%)", process.cpu_percent).error()
+    } else {
+        format!("({:.1}%)", process.cpu_percent).dim()
+    };
+    
+    println!("{}{} {} {} {}", 
+        current_prefix.muted(),
+        formatter.icons.bullet,
+        pid_str,
+        name_str,
+        cpu_str
+    );
+    
+    // Print children
+    if let Some(child_processes) = children.get(&process.pid) {
+        let child_count = child_processes.len();
+        for (i, child) in child_processes.iter().enumerate() {
+            let new_prefix = if depth == 0 {
+                "".to_string()
+            } else {
+                format!("{}{}   ", 
+                    prefix,
+                    if is_last { " " } else { "│" }
+                )
+            };
+            print_tree_node(child, children, depth + 1, &new_prefix, i == child_count - 1, fields)?;
         }
     }
     
     Ok(())
+}
+
+fn format_memory_size(bytes: u64) -> String {
+    let formatter = TableFormatter::new();
+    formatter.format_size(bytes)
+}
+
+fn format_systemtime(time: SystemTime) -> String {
+    match time.duration_since(UNIX_EPOCH) {
+        Ok(duration) => {
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+            let elapsed = now.saturating_sub(duration);
+            let elapsed_secs = elapsed.as_secs();
+            
+            if elapsed_secs < 60 {
+                format!("{}s", elapsed_secs)
+            } else if elapsed_secs < 3600 {
+                format!("{}m", elapsed_secs / 60)
+            } else if elapsed_secs < 86400 {
+                format!("{}h", elapsed_secs / 3600)
+            } else {
+                format!("{}d", elapsed_secs / 86400)
+            }
+        }
+        Err(_) => "-".to_string(),
+    }
+}
+
+fn format_cpu_duration(duration: Duration) -> String {
+    let seconds = duration.as_secs();
+    if seconds < 60 {
+        format!("{}s", seconds)
+    } else if seconds < 3600 {
+        format!("{}:{:02}", seconds / 60, seconds % 60)
+    } else {
+        format!("{}:{:02}:{:02}", seconds / 3600, (seconds % 3600) / 60, seconds % 60)
+    }
+}
+
+fn format_time(timestamp: u64) -> String {
+    // Simple time formatting - in real implementation, use proper time formatting
+    if timestamp == 0 {
+        "-".to_string()
+    } else {
+        let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+        let now = duration.as_secs();
+        if now > timestamp {
+            let elapsed = now - timestamp;
+            if elapsed < 60 {
+                format!("{}s", elapsed)
+            } else if elapsed < 3600 {
+                format!("{}m", elapsed / 60)
+            } else if elapsed < 86400 {
+                format!("{}h", elapsed / 3600)
+            } else {
+                format!("{}d", elapsed / 86400)
+            }
+        } else {
+            "now".to_string()
+        }
+    }
+}
+
+fn format_duration(seconds: u64) -> String {
+    if seconds < 60 {
+        format!("{}s", seconds)
+    } else if seconds < 3600 {
+        format!("{}:{:02}", seconds / 60, seconds % 60)
+    } else {
+        format!("{}:{:02}:{:02}", seconds / 3600, (seconds % 3600) / 60, seconds % 60)
+    }
 }
 
 fn print_headers(fields: &[&str], _options: &PsOptions) {
@@ -671,12 +942,12 @@ fn print_process_line(process: &ProcessEntry, fields: &[&str], options: &PsOptio
                 let duration = SystemTime::now().duration_since(process.start_time)
                     .unwrap_or(Duration::from_secs(0));
                 if duration.as_secs() < 86400 {
-                    format!("{:>8}", format_time(duration))
+                    format!("{:>8}", format_cpu_duration(duration))
                 } else {
                     format!("{:>8}", format_date(process.start_time))
                 }
             },
-            "time" => format!("{:>8}", format_duration(process.cpu_time)),
+            "time" => format!("{:>8}", format_cpu_duration(process.cpu_time)),
             "pri" => format!("{:>8}", process.priority),
             "ni" => format!("{:>8}", process.nice),
             "nlwp" => format!("{:>8}", process.threads),
@@ -749,26 +1020,6 @@ fn truncate_string(s: &str, max_len: usize) -> String {
     } else {
         format!("{}...", &s[..max_len.saturating_sub(3)])
     }
-}
-
-fn format_time(duration: Duration) -> String {
-    let total_seconds = duration.as_secs();
-    let hours = total_seconds / 3600;
-    let minutes = (total_seconds % 3600) / 60;
-    let seconds = total_seconds % 60;
-    
-    if hours > 0 {
-        format!("{hours}:{minutes:02}:{seconds:02}")
-    } else {
-        format!("{minutes}:{seconds:02}")
-    }
-}
-
-fn format_duration(duration: Duration) -> String {
-    let total_seconds = duration.as_secs();
-    let minutes = total_seconds / 60;
-    let seconds = total_seconds % 60;
-    format!("{minutes}:{seconds:02}")
 }
 
 fn format_date(time: SystemTime) -> String {

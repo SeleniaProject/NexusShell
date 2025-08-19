@@ -5,6 +5,7 @@
 use std::io::{self};
 use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError, ErrorKind};
 use nxsh_core::error::RuntimeErrorKind;
+use crate::ui_design::{TableFormatter, Colorize};
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent},

@@ -37,6 +37,7 @@ use std::sync::Mutex;
 use chrono::{DateTime, Local};
 use nu_ansi_term::{Color as NuColor, Style};
 use humansize::{format_size, BINARY};
+use crate::ui_design::{TableFormatter, Colorize};
 #[cfg(windows)]
 use windows_sys::Win32::{
     Security::{
@@ -877,52 +878,149 @@ fn sort_entries(entries: &mut [FileInfo], options: &LsOptions) {
 }
 
 fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool) -> Result<()> {
-    // TODO: Replace with pure Rust alternative for user/group lookups
-    // let users_cache = UsersCache::new();
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    let formatter = TableFormatter::new();
     
-    // Calculate column widths
-    let mut max_links = 0;
-    let mut max_size = 0;
-    let mut max_user = 0;
-    let mut max_group = 0;
+    // Define table headers
+    let mut headers = vec![];
+    
+    if options.show_inode {
+        headers.push("Inode");
+    }
+    
+    headers.push("Permissions");
+    headers.push("Links");
+    
+    if !options.long_no_owner {
+        headers.push("Owner");
+    }
+    
+    if !options.long_no_group && !options.no_group {
+        headers.push("Group");
+    }
+    
+    headers.push("Size");
+    headers.push("Modified");
+    headers.push("Name");
+    
+    // Prepare table rows
+    let mut rows = Vec::new();
     
     for entry in entries {
-        max_links = max_links.max(get_nlink(&entry.metadata).to_string().len());
-        max_size = max_size.max(format_file_size(entry.metadata.len(), options.human_readable).len());
-
+        let mut row = Vec::new();
+        
+        // Inode
+        if options.show_inode {
+            row.push(get_ino(&entry.metadata).to_string().muted());
+        }
+        
+        // Permissions
+        #[cfg(unix)]
+        let mode = entry.metadata.mode();
         #[cfg(windows)]
-        {
-            if !options.numeric_ids
-                && (!options.long_no_owner || (!options.long_no_group && !options.no_group))
-            {
-                if let Some((owner, group)) = get_windows_owner_group(&entry.path) {
-                    if !options.long_no_owner {
-                        max_user = max_user.max(owner.len());
+        let mode = 0o755; // Default for Windows
+        
+        row.push(formatter.format_permissions(mode));
+        
+        // Links
+        row.push(get_nlink(&entry.metadata).to_string().info());
+        
+        // Owner
+        if !options.long_no_owner {
+            let owner = if options.numeric_ids {
+                get_uid(&entry.metadata).to_string()
+            } else {
+                #[cfg(windows)]
+                {
+                    if let Some((owner, _)) = get_windows_owner_group(&entry.path) {
+                        owner
+                    } else {
+                        get_uid(&entry.metadata).to_string()
                     }
-                    if !options.long_no_group && !options.no_group {
-                        max_group = max_group.max(group.len());
-                    }
-                    continue;
                 }
-            }
+                #[cfg(not(windows))]
+                {
+                    get_user_name(get_uid(&entry.metadata))
+                }
+            };
+            row.push(owner.primary());
         }
-
-        // Non‑Windows or fallback
-        if !options.long_no_owner && !options.numeric_ids {
-            let uid = get_uid(&entry.metadata);
-            let user_name = get_user_name(uid);
-            max_user = max_user.max(user_name.len());
+        
+        // Group
+        if !options.long_no_group && !options.no_group {
+            let group = if options.numeric_ids {
+                get_gid(&entry.metadata).to_string()
+            } else {
+                #[cfg(windows)]
+                {
+                    if let Some((_, group)) = get_windows_owner_group(&entry.path) {
+                        group
+                    } else {
+                        get_gid(&entry.metadata).to_string()
+                    }
+                }
+                #[cfg(not(windows))]
+                {
+                    get_group_name(get_gid(&entry.metadata))
+                }
+            };
+            row.push(group.secondary());
         }
-        if !options.long_no_group && !options.no_group && !options.numeric_ids {
-            let gid = get_gid(&entry.metadata);
-            let group_name = get_group_name(gid);
-            max_group = max_group.max(group_name.len());
-        }
+        
+        // Size
+        let size_str = if entry.metadata.is_dir() {
+            "-".muted()
+        } else {
+            formatter.format_size(entry.metadata.len())
+        };
+        row.push(size_str);
+        
+        // Modified time
+        let modified_time = entry.metadata.modified()
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        let datetime: DateTime<Local> = DateTime::from(modified_time);
+        let time_str = if options.full_time {
+            datetime.format("%Y-%m-%d %H:%M:%S %.3f %z").to_string()
+        } else {
+            datetime.format("%b %d %H:%M").to_string()
+        };
+        row.push(time_str.dim());
+        
+        // Name with icon
+        let icon = formatter.get_file_icon(&entry.path, entry.metadata.is_dir(), 
+                                         is_executable(&entry.metadata));
+        let name_with_icon = if use_colors {
+            let colored_name = format_file_name(entry, use_colors, false);
+            format!("{} {}", icon, colored_name)
+        } else {
+            format!("{} {}", icon, entry.path.file_name().unwrap_or_default().to_string_lossy())
+        };
+        
+        // Add classification suffix if requested
+        let final_name = if options.classify {
+            let suffix = if entry.metadata.is_dir() {
+                "/".primary()
+            } else if entry.is_symlink {
+                "@".info()
+            } else if is_executable(&entry.metadata) {
+                "*".success()
+            } else {
+                "".to_string()
+            };
+            format!("{}{}", name_with_icon, suffix)
+        } else {
+            name_with_icon
+        };
+        
+        row.push(final_name);
+        rows.push(row);
     }
     
-    for entry in entries {
-        print_long_entry(entry, options, use_colors, max_links, max_size, max_user, max_group)?;
-    }
+    // Print the beautiful table
+    print!("{}", formatter.create_table(&headers, &rows));
     
     Ok(())
 }
@@ -1024,30 +1122,38 @@ fn print_long_entry(
 }
 
 fn print_short_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool) -> Result<()> {
+    let formatter = TableFormatter::new();
+    
     if options.one_per_line {
         for entry in entries {
             let mut line = String::new();
             
             if options.show_inode {
-                line.push_str(&format!("{:8} ", get_ino(&entry.metadata)));
+                line.push_str(&format!("{} ", get_ino(&entry.metadata).to_string().muted()));
             }
             
             if options.show_size_blocks {
                 let blocks = get_blocks(&entry.metadata);
-                line.push_str(&format!("{blocks:6} "));
+                line.push_str(&format!("{} ", blocks.to_string().dim()));
             }
             
+            // Add file icon
+            let icon = formatter.get_file_icon(&entry.path, entry.metadata.is_dir(), 
+                                             is_executable(&entry.metadata));
+            line.push_str(&format!("{} ", icon));
+            
+            // Add colored file name
             let colored_name = format_file_name(entry, use_colors, options.classify);
             line.push_str(&colored_name);
             
-            println!("{line}");
+            println!("{}", line);
         }
     } else {
-        // Multi-column output
+        // Multi-column output with beautiful formatting
         let term_width = terminal_size::terminal_size()
             .map(|(w, _)| w.0 as usize)
             .unwrap_or(80);
-        print_columns(entries, options, use_colors, term_width)?;
+        print_beautiful_columns(entries, options, use_colors, term_width)?;
     }
     
     Ok(())
@@ -1101,6 +1207,73 @@ fn print_columns(entries: &[FileInfo], options: &LsOptions, use_colors: bool, te
             }
         }
         println!("{line}");
+    }
+    
+    Ok(())
+}
+
+fn print_beautiful_columns(entries: &[FileInfo], options: &LsOptions, use_colors: bool, term_width: usize) -> Result<()> {
+    let formatter = TableFormatter::new();
+    let mut items = Vec::new();
+    let mut max_width = 0;
+    
+    for entry in entries {
+        let mut item = String::new();
+        
+        if options.show_inode {
+            item.push_str(&format!("{} ", get_ino(&entry.metadata).to_string().muted()));
+        }
+        
+        if options.show_size_blocks {
+            let blocks = get_blocks(&entry.metadata);
+            item.push_str(&format!("{} ", blocks.to_string().dim()));
+        }
+        
+        // Add beautiful icon
+        let icon = formatter.get_file_icon(&entry.path, entry.metadata.is_dir(), 
+                                         is_executable(&entry.metadata));
+        item.push_str(&format!("{} ", icon));
+        
+        let colored_name = format_file_name(entry, use_colors, options.classify);
+        item.push_str(&colored_name);
+        
+        let display_width = formatter.display_width(&item);
+        max_width = max_width.max(display_width);
+        items.push(item);
+    }
+    
+    if max_width == 0 {
+        return Ok(());
+    }
+    
+    // Calculate optimal columns with padding
+    let padding = 3; // Space between columns
+    let cols = ((term_width + padding) / (max_width + padding)).max(1);
+    let rows = items.len().div_ceil(cols);
+    
+    // Print header if many files
+    if items.len() > 20 {
+        println!("{}", "Files".bright());
+        println!("{}", "─".repeat(term_width.min(40)).muted());
+    }
+    
+    for row in 0..rows {
+        let mut line = String::new();
+        for col in 0..cols {
+            let idx = row + col * rows;
+            if idx < items.len() {
+                let item = &items[idx];
+                let width = formatter.display_width(item);
+                line.push_str(item);
+                
+                // Add padding for alignment
+                if col < cols - 1 && idx + rows < items.len() {
+                    let spaces_needed = max_width + padding - width;
+                    line.push_str(&" ".repeat(spaces_needed));
+                }
+            }
+        }
+        println!("{}", line);
     }
     
     Ok(())

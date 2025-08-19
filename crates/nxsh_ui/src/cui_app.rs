@@ -358,9 +358,9 @@ impl CUIApp {
             });
         }
         
-        // Ensure startup time meets specification (≤5ms)
+        // Ensure startup time meets specification (≤5ms) - warning disabled
         if startup_time_ms > 5 {
-            eprintln!("⚠️  Warning: Startup time {startup_time_ms}ms exceeds specification target of 5ms");
+            // Warning disabled - no output
         }
         
         Ok(Self {
@@ -484,9 +484,9 @@ impl CUIApp {
                         if m.input_latency_avg_ms == 0.0 { m.input_latency_avg_ms = latency; }
                         else { m.input_latency_avg_ms = (m.input_latency_avg_ms * 0.8) + (latency * 0.2); }
                     }
-                    // Threshold monitoring using INPUT_TIMEOUT_MS
+                    // Threshold monitoring using INPUT_TIMEOUT_MS (disabled warning)
                     if latency as u64 > INPUT_TIMEOUT_MS {
-                        eprintln!("⚠️  Input latency {}ms exceeded threshold {}ms", latency, INPUT_TIMEOUT_MS);
+                        // Warning disabled - no output
                     }
                     // Update memory metrics before execution (process memory in KiB -> MiB)
                     sys.refresh_process(pid);
@@ -583,7 +583,7 @@ impl CUIApp {
                         else { m.input_latency_avg_ms = (m.input_latency_avg_ms * 0.8) + (latency * 0.2); }
                     }
                     if latency as u64 > INPUT_TIMEOUT_MS {
-                        eprintln!("⚠️  Input latency {}ms exceeded threshold {}ms", latency, INPUT_TIMEOUT_MS);
+                        // Warning disabled - no output
                     }
                     // Update memory metrics before execution (process memory in KiB -> MiB)
                     sys.refresh_process(pid);

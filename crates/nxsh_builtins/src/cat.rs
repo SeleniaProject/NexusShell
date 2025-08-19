@@ -25,6 +25,9 @@ use std::time::{Instant, Duration};
 use std::thread;
 use std::cmp::min;
 
+// Beautiful CUI design
+use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
+
 // Advanced dependencies
 use memmap2::MmapOptions;
 use encoding_rs::{Encoding, UTF_8, UTF_16LE, UTF_16BE, WINDOWS_1252, ISO_8859_2};
@@ -561,6 +564,11 @@ fn process_single_file(
     multi_progress: Option<&MultiProgress>,
 ) -> Result<FileStats> {
     let start_time = Instant::now();
+    
+    // Beautiful file header for multiple files
+    if options.files.len() > 1 && _filename != "-" {
+        display_beautiful_file_header(_filename);
+    }
     
     if _filename == "-" {
         let stdin = io::stdin();
@@ -1519,3 +1527,32 @@ mod tests {
         Ok(())
     }
 } 
+
+/// Display beautiful file header with icon and filename
+fn display_beautiful_file_header(filename: &str) {
+    let icons = Icons::new(true); // Use Unicode icons
+    let colors = ColorPalette::new();
+    
+    let file_icon = if filename.ends_with(".md") || filename.ends_with(".txt") {
+        icons.text_file
+    } else if filename.ends_with(".rs") || filename.ends_with(".py") || filename.ends_with(".js") {
+        icons.code_file  
+    } else if filename.ends_with(".json") || filename.ends_with(".toml") || filename.ends_with(".yml") {
+        icons.config_file
+    } else {
+        icons.file
+    };
+    
+    // Create beautiful header
+    let header = format!("{}{}{}═══ {} {} {}═══{}", 
+        colors.primary,
+        "╔",
+        "═".repeat(10),
+        file_icon,
+        filename.bright_cyan(),
+        "═".repeat(10),
+        colors.reset
+    );
+    
+    println!("\n{}", header);
+}

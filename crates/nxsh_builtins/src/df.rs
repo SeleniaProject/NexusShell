@@ -5,6 +5,7 @@
 
 use anyhow::{anyhow, Result};
 use std::path::Path;
+use crate::ui_design::{TableFormatter, Colorize};
 #[cfg(feature = "async-runtime")] use tokio::task;
 
 #[cfg(unix)]
@@ -16,10 +17,64 @@ use std::os::unix::ffi::OsStrExt;
 pub fn df_cli(args: &[String]) -> Result<()> {
     let mut human = false;
     let mut path = ".".to_string();
-    for arg in args { if arg == "-h" { human = true; continue; } path = arg.clone(); }
+    for arg in args { 
+        if arg == "-h" { 
+            human = true; 
+            continue; 
+        } 
+        path = arg.clone(); 
+    }
+    
+    let formatter = TableFormatter::new();
     let (blocks, _bfree, bavail, bsize) = stat_fs(Path::new(&path).to_path_buf())?;
-    let total = blocks * bsize; let avail = bavail * bsize; let used = total - avail;
-    if human { println!("Filesystem Size Used Avail"); println!("/ {} {} {}", bytesize::ByteSize::b(total).to_string_as(true), bytesize::ByteSize::b(used).to_string_as(true), bytesize::ByteSize::b(avail).to_string_as(true)); } else { println!("Filesystem 1K-blocks Used Available"); println!("/ {} {} {}", total/1024, used/1024, avail/1024); }
+    let total = blocks * bsize; 
+    let avail = bavail * bsize; 
+    let used = total - avail;
+    let usage_percent = if total > 0 { (used * 100) / total } else { 0 };
+    
+    // Create beautiful table
+    let headers = vec!["Filesystem", "Size", "Used", "Available", "Use%", "Mounted on"];
+    let mut rows = vec![];
+    
+    let size_str = if human {
+        bytesize::ByteSize::b(total).to_string_as(true)
+    } else {
+        format!("{}K", total/1024)
+    };
+    
+    let used_str = if human {
+        bytesize::ByteSize::b(used).to_string_as(true)
+    } else {
+        format!("{}K", used/1024)
+    };
+    
+    let avail_str = if human {
+        bytesize::ByteSize::b(avail).to_string_as(true)
+    } else {
+        format!("{}K", avail/1024)
+    };
+    
+    let usage_str = if usage_percent > 90 {
+        format!("{}%", usage_percent).error()
+    } else if usage_percent > 80 {
+        format!("{}%", usage_percent).warning()
+    } else {
+        format!("{}%", usage_percent).success()
+    };
+    
+    let row = vec![
+        format!("{} {}", formatter.icons.archive, path.clone()).primary(),
+        size_str.info(),
+        used_str.secondary(),
+        avail_str.success(),
+        usage_str,
+        path.dim(),
+    ];
+    rows.push(row);
+    
+    println!("{}", formatter.create_header("Disk Usage"));
+    print!("{}", formatter.create_table(&headers, &rows));
+    
     Ok(())
 }
 
@@ -28,24 +83,64 @@ pub async fn df_cli(args: &[String]) -> Result<()> {
     let mut human = false;
     let mut path = ".".to_string();
     for arg in args {
-        if arg == "-h" { human = true; continue; }
+        if arg == "-h" { 
+            human = true; 
+            continue; 
+        }
         path = arg.clone();
     }
+    
+    let formatter = TableFormatter::new();
     let p = Path::new(&path).to_path_buf();
     let (blocks, _bfree, bavail, bsize) = task::spawn_blocking(move || stat_fs(p)).await??;
     let total = blocks * bsize;
     let avail = bavail * bsize;
     let used = total - avail;
-    if human {
-        println!("Filesystem Size Used Avail");
-        println!("/ {} {} {}", 
-            bytesize::ByteSize::b(total).to_string_as(true),
-            bytesize::ByteSize::b(used).to_string_as(true),
-            bytesize::ByteSize::b(avail).to_string_as(true));
+    let usage_percent = if total > 0 { (used * 100) / total } else { 0 };
+    
+    // Create beautiful table
+    let headers = vec!["Filesystem", "Size", "Used", "Available", "Use%", "Mounted on"];
+    let mut rows = vec![];
+    
+    let size_str = if human {
+        bytesize::ByteSize::b(total).to_string_as(true)
     } else {
-        println!("Filesystem 1K-blocks Used Available");
-        println!("/ {} {} {}", total/1024, used/1024, avail/1024);
-    }
+        format!("{}K", total/1024)
+    };
+    
+    let used_str = if human {
+        bytesize::ByteSize::b(used).to_string_as(true)
+    } else {
+        format!("{}K", used/1024)
+    };
+    
+    let avail_str = if human {
+        bytesize::ByteSize::b(avail).to_string_as(true)
+    } else {
+        format!("{}K", avail/1024)
+    };
+    
+    let usage_str = if usage_percent > 90 {
+        format!("{}%", usage_percent).error()
+    } else if usage_percent > 80 {
+        format!("{}%", usage_percent).warning()
+    } else {
+        format!("{}%", usage_percent).success()
+    };
+    
+    let row = vec![
+        format!("{} {}", formatter.icons.archive, path.clone()).primary(),
+        size_str.info(),
+        used_str.secondary(),
+        avail_str.success(),
+        usage_str,
+        path.dim(),
+    ];
+    rows.push(row);
+    
+    println!("{}", formatter.create_header("Disk Usage"));
+    print!("{}", formatter.create_table(&headers, &rows));
+    
     Ok(())
 }
 

@@ -24,6 +24,9 @@ use std::process::Command;
 use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
 use std::time::{SystemTime, Duration, UNIX_EPOCH};
 
+// Beautiful CUI design
+use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
+
 // Platform-specific metadata access
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
@@ -1159,7 +1162,20 @@ fn execute_action(
             if options.null_separator {
                 print!("{}\0", path.display());
             } else {
-                println!("{}", path.display());
+                // 美しいCUI行表示
+                let icons = Icons::new(true);
+                let colors = ColorPalette::new();
+                let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+                let icon = if metadata.is_dir() {
+                    icons.folder
+                } else if metadata.is_file() {
+                    icons.file
+                } else if metadata.file_type().is_symlink() {
+                    icons.symlink
+                } else {
+                    icons.file
+                };
+                println!("{} {}{}{}", icon, colors.bright, file_name, colors.reset);
             }
             io::stdout().flush()?;
         }

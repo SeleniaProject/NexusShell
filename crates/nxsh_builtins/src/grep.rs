@@ -42,6 +42,7 @@ use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read};
 use std::path::Path;
 use std::collections::VecDeque;
+use crate::ui_design::{TableFormatter, Colorize};
 #[cfg(feature = "advanced-regex")]
 use regex::{Regex, RegexBuilder};
 #[cfg(feature = "advanced-regex")]
@@ -1048,81 +1049,141 @@ fn print_file_results(
         return Ok(());
     }
     
+    let formatter = TableFormatter::new();
+    
     if result.match_count == 0 {
         if options.files_without_match {
-            println!("{}", result.filename);
+            println!("{} {}", formatter.icons.error, result.filename.muted());
         }
         return Ok(());
     }
     
     if options.files_with_matches {
-        println!("{}", result.filename);
+        println!("{} {}", formatter.icons.success, result.filename.success());
         return Ok(());
     }
     
     if options.count_only {
         if show_filename {
-            println!("{}:{}", result.filename, result.match_count);
+            println!("{} {} {} {}", 
+                formatter.icons.bullet,
+                result.filename.primary(),
+                "matches:".muted(),
+                result.match_count.to_string().bright()
+            );
         } else {
-            println!("{}", result.match_count);
+            println!("{} {}", 
+                result.match_count.to_string().bright(),
+                "matches".muted()
+            );
         }
         return Ok(());
     }
     
-    // Print matches with context
-    for match_result in result.matches.iter() {
+    // Print matches with beautiful formatting
+    for (i, match_result) in result.matches.iter().enumerate() {
         let mut output = String::new();
         
-        // Add filename
+        // Add file indicator with icon
         if show_filename {
-            if use_color {
-                output.push_str(&NuColor::Purple.bold().paint(&result.filename).to_string());
-            } else {
-                output.push_str(&result.filename);
-            }
-            output.push(':');
+            output.push_str(&format!("{} {} ", 
+                formatter.icons.code, 
+                result.filename.primary()
+            ));
         }
         
-        // Add line number
+        // Add line number with beautiful formatting
         if options.line_number {
-            if use_color {
-                output.push_str(&NuColor::Green.bold().paint(match_result.line_number.to_string()).to_string());
-            } else {
-                output.push_str(&match_result.line_number.to_string());
-            }
-            output.push(':');
+            output.push_str(&format!("{} ", 
+                match_result.line_number.to_string().info()
+            ));
         }
         
         // Add byte offset
         if options.byte_offset {
-            output.push_str(&match_result.byte_offset.to_string());
-            output.push(':');
+            output.push_str(&format!("{}:{} ", 
+                "byte".dim(),
+                match_result.byte_offset.to_string().dim()
+            ));
         }
         
-        // Add line content with highlighting
+        // Add line content with beautiful highlighting
         if options.only_matching {
-            // Show only matching parts
-            for (start, end) in &match_result.matches {
+            // Show only matching parts with beautiful formatting
+            for (j, (start, end)) in match_result.matches.iter().enumerate() {
                 let match_text = &match_result.line[*start..*end];
+                if j == 0 {
+                    print!("{}", output);
+                }
+                
                 if use_color {
-                    println!("{}{}", output, NuColor::Red.bold().paint(match_text));
+                    print!("{} {} ", 
+                        formatter.icons.success, 
+                        match_text.bright().warning()
+                    );
                 } else {
-                    println!("{output}{match_text}");
+                    print!("{} ", match_text);
                 }
             }
+            println!();
         } else {
-            // Show full line with highlighted matches
+            // Show full line with beautiful highlighted matches
             let highlighted_line = if use_color && !match_result.matches.is_empty() {
-                highlight_matches(&match_result.line, &match_result.matches)
+                beautiful_highlight_matches(&match_result.line, &match_result.matches)
             } else {
                 match_result.line.clone()
             };
             
-            println!("{output}{highlighted_line}");
+            // Add separator line for multiple files
+            if i == 0 && show_filename && result.matches.len() > 3 {
+                println!("{}", "─".repeat(50).muted());
+            }
+            
+            println!("{}{}", output, highlighted_line);
         }
     }
     
+    // Add summary for multiple matches
+    if result.matches.len() > 1 {
+        println!("{} {} {} {} {}", 
+            formatter.icons.info,
+            "Found".muted(),
+            result.matches.len().to_string().success(),
+            "matches in".muted(),
+            result.filename.primary()
+        );
+    }
+    
     Ok(())
+}
+
+fn beautiful_highlight_matches(line: &str, matches: &[(usize, usize)]) -> String {
+    if matches.is_empty() {
+        return line.to_string();
+    }
+    
+    let mut result = String::new();
+    let mut last_end = 0;
+    
+    for (start, end) in matches {
+        // Add text before match
+        if *start > last_end {
+            result.push_str(&line[last_end..*start]);
+        }
+        
+        // Add highlighted match
+        let match_text = &line[*start..*end];
+        result.push_str(&match_text.bright().warning());
+        
+        last_end = *end;
+    }
+    
+    // Add remaining text
+    if last_end < line.len() {
+        result.push_str(&line[last_end..]);
+    }
+    
+    result
 }
 
 fn highlight_matches(line: &str, matches: &[(usize, usize)]) -> String {
