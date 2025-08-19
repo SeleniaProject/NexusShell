@@ -1,4 +1,21 @@
-/// Advanced CUI Design System for NexusShell
+/// Advance// Advanced string colorization trait  
+pub trait Colorize {
+    fn primary(self) -> String;
+    fn secondary(self) -> String;
+    fn success(self) -> String;
+    fn warning(self) -> String;
+    fn error(self) -> String;
+    fn info(self) -> String;
+    fn muted(self) -> String;
+    fn bright(self) -> String;
+    fn dim(self) -> String;
+    fn accent(self) -> String;
+    fn highlight(self) -> String;
+    fn bright_cyan(self) -> String;
+    fn bright_yellow(self) -> String;
+    fn bright_green(self) -> String;
+    fn colorize(self, color: &str) -> String;
+}stem for NexusShell
 /// 
 /// This module provides a comprehensive, beautiful UI design system for all shell commands.
 /// Features modern terminal UI with colors, icons, tables, sophisticated formatting,
@@ -37,6 +54,9 @@ impl Colorize for &str {
     fn dim(self) -> String { format!("\x1b[2m{}\x1b[0m", self) }
     fn accent(self) -> String { format!("\x1b[38;5;208m{}\x1b[0m", self) }
     fn highlight(self) -> String { format!("\x1b[48;5;234m{}\x1b[0m", self) }
+    fn bright_cyan(self) -> String { format!("\x1b[96m{}\x1b[0m", self) }
+    fn bright_yellow(self) -> String { format!("\x1b[93m{}\x1b[0m", self) }
+    fn bright_green(self) -> String { format!("\x1b[92m{}\x1b[0m", self) }
     fn colorize(self, color: &str) -> String { format!("{}{}\x1b[0m", color, self) }
 }
 
@@ -52,6 +72,9 @@ impl Colorize for String {
     fn dim(self) -> String { format!("\x1b[2m{}\x1b[0m", self) }
     fn accent(self) -> String { format!("\x1b[38;5;208m{}\x1b[0m", self) }
     fn highlight(self) -> String { format!("\x1b[48;5;234m{}\x1b[0m", self) }
+    fn bright_cyan(self) -> String { format!("\x1b[96m{}\x1b[0m", self) }
+    fn bright_yellow(self) -> String { format!("\x1b[93m{}\x1b[0m", self) }
+    fn bright_green(self) -> String { format!("\x1b[92m{}\x1b[0m", self) }
     fn colorize(self, color: &str) -> String { format!("{}{}\x1b[0m", color, self) }
 }
 
@@ -262,6 +285,12 @@ pub struct Icons {
     pub audio: &'static str,
     pub document: &'static str,
     pub code: &'static str,
+    pub folder: &'static str,
+    pub symlink: &'static str,
+    pub terminal: &'static str,
+    pub log_file: &'static str,
+    pub text_file: &'static str,
+    pub loading: &'static str,
     
     // UI element icons
     pub arrow_right: &'static str,
@@ -297,6 +326,12 @@ impl Icons {
     pub const TREE: &'static str = "🌳";
     pub const CHECKMARK: &'static str = "✅";
     pub const WARNING_ICON: &'static str = "⚠️";
+    pub const MOVE: &'static str = "🔄";
+    pub const TRASH: &'static str = "🗑️";
+    pub const FOLDER_PLUS: &'static str = "📁➕";
+    pub const FOLDER_MINUS: &'static str = "📁➖";
+    pub const LINK: &'static str = "🔗";
+    pub const HARD_LINK: &'static str = "🔗";
 }
 
 impl Default for Icons {
@@ -313,6 +348,12 @@ impl Default for Icons {
             audio: "🎵",
             document: "📋",
             code: "💻",
+            folder: "📁",
+            symlink: "🔗",
+            terminal: "💻",
+            log_file: "📄",
+            text_file: "📋",
+            loading: "⏳",
             
             // UI element icons
             arrow_right: "▶",
@@ -579,8 +620,35 @@ impl TableFormatter {
         self.create_border(widths, false, true, false)
     }
     
+    /// Format Unix permissions into a readable string
+    pub fn format_permissions(&self, mode: u32) -> String {
+        let mut perms = String::new();
+        
+        // File type
+        if mode & 0o040000 != 0 { perms.push('d'); }
+        else if mode & 0o120000 != 0 { perms.push('l'); }
+        else { perms.push('-'); }
+        
+        // Owner permissions
+        perms.push(if mode & 0o400 != 0 { 'r' } else { '-' });
+        perms.push(if mode & 0o200 != 0 { 'w' } else { '-' });
+        perms.push(if mode & 0o100 != 0 { 'x' } else { '-' });
+        
+        // Group permissions  
+        perms.push(if mode & 0o040 != 0 { 'r' } else { '-' });
+        perms.push(if mode & 0o020 != 0 { 'w' } else { '-' });
+        perms.push(if mode & 0o010 != 0 { 'x' } else { '-' });
+        
+        // Other permissions
+        perms.push(if mode & 0o004 != 0 { 'r' } else { '-' });
+        perms.push(if mode & 0o002 != 0 { 'w' } else { '-' });
+        perms.push(if mode & 0o001 != 0 { 'x' } else { '-' });
+        
+        perms.dim()
+    }
+    
     /// Calculate display width (excluding ANSI escape sequences)
-    fn display_width(&self, text: &str) -> usize {
+    pub fn display_width(&self, text: &str) -> usize {
         self.strip_ansi(text).chars().count()
     }
     

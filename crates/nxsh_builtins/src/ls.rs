@@ -894,8 +894,13 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
         border_style: BorderStyle::Rounded,
         show_header: true,
         alternating_rows: entries.len() > 10,
-        alignment: Alignment::Left,
+        header_alignment: Alignment::Left,
         max_width: Some(120),
+        show_borders: true,
+        zebra_striping: entries.len() > 10,
+        compact_mode: false,
+        align_columns: true,
+        compact: false,
     };
     
     // Define table headers

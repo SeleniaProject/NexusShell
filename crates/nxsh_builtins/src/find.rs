@@ -692,7 +692,7 @@ pub fn find_cli(args: &[String]) -> Result<()> {
     }
 
     let result = if options.parallel {
-        find_parallel(&options, stats.clone(), progress.clone())
+        find_parallel(&options, stats.clone(), progress.as_ref())
     } else {
         find_sequential(&options, stats.clone(), progress.as_ref())
     };
@@ -1167,7 +1167,7 @@ fn execute_action(
                 print!("{}\0", path.display());
             } else {
                 // 美しいCUI行表示
-                let icons = Icons::new(true);
+                let icons = Icons::new();
                 let colors = ColorPalette::new();
                 let file_name = path.file_name().unwrap_or_default().to_string_lossy();
                 let icon = if metadata.is_dir() {

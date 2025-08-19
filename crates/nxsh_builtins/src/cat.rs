@@ -18,6 +18,7 @@
 
 use anyhow::{Result, anyhow, Context as AnyhowContext};
 use std::io::{self, Read, Write, BufRead, BufReader, BufWriter}; // BufRead 必要 (ジェネリック境界 / reader 生成で使用)
+use std::fmt::Write as FmtWrite;
 use std::fs::File;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -1534,15 +1535,15 @@ mod tests {
 
 /// Display beautiful file header with icon and filename
 fn display_beautiful_file_header(filename: &str) {
-    let icons = Icons::new(true); // Use Unicode icons
+    let icons = Icons::new(); // Use Unicode icons
     let colors = ColorPalette::new();
     
     let file_icon = if filename.ends_with(".md") || filename.ends_with(".txt") {
-        icons.text_file
+        icons.document
     } else if filename.ends_with(".rs") || filename.ends_with(".py") || filename.ends_with(".js") {
-        icons.code_file  
+        icons.code  
     } else if filename.ends_with(".json") || filename.ends_with(".toml") || filename.ends_with(".yml") {
-        icons.config_file
+        icons.document
     } else {
         icons.file
     };
@@ -1553,7 +1554,7 @@ fn display_beautiful_file_header(filename: &str) {
         "╔",
         "═".repeat(10),
         file_icon,
-        filename.bright_cyan(),
+        filename.info(),
         "═".repeat(10),
         colors.reset
     );
