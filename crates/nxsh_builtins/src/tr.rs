@@ -102,15 +102,6 @@ fn process_translate(map: HashMap<char, char>) -> Result<()> {
     
     Ok(())
 }
-        if let Some(rep) = map.get(&ch) {
-            out.push(*rep);
-        } else {
-            out.push(ch);
-        }
-    }
-    io::stdout().write_all(out.as_bytes())?;
-    Ok(())
-}
 
 /// Expand a SET string into vector of chars, handling ranges and escapes.
 fn expand_set(spec: &str) -> Result<Vec<char>> {

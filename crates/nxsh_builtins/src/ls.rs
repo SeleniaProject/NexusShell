@@ -1027,7 +1027,11 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
             format!("{}{}", name_with_icon, suffix)
         } else {
             name_with_icon
-        }
+        };
+        
+        row.push(final_name);
+        rows.push(row);
+    }
     
     // Print the beautiful advanced table
     print!("{}", formatter.create_advanced_table(headers, rows, table_options));

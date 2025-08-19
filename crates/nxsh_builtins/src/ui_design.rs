@@ -9,6 +9,49 @@ use std::time::{Duration, Instant};
 use std::thread;
 use std::io::{self, Write};
 
+/// Colorize trait for adding colors to strings
+pub trait Colorize {
+    fn primary(self) -> String;
+    fn secondary(self) -> String;
+    fn success(self) -> String;
+    fn warning(self) -> String;
+    fn error(self) -> String;
+    fn info(self) -> String;
+    fn muted(self) -> String;
+    fn bright(self) -> String;
+    fn dim(self) -> String;
+    fn accent(self) -> String;
+    fn highlight(self) -> String;
+}
+
+impl Colorize for &str {
+    fn primary(self) -> String { format!("\x1b[38;5;39m{}\x1b[0m", self) }
+    fn secondary(self) -> String { format!("\x1b[38;5;141m{}\x1b[0m", self) }
+    fn success(self) -> String { format!("\x1b[38;5;46m{}\x1b[0m", self) }
+    fn warning(self) -> String { format!("\x1b[38;5;220m{}\x1b[0m", self) }
+    fn error(self) -> String { format!("\x1b[38;5;196m{}\x1b[0m", self) }
+    fn info(self) -> String { format!("\x1b[38;5;51m{}\x1b[0m", self) }
+    fn muted(self) -> String { format!("\x1b[38;5;244m{}\x1b[0m", self) }
+    fn bright(self) -> String { format!("\x1b[1m{}\x1b[0m", self) }
+    fn dim(self) -> String { format!("\x1b[2m{}\x1b[0m", self) }
+    fn accent(self) -> String { format!("\x1b[38;5;208m{}\x1b[0m", self) }
+    fn highlight(self) -> String { format!("\x1b[48;5;234m{}\x1b[0m", self) }
+}
+
+impl Colorize for String {
+    fn primary(self) -> String { format!("\x1b[38;5;39m{}\x1b[0m", self) }
+    fn secondary(self) -> String { format!("\x1b[38;5;141m{}\x1b[0m", self) }
+    fn success(self) -> String { format!("\x1b[38;5;46m{}\x1b[0m", self) }
+    fn warning(self) -> String { format!("\x1b[38;5;220m{}\x1b[0m", self) }
+    fn error(self) -> String { format!("\x1b[38;5;196m{}\x1b[0m", self) }
+    fn info(self) -> String { format!("\x1b[38;5;51m{}\x1b[0m", self) }
+    fn muted(self) -> String { format!("\x1b[38;5;244m{}\x1b[0m", self) }
+    fn bright(self) -> String { format!("\x1b[1m{}\x1b[0m", self) }
+    fn dim(self) -> String { format!("\x1b[2m{}\x1b[0m", self) }
+    fn accent(self) -> String { format!("\x1b[38;5;208m{}\x1b[0m", self) }
+    fn highlight(self) -> String { format!("\x1b[48;5;234m{}\x1b[0m", self) }
+}
+
 /// Advanced color palette with gradient and theme support
 #[derive(Debug, Clone)]
 pub struct ColorPalette {
@@ -104,6 +147,15 @@ impl Default for Icons {
     }
 }
 
+impl Icons {
+    // Additional icon constants used by various commands
+    pub const ENVIRONMENT: &'static str = "🌍";
+    pub const STOPWATCH: &'static str = "⏱️";
+    pub const CLOCK: &'static str = "🕐";
+    pub const CPU: &'static str = "⚙️";
+    pub const SYSTEM: &'static str = "🖥️";
+}
+
 /// ASCII fallback icons for compatibility
 impl Icons {
     pub fn ascii() -> Self {
@@ -169,6 +221,51 @@ impl TableFormatter {
         }
         
         // Row widths
+        for row in rows {
+            for (i, cell) in row.iter().enumerate() {
+                if i < widths.len() {
+                    widths[i] = widths[i].max(self.display_width(&self.strip_ansi(cell)));
+                }
+            }
+        }
+        
+        let mut result = String::new();
+        
+        // Table top border
+        result.push_str(&self.create_border(&widths, true, false, false));
+        
+        // Headers
+        result.push_str(&self.create_row(headers.iter().map(|s| s.to_string()).collect(), &widths, true));
+        
+        // Header separator
+        result.push_str(&self.create_border(&widths, false, true, false));
+        
+        // Data rows
+        for (i, row) in rows.iter().enumerate() {
+            result.push_str(&self.create_row(row.clone(), &widths, false));
+            
+            // Add separator between rows if needed
+            if i < rows.len() - 1 && rows.len() > 10 {
+                // Only add separators for large tables every 5 rows
+                if (i + 1) % 5 == 0 {
+                    result.push_str(&self.create_separator(&widths));
+                }
+            }
+        }
+        
+        // Table bottom border
+        result.push_str(&self.create_border(&widths, false, false, true));
+        
+        result
+    }
+    
+    /// Print a table directly to stdout
+    pub fn print_table(&self, rows: &[Vec<String>], headers: &[&str]) {
+        let table = self.create_table(headers, rows);
+        print!("{}", table);
+    }
+    
+    /// Create an advanced table with multiple formatting options
         for row in rows {
             for (i, cell) in row.iter().enumerate() {
                 if i < widths.len() {
@@ -277,6 +374,7 @@ impl TableFormatter {
     /// Create a simple separator
     fn create_separator(&self, widths: &[usize]) -> String {
         self.create_border(widths, false, true, false)
+    }
     
     /// Create an advanced table with multiple formatting options
     pub fn create_advanced_table(&self, headers: Vec<String>, rows: Vec<Vec<String>>, options: TableOptions) -> String {
