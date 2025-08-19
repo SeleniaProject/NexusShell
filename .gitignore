@@ -4,6 +4,7 @@
 target/*
 target_ci/*
 target_vscode/*
+target_temp/*
 
 # Binaries, build logs, and backup files
 **/*.rs.bk
