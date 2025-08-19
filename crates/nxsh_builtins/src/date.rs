@@ -28,6 +28,10 @@ use chrono_tz::Tz;
 #[cfg(not(feature = "i18n"))]
 type Tz = chrono::Utc; // Stub type: no parsing / variants
 use serde::{Deserialize, Serialize};
+use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
+
+// Beautiful CUI design
+use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
 use std::{
     collections::HashMap,
     fmt,
@@ -1341,12 +1345,46 @@ pub async fn date_cli(args: &[String]) -> Result<()> {
     match date_manager.format_date(&options) {
         Ok(formatted) => {
             if !options.quiet {
-                println!("{formatted}");
+                let now = Local::now();
+                let is_weekend = matches!(now.weekday(), Weekday::Sat | Weekday::Sun);
+                
+                let header = format!(
+                    "{} {} Current Date & Time {}",
+                    Icons::CLOCK,
+                    "┌─".colorize(&ColorPalette::BORDER),
+                    "─┐".colorize(&ColorPalette::BORDER)
+                );
+                
+                println!("{}", header);
+                
+                let time_color = if is_weekend {
+                    &ColorPalette::INFO
+                } else {
+                    &ColorPalette::SUCCESS
+                };
+                
+                println!("{} {}", "│".colorize(&ColorPalette::BORDER), formatted.colorize(time_color));
+                
+                let timezone_info = format!(
+                    "{} Timezone: {} | Day of Week: {}",
+                    Icons::GLOBE,
+                    now.timezone().name().unwrap_or("Local").colorize(&ColorPalette::ACCENT),
+                    format!("{:?}", now.weekday()).colorize(&ColorPalette::INFO)
+                );
+                
+                println!("{} {}", "│".colorize(&ColorPalette::BORDER), timezone_info);
+                
+                let footer = format!(
+                    "{} {}",
+                    "└─".colorize(&ColorPalette::BORDER),
+                    "─".repeat(70).colorize(&ColorPalette::BORDER)
+                );
+                println!("{}{}", footer, "┘".colorize(&ColorPalette::BORDER));
             }
         }
         Err(e) => {
             if !options.quiet {
-                eprintln!("date: {e}");
+                eprintln!("{} {}: {}", Icons::ERROR, "date".colorize(&ColorPalette::ERROR), e.to_string().colorize(&ColorPalette::ERROR));
             }
             std::process::exit(1);
         }

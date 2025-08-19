@@ -13,6 +13,7 @@ use anyhow::{Result, anyhow};
 use std::fs::{self};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -248,7 +249,11 @@ fn create_single_directory(path: &Path, options: &MkdirOptions) -> Result<()> {
     }
     
     if options.verbose {
-        println!("mkdir: created directory '{}'", path.display());
+        println!("{} {} {}", 
+            Icons::FOLDER_PLUS, 
+            "Created directory:".colorize(&ColorPalette::INFO),
+            path.display().to_string().colorize(&ColorPalette::SUCCESS)
+        );
     }
     
     Ok(())
@@ -286,7 +291,11 @@ fn create_directory_with_parents(path: &Path, options: &MkdirOptions) -> Result<
             }
             
             if options.verbose {
-                println!("mkdir: created directory '{}'", component.display());
+                println!("{} {} {}", 
+                    Icons::FOLDER_PLUS, 
+                    "Created directory:".colorize(&ColorPalette::INFO),
+                    component.display().to_string().colorize(&ColorPalette::SUCCESS)
+                );
             }
         }
     }

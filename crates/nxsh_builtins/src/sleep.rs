@@ -48,6 +48,7 @@ impl ProgressStyle {
     fn progress_chars(self, _c: &str) -> Self { Self }
 }
 use serde::{Deserialize, Serialize};
+use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
 use std::{
     collections::HashMap,
     sync::{Arc, atomic::{AtomicBool, Ordering}},
@@ -516,7 +517,38 @@ pub fn sleep_cli(args: &[String]) -> Result<()> {
     // Parse a single duration in seconds (fractional allowed) for ultra-min build
     let dur: f64 = args[0].parse().map_err(|_| anyhow!("sleep: invalid time"))?;
     let ms = (dur * 1000.0) as u64;
+    
+    let header = format!(
+        "{} {} Sleep Timer {}",
+        Icons::HOURGLASS,
+        "┌─".colorize(&ColorPalette::BORDER),
+        "─┐".colorize(&ColorPalette::BORDER)
+    );
+    println!("{}", header);
+    
+    let duration_str = if dur >= 60.0 {
+        format!("{:.1} minutes", dur / 60.0)
+    } else if dur >= 1.0 {
+        format!("{:.1} seconds", dur)
+    } else {
+        format!("{} milliseconds", ms)
+    };
+    
+    println!("{} Sleeping for: {}", 
+        "│".colorize(&ColorPalette::BORDER), 
+        duration_str.colorize(&ColorPalette::INFO)
+    );
+    
+    let footer = format!(
+        "{} {}",
+        "└─".colorize(&ColorPalette::BORDER),
+        "─".repeat(40).colorize(&ColorPalette::BORDER)
+    );
+    println!("{}{}", footer, "┘".colorize(&ColorPalette::BORDER));
+    
     std::thread::sleep(Duration::from_millis(ms));
+    
+    println!("{} {}", Icons::CHECK, "Sleep completed!".colorize(&ColorPalette::SUCCESS));
     Ok(())
 }
 

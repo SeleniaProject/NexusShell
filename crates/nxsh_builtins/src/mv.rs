@@ -23,6 +23,7 @@
 //!   --retry=N                 - Retry failed operations N times
 
 use anyhow::{Result, anyhow, Context};
+use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
 use std::fs::{self};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -145,7 +146,12 @@ pub fn mv_cli(args: &[String]) -> Result<()> {
         move_file(&source_path, &dest_path, &options)?;
         
         if options.verbose {
-            println!("'{}' -> '{}'", source, dest_path.display());
+            println!("{} {} {} {}", 
+                Icons::MOVE, 
+                source.colorize(&ColorPalette::ACCENT),
+                "→".colorize(&ColorPalette::INFO),
+                dest_path.display().to_string().colorize(&ColorPalette::SUCCESS)
+            );
         }
     }
     

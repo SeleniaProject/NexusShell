@@ -11,6 +11,8 @@ use std::time::Instant;
 use sysinfo::{ProcessExt, System, SystemExt, PidExt};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
+use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
 
 pub fn time_cli(args: &[String]) -> Result<()> {
     if args.is_empty() {
@@ -60,10 +62,48 @@ pub fn time_cli(args: &[String]) -> Result<()> {
     monitor_handle.join().unwrap();
     let (user_time, sys_time) = *cpu_stats.lock().unwrap();
     
-    // Print timing results in GNU time format
-    println!("real\t{:.3}s", duration.as_secs_f64());
-    println!("user\t{:.3}s", user_time / 1000.0); // Convert from ms to seconds
-    println!("sys\t{:.3}s", sys_time / 1000.0);   // Convert from ms to seconds
+    // Print timing results in beautiful format
+    let header = format!(
+        "{} {} Execution Time Report {}",
+        Icons::STOPWATCH,
+        "┌─".colorize(&ColorPalette::BORDER),
+        "─┐".colorize(&ColorPalette::BORDER)
+    );
+    println!("{}", header);
+    
+    let cmd_name = args[0].split('/').last().unwrap_or(&args[0]);
+    println!("{} Command: {}", "│".colorize(&ColorPalette::BORDER), cmd_name.colorize(&ColorPalette::ACCENT));
+    println!("{}", "├─────────────────────────────────────────────────────┤".colorize(&ColorPalette::BORDER));
+    
+    // Color code times based on performance
+    let real_color = if duration.as_secs_f64() > 10.0 { &ColorPalette::WARNING } 
+                     else if duration.as_secs_f64() > 1.0 { &ColorPalette::INFO } 
+                     else { &ColorPalette::SUCCESS };
+    
+    println!("{} {} Real Time:   {:.3}s", 
+        "│".colorize(&ColorPalette::BORDER),
+        Icons::CLOCK,
+        format!("{:.3}", duration.as_secs_f64()).colorize(real_color)
+    );
+    
+    println!("{} {} User CPU:    {:.3}s", 
+        "│".colorize(&ColorPalette::BORDER),
+        Icons::CPU,
+        format!("{:.3}", user_time / 1000.0).colorize(&ColorPalette::INFO)
+    );
+    
+    println!("{} {} System CPU:  {:.3}s", 
+        "│".colorize(&ColorPalette::BORDER),
+        Icons::SYSTEM,
+        format!("{:.3}", sys_time / 1000.0).colorize(&ColorPalette::INFO)
+    );
+    
+    let footer = format!(
+        "{} {}",
+        "└─".colorize(&ColorPalette::BORDER),
+        "─".repeat(55).colorize(&ColorPalette::BORDER)
+    );
+    println!("{}{}", footer, "┘".colorize(&ColorPalette::BORDER));
     
     // Exit with the same code as the child process
     std::process::exit(exit_status.code().unwrap_or(1));
