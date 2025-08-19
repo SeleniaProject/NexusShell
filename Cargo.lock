@@ -2925,6 +2925,7 @@ dependencies = [
  "walkdir",
  "which",
  "whoami",
+ "winapi 0.3.9",
  "windows",
  "windows-sys 0.59.0",
  "xxhash-rust",

@@ -89,14 +89,14 @@ fn print_find_help() {
 }
 // Parallel processing with rayon - fully implemented
 #[cfg(feature = "progress-ui")]
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{ProgressBar as IndicatifProgressBar, ProgressStyle as IndicatifProgressStyle};
 #[cfg(not(feature = "progress-ui"))]
 #[derive(Clone)]
 #[allow(dead_code)]
-struct ProgressBar;
+struct IndicatifProgressBar;
 #[cfg(not(feature = "progress-ui"))]
 #[allow(dead_code)]
-struct ProgressStyle;
+struct IndicatifProgressStyle;
 #[cfg(not(feature = "progress-ui"))]
 #[allow(dead_code)]
 impl ProgressBar {
@@ -665,15 +665,15 @@ pub fn find_cli(args: &[String]) -> Result<()> {
             let estimated_files = estimate_file_count(&options.paths);
             stats.estimated_total.store(estimated_files, Ordering::Relaxed);
             let pb = if estimated_files > 1000 {
-                let pb = ProgressBar::new(estimated_files);
-                pb.set_style(ProgressStyle::default_bar()
+                let pb = IndicatifProgressBar::new(estimated_files);
+                pb.set_style(IndicatifProgressStyle::default_bar()
                     .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} files ({eta})")
                     .unwrap()
                     .progress_chars("#>-"));
                 pb
             } else {
-                let pb = ProgressBar::new_spinner();
-                pb.set_style(ProgressStyle::default_spinner()
+                let pb = IndicatifProgressBar::new_spinner();
+                pb.set_style(IndicatifProgressStyle::default_spinner()
                     .template("{spinner:.green} [{elapsed_precise}] {msg}")
                     .unwrap());
                 pb

@@ -143,6 +143,94 @@ pub enum Alignment {
     Right,
 }
 
+/// Basic types for status management
+#[derive(Debug, Clone)]
+pub enum ItemStatus {
+    Good,
+    Warning,
+    Critical,
+    Unknown,
+}
+
+#[derive(Debug, Clone)]
+pub enum SectionStyle {
+    Default,
+    Compact,
+    Detailed,
+    Minimal,
+}
+
+#[derive(Debug, Clone)]
+pub enum InputType {
+    Text,
+    Number,
+    Boolean,
+    Select,
+    MultiSelect,
+}
+
+/// Basic command wizard types  
+#[derive(Debug, Clone)]
+pub struct CommandWizard {
+    pub title: String,
+    pub steps: Vec<WizardStep>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WizardStep {
+    pub name: String,
+    pub description: String,
+    pub input_type: InputType,
+}
+
+/// Status dashboard types
+#[derive(Debug, Clone)]
+pub struct StatusDashboard {
+    pub title: String,
+    pub sections: Vec<DashboardSection>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DashboardSection {
+    pub title: String,
+    pub items: Vec<StatusItem>,
+    pub style: SectionStyle,
+}
+
+#[derive(Debug, Clone)]
+pub struct StatusItem {
+    pub name: String,
+    pub value: String,
+    pub status: ItemStatus,
+}
+
+/// File preview functionality
+#[derive(Debug, Clone)]
+pub struct FilePreview {
+    pub path: String,
+    pub content: String,
+    pub line_count: usize,
+}
+
+// Placeholder implementations
+impl CommandWizard {
+    pub fn new(title: String) -> Self {
+        Self { title, steps: Vec::new() }
+    }
+}
+
+impl StatusDashboard {
+    pub fn new(title: String) -> Self {
+        Self { title, sections: Vec::new() }
+    }
+}
+
+impl FilePreview {
+    pub fn new(path: String) -> Self {
+        Self { path, content: String::new(), line_count: 0 }
+    }
+}
+
 impl Default for TableOptions {
     fn default() -> Self {
         Self {
