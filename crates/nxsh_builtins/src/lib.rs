@@ -1122,6 +1122,9 @@ pub fn execute_builtin(command: &str, args: &[String]) -> BuiltinResult<()> {
     "Get-Command" | "get-command" => get_command_cli(args).map_err(shellerr_from_anyhow),
     #[cfg(feature = "powershell-objects")]
     "Get-Help" | "get-help" => get_help_cli(args).map_err(shellerr_from_anyhow),
+        "help" => {
+            help_cli(args).map(|_| ()).map_err(shellerr_from_anyhow)
+        },
         _ => Err(ShellError::command_not_found(command)),
     }
 }
