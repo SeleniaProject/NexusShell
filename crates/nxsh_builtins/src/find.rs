@@ -692,7 +692,7 @@ pub fn find_cli(args: &[String]) -> Result<()> {
     }
 
     let result = if options.parallel {
-        find_parallel(&options, stats.clone(), progress.as_ref())
+        find_parallel(&options, stats.clone(), progress)
     } else {
         find_sequential(&options, stats.clone(), progress.as_ref())
     };

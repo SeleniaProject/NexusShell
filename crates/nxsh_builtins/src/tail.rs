@@ -241,7 +241,7 @@ fn tail_file(
 ) -> Result<()> {
     if show_header {
         let colors = ColorPalette::new();
-        let icons = Icons::new(true);
+        let icons = Icons::new();
         if path == "-" {
             println!("\n{}{}┌─── {} Standard Input ───┐{}", 
                 colors.primary, "═".repeat(5), icons.terminal, colors.reset);
@@ -505,7 +505,7 @@ fn follow_single_file(
     if file_changed {
         if show_header {
             let colors = ColorPalette::new();
-            let icons = Icons::new(true);
+            let icons = Icons::new();
             let file_icon = if state.path.ends_with(".log") { icons.log_file } 
                            else { icons.file };
             println!("\n{}{}┌─── {} {} (reloaded) ───┐{}", 
@@ -524,7 +524,7 @@ fn follow_single_file(
         if !buffer.is_empty() {
             if show_header && !file_changed {
                 let colors = ColorPalette::new();
-                let icons = Icons::new(true);
+                let icons = Icons::new();
                 let file_icon = if state.path.ends_with(".log") { icons.log_file } 
                                else { icons.file };
                 println!("\n{}{}┌─── {} {} (updated) ───┐{}", 

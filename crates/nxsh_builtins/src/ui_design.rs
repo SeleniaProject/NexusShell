@@ -1,4 +1,15 @@
-/// Advance// Advanced string colorization trait  
+/// Advanced UI Design System for NexusShell
+/// 
+/// This module provides a comprehensive, beautiful UI design system for all shell commands.
+/// Features modern terminal UI with colors, icons, tables, sophisticated formatting,
+/// animations, progress indicators, and dynamic theming capabilities.
+
+use std::fmt;
+use std::time::{Duration, Instant};
+use std::thread;
+use std::io::{self, Write};
+
+/// Advanced string colorization trait  
 pub trait Colorize {
     fn primary(self) -> String;
     fn secondary(self) -> String;
@@ -14,31 +25,6 @@ pub trait Colorize {
     fn bright_cyan(self) -> String;
     fn bright_yellow(self) -> String;
     fn bright_green(self) -> String;
-    fn colorize(self, color: &str) -> String;
-}stem for NexusShell
-/// 
-/// This module provides a comprehensive, beautiful UI design system for all shell commands.
-/// Features modern terminal UI with colors, icons, tables, sophisticated formatting,
-/// animations, progress indicators, and dynamic theming capabilities.
-
-use std::fmt;
-use std::time::{Duration, Instant};
-use std::thread;
-use std::io::{self, Write};
-
-/// Colorize trait for adding colors to strings
-pub trait Colorize {
-    fn primary(self) -> String;
-    fn secondary(self) -> String;
-    fn success(self) -> String;
-    fn warning(self) -> String;
-    fn error(self) -> String;
-    fn info(self) -> String;
-    fn muted(self) -> String;
-    fn bright(self) -> String;
-    fn dim(self) -> String;
-    fn accent(self) -> String;
-    fn highlight(self) -> String;
     fn colorize(self, color: &str) -> String;
 }
 
@@ -173,6 +159,8 @@ pub enum ItemStatus {
     Warning,
     Critical,
     Unknown,
+    Info,
+    Error,
 }
 
 #[derive(Debug, Clone)]
@@ -181,6 +169,9 @@ pub enum SectionStyle {
     Compact,
     Detailed,
     Minimal,
+    Boxed,
+    Highlighted,
+    Simple,
 }
 
 #[derive(Debug, Clone)]
@@ -204,6 +195,9 @@ pub struct WizardStep {
     pub name: String,
     pub description: String,
     pub input_type: InputType,
+    pub title: String,
+    pub options: Vec<String>,
+    pub required: bool,
 }
 
 /// Status dashboard types
@@ -225,6 +219,8 @@ pub struct StatusItem {
     pub name: String,
     pub value: String,
     pub status: ItemStatus,
+    pub label: String,
+    pub icon: String,
 }
 
 /// File preview functionality
@@ -240,11 +236,35 @@ impl CommandWizard {
     pub fn new(title: String) -> Self {
         Self { title, steps: Vec::new() }
     }
+    
+    pub fn add_step(&mut self, step: WizardStep) {
+        self.steps.push(step);
+    }
+    
+    pub fn run(&self) -> Result<Vec<String>, String> {
+        // Simple implementation for now
+        Ok(vec!["sample".to_string()])
+    }
 }
 
 impl StatusDashboard {
     pub fn new(title: String) -> Self {
         Self { title, sections: Vec::new() }
+    }
+    
+    pub fn add_section(&mut self, section: DashboardSection) {
+        self.sections.push(section);
+    }
+    
+    pub fn render(&self) -> String {
+        let mut output = format!("=== {} ===\n", self.title);
+        for section in &self.sections {
+            output.push_str(&format!("\n[{}]\n", section.title));
+            for item in &section.items {
+                output.push_str(&format!("  {}: {}\n", item.name, item.value));
+            }
+        }
+        output
     }
 }
 

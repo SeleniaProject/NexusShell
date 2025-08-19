@@ -478,7 +478,7 @@ fn collect_lines(options: &SortOptions) -> ShellResult<Vec<String>> {
 
 fn sort_lines(lines: &mut [String], options: &SortOptions) -> ShellResult<()> {
     let colors = ColorPalette::new();
-    let icons = Icons::new(true);
+    let icons = Icons::new();
     
     // Beautiful progress message
     if lines.len() > 1000 {

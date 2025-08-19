@@ -193,7 +193,7 @@ fn print_head_file(
 ) -> Result<()> {
     if show_header {
         let colors = ColorPalette::new();
-        let icons = Icons::new(true);
+        let icons = Icons::new();
         if path == "-" {
             println!("\n{}{}┌─── {} Standard Input (first {} {}) ───┐{}", 
                 colors.primary, "═".repeat(3), icons.terminal, 
