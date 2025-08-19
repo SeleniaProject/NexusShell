@@ -27,6 +27,7 @@ use std::os::unix::fs::{symlink, MetadataExt};
 #[cfg(windows)]
 use std::os::windows::fs::{symlink_file, symlink_dir};
 use std::path::{Path, PathBuf};
+use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
 
 #[derive(Debug, Clone)]
 pub struct LnOptions {
@@ -127,9 +128,19 @@ pub fn ln_cli(args: &[String]) -> Result<()> {
         
         if options.verbose {
             if options.symbolic {
-                println!("'{}' -> '{}'", link_path.display(), target_path.display());
+                println!("{} {} {} {}", 
+                    Icons::LINK, 
+                    link_path.display().to_string().colorize(&ColorPalette::ACCENT),
+                    "→".colorize(&ColorPalette::INFO),
+                    target_path.display().to_string().colorize(&ColorPalette::SUCCESS)
+                );
             } else {
-                println!("'{}' => '{}'", link_path.display(), target_path.display());
+                println!("{} {} {} {}", 
+                    Icons::HARD_LINK, 
+                    link_path.display().to_string().colorize(&ColorPalette::ACCENT),
+                    "⇒".colorize(&ColorPalette::INFO),
+                    target_path.display().to_string().colorize(&ColorPalette::SUCCESS)
+                );
             }
         }
     }

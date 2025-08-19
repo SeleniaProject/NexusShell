@@ -23,6 +23,7 @@ use std::io::{self, Write};
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
 use std::collections::HashMap;
 use std::env;
 use chrono::Local;
@@ -323,7 +324,11 @@ fn remove_file(path: &Path, options: &RmOptions, trash_info: &Option<TrashInfo>)
         match fs::remove_file(path) {
             Ok(()) => {
                 if options.verbose {
-                    println!("removed '{}'", path.display());
+                    println!("{} {} {}", 
+                        Icons::TRASH, 
+                        "Removed file:".colorize(&ColorPalette::WARNING),
+                        path.display().to_string().colorize(&ColorPalette::ACCENT)
+                    );
                 }
             }
             Err(e) => {
@@ -379,7 +384,11 @@ fn remove_directory(
             match fs::remove_dir(path) {
                 Ok(()) => {
                     if options.verbose {
-                        println!("removed directory '{}'", path.display());
+                        println!("{} {} {}", 
+                            Icons::FOLDER_MINUS, 
+                            "Removed directory:".colorize(&ColorPalette::WARNING),
+                            path.display().to_string().colorize(&ColorPalette::ACCENT)
+                        );
                     }
                 }
                 Err(e) => {
@@ -430,7 +439,11 @@ fn remove_directory(
             match fs::remove_dir(path) {
                 Ok(()) => {
                     if options.verbose {
-                        println!("removed directory '{}'", path.display());
+                        println!("{} {} {}", 
+                            Icons::FOLDER_MINUS, 
+                            "Removed directory:".colorize(&ColorPalette::WARNING),
+                            path.display().to_string().colorize(&ColorPalette::ACCENT)
+                        );
                     }
                 }
                 Err(e) => {
