@@ -1,4 +1,22 @@
-//! `cut` command  Ecolumn extraction utility.
+//! `cut` command  Ecolumn extraction utility.
+//!
+//! Supported subset (field mode only):
+//!   cut -f LIST [-d DELIM] [--output-delimiter=STR] [-s] [FILE...]
+//!
+//! • LIST: comma-separated 1-based field numbers or ranges (e.g. 1,3,5-7)
+//! • DELIM: single-byte delimiter character (default TAB). Escape sequences \t,\n,\r allowed.
+//! • Multibyte UTF-8 input is treated as bytes for delimiter splitting (matches GNU cut behaviour).
+//! • Lines with fewer fields than requestedは、指定フィールドに対して不足分を空として出力する `--pad` をサポート。
+//! • -s suppresses lines with no delimiter.
+//! • --output-delimiter sets output delimiter (default: input delimiter).
+//!
+//! Character mode (-c) extracts Unicode characters (UTF-8 aware).
+//! • Byte mode (-b) extracts raw bytes.
+
+use anyhow::{anyhow, Context, Result};
+use std::fs::File;
+use std::io::{self, BufRead, BufReader};
+use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons}; Ecolumn extraction utility.
 //!
 //! Supported subset (field mode only):
 //!   cut -f LIST [-d DELIM] [--output-delimiter=STR] [-s] [FILE...]

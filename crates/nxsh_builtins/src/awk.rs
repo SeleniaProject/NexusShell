@@ -12,6 +12,7 @@ use regex::Regex;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::process::Command;
+use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
 // libm is unnecessary on std; use intrinsic f64 methods instead
 
 /// AWK コマンド実装 — BEGIN/END、パターン/アクション、正規表現、式/配列/連想配列、ユーザー関数、

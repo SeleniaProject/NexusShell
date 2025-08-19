@@ -8,6 +8,7 @@ use nxsh_core::{ShellContext, ShellResult, ShellError, ExecutionResult};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter};
 use std::path::Path;
+use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
 
 pub struct SedBuiltin;
 

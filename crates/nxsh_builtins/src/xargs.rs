@@ -1,6 +1,7 @@
 use std::process::Command;
 use std::io::Read;
 use nxsh_core::{ShellError, ErrorKind}; use nxsh_core::error::RuntimeErrorKind;
+use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
 
 pub fn xargs_cli(args: &[String]) -> Result<(), ShellError> {
     if args.contains(&"--help".to_string()) {
