@@ -3,6 +3,7 @@
 # Rust/Cargo build directory
 target/*
 target_ci/*
+target_vscode/*
 
 # Binaries, build logs, and backup files
 **/*.rs.bk
