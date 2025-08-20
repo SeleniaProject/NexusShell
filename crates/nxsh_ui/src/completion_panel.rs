@@ -14,7 +14,7 @@ use std::{
     io::{self, Write as IoWrite},
     time::{Duration, Instant},
 };
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthStr, UnicodeWidthChar};
 use crossterm::{
     cursor::{MoveTo, Hide, Show},
     style::{Color, SetForegroundColor, SetBackgroundColor, ResetColor, Attribute, SetAttribute},
@@ -371,6 +371,11 @@ impl CompletionPanel {
         self.candidates.get(self.selected_index)
     }
 
+    /// Get the number of candidates
+    pub fn candidate_count(&self) -> usize {
+        self.candidates.len()
+    }
+
     /// Check if panel should be visible
     pub fn should_show(&self) -> bool {
         !self.candidates.is_empty() && self.animation_state.phase != AnimationPhase::Hidden
@@ -452,9 +457,11 @@ impl CompletionPanel {
         let icon_width = if self.config.show_icons { 3 } else { 0 };
         let text_width = candidate.text.width();
         let description_width = if self.config.show_descriptions {
-            candidate.description.as_ref()
-                .map(|d| d.width().min(self.theme.typography.max_description_length))
-                .unwrap_or(0) + 3 // " - " separator
+            if !candidate.description.is_empty() {
+                candidate.description.width().min(self.theme.typography.max_description_length) + 3 // " - " separator
+            } else {
+                0
+            }
         } else {
             0
         };

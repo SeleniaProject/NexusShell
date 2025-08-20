@@ -207,7 +207,7 @@ impl TabCompletionHandler {
             let candidate = &completion_result.candidates[0];
             return Ok(TabCompletionResult::SingleCompletion {
                 text: candidate.text.clone(),
-                description: candidate.description.clone(),
+                description: Some(candidate.description.clone()),
             });
         }
 
@@ -225,7 +225,7 @@ impl TabCompletionHandler {
         self.show_panel_with_candidates(completion_result.candidates).await?;
         
         Ok(TabCompletionResult::PanelShown {
-            candidate_count: self.completion_panel.candidates.len(),
+            candidate_count: self.completion_panel.candidate_count(),
         })
     }
 
@@ -293,7 +293,7 @@ impl TabCompletionHandler {
         if let Some(candidate) = self.completion_panel.get_selected_candidate() {
             let result = TabCompletionResult::CompletionAccepted {
                 text: candidate.text.clone(),
-                description: candidate.description.clone(),
+                description: Some(candidate.description.clone()),
             };
             self.hide_panel()?;
             Ok(result)
