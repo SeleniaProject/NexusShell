@@ -25,6 +25,8 @@ pub mod themes;
 pub mod theme_validator; // Theme validation and schema support
 pub mod completion;
 pub mod completion_engine; // 🚀 高性能補完エンジン
+pub mod completion_panel; // 🎨 美しい補完パネルUI
+pub mod tab_completion; // 🔧 高度なタブ補完ハンドラ
 pub mod completion_metrics; // 補完パフォーマンス測定
 pub mod completion_integration; // 高性能補完統合ヘルパー
 pub mod config;
