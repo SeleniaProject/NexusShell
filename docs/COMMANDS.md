@@ -97,17 +97,17 @@
 ### 3. テキスト処理
 | Command | Synopsis | 概要 | |
 |---------|----------|------|--|
-| grep | `grep [OPTS] PATTERN FILE...` | 正規表現検索 (PCRE2) | |
+| grep | `grep [OPTS] PATTERN FILE...` | 正規表現検索 (PCRE2)。`-E/-F/-G/-P`, `-r/-R`, `-A/-B/-C`, `--include/--exclude` 等をサポート | |
 | egrep | `egrep PATTERN FILE` | POSIX ERE 検索 | リンク先同上 |
 | fgrep | `fgrep PATTERN FILE` | 固定文字列検索 | |
-| awk | `awk 'PROGRAM' FILE` | パターン処理言語（BEGIN/END、ユーザー関数、連想配列/for-in、正規表現一致（RSTART/RLENGTH 設定）、`$n` 代入で `$0/NF` 再構築、`printf`/`sprintf` の幅/精度/フラグ対応） | [man](./man/awk.md) |
+| awk | `awk 'PROGRAM' FILE` | パターン処理言語 | |
 | sed | `sed -e 's/REGEX/REPL/g' FILE` | ストリームエディタ（`-n/-e/-f/-i/-r/-z` 等をサポート） | |
 | tr | `tr SET1 SET2` | 文字集合変換 | |
 | cut | `cut -f LIST FILE` | 列抽出 | |
 | paste | `paste FILE1 FILE2` | 行横結合 | |
 | sort | `sort [OPTS]` | 並び替え | |
 | uniq | `uniq [OPTS]` | 重複行削除 | |
-| find | `find [PATH...] [EXPR]` | 階層検索（`-name`/`-type`/`-size`/`-mtime`/`-exec` 等、並列探索 `--parallel`/`-P` サポート。並列は `parallel` フィーチャ有効時） | |
+| find | `find [PATH...] [EXPR]` | 階層検索（`-name`/`-type`/`-size`/`-mtime`/`-exec` 等をサポート） | |
 | head | `head [-n N] FILE` | 先頭表示 | |
 | tail | `tail [-f] [-n N] FILE` | 末尾表示・追跡 | |
 | wc | `wc [-lwmc] FILE` | 行・単語数 | |

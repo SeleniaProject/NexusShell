@@ -12,6 +12,14 @@ target_*/
 **/*.rs.bk
 **/*.d
 *.log
+*.jsonlog
+*.exe
+*.pdb
+
+# Temporary test files and local configs
+test_structured.toml
+size_report_local.json
+*_summary.*
 
 # IntelliJ IDEA / CLion
 .idea/

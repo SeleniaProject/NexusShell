@@ -130,7 +130,29 @@ A next-generation shell with advanced features, built in Rust.
 - **Architectures**: x86-64, AArch64, RISC-V64, WebAssembly
 - **Package Formats**: Native packages for all major distributions
 
-## 📦 Installation
+## � Project Structure
+
+```
+NexusShell/
+├── crates/           # Core Rust crates
+│   ├── nxsh_cli/     # Main CLI application
+│   ├── nxsh_core/    # Core shell engine
+│   ├── nxsh_parser/  # Command parsing & AST
+│   ├── nxsh_ui/      # User interface components
+│   ├── nxsh_hal/     # Hardware abstraction layer
+│   ├── nxsh_builtins/# Built-in commands (158 commands)
+│   └── nxsh_plugin/  # Plugin system & WASM runtime
+├── docs/             # Documentation & specifications
+├── examples/         # Example code & demos
+├── tests/            # Integration tests
+├── i18n/             # Internationalization (10 languages)
+├── assets/           # Themes, fonts, and UI assets
+├── monitoring/       # Grafana dashboards & metrics
+├── reports/          # Performance & test reports
+└── fuzz/             # Fuzzing targets for security testing
+```
+
+## �📦 Installation
 
 ### From Source
 ```bash
