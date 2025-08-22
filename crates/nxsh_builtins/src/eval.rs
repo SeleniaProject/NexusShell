@@ -32,3 +32,4 @@ mod tests {
         eval_cli(&["echo".into(), "ok".into()]).unwrap();
     }
 } 
+

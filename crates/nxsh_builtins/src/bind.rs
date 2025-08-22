@@ -100,3 +100,4 @@ mod tests {
         bind_cli(&[]).unwrap();
     }
 } 
+

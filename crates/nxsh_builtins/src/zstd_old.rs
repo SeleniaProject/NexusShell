@@ -553,3 +553,4 @@ fn print_zstd_help() {
     println!();
     println!("Report bugs at: https://github.com/facebook/zstd/issues");
 }
+

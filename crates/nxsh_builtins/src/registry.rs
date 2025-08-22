@@ -136,3 +136,4 @@ static BUILTIN_REGISTRY: std::sync::LazyLock<BuiltinRegistry> = std::sync::LazyL
 pub fn get_builtin_registry() -> &'static BuiltinRegistry {
     &BUILTIN_REGISTRY
 }
+

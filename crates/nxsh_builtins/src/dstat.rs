@@ -73,3 +73,4 @@ pub fn dstat_cli(args: &[String]) -> Result<()> {
 
     Ok(())
 }
+

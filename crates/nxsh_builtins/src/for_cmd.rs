@@ -415,3 +415,4 @@ fn parse_arithmetic_operand(s: &str) -> Result<i64, ShellError> {
     // For now, return a default value
     Ok(0)
 }
+

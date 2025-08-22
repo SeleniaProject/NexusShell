@@ -33,3 +33,4 @@ pub fn pushd_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
     dirs_cli(&[])?; // print stack
     Ok(())
 } 
+

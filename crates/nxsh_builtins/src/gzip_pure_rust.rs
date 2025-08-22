@@ -70,3 +70,4 @@ fn decompress_file(filename: &str) -> Result<()> {
     println!("Decompressed: {filename} -> {output_filename}");
     Ok(())
 }
+

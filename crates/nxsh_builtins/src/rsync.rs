@@ -19,3 +19,4 @@ pub fn rsync_cli(args: &[String]) -> Result<()> {
     }
     Err(anyhow!("rsync: backend not found; please install rsync"))
 } 
+

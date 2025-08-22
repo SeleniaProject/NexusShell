@@ -24,6 +24,58 @@ use std::io::IsTerminal;
 use std::path::Path;
 use tokio::io::AsyncBufReadExt;
 
+/// Configuration for the shell
+#[derive(Debug, Clone)]
+pub struct Config {
+    /// Shell prompt configuration
+    pub prompt: String,
+    /// History size limit
+    pub history_size: usize,
+    /// Enable color output
+    pub color: bool,
+    /// Shell options
+    pub shell_options: Vec<String>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            prompt: "$ ".to_string(),
+            history_size: 1000,
+            color: true,
+            shell_options: Vec::new(),
+        }
+    }
+}
+
+/// Shell state that can be persisted and restored
+#[derive(Debug, Clone)]
+pub struct ShellState {
+    /// Configuration
+    pub config: Config,
+    /// Current working directory
+    pub cwd: std::path::PathBuf,
+    /// Environment variables
+    pub environment: std::collections::HashMap<String, String>,
+    /// Exit status of last command
+    pub exit_status: i32,
+    /// Shell variables
+    pub variables: std::collections::HashMap<String, String>,
+}
+
+impl ShellState {
+    /// Create new shell state with given configuration
+    pub fn new(config: Config) -> ShellResult<Self> {
+        Ok(Self {
+            config,
+            cwd: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/")),
+            environment: std::env::vars().collect(),
+            exit_status: 0,
+            variables: std::collections::HashMap::new(),
+        })
+    }
+}
+
 /// Public shell facade combining parsing and execution.
 pub struct Shell {
     /// Execution context (environment, variables, history, options, etc.)
@@ -45,6 +97,45 @@ impl Shell {
         let executor = Executor::new();
         let parser = nxsh_parser::ShellCommandParser::new();
         Self { context, executor, parser, should_exit: false }
+    }
+
+    /// Create shell from existing state
+    pub fn from_state(state: ShellState) -> Self {
+        let mut shell = Self::new();
+        shell.context.cwd = state.cwd;
+        shell.context.set_exit_status(state.exit_status);
+        for (key, value) in state.environment {
+            shell.context.set_var(key, value);
+        }
+        shell
+    }
+
+    /// Convert shell back to state
+    pub fn into_state(self) -> ShellState {
+        let environment = if let Ok(vars) = self.context.vars.read() {
+            vars.iter()
+                .map(|(k, v)| (k.clone(), v.value.clone()))
+                .collect()
+        } else {
+            std::collections::HashMap::new()
+        };
+        
+        let variables = environment.clone();
+        let cwd = self.context.cwd.clone();
+        let exit_status = self.context.get_exit_status();
+        
+        ShellState {
+            config: Config::default(),
+            cwd,
+            environment,
+            exit_status,
+            variables,
+        }
+    }
+
+    /// Evaluate an AST node
+    pub fn eval_ast(&mut self, ast: &nxsh_parser::ast::AstNode) -> ShellResult<ExecutionResult> {
+        self.executor.execute_ast(ast, &mut self.context)
     }
 
     /// Borrow the underlying context (read-only).

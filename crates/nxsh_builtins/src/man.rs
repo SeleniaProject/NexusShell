@@ -340,3 +340,4 @@ fn get_builtin_help(command: &str) -> Option<String> {
         _ => None
     }
 }
+

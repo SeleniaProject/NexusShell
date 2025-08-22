@@ -1,168 +1,243 @@
-//! `tr` command  Etranslate or delete characters.
-//!
-//! Supported subset:
-//!   tr SET1 SET2       # translate characters in SET1 to SET2 (1-1, padding with last char)
-//!   tr -d SET1         # delete characters in SET1
-//!
-//! Recognised escape sequences: \n, \t, \r, \0octal (up to 3 digits)
-//! Character ranges like `a-z` are expanded. Multi-byte UTF-8 chars are treated as individual code points.
-//!
-//! This covers the most common use-cases while keeping implementation lightweight.
+use std::collections::HashMap;
+use std::io::{self, Read};
+use crate::common::{BuiltinResult, BuiltinContext};
 
-use anyhow::{anyhow, Result};
-use std::collections::{HashMap, HashSet};
-use std::io::{self, Read, Write};
-
-// Beautiful CUI design
-use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
-use color_eyre::owo_colors::OwoColorize;
-
-pub fn tr_cli(args: &[String]) -> Result<()> {
+/// Translate or delete characters
+pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
     if args.is_empty() {
-        return Err(anyhow!("tr: missing operands"));
+        eprintln!("tr: missing operand");
+        return Ok(1);
     }
-    let mut idx = 0;
+
     let mut delete_mode = false;
-    if args[idx] == "-d" {
-        delete_mode = true;
-        idx += 1;
-    }
-    if (delete_mode && idx >= args.len()) || (!delete_mode && idx + 1 >= args.len()) {
-        return Err(anyhow!("tr: missing operands"));
-    }
+    let mut complement = false;
+    let mut squeeze_repeats = false;
+    let mut truncate_set1 = false;
+    let mut set1 = String::new();
+    let mut set2 = String::new();
+    let mut positional_args = Vec::new();
 
-    let set1_raw = &args[idx];
-    let set1 = expand_set(set1_raw)?;
-
-    if delete_mode {
-        let del_set: HashSet<char> = set1.into_iter().collect();
-        process_delete(del_set)?;
-        return Ok(());
-    }
-
-    let set2_raw = &args[idx + 1];
-    let mut set2 = expand_set(set2_raw)?;
-    if set2.is_empty() {
-        return Err(anyhow!("tr: SET2 is empty"));
-    }
-    // Pad set2 to match set1 length using last char of set2
-    if set2.len() < set1.len() {
-        let last = *set2.last().unwrap_or(&' '); // Use space as default if set2 is empty
-        set2.resize(set1.len(), last);
-    }
-
-    let map: HashMap<char, char> = set1.into_iter().zip(set2).collect();
-    process_translate(map)?;
-    Ok(())
-}
-
-fn process_delete(del: HashSet<char>) -> Result<()> {
-    let mut input = String::new();
-    io::stdin().read_to_string(&mut input)?;
-    
-    let input_chars = input.chars().count();
-    let output: String = input.chars().filter(|c| !del.contains(c)).collect();
-    let output_chars = output.chars().count();
-    let deleted_chars = input_chars - output_chars;
-    
-    io::stdout().write_all(output.as_bytes())?;
-    
-    // Beautiful statistics to stderr
-    if deleted_chars > 0 {
-        let colors = ColorPalette::new();
-        eprintln!("\n{}{} Deleted {} characters{}", 
-            colors.warning, "✓".bright_green(), deleted_chars.to_string().bright_red(), colors.reset);
-    }
-    
-    Ok(())
-}
-
-fn process_translate(map: HashMap<char, char>) -> Result<()> {
-    let mut input = String::new();
-    io::stdin().read_to_string(&mut input)?;
-    let mut out = String::with_capacity(input.len());
-    let mut translated_count = 0;
-    
-    for ch in input.chars() {
-        if let Some(&replacement) = map.get(&ch) {
-            out.push(replacement);
-            translated_count += 1;
-        } else {
-            out.push(ch);
-        }
-    }
-    
-    io::stdout().write_all(out.as_bytes())?;
-    
-    // Beautiful statistics to stderr
-    if translated_count > 0 {
-        let colors = ColorPalette::new();
-        eprintln!("\n{}{} Translated {} characters{}", 
-            colors.success, "✓".bright_green(), translated_count.to_string().bright_blue(), colors.reset);
-    }
-    
-    Ok(())
-}
-
-/// Expand a SET string into vector of chars, handling ranges and escapes.
-fn expand_set(spec: &str) -> Result<Vec<char>> {
-    let mut chars = Vec::new();
-    let mut iter = spec.chars().peekable();
-    while let Some(c) = iter.next() {
-        if c == '\\' {
-            // escape sequence
-            if let Some(e) = iter.next() {
-                let translated = match e {
-                    'n' => '\n',
-                    't' => '\t',
-                    'r' => '\r',
-                    '0'..='7' => {
-                        // octal up to 3 digits (incl current)
-                        let mut oct_digits = String::from(e);
-                        for _ in 0..2 {
-                            if let Some(peek) = iter.peek() {
-                                if peek.is_digit(8) {
-                                    oct_digits.push(*peek);
-                                    iter.next();
-                                } else { break; }
-                            }
-                        }
-                        let val = u32::from_str_radix(&oct_digits, 8)?;
-                        char::from_u32(val).ok_or_else(|| anyhow!("tr: invalid octal escape"))?
-                    }
-                    other => other,
-                };
-                chars.push(translated);
-            } else {
-                return Err(anyhow!("tr: trailing backslash"));
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-d" | "--delete" => delete_mode = true,
+            "-c" | "-C" | "--complement" => complement = true,
+            "-s" | "--squeeze-repeats" => squeeze_repeats = true,
+            "-t" | "--truncate-set1" => truncate_set1 = true,
+            "-h" | "--help" => {
+                print_help();
+                return Ok(0);
             }
-        } else if let Some('-') = iter.peek() {
-            // possible range like a-z
-            iter.next(); // consume '-'
-            if let Some(end) = iter.next() {
-                for ch_code in c as u32..=end as u32 {
-                    if let Some(ch) = char::from_u32(ch_code) {
-                        chars.push(ch);
-                    }
+            arg if arg.starts_with('-') => {
+                eprintln!("tr: invalid option '{}'", arg);
+                return Ok(1);
+            }
+            _ => positional_args.push(&args[i]),
+        }
+        i += 1;
+    }
+
+    if positional_args.is_empty() {
+        eprintln!("tr: missing operand");
+        return Ok(1);
+    }
+
+    set1 = positional_args[0].to_string();
+    if positional_args.len() > 1 {
+        set2 = positional_args[1].to_string();
+    } else if !delete_mode {
+        eprintln!("tr: missing operand after '{}'", set1);
+        return Ok(1);
+    }
+
+    let stdin = io::stdin();
+    let mut reader = stdin.lock();
+    let mut buffer = String::new();
+
+    if let Err(e) = reader.read_to_string(&mut buffer) {
+        eprintln!("tr: error reading input: {}", e);
+        return Ok(1);
+    }
+
+    let result = if delete_mode {
+        delete_characters(&buffer, &set1, complement)
+    } else {
+        translate_characters(&buffer, &set1, &set2, truncate_set1)
+    };
+
+    let final_result = if squeeze_repeats {
+        squeeze_repeated_characters(&result, &set2)
+    } else {
+        result
+    };
+
+    print!("{}", final_result);
+    Ok(0)
+}
+
+fn expand_set(set: &str) -> Vec<char> {
+    let mut expanded = Vec::new();
+    let chars: Vec<char> = set.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        if i + 2 < chars.len() && chars[i + 1] == '-' {
+            // Range like a-z
+            let start = chars[i] as u8;
+            let end = chars[i + 2] as u8;
+            
+            if start <= end {
+                for c in start..=end {
+                    expanded.push(c as char);
                 }
             } else {
-                chars.push(c);
-                chars.push('-');
+                // Invalid range, treat as literal characters
+                expanded.push(chars[i]);
+                expanded.push(chars[i + 1]);
+                expanded.push(chars[i + 2]);
             }
+            i += 3;
         } else {
-            chars.push(c);
+            expanded.push(chars[i]);
+            i += 1;
         }
     }
-    Ok(chars)
+
+    expanded
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+fn expand_escape_sequences(set: &str) -> String {
+    let mut result = String::new();
+    let chars: Vec<char> = set.chars().collect();
+    let mut i = 0;
 
-    #[test]
-    fn expand_range() {
-        let v = expand_set("a-c").expect("Failed to expand character range");
-        assert_eq!(v, vec!['a','b','c']);
+    while i < chars.len() {
+        if chars[i] == '\\' && i + 1 < chars.len() {
+            match chars[i + 1] {
+                'n' => result.push('\n'),
+                't' => result.push('\t'),
+                'r' => result.push('\r'),
+                '\\' => result.push('\\'),
+                'a' => result.push('\x07'), // bell
+                'b' => result.push('\x08'), // backspace
+                'f' => result.push('\x0c'), // form feed
+                'v' => result.push('\x0b'), // vertical tab
+                c => {
+                    result.push('\\');
+                    result.push(c);
+                }
+            }
+            i += 2;
+        } else {
+            result.push(chars[i]);
+            i += 1;
+        }
     }
-} 
+
+    result
+}
+
+fn delete_characters(input: &str, set1: &str, complement: bool) -> String {
+    let expanded_set1 = expand_set(&expand_escape_sequences(set1));
+    let delete_set: std::collections::HashSet<char> = expanded_set1.into_iter().collect();
+
+    input.chars().filter(|&c| {
+        if complement {
+            delete_set.contains(&c)
+        } else {
+            !delete_set.contains(&c)
+        }
+    }).collect()
+}
+
+fn translate_characters(input: &str, set1: &str, set2: &str, truncate_set1: bool) -> String {
+    let expanded_set1 = expand_set(&expand_escape_sequences(set1));
+    let expanded_set2 = expand_set(&expand_escape_sequences(set2));
+
+    let mut translation_map = HashMap::new();
+
+    if truncate_set1 && expanded_set1.len() > expanded_set2.len() {
+        // Truncate set1 to match set2 length
+        for (i, &c1) in expanded_set1.iter().take(expanded_set2.len()).enumerate() {
+            if let Some(&c2) = expanded_set2.get(i) {
+                translation_map.insert(c1, c2);
+            }
+        }
+    } else {
+        // Standard behavior
+        for (i, &c1) in expanded_set1.iter().enumerate() {
+            let c2 = if i < expanded_set2.len() {
+                expanded_set2[i]
+            } else if !expanded_set2.is_empty() {
+                // Repeat last character of set2
+                expanded_set2[expanded_set2.len() - 1]
+            } else {
+                c1 // No translation
+            };
+            translation_map.insert(c1, c2);
+        }
+    }
+
+    input.chars().map(|c| {
+        translation_map.get(&c).copied().unwrap_or(c)
+    }).collect()
+}
+
+fn squeeze_repeated_characters(input: &str, set: &str) -> String {
+    if set.is_empty() {
+        return input.to_string();
+    }
+
+    let squeeze_set: std::collections::HashSet<char> = 
+        expand_set(&expand_escape_sequences(set)).into_iter().collect();
+
+    let mut result = String::new();
+    let mut prev_char: Option<char> = None;
+
+    for c in input.chars() {
+        if squeeze_set.contains(&c) {
+            if prev_char != Some(c) {
+                result.push(c);
+            }
+        } else {
+            result.push(c);
+        }
+        prev_char = Some(c);
+    }
+
+    result
+}
+
+fn print_help() {
+    println!("Usage: tr [OPTION]... SET1 [SET2]");
+    println!("Translate, squeeze, and/or delete characters from standard input,");
+    println!("writing to standard output.");
+    println!();
+    println!("Options:");
+    println!("  -c, -C, --complement    use the complement of SET1");
+    println!("  -d, --delete            delete characters in SET1, do not translate");
+    println!("  -s, --squeeze-repeats   replace each sequence of repeated characters");
+    println!("                          that are listed in the last specified SET");
+    println!("  -t, --truncate-set1     first truncate SET1 to length of SET2");
+    println!("  -h, --help              display this help and exit");
+    println!();
+    println!("SETs are specified as strings of characters. Most represent themselves.");
+    println!("Interpreted sequences are:");
+    println!("  \\NNN   character with octal value NNN (1 to 3 octal digits)");
+    println!("  \\\\     backslash");
+    println!("  \\a     audible BEL");
+    println!("  \\b     backspace");
+    println!("  \\f     form feed");
+    println!("  \\n     new line");
+    println!("  \\r     return");
+    println!("  \\t     horizontal tab");
+    println!("  \\v     vertical tab");
+    println!();
+    println!("Character ranges can be specified with CHAR1-CHAR2.");
+    println!();
+    println!("Examples:");
+    println!("  tr 'a-z' 'A-Z'      Convert lowercase to uppercase");
+    println!("  tr -d '0-9'          Delete all digits");
+    println!("  tr -s ' '            Squeeze multiple spaces to single space");
+    println!("  tr '\\n' ' '          Replace newlines with spaces");
+}

@@ -4,7 +4,7 @@ use std::path::Path;
 pub fn get_file_icon(path: &Path) -> &'static str {
     if let Some(extension) = path.extension().and_then(|ext| ext.to_str()) {
         match extension.to_lowercase().as_str() {
-            "png" | "jpg" | "jpeg" | "gif" => "🖼️",
+            "png" | "jpg" | "jpeg" | "gif" => "🖼�E�E,
             "mp4" | "avi" | "mov" | "mkv" => "🎬",
             "mp3" | "wav" | "flac" => "🎵",
             "pdf" => "📄",
@@ -17,7 +17,7 @@ pub fn get_file_icon(path: &Path) -> &'static str {
             "json" => "📋",
             "xml" => "📰",
             "zip" | "tar" | "gz" => "📦",
-            "exe" | "msi" => "⚙️",
+            "exe" | "msi" => "⚙︁E,
             "dll" => "🔧",
             _ => "📄",
         }
@@ -42,8 +42,8 @@ pub fn get_type_icon(file_type: &str) -> &'static str {
         "socket" => "🔌",
         "pipe" => "🔀",
         "block_device" => "💽",
-        "char_device" => "⌨️",
-        _ => "❓",
+        "char_device" => "⌨�E�E,
+        _ => "❁E,
     }
 }
 
@@ -55,7 +55,7 @@ pub fn get_permission_icon(is_readable: bool, is_writable: bool, is_executable: 
         icon.push('👁');
     }
     if is_writable {
-        icon.push('✏');
+        icon.push('✁E);
     }
     if is_executable {
         icon.push('⚡');
@@ -71,9 +71,9 @@ pub fn get_permission_icon(is_readable: bool, is_writable: bool, is_executable: 
 /// Get status icon for commands
 pub fn get_status_icon(success: bool) -> &'static str {
     if success {
-        "✅"
+        "✁E
     } else {
-        "❌"
+        "❁E
     }
 }
 
@@ -82,9 +82,10 @@ pub fn get_process_icon(status: &str) -> &'static str {
     match status.to_lowercase().as_str() {
         "running" => "🏃",
         "sleeping" => "😴",
-        "stopped" => "⛔",
-        "zombie" => "🧟",
+        "stopped" => "⛁E,
+        "zombie" => "🧁E,
         "waiting" => "⏳",
-        _ => "❓",
+        _ => "❁E,
     }
 }
+

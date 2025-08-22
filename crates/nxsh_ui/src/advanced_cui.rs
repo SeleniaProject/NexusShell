@@ -15,15 +15,15 @@
 /// - Dark/light theme support
 /// - Accessibility compliance
 
-use anyhow::{Result, Context};
+use anyhow::Result;
 use crossterm::{
-    style::{Color, Print, ResetColor, SetForegroundColor, SetBackgroundColor, Attribute, SetAttribute},
-    execute, terminal,
+    style::Color,
+    terminal,
 };
 use std::{
-    collections::HashMap,
-    fmt::Write as FmtWrite,
-    io::{self, Write},
+
+
+
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -221,7 +221,7 @@ pub enum ProgressStyle {
     /// Block characters: █████░░░░░
     Blocks,
     
-    /// Bar characters: ━━━━━┅┅┅┅┅
+    /// Bar characters: ━━━━━┅━E��━E��
     Bars,
     
     /// ASCII characters: ####......
@@ -265,10 +265,10 @@ impl IconSet {
     /// Unicode icon set for modern terminals
     pub fn unicode() -> Self {
         Self {
-            success: "✅",
-            error: "❌",
-            warning: "⚠️",
-            info: "ℹ️",
+            success: "✁E,
+            error: "❁E,
+            warning: "⚠�E�E,
+            info: "ℹ�E�E,
             file: "📄",
             directory: "📁",
             loading: "⏳",
@@ -328,15 +328,15 @@ impl BorderChars {
     pub fn unicode() -> Self {
         Self {
             horizontal: '─',
-            vertical: '│',
-            top_left: '┌',
-            top_right: '┐',
-            bottom_left: '└',
-            bottom_right: '┘',
+            vertical: '━E,
+            top_left: '━E,
+            top_right: '━E,
+            bottom_left: '━E,
+            bottom_right: '━E,
             cross: '┼',
             tee_down: '┬',
             tee_up: '┴',
-            tee_right: '├',
+            tee_right: '━E,
             tee_left: '┤',
         }
     }
@@ -613,10 +613,10 @@ impl AdvancedCUI {
         let empty_width = config.width - filled_width;
         
         let (filled_char, empty_char) = match config.style {
-            ProgressStyle::Blocks => ('█', '░'),
-            ProgressStyle::Bars => ('━', '┅'),
+            ProgressStyle::Blocks => ('▁E, '▁E),
+            ProgressStyle::Bars => ('━E, '━E),
             ProgressStyle::Ascii => ('#', '.'),
-            ProgressStyle::Dots => ('●', '○'),
+            ProgressStyle::Dots => ('◁E, '◁E),
         };
         
         let mut output = String::new();
@@ -811,3 +811,4 @@ mod tests {
         assert!(table.contains("Alice"));
     }
 }
+

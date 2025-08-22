@@ -56,6 +56,12 @@ metrics = []
 minimal-logging = ["nxsh_core/minimal-logging", "nxsh_builtins/minimal-logging"]
 logging = ["nxsh_core/logging", "nxsh_builtins/logging"]
 
+# Additional features for development and debugging
+startup-profiling = []
+crash-handler = []
+plugins = ["plugin-secure"]
+non-interactive-default = []
+
 [dependencies]
 clap = { version = "4", features = ["derive"], optional = true }
 nxsh_core = { path = "../nxsh_core", default-features = false }

@@ -15,6 +15,9 @@ use std::{
 };
 use std::io::IsTerminal;
 
+/// Execution context for command execution
+pub type ExecutionContext<'a> = Context<'a>;
+
 /// A writer that tees output to an inner writer and an optional capture buffer.
 struct TeeWriter {
     inner: Box<dyn io::Write + Send>,
@@ -371,6 +374,8 @@ pub struct Context<'a> {
     pub start_time: Instant,
     /// Maximum execution time (timeout)
     pub timeout: Option<Duration>,
+    /// Internationalization manager
+    pub i18n: std::sync::Arc<crate::i18n::I18nManager>,
 }
 
 impl<'a> Context<'a> {
@@ -385,6 +390,10 @@ impl<'a> Context<'a> {
         let cwd = std::env::current_dir()
             .map_err(|e| ShellError::new(ErrorKind::IoError(crate::error::IoErrorKind::NotFound), format!("Failed to get current directory: {e}")))?;
         
+        // Create default i18n manager
+        let i18n_manager = crate::i18n::I18nManager::new(cwd.join("i18n"));
+        let i18n = std::sync::Arc::new(i18n_manager);
+        
         Ok(Self {
             args,
             env,
@@ -398,6 +407,7 @@ impl<'a> Context<'a> {
             job_id: None,
             start_time: Instant::now(),
             timeout: None,
+            i18n,
         })
     }
 

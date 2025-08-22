@@ -24,6 +24,7 @@ pub mod time_enhanced;
 pub mod network;
 pub mod completion;
 pub mod fast_completion;
+pub mod command;
 
 pub use error::{HalError, HalResult};
 
@@ -37,6 +38,7 @@ pub use pipe::{PipeManager, PipeHandle};
 pub use memory::{MemoryManager, MemoryInfo};
 pub use time::TimeManager;
 pub use network::{NetworkManager};
+pub use command::{Command, CommandResult};
 
 /// Initialize the HAL with platform-specific optimizations
 pub fn initialize() -> HalResult<()> {

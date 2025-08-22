@@ -61,7 +61,7 @@ async fn demo_completion_engine() -> Result<()> {
         match engine.get_completions(input, input.len()).await {
             Ok(result) => {
                 let duration = start.elapsed();
-                println!("    ✅ {} candidates in {:.2}ms", 
+                println!("    ✁E{} candidates in {:.2}ms", 
                     result.candidates.len(), 
                     duration.as_nanos() as f64 / 1_000_000.0
                 );
@@ -75,7 +75,7 @@ async fn demo_completion_engine() -> Result<()> {
                 }
             }
             Err(e) => {
-                println!("    ❌ Error: {}", e);
+                println!("    ❁EError: {}", e);
             }
         }
         println!();
@@ -167,7 +167,7 @@ async fn demo_visual_panel() -> Result<()> {
         sleep(Duration::from_millis(200)).await;
     }
     
-    println!("  ✅ Visual panel demo completed!");
+    println!("  ✁EVisual panel demo completed!");
     println!();
     
     Ok(())
@@ -194,7 +194,7 @@ async fn demo_tab_navigation() -> Result<()> {
         // First tab
         match handler.handle_tab_key(input, input.len()).await? {
             TabCompletionResult::SingleCompletion { text, description } => {
-                println!("    ✅ Single completion: '{}' - {:?}", text, description);
+                println!("    ✁ESingle completion: '{}' - {:?}", text, description);
             }
             TabCompletionResult::PartialCompletion { text, remaining_candidates } => {
                 println!("    🔄 Partial completion: '{}' ({} more candidates)", text, remaining_candidates);
@@ -215,7 +215,7 @@ async fn demo_tab_navigation() -> Result<()> {
                 }
             }
             TabCompletionResult::NoSuggestions => {
-                println!("    ℹ️  No suggestions available");
+                println!("    ℹ�E�E No suggestions available");
             }
             other => {
                 println!("    🔍 Result: {:?}", other);
@@ -233,7 +233,7 @@ async fn demo_tab_navigation() -> Result<()> {
     println!("     • Average response time: {:.2}ms", metrics.avg_response_time_ms);
     println!("     • Cache hit rate: {:.1}%", metrics.cache_hit_rate * 100.0);
     
-    println!("  ✅ Tab navigation demo completed!");
+    println!("  ✁ETab navigation demo completed!");
     println!();
     
     Ok(())
@@ -254,7 +254,7 @@ async fn demo_enhanced_editor() -> Result<()> {
         enable_animations: true,
     };
     
-    let editor = EnhancedLineEditor::with_config(config)?;
+    let _editor = EnhancedLineEditor::with_config(config)?;
     
     println!("  🚀 Enhanced line editor features:");
     println!("     • Visual completion panel");
@@ -281,13 +281,14 @@ async fn demo_enhanced_editor() -> Result<()> {
     println!("     • Minimal memory footprint");
     println!("     • Efficient Unicode handling");
     
-    println!("  ✅ Enhanced line editor demo completed!");
+    println!("  ✁EEnhanced line editor demo completed!");
     println!();
     
     Ok(())
 }
 
 /// Helper function to create demo candidates
+#[allow(dead_code)]
 fn create_demo_candidates() -> Vec<CompletionCandidate> {
     vec![
         CompletionCandidate {
@@ -342,3 +343,4 @@ mod tests {
         assert!(matches!(candidates[0].candidate_type, CandidateType::Command));
     }
 }
+

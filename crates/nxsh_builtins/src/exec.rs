@@ -28,3 +28,4 @@ pub fn exec_cli(args: &[String]) -> Result<()> {
         std::process::exit(status.code().unwrap_or(1));
     }
 } 
+

@@ -1,5 +1,5 @@
-//! 補完レイテンシ測定ユーティリティ
-use std::time::{Instant, Duration};
+//! 補完レイチE��シ測定ユーチE��リチE��
+use std::time::Instant;
 
 pub struct CompletionTimer {
     start: Instant,
@@ -14,7 +14,7 @@ impl CompletionTimer {
     }
 }
 
-/// 補完処理の例
+/// 補完�E琁E�E侁E
 pub fn measure_completion<F, T>(f: F) -> (T, f64)
 where F: FnOnce() -> T {
     let timer = CompletionTimer::start();
@@ -22,3 +22,4 @@ where F: FnOnce() -> T {
     let ms = timer.elapsed_ms();
     (result, ms)
 }
+

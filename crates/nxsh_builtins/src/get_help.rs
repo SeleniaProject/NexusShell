@@ -12,3 +12,4 @@ pub fn get_help_cli(args: &[String]) -> Result<()> {
     ])]);
     Ok(())
 }
+

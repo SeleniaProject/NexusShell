@@ -4,17 +4,17 @@
 //! Provides complete functionality without external dependencies.
 
 use anyhow::{anyhow, Result};
-use std::collections::HashSet;
+
 
 #[cfg(unix)]
 use nix::unistd::{getgroups, getgid, Gid, Uid, User, Group};
 
 #[cfg(windows)]
-use windows_sys::Win32::System::Threading::GetCurrentThread;
+
 #[cfg(windows)]
-use windows_sys::Win32::Security::{GetTokenInformation, TokenGroups, TOKEN_QUERY};
+
 #[cfg(windows)]
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+
 
 pub fn groups_cli(args: &[String]) -> Result<()> {
     if args.len() > 1 {
@@ -220,3 +220,5 @@ mod tests {
         assert!(result.is_err());
     }
 }
+
+

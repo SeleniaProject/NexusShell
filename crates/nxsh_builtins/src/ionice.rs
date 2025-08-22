@@ -8,7 +8,7 @@ pub fn ionice_cli(args: Vec<String>) -> Result<()> {
     }
 
     let mut class: Option<u32> = None;
-    let mut _classdata: Option<u32> = None; // 未使用だが将来拡張用
+    let mut _classdata: Option<u32> = None; // 未使用だが封E��拡張用
     let mut pid: Option<u32> = None;
     let mut pgrp: Option<u32> = None;
     let mut uid: Option<u32> = None;
@@ -303,3 +303,4 @@ fn get_class_name(class: u32) -> &'static str {
         _ => "unknown",
     }
 }
+

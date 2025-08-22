@@ -33,4 +33,37 @@ mod tests {
         unset_cli(&["FOO".into()], &ctx).unwrap();
         assert!(ctx.get_var("FOO").is_none());
     }
+}
+
+/// Execute the unset builtin command
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    if args.is_empty() {
+        eprintln!("unset: not enough arguments");
+        return Ok(1);
+    }
+
+    for var_name in args {
+        if var_name.starts_with('-') {
+            match var_name.as_str() {
+                "-h" | "--help" => {
+                    println!("Usage: unset [name ...]");
+                    println!("Unset environment variables.");
+                    println!();
+                    println!("Examples:");
+                    println!("  unset PATH        Unset PATH variable");
+                    println!("  unset VAR1 VAR2   Unset multiple variables");
+                    return Ok(0);
+                }
+                _ => {
+                    eprintln!("unset: invalid option '{}'", var_name);
+                    return Ok(1);
+                }
+            }
+        }
+        
+        std::env::remove_var(var_name);
+    }
+
+    Ok(0)
 } 
+

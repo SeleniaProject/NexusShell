@@ -59,3 +59,4 @@ fn set_hostname(_name: &str) -> Result<()> {
         Err(anyhow!("hostname: setting hostname not supported on Windows yet"))
     }
 } 
+

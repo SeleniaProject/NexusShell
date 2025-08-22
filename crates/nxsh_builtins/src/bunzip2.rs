@@ -360,3 +360,4 @@ fn print_bunzip2_version() {
     println!("This version eliminates C library dependencies for improved");
     println!("security, portability, and integration with NexusShell.");
 }
+

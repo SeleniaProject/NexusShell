@@ -247,7 +247,7 @@ fn process_stdio(options: &ZstdOptions) -> Result<()> {
     let stdin = io::stdin();
     let mut reader = BufReader::new(stdin.lock());
 
-    // Decide output target: --stdout 優先; それ以外は -o FILE があればファイル、なければ stdout
+    // Decide output target: --stdout 優允E それ以外�E -o FILE があれ�Eファイル、なければ stdout
     let to_stdout = options.stdout || options.output.is_none();
 
     if to_stdout {
@@ -395,13 +395,10 @@ fn process_single_file(filename: &str, options: &ZstdOptions) -> Result<()> {
 fn compress_stream_full<R: Read, W: Write>(reader: &mut R, writer: &mut W, options: &ZstdOptions) -> Result<()> {
     use zstd_impl::{compress_reader_to_writer, FullZstdOptions};
     // 1st milestone: emit a Compressed block with Raw literals + nbSeq=0.
-    // ここでは一旦全バッファ読み込みして1フレームに複数 Compressed_Block を生成（128KiB上限を考慮）。
-    let mut input = Vec::new();
+    // ここでは一旦全バッファ読み込みして1フレームに褁E�� Compressed_Block を生成！E28KiB上限を老E�E�E�、E    let mut input = Vec::new();
     reader.read_to_end(&mut input)?;
 
-    // いずれ本格エンコーダへ置換。現状は literals を Raw で詰め、Sequences は nbSeq=0 にする。
-    // 内部の試験用パス（未使用）
-    let mut _tmp = Vec::new();
+    // ぁE��れ本格エンコーダへ置換。現状は literals めERaw で詰め、Sequences は nbSeq=0 にする、E    // 冁E��の試験用パス�E�未使用�E�E    let mut _tmp = Vec::new();
     let _ = compress_reader_to_writer(&input[..], &mut _tmp, FullZstdOptions { 
         level: options.level, 
         checksum: options.checksum, 
@@ -423,8 +420,7 @@ fn decompress_stream<R: Read, W: Write>(
     let mut decoder = StreamingDecoder::new(reader)
         .map_err(|e| anyhow::anyhow!("Failed to create zstd decoder: {}", e))?;
 
-    // メモリ制限オプションは現状デコーダ API 未対応のため予約（no-op）
-    
+    // メモリ制限オプションは現状チE��ーダ API 未対応�Eため予紁E��Eo-op�E�E    
     let mut buffer = vec![0u8; 64 * 1024]; // 64KB buffer
     let mut total_output = 0u64;
 
@@ -738,8 +734,7 @@ fn write_compressed_frame_literals_only<W: Write>(mut w: W, payload: &[u8], chec
     // ensure total Block_Content <= 128KiB
     let max_lits = BLOCK_MAX_CONTENT - overhead_raw;
         let lits = remaining.min(max_lits);
-        // Literals_Section を Raw / RLE / Huffman(圧縮) から選択
-        let first = payload[offset];
+        // Literals_Section めERaw / RLE / Huffman(圧縮) から選抁E        let first = payload[offset];
         let mut is_rle = true;
         for &b in &payload[offset..offset + lits] { if b != first { is_rle = false; break; } }
         let last_block = if offset + lits >= payload.len() { 1u32 } else { 0u32 };
@@ -1846,17 +1841,15 @@ mod tests {
 
     #[test]
     fn zstd_store_parallel_chunked_multiple_frames_roundtrip() {
-        // 2.5 * chunk_size(4MiB) 相当のデータを用意（ここでは小さく 3*64KB にする）
-        let chunk = vec![0xAAu8; 64 * 1024];
+        // 2.5 * chunk_size(4MiB) 相当�EチE�Eタを用意（ここでは小さぁE3*64KB にする�E�E        let chunk = vec![0xAAu8; 64 * 1024];
         let payload = [chunk.clone(), chunk.clone(), chunk.clone()].concat();
         let mut out = Vec::new();
-        // compress_stream_store は 1MiB 以下では単一フレームだが、ここでは slice API を直接複数回呼ぶ
-        // 実運用では threads>1 でフレームが複数に分割されることを模擬
+        // compress_stream_store は 1MiB 以下では単一フレームだが、ここでは slice API を直接褁E��回呼ぶ
+        // 実運用では threads>1 でフレームが褁E��に刁E��されることを模擬
     write_store_frame_slice_with_options(&mut out, &payload[..64*1024], false, 3).expect("w1");
     write_store_frame_slice_with_options(&mut out, &payload[64*1024..128*1024], false, 3).expect("w2");
     write_store_frame_slice_with_options(&mut out, &payload[128*1024..], false, 3).expect("w3");
-        // 連結フレーム全体を解凍
-        let decoded = decode_all(&out);
+        // 連結フレーム全体を解凁E        let decoded = decode_all(&out);
         assert_eq!(decoded, payload);
     }
 
@@ -1887,8 +1880,7 @@ mod tests {
 
     #[test]
     fn zstd_full_literals_huffman_in_compressed_block_and_roundtrip() {
-        // 非一様データ（英語テキスト風）
-        let text = b"This is a tiny test block that should compress with Huffman coding pretty well. ";
+        // 非一様データ�E�英語テキスト風�E�E        let text = b"This is a tiny test block that should compress with Huffman coding pretty well. ";
         let mut payload = Vec::new();
         for _ in 0..20 { payload.extend_from_slice(text); }
         let mut out = Vec::new();
@@ -1902,14 +1894,13 @@ mod tests {
 
     #[test]
     fn zstd_full_literals_huffman_four_streams_selected() {
-        // 入力サイズを >1023 にして SF=00(1ストリーム)の条件を外し、4ストリーム選択を促す
+        // 入力サイズめE>1023 にして SF=00(1ストリーム)の条件を外し、Eストリーム選択を俁E��
         let text = b"Four streams should be chosen for larger blocks with Huffman coding. ";
         let mut payload = Vec::new();
         while payload.len() <= 5000 { payload.extend_from_slice(text); }
         let mut out = Vec::new();
         write_compressed_frame_literals_only(&mut out, &payload, false).expect("write");
-        // LSH の SF ビットを検査して 4 ストリーム (SF!=00) を確認
-        assert_eq!(&out[0..4], &[0x28, 0xB5, 0x2F, 0xFD]);
+        // LSH の SF ビットを検査して 4 ストリーム (SF!=00) を確誁E        assert_eq!(&out[0..4], &[0x28, 0xB5, 0x2F, 0xFD]);
         let fhd = out[4];
         let fcs_code = fhd >> 6;
         let fcs_bytes = match fcs_code { 0b00 => 1, 0b01 => 2, 0b10 => 4, 0b11 => 8, _ => unreachable!() };
@@ -1919,8 +1910,7 @@ mod tests {
         let sf = (lsh_b0 >> 2) & 0b11;
         assert_eq!(lbt, 0b10, "LBT must be Compressed for Huffman literals");
         assert_ne!(sf, 0b00, "SF=00 would be 1-stream; expected 4-stream literals");
-        // 復号して正しく往復することを確認
-        let decoded = decode_all(&out);
+        // 復号して正しく往復することを確誁E        let decoded = decode_all(&out);
         assert_eq!(decoded, payload);
     }
 
@@ -1929,7 +1919,7 @@ mod tests {
         let payload: Vec<u8> = (0..1500).map(|i| (i as u8).wrapping_mul(31)).collect();
         let mut out = Vec::new();
         write_store_frame_slice_with_options(&mut out, &payload, true, 3).expect("write");
-        // 最後の4バイトがチェックサム
+        // 最後�E4バイトがチェチE��サム
         assert!(out.len() >= 4);
         let tail = &out[out.len()-4..];
         let expected64 = xxhash_rust::xxh64::xxh64(&payload, 0);
@@ -1950,3 +1940,4 @@ mod tests {
     }
 }
 }
+

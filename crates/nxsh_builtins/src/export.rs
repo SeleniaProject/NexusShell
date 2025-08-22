@@ -3,7 +3,7 @@ use std::env;
 use anyhow::Result;
 use nxsh_core::{ErrorKind, ShellError};
 use crate::function::{get_function, list_functions};
-use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
+
 
 pub fn export_cli(args: Vec<String>) -> Result<()> {
     if args.contains(&"-h".to_string()) || args.contains(&"--help".to_string()) {
@@ -360,4 +360,11 @@ fn export_functions(names: &[String]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+
+/// Execute function stub
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    eprintln!("Command not yet implemented");
+    Ok(1)
 }

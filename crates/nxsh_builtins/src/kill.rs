@@ -7,7 +7,7 @@ use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError,
 use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
 use nxsh_core::job::{with_global_job_manager, JobSignal};
 use crate::common::process_utils::execute_kill_target;
-use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
+
 
 fn runtime_error(message: &str) -> ShellError {
     ShellError::new(
@@ -351,7 +351,7 @@ fn parse_kill_args(args: &[String]) -> ShellResult<KillOptions> {
 }
 
 fn parse_signal(signal_str: &str, signal_map: &HashMap<String, i32>) -> ShellResult<(i32, String)> {
-    // 数値として解析
+    // 数値として解极E
     if let Ok(sig_num) = signal_str.parse::<i32>() {
         // Valid signal range check (typically 1-31 for Unix)
         if sig_num < 1 || sig_num > 31 {
@@ -360,7 +360,7 @@ fn parse_signal(signal_str: &str, signal_map: &HashMap<String, i32>) -> ShellRes
         let sig_name = get_signal_name(sig_num).unwrap_or_else(|| sig_num.to_string());
         return Ok((sig_num, sig_name));
     }
-    // シグナル名 (SIG 前置きを strip_prefix)
+    // シグナル吁E(SIG 前置きを strip_prefix)
     let signal_upper = signal_str.to_uppercase();
     let signal_name = signal_upper.strip_prefix("SIG").unwrap_or(&signal_upper);
     if let Some(&sig_num) = signal_map.get(signal_name) {
@@ -1073,4 +1073,11 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid signal number"));
     }
+}
+
+
+/// Execute function stub
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    eprintln!("Command not yet implemented");
+    Ok(1)
 }

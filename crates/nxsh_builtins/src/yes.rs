@@ -8,6 +8,7 @@
 
 use anyhow::Result;
 use std::io::{Write, BufWriter, stdout};
+use crate::common::{BuiltinResult, BuiltinContext};
 
 /// Entry point for the yes builtin.
 pub fn yes_cli(args: &[String]) -> Result<()> {
@@ -26,6 +27,28 @@ pub fn yes_cli(args: &[String]) -> Result<()> {
     }
 }
 
+/// Execute the yes builtin command
+pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
+    let output_string = if args.is_empty() {
+        "y".to_string()
+    } else {
+        args.join(" ")
+    };
+
+    loop {
+        println!("{}", output_string);
+        
+        // Flush stdout to ensure immediate output
+        if let Err(_) = stdout().flush() {
+            break;
+        }
+    }
+
+    // This should never be reached in normal operation
+    // as the command runs until interrupted
+    Ok(0)
+}
+
 #[cfg(test)]
 mod tests {
     
@@ -37,3 +60,4 @@ mod tests {
     // Removed redundant assert!(true)
     }
 } 
+

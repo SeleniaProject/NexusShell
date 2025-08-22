@@ -18,3 +18,4 @@ pub fn wait_cli(args: &[String]) -> Result<()> {
     }
     Ok(())
 }
+

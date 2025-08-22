@@ -31,3 +31,4 @@ pub async fn lsusb_cli(args: &[String]) -> Result<()> {
         Ok(())
     }
 }
+

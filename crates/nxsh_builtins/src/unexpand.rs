@@ -139,3 +139,4 @@ fn is_tab_stop(column: usize, tab_stops: &[usize]) -> bool {
     let interval = tab_stops.first().copied().unwrap_or(8);
     column % interval == 0
 }
+

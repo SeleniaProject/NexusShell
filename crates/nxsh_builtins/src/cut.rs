@@ -16,7 +16,8 @@
 use anyhow::{anyhow, Context, Result};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
-use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
+use crate::common::TableFormatter;
+
 
 #[derive(Debug, Clone, Copy)]
 enum CutMode {
@@ -78,7 +79,7 @@ pub fn cut_cli(args: &[String]) -> Result<()> {
         return Err(anyhow!("No fields specified"));
     }
     
-    let formatter = TableFormatter::new();
+    let _formatter = TableFormatter::new();
     
     // Process each file or stdin
     if options.files.is_empty() {
@@ -326,4 +327,14 @@ fn process_bytes(line: &str, options: &CutOptions) -> Result<()> {
     }
     
     Ok(())
+}
+
+
+
+
+
+/// Execute function stub
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    eprintln!("Command not yet implemented");
+    Ok(1)
 }

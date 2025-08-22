@@ -575,7 +575,7 @@ impl UpdateSystem {
                 req = req.set("Authorization", &format!("Bearer {}", key));
             }
 
-            let mut resp = req.call().map_err(|e| crate::anyhow!("download failed: {e}"))?;
+            let resp = req.call().map_err(|e| crate::anyhow!("download failed: {e}"))?;
             if resp.status() != 200 {
                 return Err(crate::anyhow!("download HTTP status {}", resp.status()))
             }

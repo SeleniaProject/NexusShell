@@ -162,7 +162,7 @@ fn interactive_schedule_guide() -> Result<()> {
     use std::io::{self, Write};
 
     println!("╭─────────────────────────────────────────────────────────────╮");
-    println!("│                    📅 Task Scheduler Guide                   │");
+    println!("━E                   📅 Task Scheduler Guide                   ━E);
     println!("╰─────────────────────────────────────────────────────────────╯");
     println!();
     
@@ -194,15 +194,15 @@ fn interactive_schedule_guide() -> Result<()> {
     
     println!("🎯 What would you like to do?");
     println!();
-    println!("   1️⃣  Schedule a one-time task");
-    println!("   2️⃣  Schedule a recurring task (cron-style)");
-    println!("   3️⃣  Schedule an interval-based task");
-    println!("   4️⃣  List all scheduled tasks");
-    println!("   5️⃣  View task statistics");
-    println!("   6️⃣  Delete a task");
-    println!("   7️⃣  Enable/disable a task");
-    println!("   8️⃣  Show help and examples");
-    println!("   0️⃣  Exit");
+    println!("   1�E�⃣  Schedule a one-time task");
+    println!("   2�E�⃣  Schedule a recurring task (cron-style)");
+    println!("   3�E�⃣  Schedule an interval-based task");
+    println!("   4�E�⃣  List all scheduled tasks");
+    println!("   5�E�⃣  View task statistics");
+    println!("   6�E�⃣  Delete a task");
+    println!("   7�E�⃣  Enable/disable a task");
+    println!("   8�E�⃣  Show help and examples");
+    println!("   0�E�⃣  Exit");
     println!();
     
     loop {
@@ -239,7 +239,7 @@ fn interactive_schedule_guide() -> Result<()> {
                         schedule_task_external(time_spec, command)?;
                     }
                 } else {
-                    println!("❌ Command cannot be empty!");
+                    println!("❁ECommand cannot be empty!");
                 }
             },
             "2" => {
@@ -270,7 +270,7 @@ fn interactive_schedule_guide() -> Result<()> {
                 if !command.is_empty() && !cron_spec.is_empty() {
                     schedule_task_cron(command, cron_spec)?;
                 } else {
-                    println!("❌ Both schedule and command are required!");
+                    println!("❁EBoth schedule and command are required!");
                 }
             },
             "3" => {
@@ -278,7 +278,7 @@ fn interactive_schedule_guide() -> Result<()> {
                 println!("⚡ Schedule Interval-Based Task");
                 println!("──────────────────────────────");
                 
-                print!("⏱️  Interval in seconds: ");
+                print!("⏱�E�E Interval in seconds: ");
                 io::stdout().flush()?;
                 let mut interval_input = String::new();
                 io::stdin().read_line(&mut interval_input)?;
@@ -293,10 +293,10 @@ fn interactive_schedule_guide() -> Result<()> {
                     if !command.is_empty() {
                         schedule_task_interval(command, seconds)?;
                     } else {
-                        println!("❌ Command cannot be empty!");
+                        println!("❁ECommand cannot be empty!");
                     }
                 } else {
-                    println!("❌ Invalid interval! Please enter a number of seconds.");
+                    println!("❁EInvalid interval! Please enter a number of seconds.");
                 }
             },
             "4" => {
@@ -313,10 +313,10 @@ fn interactive_schedule_guide() -> Result<()> {
             },
             "6" => {
                 println!();
-                println!("🗑️  Delete Task");
+                println!("🗑�E�E Delete Task");
                 println!("──────────────");
                 
-                print!("🆔 Task ID to delete: ");
+                print!("�E Task ID to delete: ");
                 io::stdout().flush()?;
                 let mut id_input = String::new();
                 io::stdin().read_line(&mut id_input)?;
@@ -325,15 +325,15 @@ fn interactive_schedule_guide() -> Result<()> {
                 if !task_id.is_empty() {
                     delete_task(task_id)?;
                 } else {
-                    println!("❌ Task ID cannot be empty!");
+                    println!("❁ETask ID cannot be empty!");
                 }
             },
             "7" => {
                 println!();
-                println!("⚙️  Enable/Disable Task");
+                println!("⚙︁E Enable/Disable Task");
                 println!("─────────────────────");
                 
-                print!("🆔 Task ID: ");
+                print!("�E Task ID: ");
                 io::stdout().flush()?;
                 let mut id_input = String::new();
                 io::stdin().read_line(&mut id_input)?;
@@ -349,10 +349,10 @@ fn interactive_schedule_guide() -> Result<()> {
                     match action.as_str() {
                         "enable" => enable_task(task_id)?,
                         "disable" => disable_task(task_id)?,
-                        _ => println!("❌ Invalid action! Use 'enable' or 'disable'."),
+                        _ => println!("❁EInvalid action! Use 'enable' or 'disable'."),
                     }
                 } else {
-                    println!("❌ Task ID cannot be empty!");
+                    println!("❁ETask ID cannot be empty!");
                 }
             },
             "8" => {
@@ -364,7 +364,7 @@ fn interactive_schedule_guide() -> Result<()> {
                 break;
             },
             _ => {
-                println!("❌ Invalid choice! Please enter a number from 0-8.");
+                println!("❁EInvalid choice! Please enter a number from 0-8.");
             },
         }
         
@@ -382,7 +382,7 @@ fn schedule_task_once_epoch(command: &str, epoch: u64) -> Result<()> {
     let (rt, sched) = ensure_scheduler()?;
     let job_id = rt.block_on(async { sched.schedule_once_epoch(command.to_string(), epoch).await })
         .map_err(|e| anyhow!("Failed to schedule task: {e}"))?;
-    println!("✅ Task scheduled successfully with ID: {}", job_id);
+    println!("✁ETask scheduled successfully with ID: {}", job_id);
     Ok(())
 }
 
@@ -396,7 +396,7 @@ fn schedule_task_external(time_spec: &str, command: &str) -> Result<()> {
             .map_err(|e| anyhow!("Failed to launch 'at': {e}"))?;
         
         if status.success() {
-            println!("✅ Task scheduled successfully using 'at' command");
+            println!("✁ETask scheduled successfully using 'at' command");
         } else {
             return Err(anyhow!("'at' command failed"));
         }
@@ -410,7 +410,7 @@ fn schedule_task_cron(command: &str, cron_spec: &str) -> Result<()> {
     let (rt, sched) = ensure_scheduler()?;
     let job_id = rt.block_on(async { sched.schedule_cron(command.to_string(), cron_spec.to_string()).await })
         .map_err(|e| anyhow!("Failed to schedule cron task: {e}"))?;
-    println!("✅ Cron task scheduled successfully with ID: {}", job_id);
+    println!("✁ECron task scheduled successfully with ID: {}", job_id);
     Ok(())
 }
 
@@ -418,7 +418,7 @@ fn schedule_task_interval(command: &str, seconds: u64) -> Result<()> {
     let (rt, sched) = ensure_scheduler()?;
     let job_id = rt.block_on(async { sched.schedule_interval(command.to_string(), seconds).await })
         .map_err(|e| anyhow!("Failed to schedule interval task: {e}"))?;
-    println!("✅ Interval task scheduled successfully with ID: {}", job_id);
+    println!("✁EInterval task scheduled successfully with ID: {}", job_id);
     Ok(())
 }
 
@@ -431,8 +431,8 @@ fn list_scheduled_tasks() -> Result<()> {
         return Ok(());
     }
     
-    println!("┌──────────────┬────────────┬─────────────────────┬─────────────────────────────────────────┐");
-    println!("│ Task ID      │ Type       │ Next Run            │ Command                                 │");
+    println!("┌──────────────┬────────────┬─────────────────────┬─────────────────────────────────────────━E);
+    println!("━ETask ID      ━EType       ━ENext Run            ━ECommand                                 ━E);
     println!("├──────────────┼────────────┼─────────────────────┼─────────────────────────────────────────┤");
     
     for job in jobs {
@@ -462,11 +462,11 @@ fn list_scheduled_tasks() -> Result<()> {
             job.command.clone()
         };
         
-        println!("│ {:<12} │ {:<10} │ {:<19} │ {:<39} │", 
+        println!("━E{:<12} ━E{:<10} ━E{:<19} ━E{:<39} ━E, 
                  job.id, kind, time_str, cmd_truncated);
     }
     
-    println!("└──────────────┴────────────┴─────────────────────┴─────────────────────────────────────────┘");
+    println!("└──────────────┴────────────┴─────────────────────┴─────────────────────────────────────────━E);
     Ok(())
 }
 
@@ -488,9 +488,9 @@ fn delete_task(task_id: &str) -> Result<()> {
     let ok = rt.block_on(async { sched.cancel_job(task_id).await })?;
     
     if ok {
-        println!("✅ Task {} deleted successfully", task_id);
+        println!("✁ETask {} deleted successfully", task_id);
     } else {
-        println!("❌ Task {} not found", task_id);
+        println!("❁ETask {} not found", task_id);
     }
     Ok(())
 }
@@ -500,9 +500,9 @@ fn enable_task(task_id: &str) -> Result<()> {
     let ok = rt.block_on(async { sched.enable_job(task_id).await })?;
     
     if ok {
-        println!("✅ Task {} enabled successfully", task_id);
+        println!("✁ETask {} enabled successfully", task_id);
     } else {
-        println!("❌ Task {} not found", task_id);
+        println!("❁ETask {} not found", task_id);
     }
     Ok(())
 }
@@ -512,9 +512,9 @@ fn disable_task(task_id: &str) -> Result<()> {
     let ok = rt.block_on(async { sched.disable_job(task_id).await })?;
     
     if ok {
-        println!("✅ Task {} disabled successfully", task_id);
+        println!("✁ETask {} disabled successfully", task_id);
     } else {
-        println!("❌ Task {} not found", task_id);
+        println!("❁ETask {} not found", task_id);
     }
     Ok(())
 }
@@ -662,3 +662,4 @@ mod tests {
         let _ = result; // May fail without scheduler, but shouldn't panic
     }
 }
+

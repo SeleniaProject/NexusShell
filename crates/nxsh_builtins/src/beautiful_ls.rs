@@ -730,3 +730,4 @@ mod tests {
         assert_eq!(ls.format_size(1048576), "1.0 M");
     }
 }
+

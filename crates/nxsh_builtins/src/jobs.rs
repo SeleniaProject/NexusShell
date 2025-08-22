@@ -4,7 +4,7 @@ use anyhow::Result;
 use tabled::{Table, Tabled};
 use std::sync::{Arc, Mutex};
 use once_cell::sync::Lazy;
-use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
+
 
 static JOB_TABLE: Lazy<Arc<Mutex<HashMap<u32, Job>>>> = Lazy::new(|| {
     Arc::new(Mutex::new(HashMap::new()))
@@ -109,3 +109,11 @@ pub fn disown_cli(all: bool, id: Option<u32>) {
         }
     }
 } 
+
+
+
+/// Execute function stub
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    eprintln!("Command not yet implemented");
+    Ok(1)
+}

@@ -9,6 +9,7 @@ pub use error::{ShellError, ErrorKind, ShellResult};
 pub use context::{ShellContext, Context};
 pub use job::{Job, JobManager, JobStatus};
 pub use stream::{Stream, StreamType, StreamData};
+pub use shell::{Shell, Config, ShellState};
 #[cfg(feature = "metrics")]
 pub use metrics::{MetricsSystem, MetricsConfig};
 #[cfg(feature = "logging")]
@@ -100,6 +101,14 @@ pub fn shutdown() -> ShellResult<()> {
     nxsh_hal::shutdown()?;
     nxsh_log_info!("NexusShell core shutdown");
     Ok(())
+}
+
+/// Execute an AST node using the core execution engine
+pub fn execute_ast(ast: &nxsh_parser::ast::AstNode, shell_state: &mut ShellState) -> ShellResult<i32> {
+    let mut shell = Shell::from_state(shell_state.clone());
+    let result = shell.eval_ast(ast)?;
+    *shell_state = shell.into_state();
+    Ok(result.exit_code)
 } 
 
 // Lightweight logging facade macros – keep call sites but allow stripping heavy formatting in minimal builds

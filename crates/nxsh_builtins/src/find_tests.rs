@@ -678,3 +678,4 @@ fn test_parallel_processing() {
     assert!(stats.files_examined.load(std::sync::atomic::Ordering::Relaxed) > 0);
     assert!(stats.matches_found.load(std::sync::atomic::Ordering::Relaxed) >= 10);
 }
+

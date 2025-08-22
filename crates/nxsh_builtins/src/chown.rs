@@ -30,7 +30,7 @@ use which::which;
 use nix::unistd::{User, Group, Uid, Gid};
 
 #[cfg(windows)]
-use windows::Win32::Security::SID_NAME_USE;
+
 
 pub fn chown_cli(args: &[String]) -> Result<()> {
     // Parse arguments first to handle our enhanced options
@@ -462,8 +462,8 @@ fn print_chown_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use std::path::Path;
+
+
 
     #[test]
     fn test_parse_chown_args_basic() {
@@ -597,3 +597,6 @@ mod tests {
         let _ = fs::remove_file(&temp_file);
     }
 } 
+
+
+

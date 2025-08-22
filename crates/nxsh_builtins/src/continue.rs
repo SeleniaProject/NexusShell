@@ -34,3 +34,4 @@ mod tests {
         assert_eq!(err.downcast_ref::<ContinueSignal>().unwrap().levels, 3);
     }
 } 
+

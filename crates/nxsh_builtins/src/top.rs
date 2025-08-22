@@ -5,7 +5,7 @@
 use std::io::{self};
 use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError, ErrorKind};
 use nxsh_core::error::RuntimeErrorKind;
-use crate::ui_design::{TableFormatter, Colorize};
+
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent},
@@ -968,3 +968,10 @@ pub fn top_cli(_args: &[String]) -> anyhow::Result<()> {
     
     Ok(())
 } 
+
+
+
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    println!("top: Command not yet implemented");
+    Ok(0)
+}

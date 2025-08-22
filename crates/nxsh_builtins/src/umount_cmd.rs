@@ -24,3 +24,4 @@ pub async fn umount_cli(args: &[String]) -> Result<()> {
 
 #[cfg(test)]
 mod tests { use super::*; #[tokio::test] async fn umount_stub(){ let _ = umount_cli(&["/mnt/null".into()]).await; }} 
+

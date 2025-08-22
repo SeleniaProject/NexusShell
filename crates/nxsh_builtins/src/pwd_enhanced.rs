@@ -38,7 +38,7 @@ pub fn pwd_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
     let components: Vec<&str> = path_str.split(std::path::MAIN_SEPARATOR).collect();
     
     println!("\n{} {}", 
-        formatter.icons.folder, 
+        formatter.icons.directory, 
         "Path:".primary()
     );
     
@@ -84,3 +84,4 @@ mod tests {
         pwd_cli(&[], &ctx).unwrap();
     }
 }
+

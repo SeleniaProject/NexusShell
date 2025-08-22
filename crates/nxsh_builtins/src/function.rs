@@ -389,3 +389,4 @@ mod tests {
         assert_eq!(env.get_local_var("test"), Some(&"value".to_string()));
     }
 }
+

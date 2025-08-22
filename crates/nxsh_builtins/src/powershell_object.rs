@@ -1,5 +1,5 @@
 //! Minimal PowerShell-like typed object abstraction (scaffold).
-//! BusyBox / minimal ビルドでは未使用。`powershell-objects` feature 導入予定の先行土台。
+//! BusyBox / minimal ビルドでは未使用。`powershell-objects` feature 導�E予定�E先行土台、E
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
@@ -24,3 +24,4 @@ pub fn emit(objects: &[PowerShellObject]) {
         for o in objects { println!("{:?}", o); }
     }
 }
+

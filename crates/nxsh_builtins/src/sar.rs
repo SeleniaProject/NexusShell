@@ -54,3 +54,4 @@ pub fn sar_cli(args: &[String]) -> Result<()> {
 
     Ok(())
 }
+

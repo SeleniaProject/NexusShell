@@ -8,7 +8,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter};
 
 // Beautiful CUI design
-use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
+use crate::ui_design::{ColorPalette};
 
 // Helper function to create runtime errors more concisely
 fn runtime_error(msg: &str) -> ShellError {
@@ -347,7 +347,7 @@ fn process_group<W: Write>(
                 let count_str = if count > 1 {
                     format!("{}{:7}{}", colors.warning, count, colors.reset)
                 } else {
-                    format!("{}{:7}{}", colors.dim, count, colors.reset)
+                    format!("{}{:7}{}", colors.info, count, colors.reset)
                 };
                 write!(writer, "{count_str} {line}")?;
             } else {
@@ -369,7 +369,7 @@ fn process_group<W: Write>(
             let count_str = if count > 1 {
                 format!("{}{:7}{}", colors.warning, count, colors.reset)
             } else {
-                format!("{}{:7}{}", colors.dim, count, colors.reset)
+                format!("{}{:7}{}", colors.info, count, colors.reset)
             };
             write!(writer, "{count_str} {line}")?;
         } else {
@@ -494,3 +494,11 @@ mod tests {
         assert_eq!(String::from_utf8(output).unwrap(), expected);
     }
 } 
+
+
+
+/// Execute function stub
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    eprintln!("Command not yet implemented");
+    Ok(1)
+}

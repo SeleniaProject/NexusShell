@@ -1,4 +1,4 @@
-//! `ls` command  Ecomprehensive directory listing implementation.
+﻿//! `ls` command - comprehensive directory listing implementation.
 //!
 //! Supports most standard ls options:
 //!   ls [OPTIONS] [FILES...]
@@ -37,7 +37,11 @@ use std::sync::Mutex;
 use chrono::{DateTime, Local};
 use nu_ansi_term::{Color as NuColor, Style};
 use humansize::{format_size, BINARY};
-use crate::ui_design::{TableFormatter, Colorize, TableOptions, BorderStyle, Alignment, Animation, ProgressBar, Notification};
+use unicode_width::UnicodeWidthStr;
+use super::ui_design::{
+    TableFormatter, Colorize, Animation, Notification,
+    BorderStyle, Alignment, TableOptions
+};
 #[cfg(windows)]
 use windows_sys::Win32::{
     Security::{
@@ -130,6 +134,7 @@ lazy_static::lazy_static! {
 }
 
 /// Get user name from UID with caching
+#[allow(dead_code)]
 fn get_user_name(uid: u32) -> String {
     // Check cache first
     if let Ok(cache) = USER_CACHE.lock() {
@@ -150,6 +155,7 @@ fn get_user_name(uid: u32) -> String {
 }
 
 /// Get group name from GID with caching
+#[allow(dead_code)]
 fn get_group_name(gid: u32) -> String {
     // Check cache first
     if let Ok(cache) = GROUP_CACHE.lock() {
@@ -173,11 +179,13 @@ fn get_group_name(gid: u32) -> String {
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct UserGroupCache {
     users: HashMap<u32, String>,
     groups: HashMap<u32, String>,
 }
 
+#[allow(dead_code)]
 impl UserGroupCache {
     fn new() -> Self {
         Self {
@@ -321,6 +329,7 @@ impl UserGroupCache {
     }
 }
 
+#[allow(dead_code)]
 static USER_GROUP_CACHE: OnceLock<Mutex<UserGroupCache>> = OnceLock::new();
 
 fn get_cache() -> &'static Mutex<UserGroupCache> {
@@ -890,8 +899,10 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
     }
     
     // Configure advanced table options
-    let table_options = TableOptions {
-        border_style: BorderStyle::Rounded,
+    let _table_options = TableOptions {
+        border_style: BorderStyle::Simple,
+        alignment: Alignment::Left,
+        padding: 1,
         show_header: true,
         alternating_rows: entries.len() > 10,
         header_alignment: Alignment::Left,
@@ -901,6 +912,9 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
         compact_mode: false,
         align_columns: true,
         compact: false,
+        truncate: false,
+        sort_by: None,
+        filter: None,
     };
     
     // Define table headers
@@ -1009,8 +1023,7 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
         row.push(time_str.dim());
         
         // Name with icon
-        let icon = formatter.get_file_icon(&entry.path, entry.metadata.is_dir(), 
-                                         is_executable(&entry.metadata));
+        let icon = formatter.get_file_icon(entry.path.file_name().unwrap_or_default().to_str().unwrap_or(""));
         let name_with_icon = if use_colors {
             let colored_name = format_file_name(entry, use_colors, false);
             format!("{} {}", icon, colored_name)
@@ -1039,7 +1052,7 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
     }
     
     // Print the beautiful advanced table
-    print!("{}", formatter.create_advanced_table(headers, rows, table_options));
+    print!("{}", formatter.create_advanced_table(&headers, &rows));
     
     // Show summary for large directories
     if entries.len() > 50 {
@@ -1162,8 +1175,7 @@ fn print_short_format(entries: &[FileInfo], options: &LsOptions, use_colors: boo
             }
             
             // Add file icon
-            let icon = formatter.get_file_icon(&entry.path, entry.metadata.is_dir(), 
-                                             is_executable(&entry.metadata));
+            let icon = formatter.get_file_icon(entry.path.file_name().unwrap_or_default().to_str().unwrap_or(""));
             line.push_str(&format!("{} ", icon));
             
             // Add colored file name
@@ -1243,27 +1255,35 @@ fn print_beautiful_columns(entries: &[FileInfo], options: &LsOptions, use_colors
     
     for entry in entries {
         let mut item = String::new();
+        let mut plain_item = String::new(); // For width calculation without ANSI codes
         
         if options.show_inode {
-            item.push_str(&format!("{} ", get_ino(&entry.metadata).to_string().muted()));
+            let inode_str = format!("{} ", get_ino(&entry.metadata));
+            item.push_str(&inode_str.clone().muted());
+            plain_item.push_str(&inode_str);
         }
         
         if options.show_size_blocks {
             let blocks = get_blocks(&entry.metadata);
-            item.push_str(&format!("{} ", blocks.to_string().dim()));
+            let blocks_str = format!("{} ", blocks);
+            item.push_str(&blocks_str.clone().dim());
+            plain_item.push_str(&blocks_str);
         }
         
         // Add beautiful icon
-        let icon = formatter.get_file_icon(&entry.path, entry.metadata.is_dir(), 
-                                         is_executable(&entry.metadata));
+        let icon = formatter.get_file_icon(entry.path.file_name().unwrap_or_default().to_str().unwrap_or(""));
         item.push_str(&format!("{} ", icon));
+        plain_item.push_str("🗎 "); // Use a consistent width placeholder for icons
         
         let colored_name = format_file_name(entry, use_colors, options.classify);
+        let plain_name = entry.path.file_name().unwrap_or_default().to_string_lossy();
         item.push_str(&colored_name);
+        plain_item.push_str(&plain_name);
         
-        let display_width = formatter.display_width(&item);
+        // Use unicode width for accurate measurement
+        let display_width = unicode_width::UnicodeWidthStr::width(plain_item.as_str());
         max_width = max_width.max(display_width);
-        items.push(item);
+        items.push((item, display_width));
     }
     
     if max_width == 0 {
@@ -1271,23 +1291,16 @@ fn print_beautiful_columns(entries: &[FileInfo], options: &LsOptions, use_colors
     }
     
     // Calculate optimal columns with padding
-    let padding = 3; // Space between columns
+    let padding = 2; // Space between columns
     let cols = ((term_width + padding) / (max_width + padding)).max(1);
     let rows = items.len().div_ceil(cols);
-    
-    // Print header if many files
-    if items.len() > 20 {
-        println!("{}", "Files".bright());
-        println!("{}", "─".repeat(term_width.min(40)).muted());
-    }
     
     for row in 0..rows {
         let mut line = String::new();
         for col in 0..cols {
             let idx = row + col * rows;
             if idx < items.len() {
-                let item = &items[idx];
-                let width = formatter.display_width(item);
+                let (item, width) = &items[idx];
                 line.push_str(item);
                 
                 // Add padding for alignment
@@ -1590,7 +1603,7 @@ fn get_windows_owner_group(path: &Path) -> Option<(String, String)> {
             let name = String::from_utf16(&name_buf).ok()?;
             let domain = if !domain_buf.is_empty() { Some(String::from_utf16(&domain_buf).ok()?) } else { None };
             Some(match domain {
-                Some(d) if !d.is_empty() => format!("{d}\\{name}"),
+                Some(d) if !d.is_empty() => format!("{}\\{}", d, name),
                 _ => name,
             })
         }
@@ -1605,3 +1618,18 @@ fn get_windows_owner_group(path: &Path) -> Option<(String, String)> {
         Some(pair)
     }
 }
+
+/// Execute the ls builtin command
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match ls_cli(args) {
+        Ok(_) => Ok(0),
+        Err(e) => {
+            eprintln!("ls: {}", e);
+            Ok(1)
+        }
+    }
+}
+
+
+
+

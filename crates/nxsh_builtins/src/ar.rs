@@ -17,3 +17,4 @@ pub fn ar_cli(args: &[String]) -> Result<()> {
     }
     Err(anyhow!("ar: backend not found; please install binutils"))
 } 
+

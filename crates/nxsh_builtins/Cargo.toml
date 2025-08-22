@@ -6,7 +6,7 @@ license = "Apache-2.0 OR MIT"
 
 [features]
 # Full (desktop/server) build keeps legacy behavior. BusyBox/minimal build will disable default features via nxsh_cli.
-default = ["full"]
+default = ["minimal"]
 linux = []  # Linux-specific features (procfs removed as it's C/C++ dependent)
 metrics = ["dep:metrics", "dep:metrics-exporter-prometheus"]  # Enable metrics + prometheus exporter
 # Advanced updater (HTTP + semantic versioning + signatures). All heavy HTTP/crypto deps made optional.
@@ -82,8 +82,8 @@ full = [
 ]
 
 # Minimal intentionally empty; used by nxsh_cli busybox-min to opt-out of heavy sets.
-# Truly minimal: no heavy regex, parallel, or rich error layers, no timezone data
-minimal = ["light-i18n"]
+# Truly minimal: no heavy regex, parallel, or rich error layers, no timezone data, no i18n
+minimal = []
 super-min = ["dep:futures"] # ultra-minimal: include lightweight futures executor for async builtins dispatch
 
 # Minimal compression preset for busybox mode (only gzip) — opt-in via CLI if needed
@@ -93,6 +93,7 @@ minimal-compression = ["compression-core"]
 [dependencies]
 nxsh_core = { path = "../nxsh_core", default-features = false, features = ["error-rich", "heavy-time"] }
 nxsh_hal = { path = "../nxsh_hal" }
+nxsh_ui = { path = "../nxsh_ui" }
 anyhow = { version = "1", features = ["backtrace"] }
 tracing = "0.1"
 serde = { version = "1.0", features = ["derive"] }

@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 // Beautiful CUI design
-use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
+use crate::ui_design::{ColorPalette, Icons};
 
 /// CLI wrapper function for whoami command
 pub fn whoami_cli(args: &[String]) -> Result<()> {
@@ -21,7 +21,7 @@ pub fn whoami_cli(args: &[String]) -> Result<()> {
             let colors = ColorPalette::new();
             let icons = Icons::new();
             println!("{}{} Current user: {}{}{}", 
-                colors.primary, icons.user, colors.bright, username, colors.reset);
+                colors.primary, "👤", colors.success, username, colors.reset);
         },
         Err(_) => {
             // Fallback to current user detection
@@ -46,4 +46,12 @@ pub fn whoami_cli(args: &[String]) -> Result<()> {
     }
     
     Ok(())
+}
+
+
+
+/// Execute function stub
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    eprintln!("Command not yet implemented");
+    Ok(1)
 }

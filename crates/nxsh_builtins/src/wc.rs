@@ -17,14 +17,15 @@
 
 use anyhow::{anyhow, Result};
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
+use crate::common::TableFormatter;
 use crate::ui_design::{
-    TableFormatter, Colorize, ProgressBar, Animation, TableOptions, BorderStyle, 
-    Alignment, Notification, NotificationType
+    Colorize, 
+
 };
 use std::path::Path;
-use std::time::{Duration, Instant};
-use std::thread;
+
+
 
 bitflags::bitflags! {
     struct Mode: u8 {
@@ -249,14 +250,15 @@ fn print_counts(counts: (usize, usize, usize, usize, usize), label: &str, mode: 
         }
         if mode.contains(Mode::MAXLINE) { 
             headers.push("Max Line");
-            values.push(counts.4.to_string().warning());
+            values.push(counts.4.to_string());
         }
         
         if headers.len() > 1 {
             // Multiple columns - use table format
             println!("{} {}", formatter.icons.document, label.bright());
-            let rows = vec![values];
-            print!("{}", formatter.create_table(&headers, &rows));
+            let string_headers: Vec<String> = headers.iter().map(|s| s.to_string()).collect();
+            let string_rows = vec![values.iter().map(|s| s.to_string()).collect()];
+            print!("{}", formatter.create_table(&string_headers, &string_rows));
         } else {
             // Single column - use simple format
             print!("{} {} {} {}", 
@@ -283,7 +285,7 @@ fn print_counts(counts: (usize, usize, usize, usize, usize), label: &str, mode: 
             out_parts.push(format!("{} {}", counts.3.to_string().secondary(), "chars".muted()));
         }
         if mode.contains(Mode::MAXLINE) { 
-            out_parts.push(format!("{} {}", counts.4.to_string().warning(), "max".muted()));
+            out_parts.push(format!("{} {}", counts.4.to_string(), "max".muted()));
         }
         
         if show_label {
@@ -423,4 +425,12 @@ mod tests {
         let result = wc_cli(&["-lwc".to_string(), path]);
         assert!(result.is_ok());
     }
+}
+
+
+
+/// Execute function stub
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    eprintln!("Command not yet implemented");
+    Ok(1)
 }

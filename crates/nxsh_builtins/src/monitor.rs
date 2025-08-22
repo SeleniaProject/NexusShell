@@ -3,7 +3,7 @@
 
 use anyhow::Result;
 use crate::ui_design::{
-    TableFormatter, Colorize, Animation, ProgressBar, create_advanced_table,
+    Colorize, create_advanced_table,
     TableOptions, BorderStyle, Alignment, ItemStatus, StatusItem, StatusDashboard, DashboardSection, SectionStyle
 };
 use std::time::{Duration, Instant};
@@ -40,7 +40,7 @@ impl SystemMonitor {
     }
     
     pub fn run_dashboard(&self) -> Result<()> {
-        println!("{}", "🖥️  Starting System Monitor Dashboard...".primary());
+        println!("{}", "🖥�E�E�E�E Starting System Monitor Dashboard...".primary());
         let _animation = Animation::spinner();
         println!("Initializing monitoring systems...");
         
@@ -60,7 +60,7 @@ impl SystemMonitor {
                 println!("\n{} Press Ctrl+C to exit, Enter to refresh manually...", "💡".info());
                 
                 // Non-blocking input check
-                use std::io::{self, Read};
+                use std::io::Read;
                 let mut buffer = [0; 1];
                 match std::io::stdin().read(&mut buffer) {
                     Ok(_) => {
@@ -114,7 +114,7 @@ impl SystemMonitor {
         
         // System Overview Section
         let mut overview_section = DashboardSection {
-            title: "🖥️  System Overview".to_string(),
+            title: "🖥�E�E�E�E System Overview".to_string(),
             style: SectionStyle::Boxed,
             items: Vec::new(),
         };
@@ -169,7 +169,7 @@ impl SystemMonitor {
                 metrics.load_average.2
             ),
             status: self.get_load_status(metrics.load_average.0),
-            icon: "⚖️".to_string(),
+            icon: "⚖︁E.to_string(),
         });
         
         performance_section.items.push(StatusItem {
@@ -194,7 +194,7 @@ impl SystemMonitor {
             label: "Received".to_string(),
             value: bytesize::ByteSize::b(metrics.network_rx).to_string(),
             status: ItemStatus::Info,
-            icon: "⬇️".to_string(),
+            icon: "⬁E�E��E�E.to_string(),
         });
         
         network_section.items.push(StatusItem {
@@ -202,7 +202,7 @@ impl SystemMonitor {
             label: "Transmitted".to_string(),
             value: bytesize::ByteSize::b(metrics.network_tx).to_string(),
             status: ItemStatus::Info,
-            icon: "⬆️".to_string(),
+            icon: "⬁E�E��E�E.to_string(),
         });
         
         dashboard.add_section(network_section);
@@ -247,9 +247,9 @@ impl SystemMonitor {
         let empty = bar_width - filled;
         
         let bar = match percentage {
-            p if p > 90.0 => format!("[{}{}]", "█".repeat(filled).error(), "░".repeat(empty).dim()),
-            p if p > 70.0 => format!("[{}{}]", "█".repeat(filled).warning(), "░".repeat(empty).dim()),
-            _ => format!("[{}{}]", "█".repeat(filled).success(), "░".repeat(empty).dim()),
+            p if p > 90.0 => format!("[{}{}]", "▁E.repeat(filled).error(), "▁E.repeat(empty).dim()),
+            p if p > 70.0 => format!("[{}{}]", "▁E.repeat(filled).warning(), "▁E.repeat(empty).dim()),
+            _ => format!("[{}{}]", "▁E.repeat(filled).success(), "▁E.repeat(empty).dim()),
         };
         
         println!("{:>8}: {} {:.1}%", 
@@ -310,11 +310,11 @@ impl SystemMonitor {
     
     pub fn show_process_table(&self) -> Result<()> {
         println!("\n{}", "⚡ Top Processes".primary());
-        println!("{}", "═".repeat(60).dim());
+        println!("{}", "╁E.repeat(60).dim());
         
         // Simulate process data
         let headers = vec!["PID", "Name", "CPU%", "Memory%", "Status"];
-        let mut rows = vec![
+        let rows = vec![
             vec!["1234".primary(), "firefox".info(), "15.2%".warning(), "8.5%".info(), "Running".success()],
             vec!["5678".primary(), "code".info(), "12.1%".warning(), "12.3%".warning(), "Running".success()],
             vec!["9012".primary(), "cargo".info(), "8.9%".info(), "4.2%".info(), "Running".success()],
@@ -373,8 +373,8 @@ pub fn monitor_cli(args: &[String]) -> Result<()> {
 }
 
 fn show_monitor_help() -> Result<()> {
-    println!("\n{}", "🖥️  System Monitor Help".primary());
-    println!("{}", "═".repeat(50).dim());
+    println!("\n{}", "🖥�E�E�E�E System Monitor Help".primary());
+    println!("{}", "╁E.repeat(50).dim());
     
     println!("\n{}", "Usage:".info());
     println!("  monitor [OPTIONS] [COMMAND]");
@@ -401,3 +401,5 @@ fn show_monitor_help() -> Result<()> {
     
     Ok(())
 }
+
+

@@ -4,8 +4,8 @@
 //! Cross-platform implementation with platform-specific network interfaces.
 
 use anyhow::{anyhow, Result};
-use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr};
+
+use std::net::IpAddr;
 
 #[cfg(unix)]
 use std::fs;
@@ -238,7 +238,7 @@ fn parse_arp_flags(flags_hex: &str) -> String {
     }
 }
 
-fn add_arp_entry(ip: &str, hw_addr: &str, interface: Option<&str>) -> Result<()> {
+fn add_arp_entry(ip: &str, hw_addr: &str, _interface: Option<&str>) -> Result<()> {
     #[cfg(unix)]
     {
         // On Unix systems, typically requires root privileges
@@ -255,7 +255,7 @@ fn add_arp_entry(ip: &str, hw_addr: &str, interface: Option<&str>) -> Result<()>
     #[cfg(windows)]
     {
         // On Windows, try using the arp command
-        let mut cmd_args = vec!["-s", ip, hw_addr];
+        let cmd_args = vec!["-s", ip, hw_addr];
         
         let output = Command::new("arp")
             .args(&cmd_args)
@@ -273,7 +273,7 @@ fn add_arp_entry(ip: &str, hw_addr: &str, interface: Option<&str>) -> Result<()>
     Ok(())
 }
 
-fn delete_arp_entry(ip: &str, interface: Option<&str>) -> Result<()> {
+fn delete_arp_entry(ip: &str, _interface: Option<&str>) -> Result<()> {
     #[cfg(unix)]
     {
         println!("arp: deleting entry for {} (requires root privileges)", ip);
@@ -358,3 +358,6 @@ mod tests {
         assert!(result.is_err());
     }
 }
+
+
+

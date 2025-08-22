@@ -209,7 +209,7 @@ mod comprehensive_awk_tests {
     fn test_mathematical_functions() {
     let mut ctx = create_test_context();
         
-        // Test sin(π/2) ≈ 1.0
+        // Test sin(π/2) ≁E1.0
         let sin_expr = AwkExpression::Function(
             "sin".to_string(),
             vec![AwkExpression::Binary(
@@ -609,3 +609,4 @@ mod comprehensive_awk_tests {
         assert_eq!(to_number(&result), 0.0);
     }
 }
+

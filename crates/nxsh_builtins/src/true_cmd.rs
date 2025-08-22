@@ -1,12 +1,10 @@
-use nxsh_core::ShellError;
+//! NexusShell true command
+//!
+//! The true command that always succeeds (returns 0).
 
-pub fn true_cmd_cli(_args: &[String]) -> Result<(), ShellError> {
-    // The true command always succeeds and does nothing
-    Ok(())
-}
-
-pub fn true_builtin() -> Result<i32, ShellError> {
-    // Return exit status 0 (success)
+/// Execute the true command
+pub fn execute(args: &[String]) -> Result<i32, String> {
+    // true command ignores all arguments and always succeeds
     Ok(0)
 }
 
@@ -15,9 +13,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_true_command() {
-        assert!(true_cmd_cli(&[]).is_ok());
-        assert!(true_cmd_cli(&["any".to_string(), "args".to_string()]).is_ok());
-        assert_eq!(true_builtin().unwrap(), 0);
+    fn test_true_always_succeeds() {
+        assert_eq!(execute(&[]), Ok(0));
+        assert_eq!(execute(&["any".to_string(), "args".to_string()]), Ok(0));
     }
 }
+

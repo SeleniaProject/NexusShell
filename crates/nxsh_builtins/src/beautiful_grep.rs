@@ -852,3 +852,4 @@ mod tests {
         assert_eq!(grep.format_bytes(1048576), "1.0 MB");
     }
 }
+

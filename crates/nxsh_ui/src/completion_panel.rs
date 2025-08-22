@@ -12,7 +12,7 @@ use std::{
     collections::HashMap,
     fmt::Write,
     io::{self, Write as IoWrite},
-    time::{Duration, Instant},
+    time::Instant,
 };
 use unicode_width::{UnicodeWidthStr, UnicodeWidthChar};
 use crossterm::{
@@ -22,7 +22,7 @@ use crossterm::{
     execute,
 };
 
-use crate::completion_engine::{CompletionCandidate, CompletionResult, CompletionContext};
+use crate::completion_engine:...ompletionCandidate};
 
 /// Beautiful completion panel with visual enhancements
 #[derive(Debug, Clone)]
@@ -241,15 +241,15 @@ impl BorderChars {
     /// Unicode box drawing characters
     pub fn unicode() -> Self {
         Self {
-            top_left: '┌',
-            top_right: '┐',
-            bottom_left: '└',
-            bottom_right: '┘',
+            top_left: '━E,
+            top_right: '━E,
+            bottom_left: '━E,
+            bottom_right: '━E,
             horizontal: '─',
-            vertical: '│',
+            vertical: '━E,
             tee_down: '┬',
             tee_up: '┴',
-            tee_right: '├',
+            tee_right: '━E,
             tee_left: '┤',
         }
     }
@@ -556,7 +556,7 @@ impl CompletionPanel {
         let chars = &self.theme.border;
         
         // Apply opacity for animation
-        let alpha = (self.animation_state.current_opacity * 255.0) as u8;
+        let _alpha = (self.animation_state.current_opacity * 255.0) as u8;
         
         execute!(stdout, SetForegroundColor(self.theme.colors.border))?;
 
@@ -798,3 +798,5 @@ mod tests {
         assert!(truncated.ends_with("…"));
     }
 }
+
+

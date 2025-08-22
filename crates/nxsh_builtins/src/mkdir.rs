@@ -13,7 +13,7 @@ use anyhow::{Result, anyhow};
 use std::fs::{self};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
+use super::ui_design::{Colorize, ColorPalette, Icons};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -249,10 +249,11 @@ fn create_single_directory(path: &Path, options: &MkdirOptions) -> Result<()> {
     }
     
     if options.verbose {
+        let palette = ColorPalette::new();
         println!("{} {} {}", 
             Icons::FOLDER_PLUS, 
-            "Created directory:".colorize(&ColorPalette::INFO),
-            path.display().to_string().colorize(&ColorPalette::SUCCESS)
+            "Created directory:".colorize(&palette.info),
+            path.display().to_string().colorize(&palette.success)
         );
     }
     
@@ -291,10 +292,11 @@ fn create_directory_with_parents(path: &Path, options: &MkdirOptions) -> Result<
             }
             
             if options.verbose {
+                let palette = ColorPalette::new();
                 println!("{} {} {}", 
                     Icons::FOLDER_PLUS, 
-                    "Created directory:".colorize(&ColorPalette::INFO),
-                    component.display().to_string().colorize(&ColorPalette::SUCCESS)
+                    "Created directory:".colorize(&palette.info),
+                    component.display().to_string().colorize(&palette.success)
                 );
             }
         }
@@ -431,3 +433,16 @@ mod tests {
 } 
 
 
+
+
+
+/// Execute function for mkdir command
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match mkdir_cli(args) {
+        Ok(_) => Ok(0),
+        Err(e) => {
+            eprintln!("{}", e);
+            Ok(1)
+        }
+    }
+}

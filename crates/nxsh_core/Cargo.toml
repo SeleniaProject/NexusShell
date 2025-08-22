@@ -7,8 +7,8 @@ license = "Apache-2.0"
 repository = "https://github.com/SeleniaProject/NexusShell"
 
 [features]
-# Default now empty to allow true minimal build without `anyhow`.
-default = []
+# Default now includes internationalization for i18n support
+default = ["internationalization"]
 # JIT feature disabled to avoid C/C++ dependencies
  # jit = ["cranelift-codegen", "cranelift-frontend"] 
 object-pipe = []
@@ -143,6 +143,9 @@ wait-timeout = { version = "0.2", default-features = false }
 
 # Time utilities - minimal
 time = { version = "0.3", default-features = false, features = ["std", "parsing"] }
+# Required dependencies for structured data operations
+anyhow = { version = "1.0", default-features = false, features = ["std"] }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 
 [[example]]
 name = "mir_test"

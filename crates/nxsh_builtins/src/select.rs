@@ -17,3 +17,4 @@ pub fn select_cli(args: &[String]) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(&result)?);
     Ok(())
 } 
+

@@ -26,3 +26,4 @@ pub fn traceroute_cli(args: &[String]) -> Result<()> {
 
     Err(anyhow!("traceroute: no compatible backend found in PATH"))
 } 
+

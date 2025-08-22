@@ -57,3 +57,4 @@ fn compute_sha1(data: &[u8]) -> String {
     let hash = hasher.finish();
     format!("{hash:040x}")
 }
+

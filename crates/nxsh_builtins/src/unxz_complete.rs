@@ -351,3 +351,4 @@ fn print_unxz_help() {
     println!("Report bugs to: <https://github.com/SeleniaProject/NexusShell/issues>");
     println!("Home page: <https://github.com/SeleniaProject/NexusShell>");
 }
+

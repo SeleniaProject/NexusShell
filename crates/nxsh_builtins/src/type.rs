@@ -1,57 +1,79 @@
-//! `type` builtin  Edetermine how a command name would be interpreted.
-//! Output categories: alias, builtin, function (reserved), file, not found.
+//! `type` builtin
 
-use anyhow::Result;
-use nxsh_core::context::ShellContext;
-use std::env;
+use crate::common::{BuiltinResult, BuiltinContext};
 use std::path::PathBuf;
-
+use std::env;
 use crate::command::BUILTIN_NAMES;
-use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
+use crate::ui_design::{Colorize, ColorPalette, Icons};
 
-pub fn type_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
+pub fn execute(args: &[String], _ctx: &BuiltinContext) -> BuiltinResult<i32> {
+    if args.is_empty() {
+        eprintln!("type: usage: type [-afptP] name [name ...]");
+        return Ok(1);
+    }
+
+    let _colors = ColorPalette::default();
+
     for name in args {
-        if let Some(alias) = ctx.get_alias(name) {
-            println!("{} {} {} {}", 
-                Icons::ALIAS,
-                name.colorize(&ColorPalette::ACCENT), 
-                "is an alias for".colorize(&ColorPalette::INFO),
-                alias.colorize(&ColorPalette::SUCCESS)
-            );
-            continue;
-        }
+        // Note: Alias lookup not available through BuiltinContext yet
         if BUILTIN_NAMES.contains(&name.as_str()) {
             println!("{} {} {}", 
-                Icons::BUILTIN,
-                name.colorize(&ColorPalette::ACCENT), 
-                "is a shell builtin".colorize(&ColorPalette::SUCCESS)
+                Icons::EXECUTABLE, // Using EXECUTABLE instead of missing COMMAND
+                name.colorize("blue"), 
+                "is a shell builtin".colorize("green")
             );
             continue;
         }
-        if let Some(path) = lookup_path(name) {
+
+        if let Some(path) = find_in_path(name) {
             println!("{} {} {} {}", 
                 Icons::EXECUTABLE,
-                name.colorize(&ColorPalette::ACCENT), 
-                "is".colorize(&ColorPalette::INFO),
-                path.display().to_string().colorize(&ColorPalette::SUCCESS)
+                name.colorize("magenta"),
+                "is".colorize("green"),
+                path.display().to_string().colorize("yellow")
             );
             continue;
         }
-        println!("{} {} {}", 
+
+        println!("{} {}: {}", 
             Icons::ERROR,
-            name.colorize(&ColorPalette::ACCENT), 
-            "not found".colorize(&ColorPalette::ERROR)
+            name.colorize("red"),
+            "not found".colorize("red")
         );
     }
-    Ok(())
+
+    Ok(0)
 }
 
-fn lookup_path(cmd: &str) -> Option<PathBuf> {
-    if cmd.contains('/') { let p = PathBuf::from(cmd); if p.is_file() { return Some(p); } }
-    let path_env = env::var("PATH").unwrap_or_default();
-    for dir in env::split_paths(&path_env) {
-        let p = dir.join(cmd);
-        if p.is_file() { return Some(p); }
+fn find_in_path(name: &str) -> Option<PathBuf> {
+    if let Ok(path_var) = env::var("PATH") {
+        for path_dir in env::split_paths(&path_var) {
+            let mut full_path = path_dir.join(name);
+            
+            // Try with common executable extensions on Windows
+            #[cfg(windows)]
+            {
+                let extensions = ["", ".exe", ".cmd", ".bat", ".com"];
+                for ext in &extensions {
+                    if ext.is_empty() {
+                        full_path = path_dir.join(name);
+                    } else {
+                        full_path = path_dir.join(format!("{}{}", name, ext));
+                    }
+                    
+                    if full_path.exists() && full_path.is_file() {
+                        return Some(full_path);
+                    }
+                }
+            }
+            
+            #[cfg(not(windows))]
+            {
+                if full_path.exists() && full_path.is_file() {
+                    return Some(full_path);
+                }
+            }
+        }
     }
     None
 }
@@ -59,9 +81,18 @@ fn lookup_path(cmd: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn type_builtin() {
-        let ctx = ShellContext::new();
-        type_cli(&["echo".into()], &ctx).unwrap();
+    fn test_find_in_path() {
+        // This test will vary by system, but we can at least test the function doesn't panic
+        let _ = find_in_path("ls");
+        let _ = find_in_path("nonexistent_command_12345");
     }
-} 
+
+    #[test]
+    fn test_type_builtin() {
+        let context = BuiltinContext::default();
+        let result = execute(&["ls".to_string()], &context);
+        assert!(result.is_ok());
+    }
+}

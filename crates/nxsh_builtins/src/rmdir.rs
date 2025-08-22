@@ -13,7 +13,7 @@
 use anyhow::{Result, anyhow};
 use std::fs;
 use std::path::{Path, PathBuf};
-use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
+use super::ui_design::{Colorize, ColorPalette, Icons};
 
 #[derive(Debug, Clone)]
 #[derive(Default)]
@@ -121,10 +121,11 @@ fn remove_single_directory(path: &Path, options: &RmdirOptions) -> Result<()> {
     match fs::remove_dir(path) {
         Ok(()) => {
             if options.verbose {
+                let palette = ColorPalette::new();
                 println!("{} {} {}", 
                     Icons::FOLDER_MINUS, 
-                    "Removed directory:".colorize(&ColorPalette::WARNING),
-                    path.display().to_string().colorize(&ColorPalette::ACCENT)
+                    "Removed directory:".colorize(&palette.warning),
+                    path.display().to_string().colorize(&palette.primary)
                 );
             }
             Ok(())
@@ -292,3 +293,11 @@ mod tests {
         assert!(!is_non_empty_error(&error));
     }
 } 
+
+
+
+/// Execute function stub
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    eprintln!("Command not yet implemented");
+    Ok(1)
+}

@@ -365,3 +365,4 @@ mod tests {
         assert_eq!(options.record_type, RecordType::MX);
     }
 }
+

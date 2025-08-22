@@ -265,3 +265,4 @@ fn print_bunzip2_help() {
     println!("   bunzip2 will only attempt to decompress files ending in");
     println!("   '.bz2', '.tbz2', or '.tbz'. Use -f to override this.");
 }
+

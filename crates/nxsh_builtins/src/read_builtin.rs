@@ -379,3 +379,4 @@ pub fn confirm_action(prompt: &str) -> Result<bool> {
         }
     }
 }
+

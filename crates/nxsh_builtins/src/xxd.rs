@@ -119,3 +119,4 @@ fn hex_dump(data: &[u8], cols: usize, plain: bool, uppercase: bool) -> Result<()
     
     Ok(())
 }
+

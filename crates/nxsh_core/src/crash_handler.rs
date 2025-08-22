@@ -535,16 +535,19 @@ impl CrashHandler {
         None
     }
 
+    #[allow(dead_code)]
     fn get_total_memory() -> Option<u64> {
         // Simplified implementation - would need platform-specific code
         None
     }
 
+    #[allow(dead_code)]
     fn get_available_memory() -> Option<u64> {
         // Simplified implementation - would need platform-specific code
         None
     }
 
+    #[allow(dead_code)]
     fn get_load_average() -> Option<f64> {
         // Simplified implementation - would need platform-specific code
         None

@@ -52,3 +52,4 @@ mod tests {
         dirs_cli(&[]).unwrap();
     }
 } 
+

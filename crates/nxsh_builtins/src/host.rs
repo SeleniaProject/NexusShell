@@ -103,3 +103,4 @@ fn print_host_help() {
     println!("  host example.com");
     println!("  host google.com");
 }
+

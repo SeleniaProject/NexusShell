@@ -248,3 +248,4 @@ fn execute_command(cmd: &str, args: &[&str], extra_args: &[String]) -> Result<()
         Err(e) => Err(ShellError::new(ErrorKind::SystemError(SystemErrorKind::ProcessError), format!("Failed to execute {cmd}: {e}"))),
     }
 }
+

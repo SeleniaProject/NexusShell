@@ -96,3 +96,4 @@ mod tests {
     #[test]
     fn parse_sig() { assert_eq!(parse_signal("INT").unwrap(), SIGINT); }
 } 
+

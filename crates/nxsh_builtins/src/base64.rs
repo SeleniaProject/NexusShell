@@ -172,3 +172,4 @@ fn decode_base64(data: &[u8], ignore_garbage: bool) -> Result<()> {
     io::stdout().write_all(&result)?;
     Ok(())
 }
+

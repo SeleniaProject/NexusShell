@@ -569,3 +569,15 @@ mod tests {
         assert!(should_update_modify_time(&options));
     }
 } 
+
+
+/// Execute function for touch command
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match touch_cli(args) {
+        Ok(_) => Ok(0),
+        Err(e) => {
+            eprintln!("{}", e);
+            Ok(1)
+        }
+    }
+}

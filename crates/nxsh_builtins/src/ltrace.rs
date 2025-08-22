@@ -217,3 +217,4 @@ pub fn ltrace_cli(args: &[String]) -> anyhow::Result<()> {
         Err(e) => Err(anyhow!("ltrace command failed: {}", e)),
     }
 }
+

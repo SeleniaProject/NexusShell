@@ -1,349 +1,611 @@
-//! 高性能補完統合ヘルパー
-//! 
-//! このモジュールは、高性能補完エンジンをrustylineと統合するためのヘルパーを提供します。
+//! 補完システム統合モジュール - NexusShell Completion Integration
+//!
+//! このモジュールは、NexusShellの補完システムと他のコンポーネントとの統合を管理します。
+//! シェル状態、パーサー、プラグインシステムとの連携を提供。
 
-use anyhow::Result;
-use rustyline::{
-    completion::{Completer, Pair},
-    Context as RustylineContext,
-};
-use std::sync::{Arc, Mutex};
-use crate::{
-    completion::NexusCompleter,
-    completion_engine::{AdvancedCompletionEngine, CompletionResult},
-};
-use tokio::runtime::Runtime;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
+use anyhow::{Result, Error};
+use tokio::sync::mpsc;
 
-/// 高性能補完を統合するRustylineヘルパー
-pub struct FastCompletionHelper {
-    /// 高性能エンジン（優先）
-    advanced_engine: Option<Arc<AdvancedCompletionEngine>>,
-    /// フォールバック用基本補完
-    basic_completer: Arc<Mutex<NexusCompleter>>,
-    /// 非同期ランタイム
-    runtime: Runtime,
-    /// パフォーマンス統計
-    stats: Arc<Mutex<CompletionStats>>,
+use crate::completion::{CompletionEngine, CompletionResult, CompletionItem, CompletionType};
+use crate::config::UiConfig;
+
+// シェル状態との統合のためのトレイト
+pub trait ShellStateProvider: Send + Sync {
+    fn get_current_directory(&self) -> Result<std::path::PathBuf>;
+    fn get_environment_variables(&self) -> Result<HashMap<String, String>>;
+    fn get_aliases(&self) -> Result<HashMap<String, String>>;
+    fn get_functions(&self) -> Result<Vec<String>>;
+    fn get_history(&self) -> Result<Vec<String>>;
+    fn is_command_available(&self, command: &str) -> bool;
 }
 
-impl FastCompletionHelper {
-    /// 新しいヘルパーを作成
-    pub fn new() -> Result<Self> {
-        let basic_completer = Arc::new(Mutex::new(NexusCompleter::new()?));
-        let advanced_engine = match AdvancedCompletionEngine::new() {
-            Ok(engine) => {
-                println!("🚀 高性能補完エンジンが有効化されました");
-                Some(Arc::new(engine))
-            }
-            Err(e) => {
-                eprintln!("⚠️  高性能エンジンの初期化に失敗、基本モードで動作: {}", e);
-                None
-            }
-        };
+// パーサー統合のためのトレイト
+pub trait ParserIntegration: Send + Sync {
+    fn parse_command_line(&self, input: &str, cursor: usize) -> Result<CommandContext>;
+    fn get_completion_context(&self, input: &str, cursor: usize) -> Result<CompletionContext>;
+    fn suggest_corrections(&self, input: &str) -> Result<Vec<String>>;
+}
 
-        Ok(Self {
-            advanced_engine,
-            basic_completer,
-            runtime: Runtime::new()?,
-            stats: Arc::new(Mutex::new(CompletionStats::new())),
-        })
-    }
+// コマンドコンテキスト
+#[derive(Debug, Clone)]
+pub struct CommandContext {
+    pub command: String,
+    pub arguments: Vec<String>,
+    pub current_argument_index: Option<usize>,
+    pub is_in_quote: bool,
+    pub quote_type: Option<char>,
+    pub pipeline_position: usize,
+    pub redirection_target: Option<String>,
+}
 
-    /// 補完の統計情報を取得
-    pub fn get_stats(&self) -> CompletionStats {
-        self.stats.lock().unwrap().clone()
-    }
+// 補完コンテキスト
+#[derive(Debug, Clone)]
+pub struct CompletionContext {
+    pub completion_type: ContextType,
+    pub prefix: String,
+    pub command_name: Option<String>,
+    pub argument_position: Option<usize>,
+    pub in_pipeline: bool,
+    pub expected_types: Vec<CompletionType>,
+}
 
-    /// 統計情報をリセット
-    pub fn reset_stats(&self) {
-        if let Ok(mut stats) = self.stats.lock() {
-            *stats = CompletionStats::new();
+#[derive(Debug, Clone, PartialEq)]
+pub enum ContextType {
+    Command,
+    Argument,
+    Option,
+    OptionValue,
+    File,
+    Directory,
+    Variable,
+    Redirection,
+    Pipeline,
+}
+
+// プラグイン補完プロバイダー
+pub trait PluginCompletionProvider: Send + Sync {
+    fn plugin_name(&self) -> &str;
+    fn supports_command(&self, command: &str) -> bool;
+    fn get_command_completions(&self, command: &str, args: &[String], cursor_arg: usize) -> Result<Vec<CompletionItem>>;
+    fn get_option_completions(&self, command: &str, option: &str) -> Result<Vec<CompletionItem>>;
+}
+
+// 統合補完システム
+pub struct IntegratedCompletionSystem {
+    engine: CompletionEngine,
+    shell_state: Option<Arc<dyn ShellStateProvider>>,
+    parser: Option<Arc<dyn ParserIntegration>>,
+    plugin_providers: Vec<Arc<dyn PluginCompletionProvider>>,
+    config: UiConfig,
+    command_cache: Arc<RwLock<HashMap<String, Vec<String>>>>,
+}
+
+impl IntegratedCompletionSystem {
+    pub fn new(config: UiConfig) -> Self {
+        Self {
+            engine: CompletionEngine::new(),
+            shell_state: None,
+            parser: None,
+            plugin_providers: Vec::new(),
+            config,
+            command_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-}
 
-impl Completer for FastCompletionHelper {
-    type Candidate = Pair;
+    pub fn set_shell_state_provider(&mut self, provider: Arc<dyn ShellStateProvider>) {
+        self.shell_state = Some(provider);
+    }
 
-    fn complete(
-        &self,
-        line: &str,
-        pos: usize,
-        _ctx: &RustylineContext<'_>,
-    ) -> rustyline::Result<(usize, Vec<Pair>)> {
-        let start_time = std::time::Instant::now();
-        
-        // 高性能エンジンを優先的に使用
-        if let Some(ref engine) = self.advanced_engine {
-            match self.runtime.block_on(engine.get_completions(line, pos)) {
-                Ok(result) => {
-                    let elapsed = start_time.elapsed();
-                    
-                    // 統計更新
-                    if let Ok(mut stats) = self.stats.lock() {
-                        stats.record_completion(elapsed, result.candidates.len(), true);
-                    }
+    pub fn set_parser(&mut self, parser: Arc<dyn ParserIntegration>) {
+        self.parser = Some(parser);
+    }
 
-                    // 結果をRustyline形式に変換
-                    let pairs: Vec<Pair> = result.candidates
-                        .into_iter()
-                        .map(|candidate| Pair {
-                            display: format!("{} - {}", candidate.text, candidate.description),
-                            replacement: candidate.text,
-                        })
-                        .collect();
+    pub fn add_plugin_provider(&mut self, provider: Arc<dyn PluginCompletionProvider>) {
+        self.plugin_providers.push(provider);
+    }
 
-                    // 単語の開始位置を計算
-                    let word_start = line[..pos].rfind(|c: char| c.is_whitespace() || ";&|<>()".contains(c))
-                        .map(|i| i + 1)
-                        .unwrap_or(0);
+    pub fn get_intelligent_completions(&self, input: &str, cursor: usize) -> Result<CompletionResult> {
+        // Get basic completions from engine
+        let mut result = self.engine.get_completions_at_cursor(input, cursor);
 
-                    return Ok((word_start, pairs));
+        // Enhance with context-aware completions
+        if let Some(parser) = &self.parser {
+            match parser.get_completion_context(input, cursor) {
+                Ok(context) => {
+                    let enhanced_items = self.get_context_aware_completions(&context, input, cursor)?;
+                    result.items.extend(enhanced_items);
                 }
                 Err(e) => {
-                    eprintln!("高性能エンジンエラー、フォールバック: {}", e);
+                    eprintln!("Parser integration failed: {}", e);
                 }
             }
         }
 
-        // フォールバック：基本補完を使用
-        if let Ok(completer) = self.basic_completer.lock() {
-            match completer.complete(line, pos, _ctx) {
-                Ok((start_pos, pairs)) => {
-                    let elapsed = start_time.elapsed();
-                    
-                    // 統計更新
-                    if let Ok(mut stats) = self.stats.lock() {
-                        stats.record_completion(elapsed, pairs.len(), false);
+        // Add shell state completions
+        if let Some(shell_state) = &self.shell_state {
+            let shell_items = self.get_shell_state_completions(shell_state, input, cursor)?;
+            result.items.extend(shell_items);
+        }
+
+        // Add plugin completions
+        let plugin_items = self.get_plugin_completions(input, cursor)?;
+        result.items.extend(plugin_items);
+
+        // Sort and deduplicate
+        result.items.sort_by(|a, b| {
+            b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        result.items.dedup_by(|a, b| a.text == b.text);
+
+        // Limit results
+        if result.items.len() > self.config.completion.max_suggestions {
+            result.items.truncate(self.config.completion.max_suggestions);
+        }
+
+        Ok(result)
+    }
+
+    fn get_context_aware_completions(
+        &self,
+        context: &CompletionContext,
+        input: &str,
+        cursor: usize,
+    ) -> Result<Vec<CompletionItem>> {
+        let mut items = Vec::new();
+
+        match context.completion_type {
+            ContextType::Command => {
+                items.extend(self.get_command_completions(&context.prefix)?);
+            }
+            ContextType::Argument => {
+                if let Some(command) = &context.command_name {
+                    items.extend(self.get_argument_completions(command, &context.prefix, context.argument_position)?);
+                }
+            }
+            ContextType::Option => {
+                if let Some(command) = &context.command_name {
+                    items.extend(self.get_option_completions(command, &context.prefix)?);
+                }
+            }
+            ContextType::OptionValue => {
+                if let Some(command) = &context.command_name {
+                    items.extend(self.get_option_value_completions(command, &context.prefix)?);
+                }
+            }
+            ContextType::File => {
+                items.extend(self.get_file_completions(&context.prefix, false)?);
+            }
+            ContextType::Directory => {
+                items.extend(self.get_file_completions(&context.prefix, true)?);
+            }
+            ContextType::Variable => {
+                items.extend(self.get_variable_completions(&context.prefix)?);
+            }
+            ContextType::Redirection => {
+                items.extend(self.get_file_completions(&context.prefix, false)?);
+            }
+            ContextType::Pipeline => {
+                items.extend(self.get_command_completions(&context.prefix)?);
+            }
+        }
+
+        Ok(items)
+    }
+
+    fn get_command_completions(&self, prefix: &str) -> Result<Vec<CompletionItem>> {
+        let mut items = Vec::new();
+
+        // Add builtin commands
+        let builtins = vec![
+            "cd", "ls", "pwd", "echo", "cat", "cp", "mv", "rm", "mkdir", "rmdir",
+            "grep", "find", "sort", "uniq", "wc", "head", "tail", "less", "more",
+            "ps", "kill", "jobs", "bg", "fg", "history", "alias", "unalias",
+            "export", "unset", "source", "exit", "help", "which", "type",
+        ];
+
+        for builtin in builtins {
+            if builtin.starts_with(prefix) {
+                let item = CompletionItem::new(builtin.to_string(), CompletionType::Command)
+                    .with_description(format!("Builtin command: {}", builtin))
+                    .with_source("builtins".to_string());
+                items.push(item);
+            }
+        }
+
+        // Add aliases if available
+        if let Some(shell_state) = &self.shell_state {
+            if let Ok(aliases) = shell_state.get_aliases() {
+                for (alias, command) in aliases {
+                    if alias.starts_with(prefix) {
+                        let item = CompletionItem::new(alias.clone(), CompletionType::Alias)
+                            .with_description(format!("Alias for: {}", command))
+                            .with_source("aliases".to_string());
+                        items.push(item);
                     }
-
-                    Ok((start_pos, pairs))
                 }
-                Err(e) => Err(e),
             }
+        }
+
+        // Add functions if available
+        if let Some(shell_state) = &self.shell_state {
+            if let Ok(functions) = shell_state.get_functions() {
+                for function in functions {
+                    if function.starts_with(prefix) {
+                        let item = CompletionItem::new(function.clone(), CompletionType::Function)
+                            .with_description("Shell function".to_string())
+                            .with_source("functions".to_string());
+                        items.push(item);
+                    }
+                }
+            }
+        }
+
+        Ok(items)
+    }
+
+    fn get_argument_completions(
+        &self,
+        command: &str,
+        prefix: &str,
+        position: Option<usize>,
+    ) -> Result<Vec<CompletionItem>> {
+        let mut items = Vec::new();
+
+        // Check if any plugin can handle this command
+        for provider in &self.plugin_providers {
+            if provider.supports_command(command) {
+                let args: Vec<String> = vec![prefix.to_string()];
+                match provider.get_command_completions(command, &args, position.unwrap_or(0)) {
+                    Ok(plugin_items) => items.extend(plugin_items),
+                    Err(e) => eprintln!("Plugin completion failed for {}: {}", command, e),
+                }
+            }
+        }
+
+        // Default to file completions for most commands
+        if items.is_empty() {
+            items.extend(self.get_file_completions(prefix, false)?);
+        }
+
+        Ok(items)
+    }
+
+    fn get_option_completions(&self, command: &str, prefix: &str) -> Result<Vec<CompletionItem>> {
+        let mut items = Vec::new();
+
+        // Common options for many commands
+        let common_options = vec![
+            ("--help", "Show help information"),
+            ("--version", "Show version information"),
+            ("--verbose", "Enable verbose output"),
+            ("--quiet", "Enable quiet mode"),
+            ("--force", "Force operation"),
+            ("-h", "Show help (short)"),
+            ("-v", "Verbose output (short)"),
+            ("-q", "Quiet mode (short)"),
+            ("-f", "Force operation (short)"),
+        ];
+
+        for (option, description) in common_options {
+            if option.starts_with(prefix) {
+                let item = CompletionItem::new(option.to_string(), CompletionType::Option)
+                    .with_description(description.to_string())
+                    .with_source("common_options".to_string());
+                items.push(item);
+            }
+        }
+
+        // Command-specific options
+        match command {
+            "ls" => {
+                let ls_options = vec![
+                    ("--all", "Show hidden files"),
+                    ("--long", "Use long listing format"),
+                    ("--human-readable", "Human readable sizes"),
+                    ("--sort", "Sort by criteria"),
+                    ("-a", "Show hidden files (short)"),
+                    ("-l", "Long format (short)"),
+                    ("-h", "Human readable (short)"),
+                ];
+                
+                for (option, description) in ls_options {
+                    if option.starts_with(prefix) {
+                        let item = CompletionItem::new(option.to_string(), CompletionType::Option)
+                            .with_description(description.to_string())
+                            .with_source("ls_options".to_string());
+                        items.push(item);
+                    }
+                }
+            }
+            "cp" | "mv" => {
+                let copy_options = vec![
+                    ("--recursive", "Copy directories recursively"),
+                    ("--interactive", "Prompt before overwrite"),
+                    ("--backup", "Create backup of destination"),
+                    ("-r", "Recursive (short)"),
+                    ("-i", "Interactive (short)"),
+                ];
+                
+                for (option, description) in copy_options {
+                    if option.starts_with(prefix) {
+                        let item = CompletionItem::new(option.to_string(), CompletionType::Option)
+                            .with_description(description.to_string())
+                            .with_source("copy_options".to_string());
+                        items.push(item);
+                    }
+                }
+            }
+            _ => {
+                // Check plugins for command-specific options
+                for provider in &self.plugin_providers {
+                    if provider.supports_command(command) {
+                        match provider.get_option_completions(command, prefix) {
+                            Ok(plugin_items) => items.extend(plugin_items),
+                            Err(e) => eprintln!("Plugin option completion failed for {}: {}", command, e),
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(items)
+    }
+
+    fn get_option_value_completions(&self, command: &str, prefix: &str) -> Result<Vec<CompletionItem>> {
+        let mut items = Vec::new();
+
+        // This would be expanded based on the specific option being completed
+        // For now, default to file completions
+        items.extend(self.get_file_completions(prefix, false)?);
+
+        Ok(items)
+    }
+
+    fn get_file_completions(&self, prefix: &str, directories_only: bool) -> Result<Vec<CompletionItem>> {
+        let mut items = Vec::new();
+
+        // Use the current directory from shell state if available
+        let current_dir = if let Some(shell_state) = &self.shell_state {
+            shell_state.get_current_directory().unwrap_or_else(|_| std::env::current_dir().unwrap_or_default())
         } else {
-            // 最後のフォールバック：空の結果
-            Ok((pos, Vec::new()))
-        }
-    }
-}
+            std::env::current_dir().unwrap_or_default()
+        };
 
-impl FastCompletionHelper {
-    /// 高性能補完APIのためのヘルパーメソッド（ベンチマーク用）
-    pub fn get_completions(&self, line: &str, pos: usize) -> anyhow::Result<Vec<String>> {
-        // デフォルトのRustylineコンテキストを作成
-        use rustyline::history::DefaultHistory;
-        let history = DefaultHistory::new();
-        let context = rustyline::Context::new(&history);
-        
-        // 内部の補完メソッドを呼び出す
-        match self.complete(line, pos, &context) {
-            Ok((_, pairs)) => {
-                let results = pairs.into_iter()
-                    .map(|pair| pair.replacement)
-                    .collect();
-                Ok(results)
-            }
-            Err(e) => Err(anyhow::anyhow!("補完エラー: {:?}", e))
-        }
-    }
-
-    /// パフォーマンス統計を取得
-    pub fn get_performance_stats(&self) -> Option<PerformanceStats> {
-        self.stats.lock().ok().map(|stats| PerformanceStats {
-            total_completions: stats.total_completions,
-            avg_response_time_us: stats.average_latency_ms * 1000.0,
-            cache_hit_rate: if stats.total_completions > 0 {
-                stats.advanced_engine_used as f64 / stats.total_completions as f64
+        let search_dir = if prefix.contains('/') || prefix.contains('\\') {
+            let path_part = std::path::Path::new(prefix);
+            if let Some(parent) = path_part.parent() {
+                current_dir.join(parent)
             } else {
-                0.0
-            },
-        })
-    }
-}
-
-impl rustyline::Helper for FastCompletionHelper {}
-impl rustyline::highlight::Highlighter for FastCompletionHelper {}
-impl rustyline::hint::Hinter for FastCompletionHelper {
-    type Hint = String;
-}
-impl rustyline::validate::Validator for FastCompletionHelper {}
-
-/// 補完パフォーマンス統計
-#[derive(Debug, Clone)]
-pub struct CompletionStats {
-    pub total_completions: u64,
-    pub advanced_engine_used: u64,
-    pub basic_completer_used: u64,
-    pub average_latency_ms: f64,
-    pub max_latency_ms: f64,
-    pub min_latency_ms: f64,
-    pub total_candidates: u64,
-}
-
-impl CompletionStats {
-    pub fn new() -> Self {
-        Self {
-            total_completions: 0,
-            advanced_engine_used: 0,
-            basic_completer_used: 0,
-            average_latency_ms: 0.0,
-            max_latency_ms: 0.0,
-            min_latency_ms: f64::INFINITY,
-            total_candidates: 0,
-        }
-    }
-
-    pub fn record_completion(&mut self, elapsed: std::time::Duration, candidates: usize, used_advanced: bool) {
-        let latency_ms = elapsed.as_secs_f64() * 1000.0;
-        
-        self.total_completions += 1;
-        if used_advanced {
-            self.advanced_engine_used += 1;
+                current_dir
+            }
         } else {
-            self.basic_completer_used += 1;
+            current_dir
+        };
+
+        if let Ok(entries) = std::fs::read_dir(search_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.starts_with(prefix) {
+                        if directories_only && !path.is_dir() {
+                            continue;
+                        }
+
+                        let completion_type = if path.is_dir() {
+                            CompletionType::Directory
+                        } else {
+                            CompletionType::File
+                        };
+
+                        let item = CompletionItem::new(name.to_string(), completion_type)
+                            .with_source("filesystem".to_string());
+                        items.push(item);
+                    }
+                }
+            }
         }
-        
-        self.total_candidates += candidates as u64;
-        
-        // レイテンシ統計更新
-        self.max_latency_ms = self.max_latency_ms.max(latency_ms);
-        self.min_latency_ms = self.min_latency_ms.min(latency_ms);
-        
-        // 平均レイテンシ更新（指数移動平均）
-        if self.total_completions == 1 {
-            self.average_latency_ms = latency_ms;
-        } else {
-            self.average_latency_ms = 0.9 * self.average_latency_ms + 0.1 * latency_ms;
+
+        Ok(items)
+    }
+
+    fn get_variable_completions(&self, prefix: &str) -> Result<Vec<CompletionItem>> {
+        let mut items = Vec::new();
+
+        if let Some(shell_state) = &self.shell_state {
+            if let Ok(vars) = shell_state.get_environment_variables() {
+                for (name, value) in vars {
+                    if name.starts_with(prefix) {
+                        let item = CompletionItem::new(format!("${}", name), CompletionType::Variable)
+                            .with_description(format!("Environment variable: {}", value))
+                            .with_source("environment".to_string());
+                        items.push(item);
+                    }
+                }
+            }
+        }
+
+        Ok(items)
+    }
+
+    fn get_shell_state_completions(
+        &self,
+        shell_state: &Arc<dyn ShellStateProvider>,
+        input: &str,
+        cursor: usize,
+    ) -> Result<Vec<CompletionItem>> {
+        let mut items = Vec::new();
+
+        // Add history-based completions
+        if let Ok(history) = shell_state.get_history() {
+            let prefix = &input[..cursor.min(input.len())];
+            for entry in history.iter().rev().take(20) {
+                if entry.starts_with(prefix) && entry != input {
+                    let item = CompletionItem::new(entry.clone(), CompletionType::History)
+                        .with_description("From history".to_string())
+                        .with_source("history".to_string());
+                    items.push(item);
+                }
+            }
+        }
+
+        Ok(items)
+    }
+
+    fn get_plugin_completions(&self, input: &str, cursor: usize) -> Result<Vec<CompletionItem>> {
+        let mut items = Vec::new();
+
+        if let Some(parser) = &self.parser {
+            if let Ok(context) = parser.parse_command_line(input, cursor) {
+                for provider in &self.plugin_providers {
+                    if provider.supports_command(&context.command) {
+                        match provider.get_command_completions(
+                            &context.command,
+                            &context.arguments,
+                            context.current_argument_index.unwrap_or(0),
+                        ) {
+                            Ok(plugin_items) => items.extend(plugin_items),
+                            Err(e) => eprintln!("Plugin completion failed: {}", e),
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(items)
+    }
+
+    pub fn invalidate_cache(&self) {
+        self.engine.clear_cache();
+        if let Ok(mut cache) = self.command_cache.write() {
+            cache.clear();
         }
     }
 
-    pub fn print_summary(&self) {
-        println!("\n📊 補完パフォーマンス統計:");
-        println!("  総補完回数: {}", self.total_completions);
-        println!("  高性能エンジン使用: {} ({:.1}%)", 
-                 self.advanced_engine_used, 
-                 (self.advanced_engine_used as f64 / self.total_completions as f64) * 100.0);
-        println!("  基本補完使用: {} ({:.1}%)", 
-                 self.basic_completer_used,
-                 (self.basic_completer_used as f64 / self.total_completions as f64) * 100.0);
-        println!("  平均レイテンシ: {:.3}ms", self.average_latency_ms);
-        println!("  最小レイテンシ: {:.3}ms", self.min_latency_ms);
-        println!("  最大レイテンシ: {:.3}ms", self.max_latency_ms);
-        println!("  平均候補数: {:.1}", self.total_candidates as f64 / self.total_completions as f64);
+    pub fn get_completion_statistics(&self) -> HashMap<String, u64> {
+        let metrics = self.engine.get_performance_metrics();
+        let mut stats = HashMap::new();
         
-        // パフォーマンス評価
-        if self.average_latency_ms < 1.0 {
-            println!("  ✅ 目標レイテンシ(1ms)を達成");
-        } else {
-            println!("  ⚠️  目標レイテンシ(1ms)を超過");
-        }
+        stats.insert("total_requests".to_string(), metrics.total_requests);
+        stats.insert("cache_hits".to_string(), metrics.cache_hits);
+        stats.insert("cache_misses".to_string(), metrics.cache_misses);
+        stats.insert("average_time_ms".to_string(), metrics.average_time.as_millis() as u64);
+        
+        stats
     }
 }
 
-/// 補完品質メトリクス
-#[derive(Debug, Clone)]
-pub struct CompletionQualityMetrics {
-    pub relevance_score: f64,
-    pub diversity_score: f64,
-    pub freshness_score: f64,
-}
+// Mock implementations for testing
+#[cfg(test)]
+pub mod mock {
+    use super::*;
+    use std::path::PathBuf;
 
-impl CompletionQualityMetrics {
-    pub fn calculate(result: &CompletionResult, user_input: &str) -> Self {
-        let relevance_score = Self::calculate_relevance(&result.candidates, user_input);
-        let diversity_score = Self::calculate_diversity(&result.candidates);
-        let freshness_score = Self::calculate_freshness(&result.candidates);
-        
-        Self {
-            relevance_score,
-            diversity_score,
-            freshness_score,
+    pub struct MockShellState {
+        current_dir: PathBuf,
+        environment: HashMap<String, String>,
+        aliases: HashMap<String, String>,
+        history: Vec<String>,
+    }
+
+    impl MockShellState {
+        pub fn new() -> Self {
+            let mut env = HashMap::new();
+            env.insert("HOME".to_string(), "/home/user".to_string());
+            env.insert("PATH".to_string(), "/bin:/usr/bin".to_string());
+            
+            let mut aliases = HashMap::new();
+            aliases.insert("ll".to_string(), "ls -la".to_string());
+            aliases.insert("la".to_string(), "ls -la".to_string());
+
+            Self {
+                current_dir: PathBuf::from("/home/user"),
+                environment: env,
+                aliases,
+                history: vec![
+                    "ls -la".to_string(),
+                    "cd /tmp".to_string(),
+                    "echo hello".to_string(),
+                ],
+            }
         }
     }
 
-    fn calculate_relevance(candidates: &[crate::completion_engine::CompletionCandidate], user_input: &str) -> f64 {
-        if candidates.is_empty() {
-            return 0.0;
+    impl ShellStateProvider for MockShellState {
+        fn get_current_directory(&self) -> Result<PathBuf> {
+            Ok(self.current_dir.clone())
         }
 
-        let relevant_count = candidates.iter()
-            .filter(|c| c.text.to_lowercase().contains(&user_input.to_lowercase()))
-            .count();
-        
-        relevant_count as f64 / candidates.len() as f64
-    }
-
-    fn calculate_diversity(candidates: &[crate::completion_engine::CompletionCandidate]) -> f64 {
-        use std::collections::HashSet;
-        
-        if candidates.is_empty() {
-            return 0.0;
+        fn get_environment_variables(&self) -> Result<HashMap<String, String>> {
+            Ok(self.environment.clone())
         }
 
-        let types: HashSet<_> = candidates.iter()
-            .map(|c| std::mem::discriminant(&c.candidate_type))
-            .collect();
-        
-        types.len() as f64 / 6.0 // 6は候補タイプの総数
-    }
-
-    fn calculate_freshness(candidates: &[crate::completion_engine::CompletionCandidate]) -> f64 {
-        // 簡略化された実装：スマート提案の割合を計算
-        if candidates.is_empty() {
-            return 0.0;
+        fn get_aliases(&self) -> Result<HashMap<String, String>> {
+            Ok(self.aliases.clone())
         }
 
-        let smart_count = candidates.iter()
-            .filter(|c| matches!(c.candidate_type, crate::completion_engine::CandidateType::SmartSuggestion))
-            .count();
-        
-        smart_count as f64 / candidates.len() as f64
+        fn get_functions(&self) -> Result<Vec<String>> {
+            Ok(vec!["my_function".to_string(), "helper_func".to_string()])
+        }
+
+        fn get_history(&self) -> Result<Vec<String>> {
+            Ok(self.history.clone())
+        }
+
+        fn is_command_available(&self, command: &str) -> bool {
+            matches!(command, "ls" | "cd" | "echo" | "cat" | "grep")
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::mock::MockShellState;
 
     #[test]
-    fn test_helper_creation() {
-        let helper = FastCompletionHelper::new();
-        assert!(helper.is_ok(), "ヘルパーの作成に失敗");
+    fn test_integrated_completion_system() {
+        let config = UiConfig::default();
+        let mut system = IntegratedCompletionSystem::new(config);
+        
+        let shell_state = Arc::new(MockShellState::new());
+        system.set_shell_state_provider(shell_state);
+
+        // Test basic completion
+        let result = system.get_intelligent_completions("l", 1);
+        assert!(result.is_ok());
     }
 
     #[test]
-    fn test_stats_recording() {
-        let mut stats = CompletionStats::new();
-        let elapsed = std::time::Duration::from_millis(5);
-        
-        stats.record_completion(elapsed, 10, true);
-        
-        assert_eq!(stats.total_completions, 1);
-        assert_eq!(stats.advanced_engine_used, 1);
-        assert_eq!(stats.total_candidates, 10);
-        assert_eq!(stats.average_latency_ms, 5.0);
+    fn test_command_context() {
+        let context = CommandContext {
+            command: "ls".to_string(),
+            arguments: vec!["-la".to_string()],
+            current_argument_index: Some(1),
+            is_in_quote: false,
+            quote_type: None,
+            pipeline_position: 0,
+            redirection_target: None,
+        };
+
+        assert_eq!(context.command, "ls");
+        assert_eq!(context.arguments.len(), 1);
     }
 
     #[test]
-    fn test_multiple_completions() {
-        let mut stats = CompletionStats::new();
-        
-        // 複数の補完を記録
-        stats.record_completion(std::time::Duration::from_millis(2), 5, true);
-        stats.record_completion(std::time::Duration::from_millis(8), 15, false);
-        
-        assert_eq!(stats.total_completions, 2);
-        assert_eq!(stats.advanced_engine_used, 1);
-        assert_eq!(stats.basic_completer_used, 1);
-        assert_eq!(stats.max_latency_ms, 8.0);
-        assert_eq!(stats.min_latency_ms, 2.0);
-    }
-}
+    fn test_completion_context() {
+        let context = CompletionContext {
+            completion_type: ContextType::Command,
+            prefix: "l".to_string(),
+            command_name: None,
+            argument_position: None,
+            in_pipeline: false,
+            expected_types: vec![CompletionType::Command],
+        };
 
-/// パフォーマンス統計構造体（外部API用）
-pub struct PerformanceStats {
-    pub total_completions: u64,
-    pub avg_response_time_us: f64,
-    pub cache_hit_rate: f64,
+        assert_eq!(context.completion_type, ContextType::Command);
+        assert_eq!(context.prefix, "l");
+    }
 }

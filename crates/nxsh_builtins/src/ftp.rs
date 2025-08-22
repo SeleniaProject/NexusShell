@@ -47,3 +47,4 @@ pub fn ftp_cli(args: &[String]) -> Result<()> {
 
     Err(anyhow!("ftp: no suitable client found (tried ftp/lftp)"))
 } 
+

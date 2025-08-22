@@ -5,7 +5,7 @@
 
 use std::io::Write;
 use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError, context::ShellContext};
-use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
+
 
 /// The `alias` builtin command implementation
 pub struct AliasCommand;
@@ -262,4 +262,12 @@ pub fn alias_cli(args: &[String]) -> anyhow::Result<()> {
         Ok(_) => Ok(()),
         Err(e) => Err(anyhow::anyhow!("alias command failed: {}", e)),
     }
+}
+
+
+
+/// Execute function stub
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    eprintln!("Command not yet implemented");
+    Ok(1)
 }

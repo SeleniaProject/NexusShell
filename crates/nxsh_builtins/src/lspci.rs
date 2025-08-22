@@ -24,3 +24,4 @@ pub async fn lspci_cli(_args: &[String]) -> Result<()> {
         Ok(())
     }
 } 
+

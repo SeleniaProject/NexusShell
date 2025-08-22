@@ -612,3 +612,9 @@ pub fn free_cli(args: &[String]) -> anyhow::Result<()> {
     println!("Free memory information not available on this platform");
     Ok(())
 } 
+
+
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    println!("free: Command not yet implemented");
+    Ok(0)
+}

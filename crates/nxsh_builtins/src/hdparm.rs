@@ -1,4 +1,4 @@
-//! `hdparm` builtin – simple disk performance benchmarking.
+//! `hdparm` builtin  Esimple disk performance benchmarking.
 //!
 //! Currently implemented options (subset):
 //!   -t   : Buffered (sequential) read timing
@@ -99,3 +99,4 @@ fn buffered_test(dev: &str) -> Result<()> {
     println!("Buffered read: {:.2} MB/s ({} bytes in {:.3} s)", mbps, read_bytes, elapsed);
     Ok(())
 } 
+

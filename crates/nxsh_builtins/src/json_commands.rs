@@ -30,7 +30,7 @@ pub fn from_json_cli(args: &[String]) -> Result<()> {
 }
 
 /// Convert structured data to JSON
-pub fn to_json_cli(args: &[String]) -> Result<()> {
+pub fn to_json_cli(_args: &[String]) -> Result<()> {
     // For now, create sample data to convert
     let mut sample_data = HashMap::new();
     sample_data.insert("name".to_string(), StructuredValue::String("NexusShell".to_string()));
@@ -258,3 +258,5 @@ mod tests {
         assert!(result.is_ok());
     }
 }
+
+

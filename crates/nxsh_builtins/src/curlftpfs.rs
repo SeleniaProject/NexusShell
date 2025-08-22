@@ -19,3 +19,4 @@ pub fn curlftpfs_cli(args: &[String]) -> Result<()> {
     }
     Err(anyhow!("curlftpfs: backend not found; ensure curlftpfs is installed"))
 } 
+

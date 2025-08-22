@@ -34,3 +34,4 @@ mod tests {
         egrep_cli(&["[0-9]+".into(), file.path().to_string_lossy().into()]).unwrap();
     }
 } 
+

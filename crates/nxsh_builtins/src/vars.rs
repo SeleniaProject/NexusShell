@@ -105,3 +105,4 @@ pub fn printf_cli(args: &[String]) -> Result<()> {
     print!("{out}");
     Ok(())
 }
+

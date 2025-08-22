@@ -1,0 +1,64 @@
+{
+  "name": "nxsh-aurora",
+  "version": "1.0.0",
+  "author": "NexusShell Team",
+  "description": "Aurora borealis inspired theme with ethereal colors",
+  "colors": {
+    "primary": "#00ffcc",
+    "secondary": "#9d4edd",
+    "accent": "#ff006e",
+    "background": "#001122",
+    "foreground": "#e6f7ff",
+    "error": "#ff1744",
+    "warning": "#ffab00",
+    "success": "#00e676",
+    "info": "#00e1ff",
+    "muted": "#64748b",
+    "highlight": "#ffff00",
+    "border": "#1e3a8a",
+    "prompt_bg": "#0f172a",
+    "prompt_fg": "#00ffcc",
+    "command_bg": "#1e293b",
+    "command_fg": "#f1f5f9",
+    "selection_bg": "#9d4edd",
+    "selection_fg": "#ffffff",
+    "scrollbar": "#475569",
+    "status_active": "#00e676",
+    "status_inactive": "#64748b",
+    "completion_bg": "#334155",
+    "completion_fg": "#f1f5f9",
+    "completion_selected": "#3b82f6"
+  },
+  "styles": {
+    "prompt": {
+      "foreground": "#00ffcc",
+      "bold": true,
+      "italic": false,
+      "underlined": false
+    },
+    "command": {
+      "foreground": "#f1f5f9",
+      "bold": false,
+      "italic": false,
+      "underlined": false
+    },
+    "error": {
+      "foreground": "#ff1744",
+      "bold": true,
+      "italic": false,
+      "underlined": false
+    },
+    "warning": {
+      "foreground": "#ffab00",
+      "bold": true,
+      "italic": false,
+      "underlined": false
+    },
+    "success": {
+      "foreground": "#00e676",
+      "bold": true,
+      "italic": false,
+      "underlined": false
+    }
+  }
+}

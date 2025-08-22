@@ -46,10 +46,15 @@ impl Default for RgbColor {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[derive(Default)]
 pub struct SerializableStyle {
+    #[serde(default)]
     pub foreground: Option<String>,
+    #[serde(default)]
     pub background: Option<String>,
+    #[serde(default)]
     pub bold: bool,
+    #[serde(default)]
     pub italic: bool,
+    #[serde(default)]
     pub underlined: bool,
 }
 
@@ -84,7 +89,7 @@ impl From<SerializableStyle> for ContentStyle {
     }
 }
 
-// Color scheme definitions
+// Extended color scheme with enhanced UI elements
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColorScheme {
     pub primary: String,
@@ -99,23 +104,75 @@ pub struct ColorScheme {
     pub muted: String,
     pub highlight: String,
     pub border: String,
+    // Enhanced UI elements - with default fallbacks for backwards compatibility
+    #[serde(default = "default_prompt_bg")]
+    pub prompt_bg: String,
+    #[serde(default = "default_prompt_fg")]
+    pub prompt_fg: String,
+    #[serde(default = "default_command_bg")]
+    pub command_bg: String,
+    #[serde(default = "default_command_fg")]
+    pub command_fg: String,
+    #[serde(default = "default_selection_bg")]
+    pub selection_bg: String,
+    #[serde(default = "default_selection_fg")]
+    pub selection_fg: String,
+    #[serde(default = "default_scrollbar")]
+    pub scrollbar: String,
+    #[serde(default = "default_status_active")]
+    pub status_active: String,
+    #[serde(default = "default_status_inactive")]
+    pub status_inactive: String,
+    #[serde(default = "default_completion_bg")]
+    pub completion_bg: String,
+    #[serde(default = "default_completion_fg")]
+    pub completion_fg: String,
+    #[serde(default = "default_completion_selected")]
+    pub completion_selected: String,
 }
+
+// Default value functions for enhanced UI elements
+fn default_prompt_bg() -> String { "#1a1a2e".to_string() }
+fn default_prompt_fg() -> String { "#00f5ff".to_string() }
+fn default_command_bg() -> String { "#16213e".to_string() }
+fn default_command_fg() -> String { "#dfe4ea".to_string() }
+fn default_selection_bg() -> String { "#9945ff".to_string() }
+fn default_selection_fg() -> String { "#ffffff".to_string() }
+fn default_scrollbar() -> String { "#57606f".to_string() }
+fn default_status_active() -> String { "#2ed573".to_string() }
+fn default_status_inactive() -> String { "#a4b0be".to_string() }
+fn default_completion_bg() -> String { "#2f3542".to_string() }
+fn default_completion_fg() -> String { "#dfe4ea".to_string() }
+fn default_completion_selected() -> String { "#00f5ff".to_string() }
 
 impl Default for ColorScheme {
     fn default() -> Self {
         Self {
-            primary: "#3b82f6".to_string(),
-            secondary: "#6b7280".to_string(),
-            accent: "#f59e0b".to_string(),
-            background: "#1f2937".to_string(),
-            foreground: "#f9fafb".to_string(),
-            error: "#ef4444".to_string(),
-            warning: "#f59e0b".to_string(),
-            success: "#10b981".to_string(),
-            info: "#3b82f6".to_string(),
-            muted: "#6b7280".to_string(),
-            highlight: "#fbbf24".to_string(),
-            border: "#374151".to_string(),
+            primary: "#00f5ff".to_string(),      // Cyberpunk cyan - より鮮やかな電光ブルー
+            secondary: "#9945ff".to_string(),    // Deep purple - より洗練されたパープル
+            accent: "#ff4757".to_string(),       // Modern coral red - トレンディなアクセント
+            background: "#0c0c0c".to_string(),   // Pure dark - より深い背景
+            foreground: "#f8fafc".to_string(),   // Pure white - よりクリアな前景
+            error: "#ff4757".to_string(),        // Vibrant coral red
+            warning: "#ffa502".to_string(),      // Modern orange
+            success: "#2ed573".to_string(),      // Fresh green
+            info: "#5352ed".to_string(),         // Electric indigo
+            muted: "#747d8c".to_string(),        // Refined gray
+            highlight: "#ffc048".to_string(),    // Warm golden
+            border: "#2f3542".to_string(),       // Sophisticated border
+            // Enhanced UI elements - モダンなグラデーション感覚
+            prompt_bg: "#1a1a2e".to_string(),    // Deep space blue
+            prompt_fg: "#00f5ff".to_string(),    // Bright cyan
+            command_bg: "#16213e".to_string(),   // Navy command area
+            command_fg: "#dfe4ea".to_string(),   // Cool white
+            selection_bg: "#9945ff".to_string(), // Vivid purple selection
+            selection_fg: "#ffffff".to_string(), // Pure white text
+            scrollbar: "#57606f".to_string(),    // Modern gray scrollbar
+            status_active: "#2ed573".to_string(), // Active green
+            status_inactive: "#a4b0be".to_string(), // Soft inactive gray
+            completion_bg: "#2f3542".to_string(), // Elegant completion background
+            completion_fg: "#dfe4ea".to_string(), // Clean completion text
+            completion_selected: "#00f5ff".to_string(), // Cyan selection highlight
         }
     }
 }
@@ -362,4 +419,22 @@ pub fn list_theme_files() -> Result<Vec<PathBuf>> {
     }
 
     Ok(files)
+}
+
+/// Get a theme by name, fallback to default if not found
+pub fn get_theme_by_name(theme_name: &str) -> anyhow::Result<NexusTheme> {
+    // Try to load from assets directory first
+    let assets_dir = std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join("assets")
+        .join("themes");
+    
+    let theme_file = assets_dir.join(format!("{}.json", theme_name));
+    
+    if theme_file.exists() {
+        NexusTheme::load_from_file(&theme_file)
+    } else {
+        // Return default theme if not found
+        Ok(NexusTheme::default())
+    }
 }

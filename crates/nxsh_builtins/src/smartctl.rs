@@ -34,3 +34,4 @@ pub async fn smartctl_cli(args: &[String]) -> Result<()> {
         Ok(())
     }
 } 
+

@@ -2465,7 +2465,7 @@ async fn send_discord_notification(webhook_url: &str, job: &CronJob, execution: 
     #[cfg(feature = "updates")]
     {
         let color = if success { 0x00ff00 } else { 0xff0000 }; // Green or Red
-        let status_emoji = if success { "✅" } else { "❌" };
+        let status_emoji = if success { "✁E } else { "❁E };
         
         let payload = serde_json::json!({
             "embeds": [{
@@ -2671,3 +2671,4 @@ mod tests {
         assert_eq!(smtp.from_address, "noreply@localhost");
     }
 } 
+

@@ -42,3 +42,4 @@ fn shred_file(path: std::path::PathBuf) -> Result<()> {
 mod tests { use super::*; use tempfile::NamedTempFile; use std::io::Write;
 #[tokio::test]
 async fn shred_basic(){ let mut f=NamedTempFile::new().unwrap(); writeln!(f,"hello").unwrap(); let p=f.path().to_path_buf(); shred_cli(&[p.to_string_lossy().into()]).await.unwrap(); assert!(!p.exists()); }} 
+

@@ -75,3 +75,4 @@ mod tests {
         let _ = umask_cli(&[]);
     }
 } 
+

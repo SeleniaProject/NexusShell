@@ -1,5 +1,6 @@
 use anyhow::Result;
 use nxsh_core::context::ShellContext;
+use crate::common::{BuiltinResult, BuiltinContext};
 
 /// Handle `set` builtin for flags -e, -x, -o pipefail.
 pub fn set_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
@@ -57,4 +58,54 @@ pub fn set_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Execute the set builtin command
+pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
+    if args.is_empty() {
+        // Print all environment variables if no arguments
+        for (key, value) in std::env::vars() {
+            println!("{}={}", key, value);
+        }
+        return Ok(0);
+    }
+
+    // Handle shell options
+    for arg in args {
+        match arg.as_str() {
+            "-e" => {
+                eprintln!("set: -e (errexit) option is not implemented in this context");
+            }
+            "+e" => {
+                eprintln!("set: +e (no errexit) option is not implemented in this context");
+            }
+            "-x" => {
+                eprintln!("set: -x (xtrace) option is not implemented in this context");
+            }
+            "+x" => {
+                eprintln!("set: +x (no xtrace) option is not implemented in this context");
+            }
+            "-o" => {
+                eprintln!("set: -o option requires an argument");
+            }
+            "+o" => {
+                eprintln!("set: +o option requires an argument");
+            }
+            _ if arg.starts_with("-o") => {
+                let option = &arg[2..];
+                eprintln!("set: -o {} option is not implemented", option);
+            }
+            _ if arg.starts_with("+o") => {
+                let option = &arg[2..];
+                eprintln!("set: +o {} option is not implemented", option);
+            }
+            _ => {
+                eprintln!("set: invalid option '{}'", arg);
+                return Ok(1);
+            }
+        }
+    }
+
+    Ok(0)
 } 
+

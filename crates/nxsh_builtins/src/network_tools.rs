@@ -3012,3 +3012,4 @@ mod tests {
         assert_eq!(manager.format_bytes(1073741824), "1.0 GB");
     }
 } 
+

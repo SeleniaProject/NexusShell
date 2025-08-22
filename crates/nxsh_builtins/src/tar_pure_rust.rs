@@ -324,3 +324,4 @@ fn print_tar_help() {
     println!("  tar -xzf archive.tar.gz         # Extract compressed archive");
     println!("  tar -tf archive.tar             # List archive contents");
 }
+

@@ -17,3 +17,4 @@ pub fn popd_cli(_args: &[String], ctx: &ShellContext) -> Result<()> {
     dirs_cli(&[])?;
     Ok(())
 } 
+

@@ -361,7 +361,7 @@ fn format_permissions(_mode: u32) -> String {
 }
 
 /// Resolve a user name for a given UID without libc bindings.
-/// Preference order: /etc/passwd → getent → id → numeric UID
+/// Preference order: /etc/passwd ↁEgetent ↁEid ↁEnumeric UID
 fn get_username(_uid: u32) -> String {
     #[cfg(unix)]
     {
@@ -418,7 +418,7 @@ fn get_username(_uid: u32) -> String {
 }
 
 /// Resolve a group name for a given GID without libc bindings.
-/// Preference order: /etc/group → getent → id → numeric GID
+/// Preference order: /etc/group ↁEgetent ↁEid ↁEnumeric GID
 fn get_groupname(_gid: u32) -> String {
     #[cfg(unix)]
     {
@@ -486,3 +486,4 @@ fn print_help() {
     println!("      --help            display this help and exit");
     println!("      --version         output version information and exit");
 }
+

@@ -495,3 +495,10 @@ pub fn get_database_info() -> Result<(PathBuf, u64, usize)> {
     
     Ok((db_path, metadata.len(), entry_count))
 }
+
+
+/// Execute function stub
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    eprintln!("Command not yet implemented");
+    Ok(1)
+}

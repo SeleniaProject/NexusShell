@@ -8,17 +8,17 @@
 
 use anyhow::Result;
 use crossterm::{
-    event::{Event, KeyCode, KeyEvent, KeyModifiers},
+    event::{KeyCode, KeyEvent, KeyModifiers},
     terminal::{size},
 };
 use std::{
-    io::{self, Write},
+    io,
     collections::VecDeque,
     time::Instant,
 };
 
 use crate::{
-    completion_engine::{AdvancedCompletionEngine, CompletionContext},
+    completion_engine::AdvancedCompletionEngine,
     completion_panel::{CompletionPanel, PanelConfig},
 };
 
@@ -184,7 +184,7 @@ impl TabCompletionHandler {
             }
             
             // Character input - update completion
-            (KeyCode::Char(ch), _) => {
+            (KeyCode::Char(_ch), _) => {
                 // Let the caller handle character input
                 Ok(None)
             }
@@ -369,7 +369,7 @@ impl TabCompletionHandler {
     fn get_cursor_position(&self) -> Result<(u16, u16)> {
         // This is a simplified implementation
         // In a real application, you would track the actual cursor position
-        let (term_width, term_height) = size()?;
+        let (_term_width, term_height) = size()?;
         Ok((0, term_height.saturating_sub(1)))
     }
 
@@ -521,3 +521,5 @@ mod tests {
         assert_eq!(result.get_completion_text(), Some("example.txt"));
     }
 }
+
+

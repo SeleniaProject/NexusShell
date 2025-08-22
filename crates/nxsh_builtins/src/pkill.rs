@@ -158,3 +158,4 @@ mod tests {
         assert!(parse_signal("999").is_ok()); // Large numbers are allowed
     }
 } 
+

@@ -193,6 +193,11 @@ pub struct ExecutorStats {
 }
 
 impl Executor {
+    /// Public interface to execute an AST node
+    pub fn execute_ast(&mut self, ast: &AstNode, context: &mut ShellContext) -> ShellResult<ExecutionResult> {
+        self.execute_ast_direct(ast, context)
+    }
+
     fn cmdsub_cache_get(&mut self, key: &str) -> Option<ExecutionResult> {
         if let Some(v) = self.cmdsub_cache_map.get(key) {
             if let Some(pos) = self.cmdsub_cache_order.iter().position(|k| k == key) {
@@ -475,7 +480,7 @@ impl Executor {
 
     /// Create a new executor with default settings
     pub fn new() -> Self {
-        eprintln!("DEBUG: Creating new Executor");
+        // eprintln!("DEBUG: Creating new Executor");
         let mut executor = Self {
             builtins: HashMap::new(),
             strategy: ExecutionStrategy::DirectInterpreter,
@@ -487,9 +492,9 @@ impl Executor {
         };
         
         // Register built-in commands
-        eprintln!("DEBUG: About to register all builtins");
+        // eprintln!("DEBUG: About to register all builtins");
         executor.register_all_builtins();
-        eprintln!("DEBUG: Executor created with {} builtins", executor.builtins.len());
+        // eprintln!("DEBUG: Executor created with {} builtins", executor.builtins.len());
         // Select execution strategy by environment configuration
         // NXSH_EXEC_STRATEGY=ast|mir (default: ast). NXSH_JIT=1 implies mir.
         if let Ok(strategy_env) = std::env::var("NXSH_EXEC_STRATEGY") {
@@ -510,13 +515,13 @@ impl Executor {
         // Use standard builtins from nxsh_core
         let builtins = crate::builtins::register_all_builtins();
         
-        eprintln!("DEBUG: Registering {} builtins", builtins.len());
+        // eprintln!("DEBUG: Registering {} builtins", builtins.len());
         for builtin in builtins {
-            let name = builtin.name();
-            eprintln!("DEBUG: Registering builtin: {name}");
+            let _name = builtin.name();
+            // eprintln!("DEBUG: Registering builtin: {name}");
             self.register_builtin(builtin);
         }
-        eprintln!("DEBUG: Total registered builtins: {}", self.builtins.len());
+        // eprintln!("DEBUG: Total registered builtins: {}", self.builtins.len());
     }
     
     /// Register a builtin command

@@ -39,11 +39,11 @@ mod holiday_tests {
         let db = HolidayDatabase::with_regions(vec!["JP".to_string()]);
         let current_year = chrono::Utc::now().year();
         
-        // Test New Year's Day (元日)
+        // Test New Year's Day (允E��)
         let new_years = NaiveDate::from_ymd_opt(current_year, 1, 1).unwrap();
         assert!(db.is_holiday(new_years));
         
-        // Test Children's Day (こどもの日)
+        // Test Children's Day (こども�E日)
         let childrens_day = NaiveDate::from_ymd_opt(current_year, 5, 5).unwrap();
         assert!(db.is_holiday(childrens_day));
     }
@@ -179,3 +179,4 @@ mod date_business_day_tests {
         assert!(holiday_list.contains(&format!("Holidays for {}", current_year)));
     }
 }
+

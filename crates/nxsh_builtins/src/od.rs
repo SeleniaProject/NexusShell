@@ -137,3 +137,4 @@ fn dump_data(data: &[u8], format: &str, address_radix: &str, bytes_per_line: usi
     
     Ok(())
 }
+

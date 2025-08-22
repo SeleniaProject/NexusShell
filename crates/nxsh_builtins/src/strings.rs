@@ -423,8 +423,8 @@ mod tests {
         // Two-byte UTF-8 character (é)
         assert_eq!(decode_utf8_char(&[0xC3, 0xA9]), Some(('é', 2)));
         
-        // Three-byte UTF-8 character (世)
-        assert_eq!(decode_utf8_char(&[0xE4, 0xB8, 0x96]), Some(('世', 3)));
+        // Three-byte UTF-8 character (丁E
+        assert_eq!(decode_utf8_char(&[0xE4, 0xB8, 0x96]), Some(('丁E, 3)));
         
         // Invalid UTF-8
         assert_eq!(decode_utf8_char(&[0xFF]), None);
@@ -452,3 +452,4 @@ mod tests {
         assert!(result.is_ok());
     }
 }
+

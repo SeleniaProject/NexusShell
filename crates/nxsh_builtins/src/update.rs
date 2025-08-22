@@ -170,7 +170,7 @@ async fn handle_check(force: bool, verbose: bool) -> Result<()> {
 }
 
 async fn handle_download(version: Option<String>, force: bool) -> Result<()> {
-    println!("‚¨ÅEÔøΩÔøΩE Downloading update...");
+    println!("‚¨ÅEÅEΩÅEΩE Downloading update...");
 
     let manifest = check_for_updates().await?
         .ok_or_else(|| anyhow!("No updates available"))?;
@@ -422,3 +422,4 @@ mod tests {
         }
     }
 }
+

@@ -427,3 +427,4 @@ fn print_bzip2_version() {
     println!("Compression is not available in this build. Use gzip or xz for compression,");
     println!("or an external bzip2 binary if needed.");
 }
+

@@ -348,3 +348,4 @@ mod tests {
         assert_eq!(ls_info.category, BuiltinCategory::FileSystem);
     }
 }
+

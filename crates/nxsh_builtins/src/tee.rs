@@ -1,6 +1,6 @@
 use std::io::{self, BufRead, Write, Read};
 use nxsh_core::{ShellError, ErrorKind}; use nxsh_core::error::RuntimeErrorKind;
-use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
+
 
 pub fn tee_cli(args: &[String]) -> Result<(), ShellError> {
     if args.contains(&"--help".to_string()) {
@@ -287,3 +287,11 @@ pub fn tee_advanced(files: &[String], options: &TeeOptions) -> Result<(), ShellE
     Ok(())
 }
 
+
+
+
+/// Execute function stub
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    eprintln!("Command not yet implemented");
+    Ok(1)
+}

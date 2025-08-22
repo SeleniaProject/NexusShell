@@ -25,3 +25,4 @@ pub fn group_by_cli(args: &[String]) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(&grouped)?);
     Ok(())
 } 
+

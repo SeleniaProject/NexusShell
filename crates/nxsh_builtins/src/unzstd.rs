@@ -266,3 +266,4 @@ fn print_unzstd_help() {
     println!();
     println!("Report bugs at: https://github.com/facebook/zstd/issues");
 }
+

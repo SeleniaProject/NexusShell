@@ -258,3 +258,4 @@ mod tests {
         assert_eq!(CRC32_TABLE[255], 0xb1f740b4); // Verified actual value
     }
 }
+

@@ -167,6 +167,7 @@ fn hash_reader_to_hex<R: Read>(reader: &mut R) -> Result<String> {
         ctx.consume(&buf[..n]);
     }
     let digest: Digest = ctx.compute();
-    // Clippy uninlined_format_args 対応
+    // Clippy uninlined_format_args 対忁E
     Ok(format!("{digest:x}"))
 }
+

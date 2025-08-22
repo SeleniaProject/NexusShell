@@ -21,3 +21,4 @@ pub fn passwd_cli(args: &[String]) -> Result<()> {
     }
     Err(anyhow!("passwd: backend not found; please install passwd utility"))
 } 
+

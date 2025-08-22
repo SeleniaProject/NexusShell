@@ -624,7 +624,7 @@ mod tests {
 
     #[test]
     fn test_format_detection_empty_file() {
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let temp_file = NamedTempFile::new().unwrap();
         let result = test_file_format(temp_file.path().to_str().unwrap());
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("too small"));
@@ -632,7 +632,7 @@ mod tests {
 
     #[test]
     fn test_format_detection_xz_magic() {
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let temp_file = NamedTempFile::new().unwrap();
         // Write XZ magic bytes: 0xFD 0x37 0x7A 0x58 0x5A 0x00
         temp_file.write_all(&[0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00, 0x01, 0x02]).unwrap();
         temp_file.flush().unwrap();
@@ -644,7 +644,7 @@ mod tests {
 
     #[test]
     fn test_format_detection_lzma_properties() {
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let temp_file = NamedTempFile::new().unwrap();
         // Write LZMA properties byte (valid range: 0-225) and some data
         temp_file.write_all(&[93, 0x00, 0x00, 0x10, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00]).unwrap();
         temp_file.flush().unwrap();
@@ -656,7 +656,7 @@ mod tests {
 
     #[test]
     fn test_format_detection_unknown() {
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let temp_file = NamedTempFile::new().unwrap();
         // Write random bytes that don't match any known format
         temp_file.write_all(&[0xFF, 0xFF, 0xFF, 0xFF, 0xFF]).unwrap();
         temp_file.flush().unwrap();
@@ -769,3 +769,5 @@ fn print_xz_help() {
     println!("Report bugs to: <https://github.com/SeleniaProject/NexusShell/issues>");
     println!("Home page: <https://github.com/SeleniaProject/NexusShell>");
 }
+
+

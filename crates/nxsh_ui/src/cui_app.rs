@@ -1,1687 +1,948 @@
-//! NexusShell CUI Application - Pure Command Line Interface Implementation
-//! 
-//! This module provides a simplified, high-performance command line interface
-//! that replaces the complex TUI system while maintaining the core NexusShell
-//! experience defined in the specifications.
-//! 
-//! Design Principles:
-//! - ANSI escape sequences for colorization and formatting
-//! - Standard output/input handling with readline-style editing
-//! - Minimal memory footprint (≤15 MiB as per SPEC.md)
-//! - Fast startup time (≤5ms as per SPEC.md)
-//! - Cross-platform compatibility (Windows/Unix)
+//! Character User Interface Application - NexusShell CUI App
+//!
+//! This module provides the Character User Interface (CUI) implementation for NexusShell.
+//! Delivers a high-performance and responsive command-line experience.
 
-use anyhow::{Result, Context};
+use std::collections::{HashMap, VecDeque};
+use std::io::{self, Write, stdout, stderr};
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant};
+use anyhow::{Result, Error};
 use crossterm::{
-    cursor,
-    execute,
-    style::{Color, Print, ResetColor, SetForegroundColor},
-    terminal::{self, ClearType},
+    cursor, event, execute, queue, style, terminal,
+    event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent},
+    style::{Color, Stylize, Attribute},
+    terminal::{ClearType, disable_raw_mode, enable_raw_mode},
 };
-use std::{
-    io::{self, Write},
-    sync::{Arc, Mutex as StdMutex},
-    time::{Duration, Instant},
-};
-// sysinfo 0.30 以降は拡張トレイト import 不要 (メソッドは固有実装)
-use sysinfo::{System, Pid, SystemExt, PidExt, ProcessExt};
-#[cfg(feature = "async")]
-use tokio::sync::Mutex;
-#[cfg(not(feature = "async"))]
-type Mutex<T> = std::sync::Mutex<T>;
+use tokio::sync::mpsc;
 
-use rustyline::completion::Completer;
-use crate::{
-    config::ConfigManager,
-    themes::ThemeManager,
-    line_editor::NexusLineEditor,
-    completion::NexusCompleter,
-    completion_integration::FastCompletionHelper,
-    ui_ux::{UIUXSystem, PromptContext},
-    status_line::{StatusMetricsCollector, format_status_line},
-    startup_profiler,
-};
-use crate::config::UiConfig as UIConfig;
-use nxsh_core::{context::ShellContext, executor::Executor};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, BufWriter};
-use std::time::SystemTime;
+use crate::config::UiConfig;
+use crate::themes::{Theme, get_theme};
+use crate::completion::{CompletionEngine, CompletionResult};
+use crate::completion_integration::{IntegratedCompletionSystem, ShellStateProvider};
+use crate::prompt::{Prompt, PromptStyle, StatusInfo};
+use crate::scroll_buffer::ScrollBuffer;
+use crate::ansi_render::AnsiRenderer;
 
-/// Maximum milliseconds to wait for input before refreshing status
-const INPUT_TIMEOUT_MS: u64 = 100;
-
-/// Simple metrics for performance tracking
-#[derive(Debug, Default)]
-struct SimpleMetrics {
-    startup_time_ms: u64,
-    commands_executed: u64,
-    avg_execution_time_ms: f64,
-    memory_usage_mib: f64,
-    input_latency_last_ms: f64,
-    input_latency_avg_ms: f64,
-    peak_memory_usage_mib: f64,
+/// CUI application state
+#[derive(Debug, Clone, PartialEq)]
+pub enum AppState {
+    Normal,
+    Completing,
+    Scrolling,
+    Searching,
+    CommandMode,
+    VisualMode,
+    InputMode,
+    Exiting,
 }
 
-type MetricsArc = Arc<StdMutex<SimpleMetrics>>;
-
-#[derive(Debug)]
-struct GuideSession {
-    command: String,
-    steps: Vec<crate::ui_ux::InteractiveStep>,
-    current: usize,
-    params: HashMap<String, String>,
+/// Input processing result
+#[derive(Debug, Clone, PartialEq)]
+pub enum InputResult {
+    Continue,
+    Execute(String),
+    Complete,
+    Scroll(ScrollDirection),
+    Search(String),
+    ChangeMode(AppState),
+    Quit,
+    Refresh,
 }
 
-/// CUI Application state - simplified from TUI version
-pub struct CUIApp {
-    /// Application configuration manager
-    config_manager: ConfigManager,
-    
-    /// Theme manager for CUI color schemes
-    theme_manager: ThemeManager,
-    
-    /// Line editor with history and completion
-    line_editor: Arc<Mutex<NexusLineEditor>>,
-    
-    /// Command completer for tab completion
-    completer: Arc<Mutex<NexusCompleter>>,
-    
-    /// High-performance completion helper
-    fast_completion: Option<Arc<FastCompletionHelper>>,
-    
-    /// Shell execution context
-    shell_context: Arc<Mutex<ShellContext>>,
-    
-    /// Command executor
-    executor: Arc<Mutex<Executor>>,
-    
-    /// Application state
-    should_quit: bool,
-    
-    /// Performance metrics
-    metrics: MetricsArc,
-    
-    /// Last command execution time
-    last_command_time: Option<Duration>,
-    
-    /// Command history for navigation
-    command_history: Vec<String>,
-    
-    /// Current history position
-    history_position: usize,
-
-    /// Advanced UI/UX system (themes, interactive steps, prompt rendering)
-    uiux_system: UIUXSystem,
-    /// Status line metrics collector
-    status_collector: Option<Arc<StatusMetricsCollector>>,
-
-    /// Last exit code from executed command (for prompt display)
-    last_exit_code: i32,
-
-    /// Active interactive guide session
-    guide_session: Option<GuideSession>,
-
-    /// Cached git branch name & last check timestamp
-    cached_git_branch: Option<String>,
-    last_git_branch_check: Instant,
-    last_git_head_mtime: Option<SystemTime>,
-
-    /// Session recording flag
-    recording: bool,
-    /// Active recording writer
-    rec_writer: Option<BufWriter<File>>,
-    /// Recording start instant (for relative timestamps)
-    rec_start_instant: Option<Instant>,
+#[derive(Debug, Clone, PartialEq)]
+pub enum ScrollDirection {
+    Up,
+    Down,
+    PageUp,
+    PageDown,
+    Home,
+    End,
 }
 
-/// Performance metrics for CUI application
-#[derive(Debug, Default)]
-pub struct CUIMetrics {
-    /// Startup time in milliseconds
-    pub startup_time_ms: u64,
+/// Main CUI application struct
+pub struct CuiApp {
+    config: UiConfig,
+    theme: Theme,
+    state: AppState,
     
-    /// Total commands executed
-    pub commands_executed: u64,
+    // UI Components
+    prompt: Prompt,
+    completion_system: IntegratedCompletionSystem,
+    scroll_buffer: ScrollBuffer,
+    ansi_renderer: AnsiRenderer,
     
-    /// Average command execution time
-    pub avg_execution_time_ms: f64,
+    // Input handling
+    input_buffer: String,
+    cursor_position: usize,
+    selection_start: Option<usize>,
     
-    /// Memory usage in MiB
-    pub memory_usage_mib: f64,
+    // Completion state
+    current_completions: Option<CompletionResult>,
+    completion_index: usize,
+    completion_visible: bool,
     
-    /// Input latency in milliseconds
-    pub input_latency_ms: f64,
-
-    /// Average input latency (EMA)
-    pub input_latency_avg_ms: f64,
-
-    /// Peak memory usage observed
-    pub peak_memory_usage_mib: f64,
+    // Terminal state
+    terminal_size: (u16, u16),
+    is_raw_mode: bool,
+    
+    // History
+    command_history: VecDeque<String>,
+    history_index: Option<usize>,
+    
+    // Performance metrics
+    frame_times: VecDeque<Duration>,
+    last_render_time: Instant,
+    
+    // Event channels
+    event_sender: Option<mpsc::UnboundedSender<AppEvent>>,
+    event_receiver: Option<mpsc::UnboundedReceiver<AppEvent>>,
 }
 
-impl CUIApp {
-    /// Create a comprehensive CUI application with full functionality
-    /// 
-    /// COMPLETE initialization with ALL features as required - NO simplification
-    /// Maintains perfect quality as specified in requirements
-    pub fn new_minimal() -> Result<Self> {
-        let startup_start = Instant::now();
-        
-        // FULL configuration loading - complete setup as required
-        let config_manager = ConfigManager::new()
-            .context("Failed to initialize complete configuration manager")?;
-        
-        // FULL theme system - all themes loaded as specified
-        let theme_manager = ThemeManager::new()
-            .context("Failed to initialize complete theme manager")?;
-        
-        // COMPLETE shell context with full history and capabilities
-        let shell_context = Arc::new(Mutex::new(
-            ShellContext::new()
-        ));
-        
-        // FULL executor with ALL builtin commands as required
-        let executor = Arc::new(Mutex::new(
-            Executor::new()
-        ));
-        
-        // COMPLETE line editor with full history and completion
-        let line_editor = Arc::new(Mutex::new(
-            NexusLineEditor::new()
-                .context("Failed to initialize complete line editor")?
-        ));
-        
-        // FULL completer with complete command cache and capabilities
-        let completer = Arc::new(Mutex::new(
-            NexusCompleter::new()?
-        ));
+/// Application event
+#[derive(Debug, Clone)]
+pub enum AppEvent {
+    KeyPress(KeyEvent),
+    Mouse(MouseEvent),
+    Resize(u16, u16),
+    Refresh,
+    Completion(CompletionResult),
+    Output(String),
+    Error(String),
+    StateChange(AppState),
+}
 
-        // Initialize high-performance completion helper
-        let fast_completion = match FastCompletionHelper::new() {
-            Ok(helper) => {
-                println!("🚀 高性能補完システムが初期化されました");
-                Some(Arc::new(helper))
-            }
-            Err(e) => {
-                eprintln!("⚠️  高性能補完の初期化に失敗、標準モードで動作: {}", e);
-                None
-            }
-        };
+impl CuiApp {
+    /// Create a new CUI application
+    pub fn new(config: UiConfig) -> Result<Self> {
+        let theme = get_theme(&config.theme_name)?;
+        let prompt = Prompt::new(config.prompt.clone());
+        let completion_system = IntegratedCompletionSystem::new(config.clone());
+        let scroll_buffer = ScrollBuffer::new(config.scroll_buffer_size);
+        let ansi_renderer = AnsiRenderer::new();
+        let terminal_size = terminal::size().unwrap_or((80, 24));
         
-        let startup_time_ms = startup_start.elapsed().as_millis() as u64;
-        
-        let metrics: MetricsArc = Arc::new(StdMutex::new(SimpleMetrics { 
-            startup_time_ms,
-            commands_executed: 0,
-            avg_execution_time_ms: 0.0,
-            memory_usage_mib: 0.0,
-            input_latency_last_ms: 0.0,
-            input_latency_avg_ms: 0.0,
-            peak_memory_usage_mib: 0.0,
-        }));
+        let (event_sender, event_receiver) = mpsc::unbounded_channel();
 
-        // Idle metrics refresher thread
-        {
-            let metrics_clone = Arc::clone(&metrics);
-            std::thread::spawn(move || {
-                let mut sys = System::new();
-                let pid = Pid::from_u32(std::process::id());
-                loop {
-                    std::thread::sleep(Duration::from_millis(INPUT_TIMEOUT_MS));
-                    sys.refresh_process(pid);
-                    if let Some(proc_) = sys.process(pid) {
-                        let mem_mib = proc_.memory() as f64 / 1024.0;
-                        if let Ok(mut m) = metrics_clone.lock() {
-                            m.memory_usage_mib = mem_mib;
-                            if mem_mib > m.peak_memory_usage_mib { m.peak_memory_usage_mib = mem_mib; }
-                        }
-                    }
-                }
-            });
-        }
-        
         Ok(Self {
-            config_manager,
-            theme_manager,
-            line_editor,
-            completer,
-            fast_completion,
-            shell_context,
-            executor,
-            should_quit: false,
-            metrics,
-            last_command_time: None,
-            command_history: Vec::new(),
-            history_position: 0,
-            uiux_system: UIUXSystem::new(),
-            status_collector: None,
-            last_exit_code: 0,
-            guide_session: None,
-            cached_git_branch: None,
-            last_git_branch_check: Instant::now() - Duration::from_secs(10),
-            last_git_head_mtime: None,
-            recording: false,
-            rec_writer: None,
-            rec_start_instant: None,
+            config,
+            theme,
+            state: AppState::Normal,
+            prompt,
+            completion_system,
+            scroll_buffer,
+            ansi_renderer,
+            input_buffer: String::new(),
+            cursor_position: 0,
+            selection_start: None,
+            current_completions: None,
+            completion_index: 0,
+            completion_visible: false,
+            terminal_size,
+            is_raw_mode: false,
+            command_history: VecDeque::new(),
+            history_index: None,
+            frame_times: VecDeque::new(),
+            last_render_time: Instant::now(),
+            event_sender: Some(event_sender),
+            event_receiver: Some(event_receiver),
         })
     }
 
-    /// Apply UI-only configuration to the running CUI application.
-    /// This updates the persistent configuration through the manager and
-    /// applies immediate effects when appropriate (e.g., theme-related toggles).
-    pub fn apply_ui_config(&mut self, ui: UIConfig) -> Result<()> {
-        // Update configuration manager state
-        let mut cfg = self.config_manager.config().clone();
-        cfg.ui = ui;
-        self.config_manager.update_config(cfg)?;
+    /// Initialize the application
+    pub async fn initialize(&mut self) -> Result<()> {
+        // Enable raw mode
+        enable_raw_mode()?;
+        self.is_raw_mode = true;
+
+        // Setup terminal
+        execute!(
+            stdout(),
+            terminal::EnterAlternateScreen,
+            cursor::EnableBlinking,
+            event::EnableMouseCapture
+        )?;
+
+        // Load configuration
+        self.load_history()?;
+        self.setup_completion_system()?;
+
+        // Initial render
+        self.render()?;
+
         Ok(())
     }
 
-    /// Create a new CUI application instance
-    /// 
-    /// This constructor initializes all components needed for a high-performance
-    /// command line interface, following the specifications in SPEC.md
-    pub fn new() -> Result<Self> {
-        eprintln!("DEBUG: CUIApp::new() called");
-        let startup_start = Instant::now();
-        
-        // Initialize configuration manager
-        let config_manager = ConfigManager::new()
-            .context("Failed to initialize configuration manager")?;
-        
-        // Load theme manager with CUI-optimized themes
-        let theme_manager = ThemeManager::new()
-            .context("Failed to initialize theme manager")?;
-        
-        // Initialize shell context
-        let shell_context = Arc::new(Mutex::new(
-            ShellContext::new()
-        ));
-        
-        // Initialize command executor
-        eprintln!("DEBUG: About to create Executor");
-        let executor = Arc::new(Mutex::new(
-            Executor::new()
-        ));
-        eprintln!("DEBUG: Executor created successfully");
-        
-        // Initialize line editor with CUI-optimized settings and wire shared completer
-        let line_editor_engine = NexusCompleter::new().context("Failed to initialize completer")?;
-        let shared_engine = Arc::new(StdMutex::new(line_editor_engine));
-        let mut tmp_line_editor = NexusLineEditor::new().context("Failed to initialize line editor")?;
-        tmp_line_editor.set_shared_completer(shared_engine.clone());
-        let line_editor = Arc::new(Mutex::new(tmp_line_editor));
-        
-        // Initialize completer
-        let completer = Arc::new(Mutex::new(
-            NexusCompleter::new()
-                .context("Failed to initialize completer")?
-        ));
-        
-        // Initialize high-performance completion helper
-        let fast_completion = Arc::new(
-            FastCompletionHelper::new()
-                .context("Failed to initialize fast completion helper")?
-        );
-        
-        let startup_time_ms = startup_start.elapsed().as_millis() as u64;
-        
-        let metrics: MetricsArc = Arc::new(StdMutex::new(SimpleMetrics { 
-            startup_time_ms,
-            commands_executed: 0,
-            avg_execution_time_ms: 0.0,
-            memory_usage_mib: 0.0,
-            input_latency_last_ms: 0.0,
-            input_latency_avg_ms: 0.0,
-            peak_memory_usage_mib: 0.0,
-        }));
-
-        // Idle metrics refresher thread
-        {
-            let metrics_clone = Arc::clone(&metrics);
-            std::thread::spawn(move || {
-                let mut sys = System::new();
-                let pid = Pid::from_u32(std::process::id());
-                loop {
-                    std::thread::sleep(Duration::from_millis(INPUT_TIMEOUT_MS));
-                    sys.refresh_process(pid);
-                    if let Some(proc_) = sys.process(pid) {
-                        let mem_mib = proc_.memory() as f64 / 1024.0;
-                        if let Ok(mut m) = metrics_clone.lock() {
-                            m.memory_usage_mib = mem_mib;
-                            if mem_mib > m.peak_memory_usage_mib { m.peak_memory_usage_mib = mem_mib; }
-                        }
-                    }
-                }
-            });
-        }
-        
-        // Ensure startup time meets specification (≤5ms) - warning disabled
-        if startup_time_ms > 5 {
-            // Warning disabled - no output
-        }
-        
-        Ok(Self {
-            config_manager,
-            theme_manager,
-            line_editor,
-            completer,
-            fast_completion: Some(fast_completion),
-            shell_context,
-            executor,
-            should_quit: false,
-            metrics,
-            last_command_time: None,
-            command_history: Vec::new(),
-            history_position: 0,
-            uiux_system: UIUXSystem::new(),
-            status_collector: None,
-            last_exit_code: 0,
-            guide_session: None,
-            cached_git_branch: None,
-            last_git_branch_check: Instant::now() - Duration::from_secs(10),
-            last_git_head_mtime: None,
-            recording: false,
-            rec_writer: None,
-            rec_start_instant: None,
-        })
-    }
-    
-    /// Apply configuration to the CUI application
-    /// 
-    /// This method updates the application state based on the provided configuration,
-    /// including theme settings, prompt format, and behavior options.
-    pub async fn apply_config(&mut self, config: crate::config::CUIConfig) -> Result<()> {
-        // Apply theme configuration
-        if let Some(theme_name) = config.theme {
-            if let Err(e) = self.theme_manager.set_theme(&theme_name) {
-                eprintln!("Failed to apply theme '{theme_name}': {e}");
-            }
-        }
-        
-        // Apply prompt configuration
-        if let Some(_prompt_format) = config.prompt_format {
-            // Prompt format configuration would be applied here
-        }
-        
-        // Apply editor configuration
-        if let Some(_editor_config) = config.editor {
-            // Editor configuration would be applied here
-        }
-        
-        // Apply completion configuration
-        if let Some(_completion_config) = config.completion {
-            // Completion configuration would be applied here
-        }
-        
-        // Update configuration manager
-        // Note: Configuration manager update would be implemented here
-        
-        Ok(())
-    }
-    
-    /// Run the main CUI application loop
-    /// 
-    /// This is the primary entry point for the CUI interface, handling:
-    /// - Prompt display
-    /// - Input processing
-    /// - Command execution
-    /// - Output formatting
-    #[cfg(feature = "async")]
+    /// Run the application
     pub async fn run(&mut self) -> Result<()> {
-        // Initialize terminal for CUI mode
-        self.initialize_terminal()
-            .context("Failed to initialize terminal")?;
-        
-        // Display startup banner
-        self.display_startup_banner()
-            .context("Failed to display startup banner")?;
-        if startup_profiler::is_enabled() {
-            startup_profiler::mark_first_frame_flushed(Instant::now());
-        }
-        
-        // Main application loop
-        // System info for memory tracking
-        let mut sys = System::new();
-        // Start status line collector lazily (respect env opt-out)
-        if std::env::var("NXSH_STATUSLINE_DISABLE").ok().as_deref() != Some("1") {
-            self.status_collector = Some(StatusMetricsCollector::start());
-        }
+        self.initialize().await?;
 
-        let pid_u32 = std::process::id();
-        let pid = Pid::from_u32(pid_u32);
-        while !self.should_quit {
-            // Display prompt
-            self.display_prompt()?;
-            if startup_profiler::is_enabled() {
-                startup_profiler::mark_first_prompt_flushed(Instant::now());
+        let mut event_receiver = self.event_receiver.take().unwrap();
+
+        loop {
+            // Handle events
+            tokio::select! {
+                // Terminal events
+                _ = self.handle_terminal_events() => {},
+                
+                // Application events
+                event = event_receiver.recv() => {
+                    if let Some(event) = event {
+                        match self.handle_app_event(event).await? {
+                            InputResult::Quit => break,
+                            InputResult::Execute(command) => {
+                                self.execute_command(&command).await?;
+                            }
+                            InputResult::Refresh => {
+                                self.render()?;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                
+                // Periodic updates
+                _ = tokio::time::sleep(Duration::from_millis(16)) => {
+                    self.update().await?;
+                }
             }
+        }
 
-            // Render a status line below prompt if enabled
-            if let Some(ref c) = self.status_collector {
-                let snap = c.get();
-                let colored = crate::tui::supports_color();
-                let line = format_status_line(&snap, colored);
-                println!("\r{}", line);
+        self.shutdown().await?;
+        Ok(())
+    }
+
+    /// Handle terminal events
+    async fn handle_terminal_events(&mut self) -> Result<()> {
+        if event::poll(Duration::from_millis(0))? {
+            match event::read()? {
+                Event::Key(key_event) => {
+                    if let Some(sender) = &self.event_sender {
+                        sender.send(AppEvent::KeyPress(key_event))?;
+                    }
+                }
+                Event::Mouse(mouse_event) => {
+                    if let Some(sender) = &self.event_sender {
+                        sender.send(AppEvent::Mouse(mouse_event))?;
+                    }
+                }
+                Event::Resize(cols, rows) => {
+                    self.terminal_size = (cols, rows);
+                    if let Some(sender) = &self.event_sender {
+                        sender.send(AppEvent::Resize(cols, rows))?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Handle application events
+    async fn handle_app_event(&mut self, event: AppEvent) -> Result<InputResult> {
+        match event {
+            AppEvent::KeyPress(key_event) => {
+                self.handle_key_event(key_event).await
+            }
+            AppEvent::Mouse(mouse_event) => {
+                self.handle_mouse_event(mouse_event).await
+            }
+            AppEvent::Resize(cols, rows) => {
+                self.handle_resize(cols, rows).await
+            }
+            AppEvent::Refresh => {
+                Ok(InputResult::Refresh)
+            }
+            AppEvent::Completion(result) => {
+                self.handle_completion_result(result).await
+            }
+            AppEvent::Output(text) => {
+                self.add_output(&text);
+                Ok(InputResult::Refresh)
+            }
+            AppEvent::Error(text) => {
+                self.add_error(&text);
+                Ok(InputResult::Refresh)
+            }
+            AppEvent::StateChange(new_state) => {
+                self.state = new_state;
+                Ok(InputResult::Refresh)
+            }
+        }
+    }
+
+    /// Handle key events
+    async fn handle_key_event(&mut self, key_event: KeyEvent) -> Result<InputResult> {
+        match self.state {
+            AppState::Normal => self.handle_normal_mode_key(key_event).await,
+            AppState::Completing => self.handle_completion_mode_key(key_event).await,
+            AppState::Scrolling => self.handle_scroll_mode_key(key_event).await,
+            AppState::Searching => self.handle_search_mode_key(key_event).await,
+            AppState::CommandMode => self.handle_command_mode_key(key_event).await,
+            AppState::VisualMode => self.handle_visual_mode_key(key_event).await,
+            AppState::InputMode => self.handle_input_mode_key(key_event).await,
+            AppState::Exiting => Ok(InputResult::Quit),
+        }
+    }
+
+    /// Handle normal mode key input
+    async fn handle_normal_mode_key(&mut self, key_event: KeyEvent) -> Result<InputResult> {
+        match (key_event.code, key_event.modifiers) {
+            (KeyCode::Enter, _) => {
+                if !self.input_buffer.is_empty() {
+                    let command = self.input_buffer.clone();
+                    self.add_to_history(command.clone());
+                    self.clear_input();
+                    Ok(InputResult::Execute(command))
+                } else {
+                    Ok(InputResult::Continue)
+                }
             }
             
-            // Measure input latency
-            let input_start = Instant::now();
-            // Read and process input
-            match {
-                #[cfg(feature = "async")]
-                { self.read_input().await }
-                #[cfg(not(feature = "async"))]
-                { self.read_input() }
-            } {
-                Ok(Some(command)) => {
-                    let latency = input_start.elapsed().as_micros() as f64 / 1000.0; // ms
-                    {
-                        let mut m = self.metrics.lock().unwrap();
-                        m.input_latency_last_ms = latency;
-                        if m.input_latency_avg_ms == 0.0 { m.input_latency_avg_ms = latency; }
-                        else { m.input_latency_avg_ms = (m.input_latency_avg_ms * 0.8) + (latency * 0.2); }
-                    }
-                    // Threshold monitoring using INPUT_TIMEOUT_MS (disabled warning)
-                    if latency as u64 > INPUT_TIMEOUT_MS {
-                        // Warning disabled - no output
-                    }
-                    // Update memory metrics before execution (process memory in KiB -> MiB)
-                    sys.refresh_process(pid);
-                    if let Some(proc_) = sys.process(pid) {
-                        let mem_mib = proc_.memory() as f64 / 1024.0;
-                        let mut m = self.metrics.lock().unwrap();
-                        m.memory_usage_mib = mem_mib;
-                        if mem_mib > m.peak_memory_usage_mib { m.peak_memory_usage_mib = mem_mib; }
-                    }
-                    if !command.trim().is_empty() {
-                        // If we are inside guide session, treat this as parameter input
-                        if self.process_guide_input(&command).await? {
-                            // guide input consumed; nothing else to do this loop
-                        } else {
-                            let output = {
-                                #[cfg(feature = "async")]
-                                { self.execute_command(&command).await }
-                                #[cfg(not(feature = "async"))]
-                                { self.execute_command(&command) }
-                            }
-                                .context("Failed to execute command")?;
-                            if !output.trim().is_empty() {
-                                println!("{}", output);
-                            }
-                        }
-                    }
-                }
-                Ok(None) => {
-                    // No full line yet; drive a short non-blocking completion paint if a helper exists
-                    // (rustyline draws inline; nothing to do here besides continue)
-                    continue;
-                }
-                Err(e) => {
-                    eprintln!("❌ Input error: {e}");
-                    continue;
-                }
+            (KeyCode::Tab, _) => {
+                self.trigger_completion().await
             }
-        }
-        
-        // Cleanup terminal
-        self.cleanup_terminal()
-            .context("Failed to cleanup terminal")?;
-        
-        Ok(())
-    }
-
-    /// Run loop for non-async builds (synchronous)
-    #[cfg(not(feature = "async"))]
-    pub fn run(&mut self) -> Result<()> {
-        // Initialize terminal for CUI mode
-        self.initialize_terminal()
-            .context("Failed to initialize terminal")?;
-
-        // Display startup banner
-        self.display_startup_banner()
-            .context("Failed to display startup banner")?;
-        if startup_profiler::is_enabled() {
-            startup_profiler::mark_first_frame_flushed(Instant::now());
-        }
-
-        // Main application loop
-        let mut sys = System::new();
-        if std::env::var("NXSH_STATUSLINE_DISABLE").ok().as_deref() != Some("1") {
-            self.status_collector = Some(StatusMetricsCollector::start());
-        }
-
-        let pid_u32 = std::process::id();
-        let pid = Pid::from_u32(pid_u32);
-        while !self.should_quit {
-            // Display prompt
-            self.display_prompt()?;
-            if startup_profiler::is_enabled() {
-                startup_profiler::mark_first_prompt_flushed(Instant::now());
-            }
-
-            // Render a status line below prompt if enabled
-            if let Some(ref c) = self.status_collector {
-                let snap = c.get();
-                let colored = crate::tui::supports_color();
-                let line = format_status_line(&snap, colored);
-                println!("\r{}", line);
-            }
-
-            // Measure input latency
-            let input_start = Instant::now();
-            // Read and process input (sync)
-            match self.read_input() {
-                Ok(Some(command)) => {
-                    let latency = input_start.elapsed().as_micros() as f64 / 1000.0; // ms
-                    {
-                        let mut m = self.metrics.lock().unwrap();
-                        m.input_latency_last_ms = latency;
-                        if m.input_latency_avg_ms == 0.0 { m.input_latency_avg_ms = latency; }
-                        else { m.input_latency_avg_ms = (m.input_latency_avg_ms * 0.8) + (latency * 0.2); }
-                    }
-                    if latency as u64 > INPUT_TIMEOUT_MS {
-                        // Warning disabled - no output
-                    }
-                    // Update memory metrics before execution (process memory in KiB -> MiB)
-                    sys.refresh_process(pid);
-                    if let Some(proc_) = sys.process(pid) {
-                        let mem_mib = proc_.memory() as f64 / 1024.0;
-                        let mut m = self.metrics.lock().unwrap();
-                        m.memory_usage_mib = mem_mib;
-                        if mem_mib > m.peak_memory_usage_mib { m.peak_memory_usage_mib = mem_mib; }
-                    }
-
-                    // Execute command
-                    match self.execute_command(&command) {
-                        Ok(output) => {
-                            if !output.trim().is_empty() { println!("{}", output); }
-                        }
-                        Err(e) => {
-                            eprintln!("Error: {}", e);
-                        }
-                    }
-                }
-                Ok(None) => { /* no input, continue loop */ }
-                Err(e) => {
-                    eprintln!("Input error: {}", e);
-                }
-            }
-        }
-
-        Ok(())
-    }
-    
-    /// Initialize terminal for CUI operation
-    fn initialize_terminal(&self) -> Result<()> {
-        // Let rustyline manage raw mode during `readline()` to avoid key handling conflicts (Tab completion, etc.)
-        // Clear screen and move cursor to top
-        execute!(
-            io::stdout(),
-            terminal::Clear(ClearType::All),
-            cursor::MoveTo(0, 0)
-        )
-        .context("Failed to clear terminal")?;
-        
-        Ok(())
-    }
-    
-    /// Display startup banner with version and performance info
-    fn display_startup_banner(&self) -> Result<()> {
-        let mut stdout = io::stdout();
-        
-        // NexusShell ASCII art (simplified for CUI)
-        execute!(
-            stdout,
-            SetForegroundColor(Color::Cyan),
-            Print("███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗\n"),
-            Print("████╗  ██║██╔════╝╚██╗██╔╝██║   ██║██╔════╝\n"),
-            Print("██╔██╗ ██║█████╗   ╚███╔╝ ██║   ██║███████╗\n"),
-            Print("██║╚██╗██║██╔══╝   ██╔██╗ ██║   ██║╚════██║\n"),
-            Print("██║ ╚████║███████╗██╔╝ ██╗╚██████╔╝███████║\n"),
-            Print("╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝\n"),
-            ResetColor,
-            Print("\n"),
-            SetForegroundColor(Color::Green),
-            Print("🚀 NexusShell v23.11.07 - World-Class Command Line Interface\n"),
-            SetForegroundColor(Color::Yellow),
-            Print({
-                let m = self.metrics.lock().unwrap();
-                format!("⚡ Startup: {}ms | Memory: {:.1}MiB | Mode: CUI\n", m.startup_time_ms, m.memory_usage_mib)
-            }),
-            ResetColor,
-            Print("\n")
-        )
-        .context("Failed to display banner")?;
-        
-        stdout.flush()
-            .context("Failed to flush stdout")?;
-        
-        Ok(())
-    }
-    
-    /// Display the command prompt
-    fn display_prompt(&mut self) -> Result<()> {
-        let prompt = self.build_prompt();
-        print!("{}", prompt);
-        io::stdout().flush().context("Failed to flush prompt")?;
-        Ok(())
-    }
-
-    fn build_prompt(&mut self) -> String {
-        if let Some(gs) = &self.guide_session {
-            if gs.current < gs.steps.len() {
-                let step = &gs.steps[gs.current];
-                let deco = if self.uiux_system.animations_enabled() { "→" } else { ">" };
-                let mut meta = String::new();
-                if step.required { meta.push_str("*required* "); }
-                if let Some(def) = &step.default_value { meta.push_str(&format!("[default: {def}] ")); }
-                match &step.parameter_type {
-                    crate::ui_ux::ParameterType::Choice(opts) => meta.push_str(&format!("{{{}}} ", opts.join("|"))),
-                    crate::ui_ux::ParameterType::Boolean => meta.push_str("{y/n} "),
-                    crate::ui_ux::ParameterType::File => meta.push_str("<file> "),
-                    crate::ui_ux::ParameterType::Directory => meta.push_str("<dir> "),
-                    crate::ui_ux::ParameterType::Number => meta.push_str("<num> "),
-                    crate::ui_ux::ParameterType::String => {},
-                }
-                return format!("{deco} [{}:{}/{}] {} - {}{}", gs.command, gs.current + 1, gs.steps.len(), step.name, step.description, if meta.is_empty() { String::new() } else { format!(" ({meta})") });
-            }
-        }
-        // Gather context for prompt rendering
-        let username = whoami::username();
-        let hostname = hostname::get().ok()
-            .and_then(|h| h.into_string().ok())
-            .unwrap_or_else(|| "unknown".to_string());
-        let current_path = std::env::current_dir()
-            .ok()
-            .and_then(|p| p.to_str().map(|s| s.to_string()))
-            .unwrap_or_else(|| "?".to_string());
-        let prompt_ctx = PromptContext {
-            username,
-            hostname,
-            current_path,
-            git_branch: self.get_git_branch_cached().ok(),
-            last_exit_code: self.last_exit_code,
-            is_admin: Self::is_admin(),
-        };
-        self.uiux_system.render_prompt(&prompt_ctx)
-    }
-
-    fn detect_git_branch_raw() -> Result<String> {
-        let head_path = std::path::Path::new(".git/HEAD");
-        if let Ok(content) = std::fs::read_to_string(head_path) {
-            if let Some(line) = content.lines().next() {
-                if let Some(rest) = line.strip_prefix("ref: refs/heads/") {
-                    return Ok(rest.trim().to_string());
-                }
-            }
-        }
-        Err(anyhow::anyhow!("No branch"))
-    }
-
-    fn get_git_branch_cached(&mut self) -> Result<String> {
-        let head_path = std::path::Path::new(".git/HEAD");
-        let now = Instant::now();
-        let metadata_mtime = head_path.metadata().and_then(|m| m.modified()).ok();
-        let need_refresh = self.cached_git_branch.is_none()
-            || metadata_mtime.map(|mt| Some(mt) != self.last_git_head_mtime).unwrap_or(false)
-            || now.duration_since(self.last_git_branch_check) > Duration::from_secs(10);
-        if need_refresh {
-            if let Ok(b) = Self::detect_git_branch_raw() { self.cached_git_branch = Some(b); }
-            self.last_git_branch_check = now;
-            self.last_git_head_mtime = metadata_mtime;
-        }
-        self.cached_git_branch.clone().ok_or_else(|| anyhow::anyhow!("No branch"))
-    }
-
-    #[cfg(unix)]
-    fn is_admin() -> bool { nix::unistd::Uid::effective().is_root() }
-    #[cfg(not(unix))]
-    fn is_admin() -> bool { false }
-    
-    /// Read input from user with timeout
-    #[cfg(feature = "async")]
-    async fn read_input(&mut self) -> Result<Option<String>> {
-        // Use line editor for input with history and completion
-    let mut line_editor = self.line_editor.lock().await;
-        
-        match line_editor.readline("$ ") {
-            Ok(input) => {
-                if input.trim() == "exit" || input.trim() == "quit" {
-                    self.should_quit = true;
-                    return Ok(None);
-                }
-                
-                // Add to history if not empty
-                if !input.trim().is_empty() {
-                    self.command_history.push(input.clone());
-                    self.history_position = self.command_history.len();
-                }
-                
-                Ok(Some(input))
-            }
-            Err(e) => Err(anyhow::anyhow!("Failed to read input: {}", e))
-        }
-    }
-
-    /// Read input (sync) when async feature is disabled
-    #[cfg(not(feature = "async"))]
-    fn read_input(&mut self) -> Result<Option<String>> {
-        let mut line_editor = self.line_editor.lock().unwrap();
-        match line_editor.readline("$ ") {
-            Ok(input) => {
-                if input.trim() == "exit" || input.trim() == "quit" {
-                    self.should_quit = true;
-                    return Ok(None);
-                }
-                if !input.trim().is_empty() {
-                    self.command_history.push(input.clone());
-                    self.history_position = self.command_history.len();
-                }
-                Ok(Some(input))
-            }
-            Err(e) => Err(anyhow::anyhow!("Failed to read input: {}", e))
-        }
-    }
-    
-    /// Execute a command and display results
-    /// 
-    /// This method provides complete command execution with proper error handling,
-    /// output formatting, and performance monitoring to meet SPEC.md requirements.
-    #[cfg(feature = "async")]
-    pub async fn execute_command(&mut self, command: &str) -> Result<String> {
-        let start_time = Instant::now();
-        
-        {
-            let mut m = self.metrics.lock().unwrap();
-            m.commands_executed += 1;
-        }
-
-        // Record input command if recording is enabled
-        self.record_event_command(command);
-        
-        // Handle built-in commands first (exit, help, etc.)
-        if let Some(output) = self.handle_builtin_command(command).await? {
-            return Ok(output);
-        }
-
-        // Parse command to check if it's a nxsh_builtins command
-        let cmd_parts: Vec<&str> = command.split_whitespace().collect();
-        if !cmd_parts.is_empty() {
-            let command_name = cmd_parts[0];
             
-            // Try nxsh_builtins for comprehensive command support
-            if nxsh_builtins::is_builtin_name(command_name) {
-                let args: Vec<String> = cmd_parts[1..].iter().map(|s| s.to_string()).collect();
-                let (output, exit_code): (String, i32) = match nxsh_builtins::execute_builtin(command_name, &args) {
-                    Ok(()) => {
-                        ("".to_string(), 0) // nxsh_builtins writes directly to stdout/stderr
-                    }
-                    Err(e) => {
-                        (format!("Error: {}", e), 1)
-                    }
-                };
-                // Update metrics and exit code
-                self.last_exit_code = exit_code;
-                self.record_event_output(&output, exit_code);
-                let execution_time = start_time.elapsed();
-                self.last_command_time = Some(execution_time);
-                let exec_time_ms = execution_time.as_millis() as f64;
-                {
-                    let mut m = self.metrics.lock().unwrap();
-                    if m.commands_executed == 1 { 
-                        m.avg_execution_time_ms = exec_time_ms; 
-                    } else { 
-                        m.avg_execution_time_ms = ((m.avg_execution_time_ms * (m.commands_executed - 1) as f64) + exec_time_ms) / m.commands_executed as f64; 
-                    }
-                }
-                return Ok(output);
-            }
-        }
-
-        // Dispatch full-feature builtins from nxsh_builtins before shell parsing/external fallback
-        // This enables complete in-process implementations (ls, grep, find, etc.) in CUI mode.
-        // Note: Most builtins print directly to stdout/stderr. We therefore
-        // return an empty output string to avoid duplicate printing at the UI layer.
-        if let Some((cmd_name, args_vec)) = {
-            let mut iter = command.split_whitespace();
-            if let Some(name) = iter.next() {
-                let args: Vec<String> = iter.map(|s| s.to_string()).collect();
-                Some((name.to_string(), args))
-            } else { None }
-        } {
-            if nxsh_builtins::is_builtin_name(&cmd_name) {
-                let exit_code = match nxsh_builtins::execute_builtin(&cmd_name, &args_vec) {
-                    Ok(()) => 0,
-                    Err(e) => { eprintln!("{e}"); 1 }
-                };
-                // Update last exit code and metrics consistently
-                self.last_exit_code = exit_code;
-                self.record_event_output("", exit_code);
-                let execution_time = start_time.elapsed();
-                self.last_command_time = Some(execution_time);
-                let exec_time_ms = execution_time.as_millis() as f64;
-                {
-                    let mut m = self.metrics.lock().unwrap();
-                    if m.commands_executed == 1 { m.avg_execution_time_ms = exec_time_ms; }
-                    else { m.avg_execution_time_ms = ((m.avg_execution_time_ms * (m.commands_executed - 1) as f64) + exec_time_ms) / m.commands_executed as f64; }
-                }
-                return Ok(String::new());
-            }
-        }
-        
-        // Parse command into AST first (before locking executor/context)
-        use nxsh_parser::Parser;
-        let parser = Parser::new();
-
-        // Prepare holders to avoid mutable borrow while executor/context are locked
-        let (output, exit_code): (String, i32) = match parser.parse(command) {
-            Ok(ast) => {
-                // Lock only for execute
-                let mut executor = self.executor.lock().await;
-                let mut shell_context = self.shell_context.lock().await;
-                match executor.execute(&ast, &mut shell_context) {
-                    Ok(result) => {
-                        let out = self.format_execution_result(&result);
-                        (out, result.exit_code)
-                    }
-                    Err(e) => {
-                        let out = self.format_execution_error(&e);
-                        (out, 1)
-                    }
-                }
-            }
-            Err(parse_error) => {
-                // Format parse error with helpful context
-                let out = self.format_parse_error(&parse_error, command);
-                (out, 1)
-            }
-        };
-        // Update last exit code and record output after locks are dropped
-        self.last_exit_code = exit_code;
-        self.record_event_output(&output, exit_code);
-        
-        // Update execution time metrics
-        let execution_time = start_time.elapsed();
-        self.last_command_time = Some(execution_time);
-        
-        // Update average execution time
-        let exec_time_ms = execution_time.as_millis() as f64;
-        {
-            let mut m = self.metrics.lock().unwrap();
-            if m.commands_executed == 1 { m.avg_execution_time_ms = exec_time_ms; }
-            else { m.avg_execution_time_ms = ((m.avg_execution_time_ms * (m.commands_executed - 1) as f64) + exec_time_ms) / m.commands_executed as f64; }
-        }
-        
-        Ok(output)
-    }
-
-    /// Execute command (sync) for non-async builds
-    #[cfg(not(feature = "async"))]
-    pub fn execute_command(&mut self, command: &str) -> Result<String> {
-        let start_time = Instant::now();
-        {
-            let mut m = self.metrics.lock().unwrap();
-            m.commands_executed += 1;
-        }
-        self.record_event_command(command);
-        if let Some(output) = self.handle_builtin_command(command)? { return Ok(output); }
-        
-        // Parse command to check if it's a nxsh_builtins command
-        let cmd_parts: Vec<&str> = command.split_whitespace().collect();
-        if !cmd_parts.is_empty() {
-            let command_name = cmd_parts[0];
-            
-            // Try nxsh_builtins for comprehensive command support
-            if nxsh_builtins::is_builtin_name(command_name) {
-                let args: Vec<String> = cmd_parts[1..].iter().map(|s| s.to_string()).collect();
-                let (output, exit_code): (String, i32) = match nxsh_builtins::execute_builtin(command_name, &args) {
-                    Ok(()) => {
-                        ("".to_string(), 0) // nxsh_builtins writes directly to stdout/stderr
-                    }
-                    Err(e) => {
-                        (format!("Error: {}", e), 1)
-                    }
-                };
-                // Update metrics and exit code
-                self.last_exit_code = exit_code;
-                self.record_event_output(&output, exit_code);
-                let execution_time = start_time.elapsed();
-                self.last_command_time = Some(execution_time);
-                let exec_time_ms = execution_time.as_millis() as f64;
-                {
-                    let mut m = self.metrics.lock().unwrap();
-                    if m.commands_executed == 1 { 
-                        m.avg_execution_time_ms = exec_time_ms; 
-                    } else { 
-                        m.avg_execution_time_ms = ((m.avg_execution_time_ms * (m.commands_executed - 1) as f64) + exec_time_ms) / m.commands_executed as f64; 
-                    }
-                }
-                return Ok(output);
-            }
-        }
-        
-        use nxsh_parser::Parser;
-        let parser = Parser::new();
-        let (output, exit_code): (String, i32) = match parser.parse(command) {
-            Ok(ast) => {
-                let mut executor = self.executor.lock().unwrap();
-                let mut shell_context = self.shell_context.lock().unwrap();
-                match executor.execute(&ast, &mut shell_context) {
-                    Ok(result) => { (self.format_execution_result(&result), result.exit_code as i32) }
-                    Err(e) => { (self.format_execution_error(&e), 1) }
-                }
-            }
-            Err(parse_error) => { (self.format_parse_error(&parse_error, command), 1) }
-        };
-        self.last_exit_code = exit_code;
-        self.record_event_output(&output, exit_code);
-        let execution_time = start_time.elapsed();
-        self.last_command_time = Some(execution_time);
-        let exec_time_ms = execution_time.as_millis() as f64;
-        {
-            let mut m = self.metrics.lock().unwrap();
-            if m.commands_executed == 1 { m.avg_execution_time_ms = exec_time_ms; }
-            else { m.avg_execution_time_ms = ((m.avg_execution_time_ms * (m.commands_executed - 1) as f64) + exec_time_ms) / m.commands_executed as f64; }
-        }
-        Ok(output)
-    }
-    
-    /// Handle built-in CUI commands
-    /// 
-    /// Processes internal commands that don't require external execution,
-    /// such as exit, help, history, and settings commands.
-    #[cfg(feature = "async")]
-    async fn handle_builtin_command(&mut self, command: &str) -> Result<Option<String>> {
-        let cmd_parts: Vec<&str> = command.split_whitespace().collect();
-        if cmd_parts.is_empty() {
-            return Ok(None);
-        }
-        
-        match cmd_parts[0] {
-            "exit" | "quit" => {
-                self.should_quit = true;
-                Ok(Some("👋 Goodbye!".to_string()))
-            },
-            "help" => {
-                Ok(Some(self.generate_help_text()))
-            },
-            "history" => {
-                Ok(Some(self.generate_history_display()))
-            },
-            "metrics" | "stats" => {
-                Ok(Some(self.generate_metrics_display()))
-            },
-            "guide" => {
-                if cmd_parts.len() < 2 {
-                    return Ok(Some("Usage: guide <command>".to_string()));
-                }
-                let target = cmd_parts[1];
-                match self.uiux_system.start_interactive_mode(target) {
-                    Ok(session) => {
-                        let steps = session.steps.clone();
-                        self.guide_session = Some(GuideSession { command: target.to_string(), steps, current: 0, params: HashMap::new() });
-                        Ok(Some(format!("🧭 Guide started for '{}'. Enter values for each step. Type /cancel to abort.", target)))
-                    }
-                    Err(e) => Ok(Some(format!("Failed to build guide: {e}")))
-                }
-            },
-            "clear" => {
-                // Clear screen
-                execute!(io::stdout(), terminal::Clear(ClearType::All), cursor::MoveTo(0, 0))?;
-                Ok(Some("".to_string()))
-            },
-            "rec" => {
-                // Session recording control: rec start [FILE], rec stop, rec play FILE [--speed=N]
-                if cmd_parts.len() < 2 {
-                    return Ok(Some("Usage: rec <start|stop|play> [FILE] [--speed=N]".to_string()));
-                }
-                match cmd_parts[1] {
-                    "start" => {
-                        let path_opt = cmd_parts.get(2).copied();
-                        match self.start_recording(path_opt) {
-                            Ok(msg) => Ok(Some(msg)),
-                            Err(e) => Ok(Some(format!("Failed to start recording: {e}")))
-                        }
-                    }
-                    "stop" => {
-                        match self.stop_recording() {
-                            Ok(msg) => Ok(Some(msg)),
-                            Err(e) => Ok(Some(format!("Failed to stop recording: {e}")))
-                        }
-                    }
-                    "play" => {
-                        if cmd_parts.len() < 3 { return Ok(Some("Usage: rec play <FILE> [--speed=N]".to_string())); }
-                        let file = cmd_parts[2];
-                        let mut speed: f64 = 1.0;
-                        for arg in &cmd_parts[3..] {
-                            if let Some(rest) = arg.strip_prefix("--speed=") {
-                                if let Ok(v) = rest.parse::<f64>() { if v > 0.0 { speed = v; } }
-                            }
-                        }
-                        match self.play_session(file, speed) {
-                            Ok(msg) => Ok(Some(msg)),
-                            Err(e) => Ok(Some(format!("Failed to play session: {e}")))
-                        }
-                    }
-                    _ => Ok(Some("Usage: rec <start|stop|play> [FILE] [--speed=N]".to_string()))
-                }
-            }
-            _ => Ok(None) // Not a built-in command
-        }
-    }
-
-    /// Builtin handler (sync) for non-async builds
-    #[cfg(not(feature = "async"))]
-    fn handle_builtin_command(&mut self, command: &str) -> Result<Option<String>> {
-        let cmd_parts: Vec<&str> = command.split_whitespace().collect();
-        if cmd_parts.is_empty() { return Ok(None); }
-        match cmd_parts[0] {
-            "exit" | "quit" => { self.should_quit = true; Ok(Some(String::new())) }
-            "help" => Ok(Some(self.generate_help_text())),
-            "history" => Ok(Some(self.generate_history_display())),
-            _ => Ok(None)
-        }
-    }
-    
-    /// Format execution result for CUI display
-    /// 
-    /// Converts executor results into properly formatted CUI output with
-    /// appropriate colorization and structure.
-    fn format_execution_result(&self, result: &nxsh_core::ExecutionResult) -> String {
-        // Format the execution result with proper CUI styling
-        if result.exit_code == 0 {
-            // Successful execution - display output if present; otherwise stay silent
-            if result.stdout.trim().is_empty() && result.stderr.trim().is_empty() {
-                String::new()
-            } else {
-                // Apply syntax highlighting and formatting to output
-                let mut output = String::new();
-                
-                if !result.stdout.trim().is_empty() {
-                    output.push_str(&self.apply_output_formatting(&result.stdout));
-                }
-                
-                if !result.stderr.trim().is_empty() {
-                    if !output.is_empty() {
-                        output.push('\n');
-                    }
-                    output.push_str(&format!("⚠️  stderr: {}", result.stderr.trim()));
-                }
-                
-                output
-            }
-        } else {
-            // Non-zero exit code - format as error
-            format!("❌ Command failed with exit code {}", result.exit_code)
-        }
-    }
-    
-    /// Format execution error for CUI display
-    /// 
-    /// Provides user-friendly error messages with helpful context and
-    /// suggestions for resolution.
-    fn format_execution_error(&self, error: &nxsh_core::ShellError) -> String {
-        // Access the error kind through the public API
-        let error_message = format!("{error}");
-        
-        // Provide context-based error formatting
-        if error_message.contains("command not found") || error_message.contains("Command not found") {
-            format!("❌ Command not found: {error}\n💡 Tip: Use 'help' to see available commands")
-        } else if error_message.contains("parse") || error_message.contains("syntax") {
-            format!("❌ Syntax error: {error}\n💡 Tip: Check your command syntax")
-        } else if error_message.contains("permission") || error_message.contains("access") {
-            format!("❌ I/O error: {error}\n💡 Tip: Check file permissions and paths")
-        } else {
-            format!("❌ Runtime error: {error}")
-        }
-    }
-    
-    /// Format parse error with context
-    /// 
-    /// Shows parse errors with the problematic command highlighted and
-    /// suggestions for correction.
-    fn format_parse_error(&self, error: &anyhow::Error, command: &str) -> String {
-        format!(
-            "❌ Parse error in command: '{}'\n🔍 Error: {}\n💡 Tip: Check command syntax and quotes",
-            command.trim(),
-            error
-        )
-    }
-    
-    /// Apply output formatting with CUI enhancements
-    /// 
-    /// Adds syntax highlighting, table formatting, and other visual
-    /// enhancements appropriate for CUI display.
-    fn apply_output_formatting(&self, output: &str) -> String {
-        // For now, return output as-is with simple formatting
-        // In a complete implementation, this would apply:
-        // - Syntax highlighting for code output
-        // - Table formatting for structured data
-        // - Color coding for different data types
-        // - Progress indicators for long operations
-        
-        if output.trim().is_empty() {
-            "✅ Command completed (no output)".to_string()
-        } else {
-            output.to_string()
-        }
-    }
-
-    /// Record an arbitrary output text if recording is enabled
-    pub fn record_text_output(&mut self, text: &str) {
-        if !self.recording { return; }
-        if let Some(writer) = self.rec_writer.as_mut() {
-            let ts = Self::now_millis_rel(self.rec_start_instant);
-            let _ = writeln!(
-                writer,
-                "{{\"ts\":{ts},\"kind\":\"out\",\"exit\":0,\"text\":{}}}",
-                Self::json_escape(text)
-            );
-            let _ = writer.flush();
-        }
-    }
-
-    fn record_event_command(&mut self, command: &str) {
-        if !self.recording { return; }
-        if let Some(writer) = self.rec_writer.as_mut() {
-            let ts = Self::now_millis_rel(self.rec_start_instant);
-            let _ = writeln!(
-                writer,
-                "{{\"ts\":{ts},\"kind\":\"cmd\",\"text\":{}}}",
-                Self::json_escape(command)
-            );
-            let _ = writer.flush();
-        }
-    }
-
-    fn record_event_output(&mut self, text: &str, exit: i32) {
-        if !self.recording { return; }
-        if let Some(writer) = self.rec_writer.as_mut() {
-            let ts = Self::now_millis_rel(self.rec_start_instant);
-            let _ = writeln!(
-                writer,
-                "{{\"ts\":{ts},\"kind\":\"out\",\"exit\":{exit},\"text\":{}}}",
-                Self::json_escape(text)
-            );
-            let _ = writer.flush();
-        }
-    }
-
-    fn now_millis_rel(start: Option<Instant>) -> u128 {
-        start.map(|s| s.elapsed().as_millis()).unwrap_or(0)
-    }
-
-    fn json_escape(s: &str) -> String {
-        let mut out = String::from("\"");
-        for ch in s.chars() {
-            match ch {
-                '"' => out.push_str("\\\""),
-                '\\' => out.push_str("\\\\"),
-                '\n' => out.push_str("\\n"),
-                '\r' => out.push_str("\\r"),
-                '\t' => out.push_str("\\t"),
-                c if c.is_control() => out.push_str(&format!("\\u{:04x}", c as u32)),
-                c => out.push(c),
-            }
-        }
-        out.push('"');
-        out
-    }
-
-    fn default_sessions_dir() -> PathBuf {
-        // Prefer NXSH_SESSIONS_DIR if set
-        if let Ok(dir) = std::env::var("NXSH_SESSIONS_DIR") { return PathBuf::from(dir); }
-        #[cfg(windows)]
-        {
-            if let Ok(appdata) = std::env::var("APPDATA") {
-                return PathBuf::from(appdata).join("NexusShell").join("sessions");
-            }
-        }
-        #[cfg(unix)]
-        {
-            if let Ok(xdg) = std::env::var("XDG_STATE_HOME") {
-                return PathBuf::from(xdg).join("nxsh").join("sessions");
-            }
-            if let Some(home) = dirs_next::home_dir() {
-                return home.join(".local").join("state").join("nxsh").join("sessions");
-            }
-        }
-        // Fallback to current directory
-        std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join("nxsh_sessions")
-    }
-
-    fn start_recording(&mut self, path_opt: Option<&str>) -> Result<String> {
-        if self.recording { return Ok("rec: already recording".to_string()); }
-        let file_path = if let Some(p) = path_opt {
-            PathBuf::from(p)
-        } else {
-            let dir = Self::default_sessions_dir();
-            fs::create_dir_all(&dir).with_context(|| format!("Failed to create sessions dir: {}", dir.display()))?;
-            let epoch_ms: u128 = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_else(|_| Duration::from_millis(0))
-                .as_millis();
-            dir.join(format!("session_{}.rec", epoch_ms))
-        };
-
-        let file = OpenOptions::new().create(true).truncate(true).write(true)
-            .open(&file_path)
-            .with_context(|| format!("Failed to open recording file: {}", file_path.display()))?;
-        self.rec_writer = Some(BufWriter::new(file));
-        self.rec_start_instant = Some(Instant::now());
-        self.recording = true;
-        if let Some(w) = self.rec_writer.as_mut() {
-            let _ = writeln!(w, "{{\"version\":1,\"meta\":\"nxsh session\"}}\n");
-            let _ = w.flush();
-        }
-        Ok(format!("rec: started -> {}", file_path.display()))
-    }
-
-    fn stop_recording(&mut self) -> Result<String> {
-        if !self.recording { return Ok("rec: not recording".to_string()); }
-        if let Some(mut w) = self.rec_writer.take() { let _ = w.flush(); }
-        self.recording = false;
-        self.rec_start_instant = None;
-        Ok("rec: stopped".to_string())
-    }
-
-    fn play_session(&mut self, path: &str, speed: f64) -> Result<String> {
-        let file = File::open(path).with_context(|| format!("Failed to open session file: {path}"))?;
-        let reader = BufReader::new(file);
-        let mut last_ts: Option<u128> = None;
-        for line in reader.lines() {
-            let line = line?;
-            if line.trim().is_empty() { continue; }
-            // Very small parser: extract ts, kind, text
-            let ts = Self::extract_number_field(&line, "ts");
-            let kind = Self::extract_string_field(&line, "kind");
-            let text = Self::extract_string_field(&line, "text");
-            if let (Some(tsv), Some(k), Some(t)) = (ts, kind, text) {
-                if let Some(prev) = last_ts { 
-                    let delta_ms = tsv.saturating_sub(prev) as f64;
-                    let sleep_ms = (delta_ms / speed).max(0.0) as u64;
-                    if sleep_ms > 0 { std::thread::sleep(Duration::from_millis(sleep_ms)); }
-                }
-                last_ts = Some(tsv);
-                match k.as_str() {
-                    "cmd" => println!("$ {}", t),
-                    "out" => println!("{}", t),
-                    _ => {}
-                }
-            }
-        }
-        Ok(format!("rec: played -> {}", path))
-    }
-
-    fn extract_number_field(line: &str, key: &str) -> Option<u128> {
-        // naive extraction: look for "key":<number>
-        let needle = format!("\"{}\":", key);
-        if let Some(idx) = line.find(&needle) {
-            let rest = &line[idx + needle.len()..];
-            let mut num = String::new();
-            for c in rest.chars() {
-                if c.is_ascii_digit() { num.push(c); } else { break; }
-            }
-            return num.parse::<u128>().ok();
-        }
-        None
-    }
-
-    fn extract_string_field(line: &str, key: &str) -> Option<String> {
-        // naive extraction for JSON string: "key":"..."
-        let needle = format!("\"{}\":\"", key);
-        if let Some(idx) = line.find(&needle) {
-            let mut s = String::new();
-            let mut escaped = false;
-            for c in line[idx + needle.len()..].chars() {
-                if escaped { s.push(c); escaped = false; continue; }
+            (KeyCode::Char(c), KeyModifiers::CONTROL) => {
                 match c {
-                    '\\' => escaped = true,
-                    '"' => break,
-                    _ => s.push(c),
+                    'c' => Ok(InputResult::Quit),
+                    'd' => {
+                        if self.input_buffer.is_empty() {
+                            Ok(InputResult::Quit)
+                        } else {
+                            Ok(InputResult::Continue)
+                        }
+                    }
+                    'l' => {
+                        execute!(stdout(), terminal::Clear(ClearType::All))?;
+                        Ok(InputResult::Refresh)
+                    }
+                    'r' => {
+                        self.trigger_search().await
+                    }
+                    'u' => {
+                        self.clear_input();
+                        Ok(InputResult::Refresh)
+                    }
+                    'w' => {
+                        self.delete_word_backward();
+                        Ok(InputResult::Refresh)
+                    }
+                    'a' => {
+                        self.cursor_position = 0;
+                        Ok(InputResult::Refresh)
+                    }
+                    'e' => {
+                        self.cursor_position = self.input_buffer.len();
+                        Ok(InputResult::Refresh)
+                    }
+                    _ => Ok(InputResult::Continue),
                 }
             }
-            return Some(s);
-        }
-        None
-    }
-    
-    /// Generate help text for CUI commands
-    /// 
-    /// Provides comprehensive help information including built-in commands,
-    /// keyboard shortcuts, and usage examples.
-    fn generate_help_text(&self) -> String {
-        // Build dynamic help from nxsh_builtins authoritative registry
-        let mut lines = String::new();
-        lines.push_str("🔧 NexusShell Help\n\n");
-        lines.push_str("Built-in Commands (dynamic):\n");
-        let mut builtin_names: Vec<&'static str> = nxsh_builtins::list_builtin_names();
-        builtin_names.sort_unstable();
-        // Print in columns for readability
-        let cols = 4usize;
-        let width = builtin_names.iter().map(|s| s.len()).max().unwrap_or(0) + 2;
-        for chunk in builtin_names.chunks(cols) {
-            for name in chunk {
-                let pad = width.saturating_sub(name.len());
-                lines.push_str(name);
-                for _ in 0..pad { lines.push(' '); }
+            
+            (KeyCode::Char(c), _) => {
+                self.insert_char(c);
+                Ok(InputResult::Refresh)
             }
-            lines.push('\n');
+            
+            (KeyCode::Backspace, _) => {
+                self.delete_backward();
+                Ok(InputResult::Refresh)
+            }
+            
+            (KeyCode::Delete, _) => {
+                self.delete_forward();
+                Ok(InputResult::Refresh)
+            }
+            
+            (KeyCode::Left, _) => {
+                self.move_cursor_left();
+                Ok(InputResult::Refresh)
+            }
+            
+            (KeyCode::Right, _) => {
+                self.move_cursor_right();
+                Ok(InputResult::Refresh)
+            }
+            
+            (KeyCode::Up, _) => {
+                self.history_previous();
+                Ok(InputResult::Refresh)
+            }
+            
+            (KeyCode::Down, _) => {
+                self.history_next();
+                Ok(InputResult::Refresh)
+            }
+            
+            (KeyCode::Home, _) => {
+                self.cursor_position = 0;
+                Ok(InputResult::Refresh)
+            }
+            
+            (KeyCode::End, _) => {
+                self.cursor_position = self.input_buffer.len();
+                Ok(InputResult::Refresh)
+            }
+            
+            (KeyCode::PageUp, _) => {
+                Ok(InputResult::Scroll(ScrollDirection::PageUp))
+            }
+            
+            (KeyCode::PageDown, _) => {
+                Ok(InputResult::Scroll(ScrollDirection::PageDown))
+            }
+            
+            _ => Ok(InputResult::Continue),
         }
-        lines.push_str("\nShortcuts:\n");
-        lines.push_str("  Ctrl+C  Interrupt / Exit\n");
-        lines.push_str("  Ctrl+L  Clear screen\n");
-        lines.push_str("  Tab     Auto-completion (builtins + PATH + files + vars)\n");
-        lines
     }
 
-    /// Public accessor for general help text to be used by the CUI front-end (F1 behavior)
-    pub fn general_help_text(&self) -> String {
-        self.generate_help_text()
+    /// Handle completion mode key input
+    async fn handle_completion_mode_key(&mut self, key_event: KeyEvent) -> Result<InputResult> {
+        match key_event.code {
+            KeyCode::Tab => {
+                self.select_next_completion();
+                Ok(InputResult::Refresh)
+            }
+            KeyCode::BackTab => {
+                self.select_previous_completion();
+                Ok(InputResult::Refresh)
+            }
+            KeyCode::Enter => {
+                self.apply_completion();
+                self.state = AppState::Normal;
+                Ok(InputResult::Refresh)
+            }
+            KeyCode::Esc => {
+                self.cancel_completion();
+                self.state = AppState::Normal;
+                Ok(InputResult::Refresh)
+            }
+            KeyCode::Up => {
+                self.select_previous_completion();
+                Ok(InputResult::Refresh)
+            }
+            KeyCode::Down => {
+                self.select_next_completion();
+                Ok(InputResult::Refresh)
+            }
+            _ => {
+                // Cancel completion and handle as normal
+                self.cancel_completion();
+                self.state = AppState::Normal;
+                self.handle_normal_mode_key(key_event).await
+            }
+        }
     }
 
-    // CUI ではウィンドウマネージャが無いため、ポップアップ専用テキストは不要
-    
-    /// Generate history display
-    /// 
-    /// Shows recent command history with timestamps and execution status.
-    fn generate_history_display(&self) -> String {
+    /// Handle scroll mode key input
+    async fn handle_scroll_mode_key(&mut self, key_event: KeyEvent) -> Result<InputResult> {
+        match key_event.code {
+            KeyCode::Esc => {
+                self.state = AppState::Normal;
+                Ok(InputResult::Refresh)
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                Ok(InputResult::Scroll(ScrollDirection::Up))
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                Ok(InputResult::Scroll(ScrollDirection::Down))
+            }
+            KeyCode::PageUp => {
+                Ok(InputResult::Scroll(ScrollDirection::PageUp))
+            }
+            KeyCode::PageDown => {
+                Ok(InputResult::Scroll(ScrollDirection::PageDown))
+            }
+            KeyCode::Home => {
+                Ok(InputResult::Scroll(ScrollDirection::Home))
+            }
+            KeyCode::End => {
+                Ok(InputResult::Scroll(ScrollDirection::End))
+            }
+            _ => Ok(InputResult::Continue),
+        }
+    }
+
+    /// Handle search mode key input
+    async fn handle_search_mode_key(&mut self, key_event: KeyEvent) -> Result<InputResult> {
+        // Search functionality implementation
+        match key_event.code {
+            KeyCode::Enter => {
+                self.execute_search();
+                self.state = AppState::Normal;
+                Ok(InputResult::Refresh)
+            }
+            KeyCode::Esc => {
+                self.cancel_search();
+                self.state = AppState::Normal;
+                Ok(InputResult::Refresh)
+            }
+            _ => {
+                // Handle search input
+                Ok(InputResult::Continue)
+            }
+        }
+    }
+
+    /// Handle command mode key input
+    async fn handle_command_mode_key(&mut self, key_event: KeyEvent) -> Result<InputResult> {
+        // Vi-style command mode
+        Ok(InputResult::Continue)
+    }
+
+    /// Handle visual mode key input
+    async fn handle_visual_mode_key(&mut self, key_event: KeyEvent) -> Result<InputResult> {
+        // Text selection mode
+        Ok(InputResult::Continue)
+    }
+
+    /// Handle input mode key input
+    async fn handle_input_mode_key(&mut self, key_event: KeyEvent) -> Result<InputResult> {
+        // Special input mode
+        Ok(InputResult::Continue)
+    }
+
+    /// Handle mouse events
+    async fn handle_mouse_event(&mut self, mouse_event: MouseEvent) -> Result<InputResult> {
+        // Mouse operation implementation
+        Ok(InputResult::Continue)
+    }
+
+    /// Handle resize events
+    async fn handle_resize(&mut self, cols: u16, rows: u16) -> Result<InputResult> {
+        self.terminal_size = (cols, rows);
+        execute!(stdout(), terminal::Clear(ClearType::All))?;
+        Ok(InputResult::Refresh)
+    }
+
+    /// Start completion
+    async fn trigger_completion(&mut self) -> Result<InputResult> {
+        let completions = self.completion_system.get_intelligent_completions(
+            &self.input_buffer,
+            self.cursor_position,
+        )?;
+        
+        if !completions.items.is_empty() {
+            self.current_completions = Some(completions);
+            self.completion_index = 0;
+            self.completion_visible = true;
+            self.state = AppState::Completing;
+        }
+        
+        Ok(InputResult::Refresh)
+    }
+
+    /// Start search
+    async fn trigger_search(&mut self) -> Result<InputResult> {
+        self.state = AppState::Searching;
+        Ok(InputResult::Refresh)
+    }
+
+    /// Handle completion result
+    async fn handle_completion_result(&mut self, result: CompletionResult) -> Result<InputResult> {
+        self.current_completions = Some(result);
+        self.completion_index = 0;
+        self.completion_visible = true;
+        Ok(InputResult::Refresh)
+    }
+
+    /// Insert character
+    fn insert_char(&mut self, c: char) {
+        self.input_buffer.insert(self.cursor_position, c);
+        self.cursor_position += 1;
+    }
+
+    /// 後方削除
+    fn delete_backward(&mut self) {
+        if self.cursor_position > 0 {
+            self.input_buffer.remove(self.cursor_position - 1);
+            self.cursor_position -= 1;
+        }
+    }
+
+    /// 前方削除
+    fn delete_forward(&mut self) {
+        if self.cursor_position < self.input_buffer.len() {
+            self.input_buffer.remove(self.cursor_position);
+        }
+    }
+
+    /// 単語後方削除
+    fn delete_word_backward(&mut self) {
+        let mut pos = self.cursor_position;
+        while pos > 0 && self.input_buffer.chars().nth(pos - 1).unwrap_or(' ').is_whitespace() {
+            pos -= 1;
+        }
+        while pos > 0 && !self.input_buffer.chars().nth(pos - 1).unwrap_or(' ').is_whitespace() {
+            pos -= 1;
+        }
+        self.input_buffer.drain(pos..self.cursor_position);
+        self.cursor_position = pos;
+    }
+
+    /// カーソル移動
+    fn move_cursor_left(&mut self) {
+        if self.cursor_position > 0 {
+            self.cursor_position -= 1;
+        }
+    }
+
+    fn move_cursor_right(&mut self) {
+        if self.cursor_position < self.input_buffer.len() {
+            self.cursor_position += 1;
+        }
+    }
+
+    /// Clear input
+    fn clear_input(&mut self) {
+        self.input_buffer.clear();
+        self.cursor_position = 0;
+    }
+
+    /// 履歴管理
+    fn add_to_history(&mut self, command: String) {
+        if !command.trim().is_empty() {
+            self.command_history.push_back(command);
+            if self.command_history.len() > self.config.history_size {
+                self.command_history.pop_front();
+            }
+        }
+        self.history_index = None;
+    }
+
+    fn history_previous(&mut self) {
         if self.command_history.is_empty() {
-            "📝 No commands in history".to_string()
-        } else {
-            let mut history_text = "📝 Command History:\n".to_string();
-            for (i, command) in self.command_history.iter().enumerate().rev().take(20) {
-                history_text.push_str(&format!("  {}. {}\n", i + 1, command));
-            }
-            if self.command_history.len() > 20 {
-                history_text.push_str(&format!("  ... and {} more commands\n", self.command_history.len() - 20));
-            }
-            history_text
+            return;
         }
-    }
-    
-    /// Generate metrics display
-    /// 
-    /// Shows current performance statistics and system resource usage.
-    fn generate_metrics_display(&self) -> String {
-    let m = self.metrics.lock().unwrap();
-    format!(
-            "📊 Performance Metrics:\n\
-            \n\
-            Startup Performance:\n\
-            • Startup time: {}ms (target: ≤5ms)\n\
-            • Memory usage: {:.1}MiB (target: ≤15MiB)\n\
-            • Peak memory usage: {:.1}MiB\n\
-            \n\
-            Runtime Performance:\n\
-            • Commands executed: {}\n\
-            • Average execution time: {:.2}ms\n\
-            • Input latency (last): {}\n\
-            • Input latency (avg): {:.2}ms\n\
-            • Last command time: {}\n\
-            \n\
-            Status: {}\n",
-            m.startup_time_ms,
-            m.memory_usage_mib,
-            m.peak_memory_usage_mib,
-            m.commands_executed,
-            m.avg_execution_time_ms,
-            if m.input_latency_last_ms > 0.0 { format!("{:.2}ms", m.input_latency_last_ms) } else { "N/A".to_string() },
-            m.input_latency_avg_ms,
-            self.last_command_time
-                .map(|d| format!("{:.2}ms", d.as_millis()))
-                .unwrap_or("N/A".to_string()),
-            if m.startup_time_ms <= 5 && m.memory_usage_mib <= 15.0 {
-                "✅ Meeting all SPEC.md requirements"
-            } else {
-                "⚠️  Some performance targets not met"
-            }
-        )
-    }
-    
-    /// Get completions for the current input
-    /// 
-    /// Provides intelligent command and filename completion with performance
-    /// monitoring to ensure <1ms latency as specified in SPEC.md.
-    #[cfg(feature = "async")]
-    pub async fn get_completions(&self, input: &str) -> Result<Vec<String>> {
-        let completion_start = Instant::now();
-        
-        // 高性能補完システムを優先的に使用
-        if let Some(ref fast_completion) = self.fast_completion {
-            // 高性能補完エンジン経由でアクセス（直接的なアクセス）
-            // Note: FastCompletionHelperは内部でAdvancedCompletionEngineを使用
-            match tokio::task::spawn_blocking({
-                let input_str = input.to_string();
-                let fast_comp = Arc::clone(fast_completion);
-                move || {
-                    // 空の履歴を作成してダミーコンテキストとして使用
-                    let history = rustyline::history::DefaultHistory::new();
-                    let dummy_ctx = rustyline::Context::new(&history);
-                    fast_comp.complete(&input_str, input_str.len(), &dummy_ctx)
-                }
-            }).await {
-                Ok(Ok((_, pairs))) => {
-                    let completion_time = completion_start.elapsed().as_millis();
-                    if completion_time > 1 {
-                        eprintln!("⚠️  高性能補完レイテンシ警告: {}ms", completion_time);
-                    } else {
-                        println!("🚀 高性能補完: {}ms", completion_time);
-                    }
-                    
-                    // ペアから補完テキストを抽出
-                    return Ok(pairs.into_iter().map(|p| p.replacement).collect());
-                }
-                Ok(Err(e)) => {
-                    eprintln!("高性能補完エラー: {:?}, フォールバック中", e);
-                }
-                Err(e) => {
-                    eprintln!("高性能補完タスクエラー: {:?}, フォールバック中", e);
+
+        let new_index = match self.history_index {
+            None => self.command_history.len() - 1,
+            Some(index) => {
+                if index > 0 {
+                    index - 1
+                } else {
+                    return;
                 }
             }
+        };
+
+        if let Some(command) = self.command_history.get(new_index) {
+            self.input_buffer = command.clone();
+            self.cursor_position = self.input_buffer.len();
+            self.history_index = Some(new_index);
         }
-        
-        // フォールバック：基本補完システムを使用
-        let completer = self.completer.lock().await;
-        let completions = completer.get_completions(input)
-            .await
-            .context("Failed to get completions")?;
-        
-        // Monitor completion latency
-        let completion_time = completion_start.elapsed().as_millis();
-        if completion_time > 1 {
-            eprintln!("⚠️  基本補完レイテンシ警告: {}ms", completion_time);
-        }
-        
-        Ok(completions)
     }
 
-    #[cfg(not(feature = "async"))]
-    pub fn get_completions_blocking(&self, input: &str) -> Result<Vec<String>> {
-        let completion_start = Instant::now();
-        
-        // 高性能補完システムを優先的に使用
-        if let Some(ref fast_completion) = self.fast_completion {
-            let history = rustyline::history::DefaultHistory::new();
-            let dummy_ctx = rustyline::Context::new(&history);
-            match fast_completion.complete(input, input.len(), &dummy_ctx) {
-                Ok((_, pairs)) => {
-                    let completion_time = completion_start.elapsed().as_millis();
-                    if completion_time > 1 {
-                        eprintln!("⚠️  高性能補完レイテンシ警告: {}ms", completion_time);
-                    } else {
-                        println!("🚀 高性能補完: {}ms", completion_time);
+    fn history_next(&mut self) {
+        match self.history_index {
+            None => return,
+            Some(index) => {
+                if index + 1 < self.command_history.len() {
+                    let new_index = index + 1;
+                    if let Some(command) = self.command_history.get(new_index) {
+                        self.input_buffer = command.clone();
+                        self.cursor_position = self.input_buffer.len();
+                        self.history_index = Some(new_index);
                     }
-                    
-                    return Ok(pairs.into_iter().map(|p| p.replacement).collect());
-                }
-                Err(e) => {
-                    eprintln!("高性能補完エラー: {:?}, フォールバック中", e);
+                } else {
+                    self.clear_input();
+                    self.history_index = None;
                 }
             }
         }
-        
-        // フォールバック：基本補完システム
-        let completer = self.completer.lock().unwrap();
-        let completions = completer.get_completions_sync(input)
-            .context("Failed to get completions")?;
-        let completion_time = completion_start.elapsed().as_millis();
-        if completion_time > 1 { 
-            eprintln!("⚠️  基本補完レイテンシ警告: {}ms", completion_time); 
-        }
-        Ok(completions)
     }
 
-    /// Expose current input buffer from line editor for outer app queries
-    #[cfg(feature = "async")]
-    pub async fn get_current_buffer(&self) -> Result<String> {
-        let le = self.line_editor.lock().await;
-        Ok(le.current_buffer())
+    /// 補完操作
+    fn select_next_completion(&mut self) {
+        if let Some(completions) = &self.current_completions {
+            if !completions.items.is_empty() {
+                self.completion_index = (self.completion_index + 1) % completions.items.len();
+            }
+        }
     }
-    #[cfg(not(feature = "async"))]
-    pub fn get_current_buffer(&self) -> Result<String> {
-        let le = self.line_editor.lock().unwrap();
-        Ok(le.current_buffer())
+
+    fn select_previous_completion(&mut self) {
+        if let Some(completions) = &self.current_completions {
+            if !completions.items.is_empty() {
+                self.completion_index = if self.completion_index > 0 {
+                    self.completion_index - 1
+                } else {
+                    completions.items.len() - 1
+                };
+            }
+        }
     }
-    
-    /// Cleanup terminal on exit
-    fn cleanup_terminal(&self) -> Result<()> {
-        // Allow rustyline to own raw mode; disable best-effort without failing if already disabled
-        let _ = terminal::disable_raw_mode();
-        
-        // Clear screen and show cursor
-        execute!(
-            io::stdout(),
-            cursor::Show,
-            Print("\n")
-        )
-        .context("Failed to cleanup terminal")?;
-        
+
+    fn apply_completion(&mut self) {
+        if let Some(completions) = &self.current_completions {
+            if let Some(item) = completions.items.get(self.completion_index) {
+                // Replace the current word with the completion
+                let prefix_len = completions.prefix.len();
+                let start_pos = self.cursor_position.saturating_sub(prefix_len);
+                
+                self.input_buffer.drain(start_pos..self.cursor_position);
+                self.input_buffer.insert_str(start_pos, &item.text);
+                self.cursor_position = start_pos + item.text.len();
+            }
+        }
+        self.current_completions = None;
+        self.completion_visible = false;
+    }
+
+    fn cancel_completion(&mut self) {
+        self.current_completions = None;
+        self.completion_visible = false;
+        self.completion_index = 0;
+    }
+
+    /// 出力管理
+    fn add_output(&mut self, text: &str) {
+        self.scroll_buffer.add_line(text.to_string());
+    }
+
+    fn add_error(&mut self, text: &str) {
+        let error_text = format!("{}", text.with(self.theme.colors.error));
+        self.scroll_buffer.add_line(error_text);
+    }
+
+    /// Search functionality
+    fn execute_search(&mut self) {
+        // Search functionality implementation
+    }
+
+    fn cancel_search(&mut self) {
+        // Cancel search
+    }
+
+    /// レンダリング
+    fn render(&mut self) -> Result<()> {
+        let start_time = Instant::now();
+
+        execute!(stdout(), cursor::MoveTo(0, 0))?;
+
+        // Render output buffer
+        self.render_output_buffer()?;
+
+        // Render prompt and input
+        self.render_prompt_and_input()?;
+
+        // Render completion panel if visible
+        if self.completion_visible {
+            self.render_completion_panel()?;
+        }
+
+        // Render status line
+        self.render_status_line()?;
+
+        stdout().flush()?;
+
+        // Update performance metrics
+        let render_time = start_time.elapsed();
+        self.frame_times.push_back(render_time);
+        if self.frame_times.len() > 60 {
+            self.frame_times.pop_front();
+        }
+        self.last_render_time = start_time;
+
         Ok(())
     }
-    
-    /// 公開用のパフォーマンスメトリクスを取得 (内部構造 SimpleMetrics を隠蔽)
-    ///
-    /// private_interfaces 警告を解消するため、内部専用の SimpleMetrics ではなく
-    /// 安定 API として公開されている `CUIMetrics` を値で返す。
-    pub fn get_metrics(&self) -> CUIMetrics {
-        let m = self.metrics.lock().unwrap();
-        CUIMetrics {
-            startup_time_ms: m.startup_time_ms,
-            commands_executed: m.commands_executed,
-            avg_execution_time_ms: m.avg_execution_time_ms,
-            memory_usage_mib: m.memory_usage_mib,
-            input_latency_ms: m.input_latency_last_ms,
-            input_latency_avg_ms: m.input_latency_avg_ms,
-            peak_memory_usage_mib: m.peak_memory_usage_mib,
+
+    fn render_output_buffer(&mut self) -> Result<()> {
+        let available_rows = self.terminal_size.1.saturating_sub(3); // Reserve space for prompt and status
+        let lines = self.scroll_buffer.get_visible_lines(available_rows as usize);
+
+        for (i, line) in lines.iter().enumerate() {
+            execute!(stdout(), cursor::MoveTo(0, i as u16))?;
+            let rendered = self.ansi_renderer.render(line, &self.theme)?;
+            print!("{}", rendered);
+            execute!(stdout(), terminal::Clear(ClearType::UntilNewLine))?;
+        }
+
+        Ok(())
+    }
+
+    fn render_prompt_and_input(&mut self) -> Result<()> {
+        let prompt_row = self.terminal_size.1.saturating_sub(2);
+        execute!(stdout(), cursor::MoveTo(0, prompt_row))?;
+
+        // Render prompt
+        let prompt_text = self.prompt.render(&self.theme)?;
+        print!("{}", prompt_text);
+
+        // Render input
+        print!("{}", self.input_buffer);
+
+        // Position cursor
+        let prompt_len = self.prompt.get_display_length();
+        execute!(stdout(), cursor::MoveTo((prompt_len + self.cursor_position) as u16, prompt_row))?;
+
+        Ok(())
+    }
+
+    fn render_completion_panel(&mut self) -> Result<()> {
+        if let Some(completions) = &self.current_completions {
+            if !completions.items.is_empty() {
+                let panel_row = self.terminal_size.1.saturating_sub(3);
+                execute!(stdout(), cursor::MoveTo(0, panel_row))?;
+
+                // Show current completion
+                if let Some(item) = completions.items.get(self.completion_index) {
+                    let text = format!(
+                        "[{}/{}] {} - {}",
+                        self.completion_index + 1,
+                        completions.items.len(),
+                        item.text,
+                        item.description.as_deref().unwrap_or("No description")
+                    );
+                    print!("{}", text.with(self.theme.colors.completion_highlight));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn render_status_line(&mut self) -> Result<()> {
+        let status_row = self.terminal_size.1.saturating_sub(1);
+        execute!(stdout(), cursor::MoveTo(0, status_row))?;
+
+        let status_text = format!(
+            "State: {:?} | Size: {}x{} | FPS: {:.1}",
+            self.state,
+            self.terminal_size.0,
+            self.terminal_size.1,
+            self.calculate_fps()
+        );
+
+        print!("{}", status_text.with(self.theme.colors.status_bar));
+        execute!(stdout(), terminal::Clear(ClearType::UntilNewLine))?;
+
+        Ok(())
+    }
+
+    fn calculate_fps(&self) -> f64 {
+        if self.frame_times.len() < 2 {
+            return 0.0;
+        }
+
+        let total_time: Duration = self.frame_times.iter().sum();
+        let avg_frame_time = total_time.as_secs_f64() / self.frame_times.len() as f64;
+        
+        if avg_frame_time > 0.0 {
+            1.0 / avg_frame_time
+        } else {
+            0.0
         }
     }
 
-    async fn process_guide_input(&mut self, raw: &str) -> Result<bool> {
-        if let Some(session) = &mut self.guide_session {
-            // Cancellation
-            if raw.trim() == "/cancel" {
-                self.guide_session = None;
-                println!("❌ Guide cancelled.");
-                return Ok(true);
-            }
-            if session.current >= session.steps.len() {
-                // Already done (shouldn't happen)
-                self.guide_session = None;
-                return Ok(true);
-            }
-            let step = &session.steps[session.current];
-            let input = raw.trim();
-            // Apply default if empty & default exists & not required
-            if input.is_empty() {
-                if step.required && step.default_value.is_none() {
-                    println!("⚠️  '{}' is required.", step.name);
-                    return Ok(true);
-                }
-                if let Some(def) = &step.default_value { session.params.insert(step.name.clone(), def.clone()); } else { /* optional & empty: skip */ }
-            } else {
-                // Validate by parameter type
-                use crate::ui_ux::ParameterType;
-                let store_value = match &step.parameter_type {
-                    ParameterType::String => Some(input.to_string()),
-                    ParameterType::Number => {
-                        if input.parse::<f64>().is_ok() { Some(input.to_string()) } else { println!("⚠️  '{}' expects a number", step.name); return Ok(true); }
-                    }
-                    ParameterType::Boolean => {
-                        let normalized = input.to_ascii_lowercase();
-                        let val = matches!(normalized.as_str(), "y" | "yes" | "true" | "1" | "on");
-                        if matches!(normalized.as_str(), "y"|"yes"|"true"|"1"|"on"|"n"|"no"|"false"|"0"|"off") {
-                            if val { Some(format!("--{}", step.name)) } else { None }
-                        } else { println!("⚠️  '{}' expects boolean (y/n)", step.name); return Ok(true); }
-                    }
-                    ParameterType::File => {
-                        if Path::new(input).is_file() { Some(Self::kv_token(&step.name, input)) }
-                        else { println!("⚠️  File not found: {}", input); return Ok(true); }
-                    }
-                    ParameterType::Directory => {
-                        if Path::new(input).is_dir() { Some(Self::kv_token(&step.name, input)) }
-                        else { println!("⚠️  Directory not found: {}", input); return Ok(true); }
-                    }
-                    ParameterType::Choice(opts) => {
-                        if opts.iter().any(|o| o == input) { Some(Self::kv_token(&step.name, input)) }
-                        else { println!("⚠️  '{}' must be one of: {}", step.name, opts.join(", ")); return Ok(true); }
-                    }
-                };
-                if let Some(v) = store_value { session.params.insert(step.name.clone(), v); }
-            }
-            session.current += 1;
-            if session.current >= session.steps.len() {
-                // Build final command
-                let mut final_cmd = session.command.clone();
-                for step in &session.steps {
-                    if let Some(v) = session.params.get(&step.name) {
-                        final_cmd.push(' ');
-                        final_cmd.push_str(v);
-                    }
-                }
-                println!("🔧 Executing constructed command: {final_cmd}");
-                let output = {
-                    #[cfg(feature = "async")]
-                    { self.execute_command(&final_cmd).await? }
-                    #[cfg(not(feature = "async"))]
-                    { self.execute_command(&final_cmd)? }
-                }; // this will update metrics / exit code
-                println!("{output}");
-                self.guide_session = None;
-            }
-            return Ok(true);
-        }
-        Ok(false)
+    /// Update processing
+    async fn update(&mut self) -> Result<()> {
+        // Periodic update processing
+        Ok(())
     }
-    
 
-    /// Local helper used by guide input processing to build k=v tokens.
-    fn kv_token(key: &str, raw: &str) -> String {
-        if raw.contains(char::is_whitespace) {
-            format!("{}=\"{}\"", key, raw.replace('"', "\\\""))
-        } else { format!("{}={}", key, raw) }
+    /// Execute command
+    async fn execute_command(&mut self, command: &str) -> Result<()> {
+        // Command execution implementation
+        self.add_output(&format!("> {}", command));
+        Ok(())
     }
-    /// Check if application should quit
-    pub fn should_quit(&self) -> bool {
-        self.should_quit
+
+    /// Load configuration
+    fn load_history(&mut self) -> Result<()> {
+        // Load from history file
+        Ok(())
+    }
+
+    fn setup_completion_system(&mut self) -> Result<()> {
+        // Completion system configuration
+        Ok(())
+    }
+
+    /// Shutdown
+    async fn shutdown(&mut self) -> Result<()> {
+        if self.is_raw_mode {
+            execute!(
+                stdout(),
+                cursor::Show,
+                event::DisableMouseCapture,
+                terminal::LeaveAlternateScreen
+            )?;
+            disable_raw_mode()?;
+            self.is_raw_mode = false;
+        }
+        Ok(())
     }
 }
 
-/// Error types specific to CUI application
-#[derive(Debug, thiserror::Error)]
-pub enum CUIError {
-    #[error("Terminal initialization failed: {0}")]
-    TerminalInit(String),
-    
-    #[error("Input processing failed: {0}")]
-    InputProcessing(String),
-    
-    #[error("Output formatting failed: {0}")]
-    OutputFormatting(String),
-    
-    #[error("Configuration error: {0}")]
-    Configuration(String),
+impl Drop for CuiApp {
+    fn drop(&mut self) {
+        if self.is_raw_mode {
+            let _ = execute!(
+                stdout(),
+                cursor::Show,
+                event::DisableMouseCapture,
+                terminal::LeaveAlternateScreen
+            );
+            let _ = disable_raw_mode();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_cui_app_creation() {
+        let config = UiConfig::default();
+        let app = CuiApp::new(config);
+        assert!(app.is_ok());
+    }
+
+    #[test]
+    fn test_input_handling() {
+        let config = UiConfig::default();
+        let mut app = CuiApp::new(config).unwrap();
+
+        app.insert_char('h');
+        app.insert_char('e');
+        app.insert_char('l');
+        app.insert_char('l');
+        app.insert_char('o');
+
+        assert_eq!(app.input_buffer, "hello");
+        assert_eq!(app.cursor_position, 5);
+    }
+
+    #[test]
+    fn test_cursor_movement() {
+        let config = UiConfig::default();
+        let mut app = CuiApp::new(config).unwrap();
+
+        app.input_buffer = "hello world".to_string();
+        app.cursor_position = 11;
+
+        app.move_cursor_left();
+        assert_eq!(app.cursor_position, 10);
+
+        app.move_cursor_right();
+        assert_eq!(app.cursor_position, 11);
+    }
+
+    #[test]
+    fn test_history_management() {
+        let config = UiConfig::default();
+        let mut app = CuiApp::new(config).unwrap();
+
+        app.add_to_history("ls -la".to_string());
+        app.add_to_history("cd /tmp".to_string());
+
+        assert_eq!(app.command_history.len(), 2);
+
+        app.history_previous();
+        assert_eq!(app.input_buffer, "cd /tmp");
+
+        app.history_previous();
+        assert_eq!(app.input_buffer, "ls -la");
+    }
 }

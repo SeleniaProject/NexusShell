@@ -12,12 +12,10 @@
 //! - Cross-platform file handling
 
 #[cfg(feature = "logging")]
-use anyhow::{Result, Context};
-#[cfg(not(feature = "logging"))]
-use anyhow::Result;
+use anyhow::{Context, Result};
 #[cfg(feature = "logging")]
 use once_cell::sync::OnceCell;
-use tracing::{debug, error, info, warn, Level};
+use tracing::{info, Level, debug, error, warn};
 #[cfg(feature = "logging")]
 use tracing_subscriber::{fmt::{self, format::FmtSpan}, EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 #[cfg(feature = "logging")]
@@ -26,8 +24,8 @@ use tracing_appender::{rolling, non_blocking};
 use serde::{Deserialize, Serialize};
 #[cfg(not(feature = "logging"))]
 use serde::{Deserialize, Serialize};
+use std::path::{PathBuf, Path};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 #[cfg(feature = "logging")]
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "logging")]

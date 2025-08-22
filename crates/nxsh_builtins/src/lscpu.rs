@@ -80,7 +80,7 @@ struct CpuInfo {
     vulnerabilities: HashMap<String, String>,
 }
 
-// Windows / 非Windows で個別に定義して重複コード (identical blocks) を排除
+// Windows / 非Windows で個別に定義して重褁E��ーチE(identical blocks) を排除
 #[cfg(windows)]
 fn get_cpu_information() -> Result<CpuInfo> { get_windows_cpu_info() }
 #[cfg(not(windows))]
@@ -535,3 +535,4 @@ fn print_json_output(cpu_info: &CpuInfo) {
     
     println!("}}");
 }
+

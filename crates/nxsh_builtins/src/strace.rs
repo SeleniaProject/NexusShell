@@ -204,3 +204,4 @@ pub fn strace_cli(args: &[String]) -> anyhow::Result<()> {
         Err(e) => Err(anyhow!("strace command failed: {}", e)),
     }
 }
+

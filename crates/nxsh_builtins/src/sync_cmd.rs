@@ -36,3 +36,4 @@ pub async fn sync_cli(_args: &[String]) -> Result<()> {
 
 #[cfg(test)]
 mod tests { use super::*; #[tokio::test] async fn sync_runs(){ sync_cli(&[]).await.unwrap(); }} 
+

@@ -5,16 +5,11 @@ edition = "2021"
 license = "Apache-2.0 OR MIT"
 
 [dependencies]
-nxsh_core = { path = "../nxsh_core" }
-nxsh_builtins = { path = "../nxsh_builtins" }  # Complete UI/UX Layer Implementation
+nxsh_core = { path = "../nxsh_core", features = ["error-rich", "heavy-time", "system-info"] }
 nxsh_parser = { path = "../nxsh_parser" }
 
-# Terminal control - Pure Rust implementation
+# Terminal control - Pure Rust implementation (Windows compatible)
 crossterm = "0.27"
-# Advanced line editing with comprehensive features
-rustyline = "16.0.0"
-# Syntax highlighting - using pure Rust regex-based highlighting instead of syntect
-regex = "1.10"
 # Parser for error handling
 pest = "2.7"
 # Theme and configuration support
@@ -45,10 +40,14 @@ whoami = "1.4"
 sysinfo = "0.29"
 # Optional battery metrics support
 battery = { version = "0.7", optional = true }
-# Fuzzy matching for advanced completion
-fuzzy-matcher = "0.3"
+# Unique ID generation for sessions
+uuid = { version = "1.0", features = ["v4", "serde"] }
+# Regular expressions for syntax highlighting
+regex = "1.10"
 # Async support for high-performance operations
 tokio = { version = "1.0", features = ["full", "sync"], optional = true }
+# Rich text and formatting
+textwrap = "0.16"
 # High-performance parallel processing for completion
 rayon = "1.8"
 # LRU cache for ultra-fast file completion
@@ -63,13 +62,6 @@ rand = "0.8"
 image = { version = "0.24", default-features = false, features = ["png"] }
 ab_glyph = "0.2"
 
-# Unix-specific dependencies for full functionality
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
-# Unicode support for international text
-unicode-width = "0.1"
-unicode-segmentation = "1.10"
-
 [features]
 default = ["async"]
 async = ["tokio"]
@@ -83,9 +75,9 @@ battery-metrics = ["battery"]
 name = "theme_system_test"
 path = "src/theme_system_test.rs"
 
-[[example]]
-name = "completion_demo"
-path = "src/completion_demo.rs"
+# [[example]]
+# name = "completion_demo"
+# path = "src/completion_demo.rs"
 
 [dev-dependencies]
 tempfile = "3.8"

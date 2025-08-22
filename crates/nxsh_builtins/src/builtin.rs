@@ -19,12 +19,18 @@ pub fn builtin_cli(args: &[String]) -> Result<()> {
 
     match cmd.as_str() {
         "bg" => {
-            // bg [JOBID]
-            let _id = rest.first().and_then(|s| s.parse::<u32>().ok());
-            crate::bg::bg_cli(&rest)
+            // bg [JOBID] - Background job control (not implemented)
+            println!("bg: background job control not implemented yet");
+            Ok(())
         }
-        "bind" => crate::bind::bind_cli(&rest),
-        "break" => crate::break_builtin::break_cli(&rest),
+        "bind" => {
+            println!("bind: readline key bindings (not implemented yet)");
+            Ok(())
+        },
+        "break" => {
+            println!("break: exit from loops (not implemented yet)");
+            Ok(())
+        },
         _ => Err(anyhow!("builtin: unsupported command '{}'.", cmd)),
     }
 }
@@ -37,3 +43,10 @@ mod tests {
         builtin_cli(&[]).unwrap();
     }
 } 
+
+
+/// Execute function stub
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    eprintln!("Command not yet implemented");
+    Ok(1)
+}

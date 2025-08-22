@@ -69,6 +69,9 @@ pub enum ErrorKind {
     
     // Internal errors
     InternalError(InternalErrorKind),
+    
+    // Argument errors
+    InvalidArgument,
 }
 
 /// Parse error subcategories
@@ -397,6 +400,7 @@ impl ShellError {
             ErrorKind::CryptoError(_) => false,
             ErrorKind::SerializationError(_) => true,
             ErrorKind::InternalError(_) => false,
+            ErrorKind::InvalidArgument => true,
         }
     }
 
@@ -458,6 +462,7 @@ impl ShellError {
             ErrorKind::CryptoError(_) => ErrorSeverity::Critical,
             ErrorKind::SerializationError(_) => ErrorSeverity::Error,
             ErrorKind::InternalError(_) => ErrorSeverity::Critical,
+            ErrorKind::InvalidArgument => ErrorSeverity::Error,
         }
     }
 }
@@ -521,6 +526,7 @@ impl fmt::Display for ErrorKind {
             ErrorKind::CryptoError(kind) => write!(f, "Cryptography error: {kind:?}"),
             ErrorKind::SerializationError(kind) => write!(f, "Serialization error: {kind:?}"),
             ErrorKind::InternalError(kind) => write!(f, "Internal error: {kind:?}"),
+            ErrorKind::InvalidArgument => write!(f, "Invalid argument error"),
         }
     }
 }

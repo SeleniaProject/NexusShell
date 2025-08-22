@@ -37,3 +37,4 @@ pub fn ifconfig_cli(args: &[String]) -> Result<()> {
         "ifconfig: backend not found; install 'net-tools' or use 'ip addr' instead"
     ))
 } 
+

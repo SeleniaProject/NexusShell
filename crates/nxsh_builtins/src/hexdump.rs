@@ -159,3 +159,4 @@ fn hex_dump(data: &[u8], format: &str, canonical: bool, bytes_per_line: usize) -
     
     Ok(())
 }
+

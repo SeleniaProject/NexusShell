@@ -190,3 +190,4 @@ fn hash_reader_to_hex<R: Read>(reader: &mut R) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+

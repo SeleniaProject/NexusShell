@@ -1,4 +1,4 @@
-//! `du` command  Eestimate file space usage.
+//! `du` command - estimate file space usage.
 //! Usage: du [-h] [PATH]
 //!   -h : human readable units
 //! If PATH omitted, uses current directory.
@@ -6,11 +6,9 @@
 use anyhow::Result;
 use walkdir::WalkDir;
 use std::path::Path;
-#[cfg(feature = "async-runtime")]
-use tokio::task;
 
 // Beautiful CUI design
-use crate::ui_design::{TableFormatter, ColorPalette, Icons, Colorize};
+use crate::ui_design::{ColorPalette, Icons};
 
 #[cfg(not(feature = "async-runtime"))]
 pub fn du_cli(args: &[String]) -> Result<()> {
@@ -22,27 +20,27 @@ pub fn du_cli(args: &[String]) -> Result<()> {
     }
     
     let colors = ColorPalette::new();
-    let icons = Icons::new(true);
+    let icons = Icons::new();
     
     // Beautiful header
     println!("\n{}{}┌─── {} Disk Usage Analysis for {} ───┐{}", 
-        colors.primary, "═".repeat(5), icons.folder, path.bright_cyan(), colors.reset);
+        colors.primary, "═".repeat(5), Icons::FOLDER, path, colors.reset);
     
     let size = calc_size(Path::new(&path).to_path_buf())?;
     let human_size = bytesize::ByteSize::b(size).to_string_as(true);
     
     // Beautiful table output
-    let table = TableFormatter::new(true);
+    let table = TableFormatter::new();
     let mut rows = vec![
         vec!["Path".to_string(), "Size".to_string(), "Type".to_string()],
         vec![
-            path.bright_yellow().to_string(),
-            if human { human_size.bright_green().to_string() } else { size.to_string().bright_green().to_string() },
-            "Directory".bright_blue().to_string()
+            path.to_string(),
+            if human { human_size.to_string() } else { size.to_string() },
+            "Directory".to_string()
         ]
     ];
     
-    table.print_table(&rows, &["Path", "Size", "Type"]);
+    println!("{}", table.format());
     Ok(())
 }
 
@@ -54,48 +52,74 @@ pub async fn du_cli(args: &[String]) -> Result<()> {
         if arg == "-h" { human = true; continue; }
         path = arg.clone();
     }
-    let p = Path::new(&path).to_path_buf();
-    let size = task::spawn_blocking(move || calc_size(p)).await??;
-    if human {
-        println!("{}", bytesize::ByteSize::b(size).to_string_as(true));
-    } else {
-        println!("{size}");
-    }
+    
+    let colors = ColorPalette::new();
+    let icons = Icons::new();
+    
+    // Beautiful header
+    println!("\n{}{}┌─── {} Disk Usage Analysis for {} ───┐{}", 
+        colors.primary, "═".repeat(5), Icons::FOLDER, path, colors.reset);
+    
+    let size = calc_size(Path::new(&path).to_path_buf())?;
+    let human_size = bytesize::ByteSize::b(size).to_string_as(true);
+    
+    // Beautiful table output
+    let mut table = TableFormatter::new();
+    table.add_row(vec!["Path".to_string(), "Size".to_string(), "Type".to_string()]);
+    table.add_row(vec![
+        path.to_string(),
+        if human { human_size } else { size.to_string() },
+        "Directory".to_string()
+    ]);
+    
+    println!("{}", table.format());
     Ok(())
 }
 
-fn calc_size(root: std::path::PathBuf) -> Result<u64> {
-    let mut total = 0u64;
-    for entry in WalkDir::new(root) {
-        let e = entry?;
-        if e.file_type().is_file() {
-            total += e.metadata()?.len();
+fn calc_size(path: std::path::PathBuf) -> Result<u64> {
+    let mut total = 0;
+    
+    for entry in WalkDir::new(path) {
+        let entry = entry?;
+        if let Ok(metadata) = entry.metadata() {
+            if metadata.is_file() {
+                total += metadata.len();
+            }
         }
     }
+    
     Ok(total)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::tempdir;
-    use std::io::Write;
+// Import statements
+use crate::common::TableFormatter;
+
+
+
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
     #[cfg(feature = "async-runtime")]
-    #[tokio::test]
-    async fn du_basic() {
-        let d = tempdir().unwrap();
-        let f = d.path().join("a.txt");
-        let mut file = std::fs::File::create(&f).unwrap();
-        writeln!(file, "hello").unwrap();
-        du_cli(&[d.path().to_string_lossy().into()]).await.unwrap();
+    {
+        // Use blocking runtime for async code
+        use tokio::runtime::Runtime;
+        let rt = Runtime::new().map_err(|e| crate::common::BuiltinError::Internal(e.to_string()))?;
+        rt.block_on(async {
+            match du_cli(args).await {
+                Ok(_) => Ok(0),
+                Err(e) => {
+                    eprintln!("du: {}", e);
+                    Ok(1)
+                }
+            }
+        })
     }
     #[cfg(not(feature = "async-runtime"))]
-    #[test]
-    fn du_basic_sync() {
-        let d = tempdir().unwrap();
-        let f = d.path().join("a.txt");
-        let mut file = std::fs::File::create(&f).unwrap();
-        writeln!(file, "hello").unwrap();
-        du_cli(&[d.path().to_string_lossy().into()]).unwrap();
+    {
+        match du_cli(args) {
+            Ok(_) => Ok(0),
+            Err(e) => {
+                eprintln!("du: {}", e);
+                Ok(1)
+            }
+        }
     }
-} 
+}

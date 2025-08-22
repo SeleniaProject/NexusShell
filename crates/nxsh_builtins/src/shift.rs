@@ -31,3 +31,4 @@ mod tests {
         assert_eq!(ctx.get_var(ARGV_KEY).unwrap(), "b\0c");
     }
 } 
+

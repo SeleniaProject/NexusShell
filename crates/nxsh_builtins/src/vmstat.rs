@@ -34,3 +34,4 @@ pub fn vmstat_cli(_args: &[String]) -> Result<()> {
         cpu);
     Ok(())
 } 
+

@@ -13,7 +13,11 @@ use tracing::{debug, error};
 #[cfg(test)]
 mod tests;
 
+/// Type alias for I18n manager
+pub type I18n = I18nManager;
+
 /// Internationalization manager for NexusShell
+#[derive(Debug)]
 pub struct I18nManager {
     /// Current locale
     current_locale: String,

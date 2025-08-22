@@ -630,6 +630,27 @@ pub struct CommandResult {
     pub objects: Vec<PowerShellObject>,
 }
 
+impl CommandResult {
+    /// Create a new command result
+    pub fn new(success: bool, output: String) -> Self {
+        Self {
+            success,
+            output,
+            objects: Vec::new(),
+        }
+    }
+
+    /// Create a successful result with output
+    pub fn success_with_output(output: String) -> Self {
+        Self::new(true, output)
+    }
+
+    /// Create a failure result with error message
+    pub fn failure_with_error(error: String) -> Self {
+        Self::new(false, error)
+    }
+}
+
 impl Default for CommandResult {
     fn default() -> Self {
         Self {

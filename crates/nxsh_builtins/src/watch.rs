@@ -1067,3 +1067,4 @@ fn print_watch_help(i18n: &I18n) {
     println!("    watch --dashboard htop          # Dashboard view");
     println!("    watch --export json --export-file history.json uptime");
 } 
+

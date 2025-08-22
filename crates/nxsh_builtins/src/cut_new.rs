@@ -16,7 +16,7 @@
 use anyhow::{anyhow, Context, Result};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
-use super::ui_design::{Colorize, TableFormatter, ColorPalette, Icons};
+use super::ui_design::{Colorize, ColorPalette, Icons};
 
 #[derive(Debug, Clone, Copy)]
 enum CutMode {
@@ -322,3 +322,4 @@ fn process_bytes(line: &str, options: &CutOptions) -> Result<()> {
     
     Ok(())
 }
+

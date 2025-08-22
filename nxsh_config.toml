@@ -2,7 +2,7 @@
 # Global theme and interface settings
 
 [ui]
-default_theme = "ocean"
+default_theme = "cyberpunk"
 enable_animations = true
 enable_progress_bars = true
 enable_notifications = true
@@ -42,6 +42,15 @@ warning = "#F59E0B"
 error = "#EF4444"
 info = "#06B6D4"
 dim = "#6B7280"
+
+[themes.cyberpunk]
+primary = "#00f5ff"      # Cyan - Main accent color
+secondary = "#9945ff"    # Purple - Secondary accent
+success = "#2ed573"      # Green - Success/confirmation  
+warning = "#ffbe0b"      # Yellow - Warnings/caution
+error = "#ff4757"        # Coral - Errors/danger
+info = "#74b9ff"         # Blue - Information
+dim = "#95a5a6"          # Light gray - Muted text
 
 [themes.forest]
 primary = "#059669"

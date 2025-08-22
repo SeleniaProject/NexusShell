@@ -32,3 +32,4 @@ mod tests {
         fgrep_cli(&["a+b".into(), file.path().to_string_lossy().into()]).unwrap();
     }
 } 
+

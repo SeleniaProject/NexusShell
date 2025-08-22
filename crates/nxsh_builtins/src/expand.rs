@@ -100,3 +100,4 @@ fn find_next_tab_stop(column: usize, tab_stops: &[usize]) -> usize {
     let interval = tab_stops.last().copied().unwrap_or(8);
     ((column / interval) + 1) * interval
 }
+

@@ -1,14 +1,144 @@
 #[cfg(feature = "cli-args")] use clap::{Parser};
 use std::time::Instant;
-use std::io::Write;
+use std::io::{self, Write, IsTerminal};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-// BusyBox モード設計方針:
-// 1. --busybox フラグ、または 環境変数 NXSH_BUSYBOX=1、あるいは 実行ファイル名が nxsh-busybox か
-//    既存 builtin 名の場合に BusyBox 互換軽量起動パスへ分岐。
-// 2. 起動コスト最小化のため UI/解析初期化を避け、引数から直接 builtin ディスパッチ。
-// 3. 将来: feature flag で余剰依存 (UI/wasm 等) を削減し <1MiB を aim。現段階は論理層のみ。
-// 4. 外部コマンド fallback を行わず、見つからなければ 127 で終了。
+
+/// Show stylish startup banner
+fn show_startup_banner() {
+    // Cyberpunk color scheme
+    let cyan = "\x1b[38;2;0;245;255m";      // #00f5ff
+    let purple = "\x1b[38;2;153;69;255m";   // #9945ff
+    let coral = "\x1b[38;2;255;71;87m";     // #ff4757
+    let green = "\x1b[38;2;46;213;115m";    // #2ed573
+    let yellow = "\x1b[38;2;255;190;11m";   // #ffbe0b
+    let blue = "\x1b[38;2;116;185;255m";    // #74b9ff
+    let bold = "\x1b[1m";
+    let reset = "\x1b[0m";
+    
+    println!("{}{}┌─────────────────────────────────────────────────────────────┐{}", bold, cyan, reset);
+    println!("{}│{}        {}███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗{}        {}│{}", cyan, reset, purple, reset, cyan, reset);
+    println!("{}│{}        {}████╗  ██║██╔════╝╚██╗██╔╝██║   ██║██╔════╝{}        {}│{}", cyan, reset, purple, reset, cyan, reset);
+    println!("{}│{}        {}██╔██╗ ██║█████╗   ╚███╔╝ ██║   ██║███████╗{}        {}│{}", cyan, reset, purple, reset, cyan, reset);
+    println!("{}│{}        {}██║╚██╗██║██╔══╝   ██╔██╗ ██║   ██║╚════██║{}        {}│{}", cyan, reset, purple, reset, cyan, reset);
+    println!("{}│{}        {}██║ ╚████║███████╗██╔╝ ██╗╚██████╔╝███████║{}        {}│{}", cyan, reset, purple, reset, cyan, reset);
+    println!("{}│{}        {}╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝{}        {}│{}", cyan, reset, purple, reset, cyan, reset);
+    println!("{}├─────────────────────────────────────────────────────────────┤{}", cyan, reset);
+    println!("{}│{}  {}🚀 Welcome to NexusShell v{}{:<3}{} - Cyberpunk Edition 🚀{}   {}│{}", cyan, reset, coral, yellow, VERSION, coral, reset, cyan, reset);
+    println!("{}│{}  {}✨ Modern POSIX-compatible shell with style ✨{}             {}│{}", cyan, reset, green, reset, cyan, reset);
+    println!("{}├─────────────────────────────────────────────────────────────┤{}", cyan, reset);
+    println!("{}│{}  {}💡 Quick Start:{}                                            {}│{}", cyan, reset, blue, reset, cyan, reset);
+    println!("{}│{}    {}• Type 'help' for command overview{}                      {}│{}", cyan, reset, yellow, reset, cyan, reset);
+    println!("{}│{}    {}• Try 'echo --stylish \"Hello World!\"'{}                   {}│{}", cyan, reset, yellow, reset, cyan, reset);
+    println!("{}│{}    {}• Use 'clear --banner' for welcome screen{}               {}│{}", cyan, reset, yellow, reset, cyan, reset);
+    println!("{}│{}    {}• Type 'exit' or 'quit' to leave{}                        {}│{}", cyan, reset, yellow, reset, cyan, reset);
+    println!("{}└─────────────────────────────────────────────────────────────┘{}", cyan, reset);
+}
+
+/// Show stylish bash-like prompt with cyberpunk colors
+fn show_stylish_prompt() {
+    use std::env;
+    use std::path::PathBuf;
+    
+    // Cyberpunk color scheme
+    let cyan = "\x1b[38;2;0;245;255m";      // #00f5ff
+    let purple = "\x1b[38;2;153;69;255m";   // #9945ff
+    let coral = "\x1b[38;2;255;71;87m";     // #ff4757
+    let green = "\x1b[38;2;46;213;115m";    // #2ed573
+    let yellow = "\x1b[38;2;255;190;11m";   // #ffbe0b
+    let _white = "\x1b[37m";
+    let bold = "\x1b[1m";
+    let reset = "\x1b[0m";
+
+    // Get current directory
+    let current_dir = env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("~"))
+        .display()
+        .to_string();
+    
+    // Shorten path for display (show last 2 components if too long)
+    let display_path = if current_dir.len() > 40 {
+        let path = PathBuf::from(&current_dir);
+        let components: Vec<_> = path.components().collect();
+        if components.len() > 2 {
+            format!(".../{}/{}", 
+                components[components.len()-2].as_os_str().to_string_lossy(),
+                components[components.len()-1].as_os_str().to_string_lossy())
+        } else {
+            current_dir
+        }
+    } else {
+        current_dir
+    };
+
+    // Get username (or fallback)
+    let username = env::var("USERNAME")
+        .or_else(|_| env::var("USER"))
+        .unwrap_or_else(|_| "nexus".to_string());
+
+    // Get hostname (or fallback)  
+    let hostname = env::var("COMPUTERNAME")
+        .or_else(|_| env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "nexus-shell".to_string());
+
+    // Check if we're in a git repository
+    let git_info = get_git_info();
+
+    // Construct the stylish prompt
+    print!("{}{}╭─{}[{}{}@{}{}{}", 
+        bold, cyan,           // Bold cyan for box drawing
+        reset, purple,        // Reset, then purple for bracket
+        username, hostname,   // Username and hostname
+        purple, reset);       // Purple bracket close, reset
+
+    print!(" {}📁 {}{}", coral, display_path, reset);
+
+    // Add git info if available
+    if let Some(branch) = git_info {
+        print!(" {}🌿 {}{}", green, branch, reset);
+    }
+
+    print!("{}{}]{}", purple, reset, reset);
+    
+    // Time display
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = now.as_secs();
+    let hours = (secs % 86400) / 3600;
+    let minutes = (secs % 3600) / 60;
+    
+    print!(" {}⏰ {:02}:{:02}{}", yellow, hours, minutes, reset);
+    
+    println!();
+    print!("{}{}╰─{}❯{} ", bold, cyan, coral, reset);
+}
+
+/// Get git branch information if in a git repository
+fn get_git_info() -> Option<String> {
+    use std::process::Command;
+    
+    // Try to get git branch
+    if let Ok(output) = Command::new("git")
+        .args(&["rev-parse", "--abbrev-ref", "HEAD"])
+        .output() 
+    {
+        if output.status.success() {
+            let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !branch.is_empty() && branch != "HEAD" {
+                return Some(branch);
+            }
+        }
+    }
+    None
+}
+
+// BusyBox mode design principles:
+// 1. --busybox flag, or environment variable NXSH_BUSYBOX=1, or executable name nxsh-busybox
+//    switches to BusyBox compatible lightweight startup path for existing builtin names
+// 2. Minimize startup cost by avoiding UI/parser initialization, dispatch directly to builtins from arguments
+// 3. Goal: reduce excess dependencies (UI/wasm etc) with feature flags to aim for <1MiB. Currently logic layer only
+// 4. No external command fallback, exit with 127 if not found
 
 fn is_busybox_invocation() -> bool {
     if std::env::var("NXSH_BUSYBOX").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false) {
@@ -18,295 +148,257 @@ fn is_busybox_invocation() -> bool {
     if args.iter().any(|a| a == "--busybox") { return true; }
     if let Some(exe) = std::env::args().next() { // invoked name
         let prog = std::path::Path::new(&exe).file_stem().and_then(|s| s.to_str()).unwrap_or("");
-        if prog == "nxsh-busybox" { return true; }
-        // If invoked as a builtin name, treat as busybox single-app mode
-        if nxsh_builtins::is_builtin_name(prog) { return true; }
+        if prog == "nxsh-busybox" || prog.starts_with("nxsh-") {
+            return true;
+        }
     }
     false
 }
 
-fn run_busybox_mode() -> anyhow::Result<()> {
-    // Strategy:
-    // If argv[0] is builtin name and no explicit command arg → dispatch that name with following args.
-    // Else first non-flag arg after --busybox をコマンドとして扱う。
-    let mut args: Vec<String> = std::env::args().collect();
-    // Strip leading program name
-    let invoked = args.remove(0);
-    // Remove --busybox flag occurrences
-    args.retain(|a| a != "--busybox");
-    let invoked_stem = std::path::Path::new(&invoked).file_stem().and_then(|s| s.to_str()).unwrap_or("");
-    let (command, command_args): (String, Vec<String>) = if nxsh_builtins::is_builtin_name(invoked_stem) {
-        (invoked_stem.to_string(), args)
-    } else if let Some(first) = args.first() {
-        if nxsh_builtins::is_builtin_name(first) {
-            (first.clone(), args[1..].to_vec())
-        } else {
-            eprintln!("nxsh (busybox): unknown or missing builtin command");
-            std::process::exit(127);
-        }
+fn busybox_mode() -> ! {
+    let args: Vec<String> = std::env::args().collect();
+    
+    // Get first argument (program name or command name)
+    let command = if args.len() > 1 && !args[1].starts_with("--") {
+        &args[1]
     } else {
-        print_busybox_help();
-        return Ok(());
+        // Infer command from program name
+        if let Some(exe) = args.get(0) {
+            let prog = std::path::Path::new(exe).file_stem()
+                .and_then(|s| s.to_str()).unwrap_or("");
+            if prog.starts_with("nxsh-") {
+                &prog[5..] // Remove "nxsh-" prefix
+            } else {
+                prog
+            }
+        } else {
+            ""
+        }
     };
 
-    #[cfg(feature = "logging")]
-    {
-        // Initialize minimal logging system if not already set for logstats
-        use nxsh_core::{LoggingSystem, logging::LoggingConfig};
-        // We only create logging if user invoked logstats or logging feature likely desired (env NXSH_ENABLE_LOGGING)
-        let need_logging = command == "logstats" || std::env::var("NXSH_ENABLE_LOGGING").is_ok();
-        if need_logging {
-            if let Ok(mut system) = LoggingSystem::new(LoggingConfig { console_output: true, file_output: false, ..Default::default() }) {
-                // Initialize asynchronously only if async-runtime feature present; otherwise ignore errors
-                #[cfg(feature = "async-runtime")]
-                {
-                    // Current-thread runtime is already used upstream; create a tiny ephemeral one for init
-                    let rt = tokio::runtime::Builder::new_current_thread().enable_time().build();
-                    if let Ok(rt) = rt { let _ = rt.block_on(system.initialize()); }
-                }
-                #[cfg(not(feature = "async-runtime"))]
-                {
-                    // Initialize will just run sync portions (ignore errors)
-                    let _ = system.initialize();
-                }
-                #[cfg(feature = "logging")]
-                {
-                    // Inject into builtin global for logstats
-                    #[allow(unused_imports)]
-                    use nxsh_builtins::logstats_builtin::set_logging_system;
-                    set_logging_system(system);
-                }
-            }
+    // Prepare argument list
+    let cmd_args = if args.len() > 1 && !args[1].starts_with("--") {
+        &args[2..] // Exclude command name
+    } else {
+        &args[1..] // When inferred from program name
+    };
+
+    // Execute builtin commands using the central dispatcher
+    let context = nxsh_builtins::BuiltinContext::new();
+    match nxsh_builtins::execute_builtin(command, cmd_args, &context) {
+        Ok(exit_code) => {
+            std::process::exit(exit_code);
         }
-    }
-    match nxsh_builtins::execute_builtin(&command, &command_args) {
-        Ok(_) => Ok(()),
+        Err(nxsh_builtins::BuiltinError::UnknownCommand(_)) => {
+            eprintln!("nxsh-busybox: {}: command not found", command);
+            std::process::exit(127);
+        }
         Err(e) => {
-            use nxsh_core::error::{ErrorKind, RuntimeErrorKind};
-            eprintln!("{command}: {e}");
-            let not_found = e.contains_kind(&ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound));
-            let code = if not_found {127} else {1};
-            std::process::exit(code);
+            eprintln!("nxsh-busybox: {}: {}", command, e);
+            std::process::exit(1);
         }
     }
 }
 
+#[allow(dead_code)]
 fn print_busybox_help() {
-    println!("NexusShell BusyBox Mode (preview)\nUsage: nxsh --busybox <builtin> [args...]\n       <symlink-to-builtin> [args...]\nAvailable builtins:");
-    let names = nxsh_builtins::list_builtin_names();
-    let mut list = names.into_iter().collect::<Vec<_>>();
-    list.sort();
-    let mut line = String::new();
-    for name in list { if line.len() + name.len() + 1 > 78 { println!("{line}"); line.clear(); } line.push_str(name); line.push(' ');} if !line.is_empty() { println!("{line}"); }
+    println!("NexusShell BusyBox v{}", VERSION);
+    println!("Usage: nxsh-busybox [COMMAND] [ARGS...]");
+    println!();
+    println!("Supported commands:");
+    println!("  ls, pwd, cd, echo, cat, touch, mkdir, rm, cp, mv");
+    println!("  grep, find, head, tail, wc, sort, uniq, date, env");
+    println!("  which, history, alias, help");
+    println!();
+    println!("For individual command help: nxsh-busybox COMMAND --help");
 }
 
-/// Fast help display without clap overhead
-fn print_fast_help() {
-    use std::io::{self, Write};
-    let _ = writeln!(io::stdout(), "NexusShell {VERSION} - High-performance command line interface");
-    let _ = writeln!(io::stdout());
-    let _ = writeln!(io::stdout(), "USAGE:");
-    let _ = writeln!(io::stdout(), "    nxsh [OPTIONS] [COMMAND]");
-    let _ = writeln!(io::stdout());
-    let _ = writeln!(io::stdout(), "OPTIONS:");
-    let _ = writeln!(io::stdout(), "    -h, --help         Show this help message");
-    let _ = writeln!(io::stdout(), "    -V, --version      Show version information");
-    let _ = writeln!(io::stdout(), "        --fast-boot    Enable fast boot mode");
-    let _ = writeln!(io::stdout(), "        --measure-startup  Measure startup milestones (prints <=16ms verdict)");
-    let _ = writeln!(io::stdout(), "        --check-cui    Check CUI compatibility");
-    let _ = writeln!(io::stdout());
-    let _ = writeln!(io::stdout(), "ARGS:");
-    let _ = writeln!(io::stdout(), "    [COMMAND]    Command to execute instead of launching shell");
-}
-
-/// NexusShell - World-Class Command Line Interface
 #[cfg(feature = "cli-args")]
-#[derive(Parser, Debug)]
-#[command(author, version, about = "NexusShell CUI - High-performance command line interface", long_about = None)]
-struct Cli {
-    /// Command to execute instead of launching the interactive shell
-    #[arg()]
+#[derive(Parser)]
+#[command(name = "nxsh")]
+#[command(version = VERSION)]
+#[command(about = "NexusShell - Modern POSIX-compatible shell")]
+#[command(author = "NexusShell Project")]
+struct CliArgs {
+    /// Start in BusyBox compatible mode
+    #[arg(long)]
+    busybox: bool,
+    
+    /// Force interactive mode
+    #[arg(short, long)]
+    interactive: bool,
+    
+    /// Force non-interactive mode
+    #[arg(long)]
+    non_interactive: bool,
+    
+    /// Execute script file
+    #[arg(short = 'c', long)]
     command: Option<String>,
     
-    /// Force TUI mode (legacy, deprecated)
-    #[arg(long, help = "Use legacy TUI mode (deprecated)")]
-    tui: bool,
-    
-    /// Check CUI compatibility
-    #[arg(long, help = "Check CUI mode compatibility and exit")]
-    check_cui: bool,
+    /// Enable debug mode
+    #[arg(short, long)]
+    debug: bool,
     
     /// Configuration file path
-    #[arg(short, long, help = "Path to configuration file")]
+    #[arg(long)]
     config: Option<String>,
     
-    /// Fast boot mode (minimal initialization)
-    #[arg(long, help = "Enable fast boot mode for minimal startup time")]
-    fast_boot: bool,
-
-    /// BusyBox compatible minimal execution mode
-    #[arg(long, help = "Run in BusyBox-style single command mode")]
-    busybox: bool,
-
-    /// Enable PowerShell-compatible alias mapping (e.g., Get-ChildItem -> ls)
-    #[arg(long, help = "Enable PowerShell-compatible aliases (Get-ChildItem->ls, Copy-Item->cp, etc.)")]
-    enable_ps_aliases: bool,
-
-    /// Measure startup milestones (CLI->init->frame->prompt)
-    #[arg(long, help = "Measure startup milestones and print 16ms verdict")]
-    measure_startup: bool,
+    /// Theme name
+    #[arg(long)]
+    theme: Option<String>,
+    
+    /// Script file to execute
+    script_file: Option<String>,
+    
+    /// Arguments to pass to script
+    script_args: Vec<String>,
 }
 
-// Async main when async-runtime feature enabled
-#[cfg(all(feature = "async-runtime", feature = "cli-args"))]
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> anyhow::Result<()> {
-    let start_time = Instant::now();
-
-    
-    // Ultra-fast path: version and help without ANY initialization
+#[cfg(not(feature = "cli-args"))]
+fn parse_simple_args() -> (bool, bool, Option<String>, bool, Option<String>) {
     let args: Vec<String> = std::env::args().collect();
-    // Early: measure-startup flag toggles env for UI to pick up
-    if args.iter().any(|a| a == "--measure-startup") {
-        std::env::set_var("NXSH_MEASURE_STARTUP", "1");
-    }
-    if args.len() >= 2 {
-        match args[1].as_str() {
-            "--version" | "-V" => {
-                println!("NexusShell {VERSION}");
-                return Ok(());
-            }
-            "--help" | "-h" => {
-                print_fast_help();
-                return Ok(());
-            }
-            "--fast-boot" => {
-                let elapsed = start_time.elapsed().as_nanos();
-                if elapsed < 1000000 { // < 1ms
-                    print!("NexusShell {VERSION}\nStarted in {elapsed}ns\nλ ");
-                } else {
-                    let micros = elapsed / 1000;
-                    print!("NexusShell {VERSION}\nStarted in {micros}μs\nλ ");
+    let mut busybox = false;
+    let mut interactive = false;
+    let mut command = None;
+    let mut debug = false;
+    let mut script_file = None;
+    
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--busybox" => busybox = true,
+            "-i" | "--interactive" => interactive = true,
+            "-c" => {
+                if i + 1 < args.len() {
+                    command = Some(args[i + 1].clone());
+                    i += 1;
                 }
-                std::io::stdout().flush()?;
-                return Ok(());
-            }
-            "--measure-startup" => {
-                // The actual measurement happens in the UI; reaching here means non-interactive path.
-                println!("--measure-startup enabled. Launching UI to measure startup.");
-                // fallthrough to interactive launch below
-            }
-            "--micro" => {
-                // Ultra-minimal path - no output, just fast exit
-                return Ok(());
-            }
-            _ => {}
+            },
+            "-d" | "--debug" => debug = true,
+            arg if !arg.starts_with("-") => {
+                script_file = Some(arg.to_string());
+                break;
+            },
+            _ => {} // Ignore unknown options
         }
-    }
-
-    // Skip ALL clap initialization for zero-arg interactive mode for maximum performance
-    if args.len() == 1 && !is_busybox_invocation() {
-        #[cfg(feature="ui")]
-        {
-            // Direct CUI initialization with comprehensive functionality but minimal overhead
-            nxsh_ui::run_cui_minimal(start_time).await?;
-            return Ok(());
-        }
-        #[cfg(not(feature="ui"))]
-        {
-            // UI 無効ビルドでは即終了 (将来: 簡易 REPL 実装予定)
-            println!("NexusShell (minimal build) - interactive UI disabled. Use --busybox <cmd>.");
-            return Ok(());
-        }
-    }
-
-    // BusyBox mode early dispatch (before heavy clap parsing)
-    if is_busybox_invocation() {
-        return run_busybox_mode();
-    }
-
-    // Parse arguments for complex operations
-    let cli = Cli::parse();
-    if cli.measure_startup { std::env::set_var("NXSH_MEASURE_STARTUP", "1"); }
-    
-    // Handle special modes first
-    if cli.check_cui {
-        #[cfg(feature="ui")]
-        {
-            let compatibility = nxsh_ui::check_cui_compatibility();
-            println!("{}", compatibility.report());
-        }
-        #[cfg(not(feature="ui"))]
-        {
-            println!("CUI compatibility check unavailable (ui feature disabled)");
-        }
-        return Ok(());
+        i += 1;
     }
     
-    // Apply environment toggles prior to any execution
-    if cli.enable_ps_aliases {
-        // Allow disabling via explicit env override
-        let disabled = std::env::var("NXSH_DISABLE_PS_ALIASES").map(|v| v=="1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
-        if !disabled {
-            // Use env flag to communicate to core/executor
-            std::env::set_var("NXSH_ENABLE_PS_ALIASES", "1");
-        }
-    }
-
-    // Handle single command execution
-    if cli.busybox {
-        return run_busybox_mode();
-    }
-
-    if let Some(ref command) = cli.command {
-        execute_single_command(command, start_time).await?;
-        return Ok(());
-    }
-    
-    // Launch interactive CUI with full functionality
-    #[cfg(feature="ui")]
-    {
-        if cli.fast_boot {
-            nxsh_ui::run_cui_minimal(start_time).await?;
-        } else {
-            nxsh_ui::run_cui_with_timing(start_time).await?;
-        }
-    }
-    #[cfg(not(feature="ui"))]
-    {
-        println!("NexusShell (minimal build) - no interactive UI. Exiting.");
-    }
-    
-    Ok(())
+    (busybox, interactive, command, debug, script_file)
 }
 
-/// Execute a single command with comprehensive functionality
-async fn execute_single_command(cmd: &str, start_time: Instant) -> anyhow::Result<()> {
-    use nxsh_core::{context::ShellContext, executor::Executor};
-    use nxsh_parser::Parser;
-    use std::io::Write;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let start_time = Instant::now();
     
-    let execution_time = start_time.elapsed();
+    // Start startup time measurement
+    #[cfg(feature = "startup-profiling")]
+    let _profiler = nxsh_core::startup_profiler::StartupProfiler::new();
     
-    // Parse the command to extract command name and args
-    let cmd_parts: Vec<&str> = cmd.split_whitespace().collect();
-    if cmd_parts.is_empty() {
+    // Setup crash handler
+    #[cfg(feature = "crash-handler")]
+    nxsh_core::crash_handler::setup_crash_handler();
+    
+    // Early BusyBox mode detection
+    if is_busybox_invocation() {
+        busybox_mode();
+    }
+    
+    // Parse CLI arguments
+    #[cfg(feature = "cli-args")]
+    let args = CliArgs::parse();
+    
+    #[cfg(not(feature = "cli-args"))]
+    let (busybox, interactive, command, debug, script_file) = parse_simple_args();
+    
+    #[cfg(feature = "cli-args")]
+    let (busybox, interactive, command, debug, script_file) = (
+        args.busybox,
+        args.interactive,
+        args.command,
+        args.debug,
+        args.script_file
+    );
+    
+    // BusyBox mode
+    if busybox {
+        busybox_mode();
+    }
+    
+    // Setup debug mode
+    if debug {
+        std::env::set_var("RUST_LOG", "debug");
+        #[cfg(feature = "logging")]
+        nxsh_core::logging::init_logger()?;
+    }
+    
+    // Load configuration - use simplified approach for now
+    let config = nxsh_core::Config::default();
+    
+    // Initialize UI system
+    #[cfg(feature = "ui")]
+    let mut ui = nxsh_ui::SimpleUiController::new()?;
+    
+    // Initialize core system - use simplified shell state for now
+    let mut shell_state = nxsh_core::ShellState::new(config.clone())?;
+    
+    // Initialize plugin system
+    #[cfg(feature = "plugins")]
+    let plugin_manager = nxsh_plugin::PluginManager::new()?;
+    
+    // Initialize parser
+    let parser = nxsh_parser::ShellCommandParser::new();
+    
+    // Output startup time
+    let startup_time = start_time.elapsed();
+    if debug {
+        println!("Startup time: {:?}", startup_time);
+    }
+    
+    // Command execution mode
+    if let Some(cmd) = command {
+        return run_command(&cmd, &mut shell_state, &parser);
+    }
+    
+    // Script execution mode
+    if let Some(script) = script_file {
+        return run_script(&script, &mut shell_state, &parser);
+    }
+    
+    // Interactive mode detection - simplified
+    let is_interactive = interactive || 
+        (!cfg!(feature = "non-interactive-default") && 
+         io::stdin().is_terminal() && 
+         io::stdout().is_terminal());
+    
+    if is_interactive {
+        // Start interactive mode
+        run_interactive_mode(&mut shell_state, &parser, #[cfg(feature = "ui")] &mut ui)
+    } else {
+        // Non-interactive mode (read commands from stdin)
+        run_non_interactive_mode(&mut shell_state, &parser)
+    }
+}
+
+fn run_command(command: &str, shell_state: &mut nxsh_core::ShellState, parser: &nxsh_parser::ShellCommandParser) -> Result<(), Box<dyn std::error::Error>> {
+    // Parse the command line into parts
+    let parts: Vec<String> = command.split_whitespace().map(|s| s.to_string()).collect();
+    if parts.is_empty() {
         return Ok(());
     }
     
-    let command_name = cmd_parts[0];
-    let args: Vec<String> = cmd_parts[1..].iter().map(|s| s.to_string()).collect();
+    let command_name = &parts[0];
+    let args = &parts[1..];
     
-    // Try nxsh_builtins first for comprehensive command support
-    if nxsh_builtins::is_builtin_name(command_name) {
-        match nxsh_builtins::execute_builtin(command_name, &args) {
-            Ok(()) => {
-                // Performance reporting
-                let total_time = start_time.elapsed();
-                if total_time.as_millis() > 100 {
-                    eprintln!("⚠️  Command execution: {:.2}ms", total_time.as_millis());
+    // Check if it's a built-in command in nxsh_builtins first
+    if nxsh_builtins::is_builtin(command_name) {
+        let context = nxsh_builtins::BuiltinContext::new();
+        match nxsh_builtins::execute_builtin(command_name, args, &context) {
+            Ok(exit_code) => {
+                if exit_code != 0 {
+                    std::process::exit(exit_code);
                 }
-                std::process::exit(0);
+                return Ok(());
             }
             Err(e) => {
                 eprintln!("Error: {}", e);
@@ -315,63 +407,137 @@ async fn execute_single_command(cmd: &str, start_time: Instant) -> anyhow::Resul
         }
     }
     
-    // Fallback to NexusShell's native command execution system
-    let mut shell_context = ShellContext::new();
-    let mut executor = Executor::new();
-    let parser = Parser::new();
-    
-    match parser.parse(cmd) {
-        Ok(ast) => {
-            match executor.execute(&ast, &mut shell_context) {
-                Ok(result) => {
-                    // Print output directly to stdout/stderr
-                    if !result.stdout.is_empty() {
-                        std::io::stdout().write_all(result.stdout.as_bytes())?;
-                        std::io::stdout().flush()?;
-                    }
-                    if !result.stderr.is_empty() {
-                        std::io::stderr().write_all(result.stderr.as_bytes())?;
-                        std::io::stderr().flush()?;
-                    }
-                    
-                    // Performance reporting
-                    let total_time = start_time.elapsed();
-                    if total_time.as_millis() > 100 {
-                        eprintln!("⚠️  Command execution: {:.2}ms", total_time.as_millis());
-                    }
-                    
-                    // Exit with command's exit code
-                    std::process::exit(result.exit_code);
-                }
-                Err(e) => {
-                    eprintln!("NexusShell execution error: {}", e);
-                    std::process::exit(1);
-                }
-            }
-        }
-        Err(parse_error) => {
-            eprintln!("NexusShell parse error: {}", parse_error);
-            std::process::exit(1);
-        }
+    // Fall back to regular parser/AST execution
+    let ast = parser.parse(command)?;
+    let exit_code = nxsh_core::execute_ast(&ast, shell_state)?;
+    if exit_code != 0 {
+        std::process::exit(exit_code);
     }
+    Ok(())
 }
 
-// Synchronous tiny main for busybox-min (no clap, no tokio)
-#[cfg(not(all(feature = "async-runtime", feature = "cli-args")))]
-fn main() -> anyhow::Result<()> {
-    let start_time = Instant::now();
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() >= 2 {
-        match args[1].as_str() {
-            "--version" | "-V" => { println!("NexusShell"); return Ok(()); }
-            "--help" | "-h" => { print_fast_help(); return Ok(()); }
-            "--busybox" => { return run_busybox_mode(); }
-            _ => {}
+fn run_script(script_path: &str, shell_state: &mut nxsh_core::ShellState, parser: &nxsh_parser::ShellCommandParser) -> Result<(), Box<dyn std::error::Error>> {
+    let content = std::fs::read_to_string(script_path)?;
+    let ast = parser.parse(&content)?;
+    let exit_code = nxsh_core::execute_ast(&ast, shell_state)?;
+    if exit_code != 0 {
+        std::process::exit(exit_code);
+    }
+    Ok(())
+}
+
+fn run_interactive_mode(
+    shell_state: &mut nxsh_core::ShellState, 
+    parser: &nxsh_parser::ShellCommandParser,
+    #[cfg(feature = "ui")] _ui: &mut nxsh_ui::SimpleUiController
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Show stylish startup banner
+    show_startup_banner();
+    println!();
+    
+    loop {
+        // Display stylish prompt
+        show_stylish_prompt();
+        std::io::stdout().flush()?;
+        
+        // Read input
+        let mut input = String::new();
+        match std::io::stdin().read_line(&mut input) {
+            Ok(0) => break, // EOF
+            Ok(_) => {
+                let input = input.trim();
+                if input.is_empty() {
+                    continue;
+                }
+                
+                // Handle exit commands
+                if input == "exit" || input == "quit" {
+                    break;
+                }
+                
+                // Parse and execute commands
+                let parts: Vec<String> = input.split_whitespace().map(|s| s.to_string()).collect();
+                if !parts.is_empty() {
+                    let command_name = &parts[0];
+                    let args = &parts[1..];
+                    
+                    // Check if it's a built-in command in nxsh_builtins first
+                    if nxsh_builtins::is_builtin(command_name) {
+                        let context = nxsh_builtins::BuiltinContext::new();
+                        match nxsh_builtins::execute_builtin(command_name, args, &context) {
+                            Ok(exit_code) => {
+                                if exit_code != 0 {
+                                    eprintln!("Command exited with code {}", exit_code);
+                                }
+                                continue;
+                            }
+                            Err(e) => {
+                                eprintln!("Error: {}", e);
+                                continue;
+                            }
+                        }
+                    }
+                }
+                
+                // Fall back to regular parser/AST execution
+                match parser.parse(input) {
+                    Ok(ast) => {
+                        match nxsh_core::execute_ast(&ast, shell_state) {
+                            Ok(exit_code) => {
+                                if exit_code != 0 {
+                                    eprintln!("Command exited with code {}", exit_code);
+                                }
+                            },
+                            Err(e) => {
+                                eprintln!("Error: {}", e);
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Parse error: {}", e);
+                    }
+                }
+            },
+            Err(e) => {
+                eprintln!("Input error: {}", e);
+                break;
+            }
         }
     }
-    if is_busybox_invocation() { return run_busybox_mode(); }
-    // Minimal interactive fallback
-    println!("NexusShell (super-min) - only BusyBox mode supported in this build. Use --busybox <cmd>.");
-    let _ = start_time; // suppress unused
+    
+    println!("Exiting NexusShell.");
     Ok(())
+}
+
+fn run_non_interactive_mode(shell_state: &mut nxsh_core::ShellState, parser: &nxsh_parser::ShellCommandParser) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Read;
+    
+    let mut input = String::new();
+    std::io::stdin().read_to_string(&mut input)?;
+    
+    let ast = parser.parse(&input)?;
+    let exit_code = nxsh_core::execute_ast(&ast, shell_state)?;
+    if exit_code != 0 {
+        std::process::exit(exit_code);
+    }
+    
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_busybox_detection() {
+        // Environment variable test
+        std::env::set_var("NXSH_BUSYBOX", "1");
+        assert!(is_busybox_invocation());
+        std::env::remove_var("NXSH_BUSYBOX");
+    }
+
+    #[test]
+    fn test_version_constant() {
+        assert!(!VERSION.is_empty());
+    }
 }

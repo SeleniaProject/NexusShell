@@ -332,3 +332,4 @@ fn print_bzip2_help() {
     println!("   If no file names are given, bzip2 compresses from");
     println!("   standard input to standard output.");
 }
+

@@ -51,3 +51,4 @@ pub fn nc_cli(args: &[String]) -> Result<()> {
         }
     }
 }
+

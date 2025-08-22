@@ -32,7 +32,7 @@ mod timedatectl_tests {
         assert_eq!(packet[2], 6); // 2^6 = 64 seconds
         
         // Verify precision
-        assert_eq!(packet[3], 0xEC); // 2^-20 ≈ 1 microsecond
+        assert_eq!(packet[3], 0xEC); // 2^-20 ≁E1 microsecond
         
         // Verify reference identifier
         assert_eq!(&packet[12..16], b"NXSH");
@@ -494,3 +494,4 @@ mod timedatectl_tests {
         assert!(status.timezone_offset <= 14 * 3600);
     }
 }
+

@@ -89,3 +89,4 @@ mod tests { use super::*; use tempfile::NamedTempFile; use std::io::Write;
     #[test]
     fn split_basic_sync(){ let mut f=NamedTempFile::new().unwrap(); f.write_all(&vec![0u8;2000]).unwrap(); split_cli(&[f.path().to_string_lossy().into()]).unwrap(); }
 } 
+

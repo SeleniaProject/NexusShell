@@ -1,0 +1,98 @@
+{
+  "name": "nxsh-nexus-pro",
+  "version": "1.2.0",
+  "author": "NexusShell Pro Team",
+  "description": "Professional gradient theme with modern UI elements",
+  "colors": {
+    "primary": "#00d4ff",
+    "secondary": "#7c3aed",
+    "accent": "#ff6b35",
+    "background": "#0a0a0a",
+    "foreground": "#f5f7fa",
+    "error": "#ff3366",
+    "warning": "#ffaa00",
+    "success": "#00e676",
+    "info": "#40e0d0",
+    "muted": "#9ca3af",
+    "highlight": "#ffd700",
+    "border": "#2a2a2a",
+    "prompt_bg": "#1a1a2e",
+    "prompt_fg": "#00d4ff",
+    "command_bg": "#16213e",
+    "command_fg": "#e2e8f0",
+    "selection_bg": "#7c3aed",
+    "selection_fg": "#ffffff",
+    "scrollbar": "#4a5568",
+    "status_active": "#00e676",
+    "status_inactive": "#718096",
+    "completion_bg": "#2d3748",
+    "completion_fg": "#e2e8f0",
+    "completion_selected": "#4299e1"
+  },
+  "styles": {
+    "prompt": {
+      "foreground": "#00d4ff",
+      "background": "#1a1a2e",
+      "bold": true,
+      "italic": false,
+      "underlined": false
+    },
+    "command": {
+      "foreground": "#e2e8f0",
+      "background": "#16213e",
+      "bold": false,
+      "italic": false,
+      "underlined": false
+    },
+    "error": {
+      "foreground": "#ff3366",
+      "bold": true,
+      "italic": false,
+      "underlined": false
+    },
+    "warning": {
+      "foreground": "#ffaa00",
+      "bold": true,
+      "italic": false,
+      "underlined": false
+    },
+    "success": {
+      "foreground": "#00e676",
+      "bold": true,
+      "italic": false,
+      "underlined": false
+    },
+    "info": {
+      "foreground": "#40e0d0",
+      "bold": false,
+      "italic": true,
+      "underlined": false
+    },
+    "muted": {
+      "foreground": "#9ca3af",
+      "bold": false,
+      "italic": false,
+      "underlined": false
+    },
+    "highlight": {
+      "foreground": "#ffd700",
+      "background": "#2a2a2a",
+      "bold": true,
+      "italic": false,
+      "underlined": false
+    },
+    "selection": {
+      "foreground": "#ffffff",
+      "background": "#7c3aed",
+      "bold": false,
+      "italic": false,
+      "underlined": false
+    },
+    "border": {
+      "foreground": "#2a2a2a",
+      "bold": false,
+      "italic": false,
+      "underlined": false
+    }
+  }
+}

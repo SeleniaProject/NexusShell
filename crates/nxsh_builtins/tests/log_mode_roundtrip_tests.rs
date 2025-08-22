@@ -1,5 +1,6 @@
 use nxsh_builtins::logstats_cli;
 
+#[allow(dead_code)]
 fn run_capture(args: &[&str]) -> String {
     // Invoke via current process using the CLI entry to keep it simple
     let vec_args: Vec<String> = args.iter().map(|s| s.to_string()).collect();

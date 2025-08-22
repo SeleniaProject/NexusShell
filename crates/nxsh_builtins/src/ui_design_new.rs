@@ -161,10 +161,10 @@ impl Icons {
     
     // Additional icon constants used by various commands
     pub const ENVIRONMENT: &'static str = "🌍";
-    pub const STOPWATCH: &'static str = "⏱️";
+    pub const STOPWATCH: &'static str = "⏱�E�E;
     pub const CLOCK: &'static str = "🕐";
-    pub const CPU: &'static str = "⚙️";
-    pub const SYSTEM: &'static str = "🖥️";
+    pub const CPU: &'static str = "⚙︁E;
+    pub const SYSTEM: &'static str = "🖥�E�E;
 }
 
 impl Default for Icons {
@@ -176,7 +176,7 @@ impl Default for Icons {
             executable: "⚡",
             link: "🔗",
             archive: "📦",
-            image: "🖼️",
+            image: "🖼�E�E,
             video: "🎬",
             audio: "🎵",
             document: "📋",
@@ -186,11 +186,11 @@ impl Default for Icons {
             arrow_right: "▶",
             arrow_down: "▼",
             bullet: "•",
-            success: "✓",
+            success: "✁E,
             warning: "⚠",
-            error: "✗",
+            error: "✁E,
             info: "ℹ",
-            spinner: ["⠋", "⠙", "⠹", "⠸"],
+            spinner: ["⠁E, "⠁E, "⠹", "⠸"],
         }
     }
 }
@@ -365,7 +365,7 @@ impl TableFormatter {
         let mut row = String::new();
         
         // Left border
-        row.push_str(&format!("{}│{}", self.colors.muted, RESET));
+        row.push_str(&format!("{}━E}", self.colors.muted, RESET));
         
         for (i, cell) in cells.iter().enumerate() {
             if i < widths.len() {
@@ -382,13 +382,13 @@ impl TableFormatter {
                 
                 // Column separator
                 if i < widths.len() - 1 {
-                    row.push_str(&format!("{}│{}", self.colors.muted, RESET));
+                    row.push_str(&format!("{}━E}", self.colors.muted, RESET));
                 }
             }
         }
         
         // Right border
-        row.push_str(&format!(" {}│{}\n", self.colors.muted, RESET));
+        row.push_str(&format!(" {}━E}\n", self.colors.muted, RESET));
         
         row
     }
@@ -400,13 +400,13 @@ impl TableFormatter {
         // Corner characters
         let (left, right, junction) = if self.use_unicode {
             if is_top {
-                ("┌", "┐", "┬")
+                ("━E, "━E, "┬")
             } else if is_middle {
-                ("├", "┤", "┼")
+                ("━E, "┤", "┼")
             } else if is_bottom {
-                ("└", "┘", "┴")
+                ("━E, "━E, "┴")
             } else {
-                ("├", "┤", "┼")
+                ("━E, "┤", "┼")
             }
         } else {
             ("+", "+", "+")
@@ -553,9 +553,9 @@ impl ProgressBar {
         
         print!("\r{} {}{}{}{}{}% ({}/{}) ETA: {:02}:{:02}",
             self.colors.info,
-            "█".repeat(filled),
+            "▁E.repeat(filled),
             self.colors.muted,
-            "░".repeat(empty),
+            "▁E.repeat(empty),
             self.colors.success,
             percentage,
             self.current,
@@ -578,7 +578,7 @@ pub struct Animation {
 impl Animation {
     pub fn spinner() -> Self {
         Self {
-            frames: vec!["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
+            frames: vec!["⠁E, "⠁E, "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠁E, "⠁E],
             current_frame: 0,
             colors: ColorPalette::default(),
         }
@@ -648,3 +648,4 @@ impl Notification {
             colors.reset);
     }
 }
+

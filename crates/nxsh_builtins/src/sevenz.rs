@@ -21,3 +21,4 @@ pub fn sevenz_cli(args: &[String]) -> Result<()> {
     }
     Err(anyhow!("7z: backend not found; please install p7zip/7-Zip"))
 } 
+

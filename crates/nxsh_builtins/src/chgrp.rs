@@ -20,7 +20,7 @@ use which::which;
 use nix::unistd::{Group, Gid};
 
 #[cfg(windows)]
-use windows::Win32::Security::SID_NAME_USE;
+
 
 pub fn chgrp_cli(args: &[String]) -> Result<()> {
     // Parse arguments first to handle our enhanced options
@@ -312,8 +312,8 @@ fn print_chgrp_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use std::path::Path;
+
+
 
     #[test]
     fn test_parse_chgrp_args_basic() {
@@ -444,3 +444,5 @@ mod tests {
         assert!(result.unwrap_err().to_string().contains("No such file"));
     }
 }
+
+

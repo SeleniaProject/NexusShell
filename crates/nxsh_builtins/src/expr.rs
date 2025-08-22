@@ -298,3 +298,4 @@ mod tests {
         assert_eq!(evaluate_expression(&["0".to_string(), "|".to_string(), "2".to_string()]).unwrap(), "2");
     }
 } 
+

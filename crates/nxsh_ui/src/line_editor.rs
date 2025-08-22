@@ -21,13 +21,8 @@ use rustyline::{
 use std::{
     path::{Path, PathBuf},
     fs,
-    sync::{Arc, Mutex},
 };
-use crate::{
-    history_crypto,
-    completion::NexusCompleter,
-    completion_engine::AdvancedCompletionEngine,
-};
+use crate::history_crypto;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc as StdArc, Mutex as StdMutex};
 

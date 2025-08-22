@@ -245,3 +245,4 @@ mod tests {
         less_cli(&[f.path().to_string_lossy().into()]).await.unwrap();
     }
 } 
+

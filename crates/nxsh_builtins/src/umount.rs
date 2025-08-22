@@ -187,3 +187,4 @@ pub fn umount_cli(args: &[String]) -> anyhow::Result<()> {
         Err(e) => Err(anyhow!("umount command failed: {}", e)),
     }
 }
+

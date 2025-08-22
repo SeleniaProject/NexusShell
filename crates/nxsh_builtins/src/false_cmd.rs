@@ -1,5 +1,6 @@
 use nxsh_core::{ShellError, ErrorKind};
 use nxsh_core::error::RuntimeErrorKind;
+use crate::common::{BuiltinResult, BuiltinContext};
 
 pub fn false_cmd_cli(_args: &[String]) -> Result<(), ShellError> {
     // The false command always fails
@@ -8,6 +9,12 @@ pub fn false_cmd_cli(_args: &[String]) -> Result<(), ShellError> {
 
 pub fn false_builtin() -> Result<i32, ShellError> {
     // Return exit status 1 (failure)
+    Ok(1)
+}
+
+/// Execute the false builtin command
+pub fn execute(_args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
+    // The false command always returns failure status
     Ok(1)
 }
 
@@ -22,3 +29,4 @@ mod tests {
         assert_eq!(false_builtin().unwrap(), 1);
     }
 }
+

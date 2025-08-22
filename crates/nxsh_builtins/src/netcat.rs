@@ -7,3 +7,4 @@ pub fn netcat_cli(args: &[String]) -> Result<()> {
     // Simply delegate to nc_cli
     crate::nc::nc_cli(args)
 }
+

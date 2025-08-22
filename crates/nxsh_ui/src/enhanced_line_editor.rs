@@ -6,23 +6,23 @@
 //! - Smart completion engine
 //! - Smooth animations and transitions
 
-use anyhow::{Result, Context};
+use anyhow::Result;
 use crossterm::{
     event::{Event, KeyCode, KeyEvent, KeyModifiers, read, poll},
-    terminal::{enable_raw_mode, disable_raw_mode, size},
-    cursor::{MoveTo, Show, Hide},
-    style::{Print, ResetColor},
+    terminal::{enable_raw_mode, disable_raw_mode},
+    cursor::MoveTo,
+    style::ResetColor,
     execute,
 };
 use std::{
     io::{self, Write, stdout},
     time::{Duration, Instant},
-    sync::{Arc, Mutex},
+
 };
 
 use crate::{
     tab_completion::{TabCompletionHandler, TabCompletionResult},
-    completion_panel::CompletionPanel,
+
 };
 
 /// Enhanced line editor with visual completion
@@ -655,3 +655,4 @@ mod tests {
         assert_eq!(word_start, 11); // Start of "-m"
     }
 }
+

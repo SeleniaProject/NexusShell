@@ -45,3 +45,4 @@ fn pager(path: std::path::PathBuf) -> Result<()> {
 mod tests { use super::*; use tempfile::NamedTempFile; use std::io::Write;
 #[tokio::test]
 async fn more_basic(){ let mut f=NamedTempFile::new().unwrap(); for i in 0..100{ writeln!(f,"line{}",i).unwrap(); } more_cli(&[f.path().to_string_lossy().into()]).await.unwrap(); }} 
+

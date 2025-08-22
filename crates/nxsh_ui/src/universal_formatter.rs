@@ -14,7 +14,7 @@
 
 use anyhow::{Result, Context};
 use crate::advanced_cui::AdvancedCUI;
-use std::collections::HashMap;
+
 use serde_json::Value;
 
 /// Universal output formatter for all commands
@@ -567,7 +567,7 @@ impl UniversalFormatter {
                 FileType::CharacterDevice => "🟨",
                 FileType::Fifo => "🟫",
                 FileType::Socket => "🟪",
-                FileType::Unknown => "❓",
+                FileType::Unknown => "❁E,
             };
             
             row.push(type_icon.to_string());
@@ -697,3 +697,4 @@ mod tests {
         assert!(error.contains("Test failed"));
     }
 }
+

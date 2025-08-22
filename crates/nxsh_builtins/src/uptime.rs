@@ -411,3 +411,10 @@ mod tests {
         assert_eq!(format_uptime_pretty(Duration::from_secs(90060)), "1 day, 1 hour, and 1 minute");
     }
 }
+
+
+/// Execute function stub
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    eprintln!("Command not yet implemented");
+    Ok(1)
+}

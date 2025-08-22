@@ -3,7 +3,7 @@
 //! このモジュールは、NexusShellのために設計された高性能な構造化ログシステムを提供します。
 //! JSON形式での出力、ログローテーション、非同期書き込みをサポートしています。
 
-use crate::compat::{Result, Context};
+use crate::compat::Result;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio::sync::RwLock;
@@ -101,6 +101,7 @@ impl StructuredLogger {
     /// - BusyBox/minimal builds (compile-time feature)
     /// - Environment NXSH_DISABLE_FILE_LOGGING=1/true
     /// - Environment NXSH_BUSYBOX=1/true (runtime BusyBox mode)
+    #[allow(dead_code)]
     fn is_file_logging_disabled() -> bool {
         #[cfg(feature = "busybox_min")]
         {
@@ -275,7 +276,7 @@ impl StructuredLogger {
         // ログディレクトリを作成
         if let Some(parent) = config.path.parent() {
             std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create log directory: {parent:?}"))?;
+                .map_err(|e| crate::anyhow!("Failed to create log directory: {parent:?}: {e}"))?;
         }
         
         // ローテーションファイルアペンダーを作成

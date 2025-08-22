@@ -12,3 +12,4 @@ pub fn get_command_cli(_args: &[String]) -> Result<()> {
     emit(&objs);
     Ok(())
 }
+

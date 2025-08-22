@@ -49,3 +49,4 @@ mod tests {
         assert_eq!(err.downcast_ref::<BreakSignal>().unwrap().levels, 2);
     }
 } 
+

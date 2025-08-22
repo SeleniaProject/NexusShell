@@ -92,3 +92,4 @@ pub fn nice_cli(args: &[String]) -> Result<()> {
     #[allow(unreachable_code)]
     Ok(())
 } 
+

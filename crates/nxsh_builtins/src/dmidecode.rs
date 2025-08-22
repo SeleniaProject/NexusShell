@@ -24,3 +24,4 @@ pub async fn dmidecode_cli(_args: &[String]) -> Result<()> {
         Ok(())
     }
 } 
+

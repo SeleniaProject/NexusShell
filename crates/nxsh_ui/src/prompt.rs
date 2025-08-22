@@ -17,7 +17,7 @@ use std::{
 use whoami;
 use hostname;
 
-/// Prompt configuration for CUI mode
+/// Prompt configuration for CUI mode  
 #[derive(Debug, Clone)]
 pub struct PromptConfig {
     pub show_user: bool,
@@ -25,8 +25,74 @@ pub struct PromptConfig {
     pub show_cwd: bool,
     pub show_git_info: bool,
     pub show_exit_code: bool,
+    pub show_time: bool,
+    pub show_jobs: bool,
+    pub show_performance: bool,
     pub ps1_format: Option<String>,
     pub git_simplified: bool,
+    pub max_path_length: Option<usize>,
+    pub use_unicode_symbols: bool,
+    pub color_theme: PromptColorTheme,
+}
+
+/// Color theme for prompts
+#[derive(Debug, Clone)]
+pub struct PromptColorTheme {
+    pub user_color: Color,
+    pub hostname_color: Color,
+    pub cwd_color: Color,
+    pub git_clean_color: Color,
+    pub git_dirty_color: Color,
+    pub error_color: Color,
+    pub success_color: Color,
+    pub time_color: Color,
+}
+
+impl Default for PromptColorTheme {
+    fn default() -> Self {
+        Self {
+            user_color: Color::Green,
+            hostname_color: Color::Blue,
+            cwd_color: Color::Cyan,
+            git_clean_color: Color::Green,
+            git_dirty_color: Color::Yellow,
+            error_color: Color::Red,
+            success_color: Color::Green,
+            time_color: Color::Grey,
+        }
+    }
+}
+
+/// Prompt style variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromptStyle {
+    Simple,
+    Detailed,
+    Compact,
+    Powerline,
+    Custom,
+}
+
+/// Prompt renderer for displaying prompts
+#[derive(Debug, Clone)]
+pub struct PromptRenderer {
+    config: PromptConfig,
+}
+
+impl PromptRenderer {
+    pub fn new(config: PromptConfig) -> Self {
+        Self { config }
+    }
+    
+    pub fn render(&self) -> String {
+        "$ ".to_string() // Simple prompt for now
+    }
+}
+
+impl Default for PromptRenderer {
+    fn default() -> Self {
+        Self::new(PromptConfig::default())
+    }
 }
 
 impl Default for PromptConfig {
@@ -37,8 +103,14 @@ impl Default for PromptConfig {
             show_cwd: true,
             show_git_info: true,
             show_exit_code: true,
+            show_time: false,
+            show_jobs: false,
+            show_performance: false,
             ps1_format: None,
             git_simplified: true,
+            max_path_length: None,
+            use_unicode_symbols: true,
+            color_theme: PromptColorTheme::default(),
         }
     }
 }
@@ -65,8 +137,14 @@ impl PromptFormatter {
                 show_git_info: true,   // Full git status integration
                 show_cwd: true,        // Complete directory information
                 show_exit_code: true,  // Complete exit code tracking
+                show_time: false,
+                show_jobs: false,
+                show_performance: false,
                 ps1_format: Some(String::from("$USER@$HOSTNAME:$CWD$GIT$ ")),
                 git_simplified: false, // Full git details as required
+                max_path_length: None,
+                use_unicode_symbols: true,
+                color_theme: PromptColorTheme::default(),
             },
         }
     }

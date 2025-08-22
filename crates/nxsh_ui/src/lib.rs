@@ -1,5 +1,5 @@
-//! NexusShell UI Library - CUI (Character User Interface) Implementation
-//! 
+//! NexusShell UI Library - Character User Interface Implementation
+//!
 //! This library provides the user interface components for NexusShell,
 //! focusing on CUI (Character User Interface) rather than TUI (Terminal User Interface)
 //! for improved performance, reduced complexity, and better POSIX compatibility.
@@ -9,209 +9,402 @@
 #![allow(clippy::uninlined_format_args)]
 #![allow(clippy::blocks_in_conditions)]
 
-// Primary CUI modules - performance and simplicity focused
-pub mod app;
-pub mod cui_app;
-pub mod startup_profiler; // Startup measurement utilities
-pub mod status_line; // Status line metrics (CPU/MEM/Net/Battery)
-pub mod enhanced_ui;
-pub mod line_editor;
-pub mod enhanced_line_editor; // 🚀 Enhanced line editor with beautiful completion
-pub mod history_crypto; // History encryption (Argon2id + AES-GCM)
-pub mod prompt;
-pub mod ui_ux; // Advanced UI/UX system
+// Re-export commonly used types and functions
+pub use config::UiConfig;
+pub use themes::{NexusTheme as Theme, get_theme_by_name as get_theme};
+pub use completion::{CompletionType, CompletionResult, NexusCompleter};
+pub use prompt::{PromptRenderer, PromptStyle, PromptConfig};
+pub use input_handler::{InputHandler, KeyEvent, InputAction, InputMode};
 
-// Supporting modules for CUI functionality
-pub mod themes;
-pub mod theme_validator; // Theme validation and schema support
-pub mod completion;
-pub mod completion_engine; // 🚀 高性能補完エンジン
-pub mod completion_panel; // 🎨 美しい補完パネルUI
-pub mod tab_completion; // 🔧 高度なタブ補完ハンドラ
-pub mod completion_metrics; // 補完パフォーマンス測定
-pub mod completion_integration; // 高性能補完統合ヘルパー
-pub mod config;
-pub mod accessibility; // Accessibility support for TTY blind mode and color vision
-pub mod ansi_render; // ANSI-to-PNG rendering helpers
-
-// Advanced CUI Design System
-pub mod advanced_cui; // 🎨 Advanced CUI design system with beautiful formatting
-pub mod universal_formatter; // 📊 Universal command output formatter
-
-// Additional CUI modules for comprehensive functionality
-pub mod simple_cui; // Emergency fallback mode
-
-// Legacy TUI modules (deprecated - being phased out for CUI)
-pub mod tui; // Re-enabled for accessibility support (supports_color function)
-// pub mod widgets; // Disabled - replaced with enhanced_ui formatters
-// pub mod highlighting; // Disabled - simplified in line_editor
-
-// Test modules
-#[cfg(test)]
-pub mod cui_tests;
-#[cfg(test)]
-pub mod tty_nocolor_tests;
-#[cfg(test)]
-mod app_tests;
-
-// Export primary CUI interface
-pub use cui_app::CUIApp as App;
-pub use ui_ux::{UIUXSystem, Theme as UITheme, PromptContext, InputResult, Completion};
-pub use enhanced_ui::{
-    CuiFormatter, 
-    DisplayTheme, 
-    TableRow, 
-    ProgressIndicator,
-    StatusType
+use std::io::{self, Write};
+use crossterm::{
+    terminal::{self, ClearType},
+    cursor,
+    style::{Color, Print, ResetColor, SetForegroundColor},
+    execute,
+    event::{self, Event, KeyCode, KeyModifiers},
 };
-pub use line_editor::{NexusLineEditor, LineEditorConfig};
-pub use prompt::{PromptFormatter, PromptConfig};
 
-// Re-export essential types for compatibility
-pub use themes::{NexusTheme, ThemeFormat, ColorScheme, SerializableStyle};
-pub use completion::{CompletionConfig, NexusCompleter};
-pub use config::{CUIConfig, UiConfig as UIConfig, NexusConfig, CompletionConfig as GlobalCompletionConfig};
+// Core modules for binary dependencies
+pub mod config;
+pub mod themes;
+pub mod theme_validator;
+pub mod ansi_render;
+pub mod completion;
+pub mod readline;
+pub mod history;
+pub mod prompt;
+pub mod input_handler;
+pub mod ui_ux;
 
-// Emergency fallback only as backup
-pub use simple_cui::{SimpleCUI, run_emergency_cui};
-
-/// Ultra-minimal CUI entry point for maximum startup performance
-/// Bypasses all unnecessary initialization and overhead while maintaining full functionality
-pub async fn run_cui_minimal(start_time: std::time::Instant) -> anyhow::Result<()> {
-    // Initialize startup measurement (if enabled)
-    if startup_profiler::is_enabled() {
-        startup_profiler::init_with_cli_start(start_time);
-    }
-    // Performance tracking for optimization - warnings disabled
-    let startup_us = start_time.elapsed().as_micros();
-    if startup_us > 5000 {  // > 5ms
-        // Warning disabled - no output
-    } else {
-        // Success message disabled - no output
-    }
-    
-    // COMPLETE initialization as required - ALL components loaded immediately
-    let mut app = App::new_minimal()?;  // Now implements FULL functionality
-    if startup_profiler::is_enabled() {
-        startup_profiler::mark_cui_init_done(std::time::Instant::now());
-    }
-    #[cfg(feature = "async")]
-    { app.run().await }
-    #[cfg(not(feature = "async"))]
-    { app.run() }
+/// Animation manager for UI elements
+pub struct Animation {
+    name: String,
+    frames: Vec<String>,
+    current_frame: usize,
 }
 
-/// Main entry point for CUI mode with comprehensive functionality
-/// This replaces the previous TUI-based interface with a streamlined CUI
-pub async fn run_cui() -> anyhow::Result<()> {
-    let mut app = App::new()?;
-    #[cfg(feature = "async")]
-    { app.run().await }
-    #[cfg(not(feature = "async"))]
-    { app.run() }
-}
-
-/// Main entry point for CUI mode with startup timing and full features
-/// This version tracks startup performance for optimization
-pub async fn run_cui_with_timing(start_time: std::time::Instant) -> anyhow::Result<()> {
-    let mut app = App::new()?;
-    if startup_profiler::is_enabled() {
-        startup_profiler::init_with_cli_start(start_time);
-        startup_profiler::mark_cui_init_done(std::time::Instant::now());
+impl Animation {
+    /// Create a new animation
+    pub fn new(name: String, frames: Vec<String>) -> Self {
+        Self {
+            name,
+            frames,
+            current_frame: 0,
+        }
     }
-    
-    // Display startup performance - warnings disabled
-    let startup_ms = start_time.elapsed().as_millis();
-    if startup_ms > 10 {
-        // Warning disabled - no output
-    } else {
-        // Success message disabled - no output
+
+    /// Create a spinner animation
+    pub fn spinner() -> Self {
+        Self::new(
+            "spinner".to_string(),
+            vec!["|".to_string(), "/".to_string(), "-".to_string(), "\\".to_string()],
+        )
     }
-    
-    #[cfg(feature = "async")]
-    { app.run().await }
-    #[cfg(not(feature = "async"))]
-    { app.run() }
+
+    /// Get the next frame
+    pub fn next_frame(&mut self) -> &str {
+        let frame = &self.frames[self.current_frame];
+        self.current_frame = (self.current_frame + 1) % self.frames.len();
+        frame
+    }
 }
 
-/// Run CUI with custom configuration and full functionality
-pub async fn run_cui_with_config(_config: UIConfig) -> anyhow::Result<()> {
-    // Create application and apply provided UI configuration before running.
-    let mut app = App::new()?;
-    // Bridge UI-only configuration into the running app. This uses a dedicated
-    // proxy on App that forwards to the internal configuration manager.
-    app.apply_ui_config(_config)?;
-    #[cfg(feature = "async")]
-    { app.run().await }
-    #[cfg(not(feature = "async"))]
-    { app.run() }
+/// Border styles for table formatting
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BorderStyle {
+    /// Simple ASCII borders
+    Simple,
+    /// Rounded Unicode borders
+    Rounded,
+    /// Heavy Unicode borders
+    Heavy,
+    /// Double-line borders
+    Double,
+    /// No borders
+    None,
 }
 
-/// Check CUI compatibility with comprehensive terminal feature detection
-pub fn check_cui_compatibility() -> CUICompatibility {
-    use crossterm::terminal;
-    
-    // Check comprehensive terminal capabilities required for CUI
-    let has_ansi_support = std::env::var("TERM").is_ok();
-    let has_color_support = crossterm::style::available_color_count() > 8;
-    let _has_unicode_support = std::env::var("LANG").map(|l| l.contains("UTF-8")).unwrap_or(false);
-    
-    if let Ok((width, height)) = terminal::size() {
-        if width >= 80 && height >= 24 {
-            if has_ansi_support && has_color_support {
-                CUICompatibility::FullySupported
-            } else if has_ansi_support {
-                CUICompatibility::LimitedSupport("Limited color support".to_string())
-            } else {
-                CUICompatibility::LimitedSupport("No ANSI support".to_string())
-            }
+/// Table formatting options
+#[derive(Debug, Clone)]
+pub struct TableOptions {
+    pub border_style: BorderStyle,
+    pub show_header: bool,
+    pub alternating_rows: bool,
+    pub header_alignment: Alignment,
+    pub max_width: Option<usize>,
+    pub show_borders: bool,
+    pub zebra_striping: bool,
+    pub compact_mode: bool,
+    pub align_columns: bool,
+    pub compact: bool,
+}
+
+/// Text alignment options
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Alignment {
+    Left,
+    Center,
+    Right,
+}
+
+impl Default for TableOptions {
+    fn default() -> Self {
+        Self {
+            border_style: BorderStyle::Simple,
+            show_header: true,
+            alternating_rows: false,
+            header_alignment: Alignment::Left,
+            max_width: None,
+            show_borders: true,
+            zebra_striping: false,
+            compact_mode: false,
+            align_columns: true,
+            compact: false,
+        }
+    }
+}
+
+/// Progress bar for long-running operations
+pub struct ProgressBar {
+    current: u64,
+    total: u64,
+    width: usize,
+    message: String,
+}
+
+/// Dummy progress bar type alias for compatibility
+pub type DummyProgressBar = ProgressBar;
+
+impl ProgressBar {
+    /// Create a new progress bar
+    pub fn new(total: u64) -> Self {
+        Self {
+            current: 0,
+            total,
+            width: 50,
+            message: String::new(),
+        }
+    }
+
+    /// Set the current progress
+    pub fn set_position(&mut self, pos: u64) {
+        self.current = pos.min(self.total);
+    }
+
+    /// Set the message
+    pub fn set_message(&mut self, message: String) {
+        self.message = message;
+    }
+
+    /// Render the progress bar
+    pub fn render(&self) -> String {
+        let percentage = if self.total > 0 {
+            (self.current as f64 / self.total as f64 * 100.0) as u8
         } else {
-            CUICompatibility::LimitedSupport(
-                format!("Terminal too small: {width}x{height} (minimum: 80x24)")
-            )
-        }
-    } else {
-        CUICompatibility::NotSupported("Cannot detect terminal size".to_string())
+            100
+        };
+
+        let filled = (self.current as f64 / self.total as f64 * self.width as f64) as usize;
+        let empty = self.width - filled;
+
+        format!(
+            "{} [{}{}] {}%",
+            self.message,
+            "=".repeat(filled),
+            " ".repeat(empty),
+            percentage
+        )
     }
 }
 
-/// CUI compatibility levels with comprehensive feature detection
-#[derive(Debug, Clone, PartialEq)]
-pub enum CUICompatibility {
-    /// Full CUI features available
-    FullySupported,
-    /// Limited CUI features (fallback mode)
-    LimitedSupport(String),
-    /// CUI not supported (text-only mode)
-    NotSupported(String),
+/// Notification types
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotificationType {
+    Info,
+    Success,
+    Warning,
+    Error,
 }
 
-impl CUICompatibility {
-    /// Generate a human-readable report of compatibility status
-    pub fn report(&self) -> String {
-        match self {
-            CUICompatibility::FullySupported => {
-                "CUI Compatibility: Full support available".to_string()
-            },
-            CUICompatibility::LimitedSupport(reason) => {
-                format!("CUI Compatibility: Limited support - {reason}")
-            },
-            CUICompatibility::NotSupported(reason) => {
-                format!("CUI Compatibility: Not supported - {reason}")
-            },
+/// Notification structure
+pub struct Notification {
+    pub notification_type: NotificationType,
+    pub title: String,
+    pub message: String,
+}
+
+impl Notification {
+    /// Create a new notification
+    pub fn new(notification_type: NotificationType, title: String, message: String) -> Self {
+        Self {
+            notification_type,
+            title,
+            message,
         }
+    }
+
+    /// Create an info notification
+    pub fn info(title: String, message: String) -> Self {
+        Self::new(NotificationType::Info, title, message)
+    }
+
+    /// Create a success notification
+    pub fn success(title: String, message: String) -> Self {
+        Self::new(NotificationType::Success, title, message)
+    }
+
+    /// Create a warning notification
+    pub fn warning(title: String, message: String) -> Self {
+        Self::new(NotificationType::Warning, title, message)
+    }
+
+    /// Create an error notification
+    pub fn error(title: String, message: String) -> Self {
+        Self::new(NotificationType::Error, title, message)
+    }
+}
+
+/// Advanced CUI controller with interactive features
+pub struct AdvancedCuiController {
+    theme: Theme,
+    prompt: PromptRenderer,
+    is_running: bool,
+}
+
+impl AdvancedCuiController {
+    /// Create a new advanced CUI controller
+    pub fn new() -> anyhow::Result<Self> {
+        let theme = get_theme("nxsh-dark-default")?;
+        let prompt = PromptRenderer::new(PromptConfig::default());
+        
+        Ok(Self {
+            theme,
+            prompt,
+            is_running: false,
+        })
     }
     
-    /// Check if any level of CUI is supported
-    pub fn is_supported(&self) -> bool {
-        !matches!(self, CUICompatibility::NotSupported(_))
+    /// Start the interactive CUI session
+    pub fn run_interactive(&mut self) -> anyhow::Result<()> {
+        self.is_running = true;
+        
+        // Enable raw mode for advanced input handling
+        terminal::enable_raw_mode()?;
+        
+        while self.is_running {
+            // Render prompt
+            let prompt_text = self.prompt.render();
+            print!("{}", prompt_text);
+            io::stdout().flush()?;
+            
+            // Read events
+            if event::poll(std::time::Duration::from_millis(500))? {
+                match event::read()? {
+                    Event::Key(key_event) => {
+                        match key_event.code {
+                            KeyCode::Enter => {
+                                println!();
+                                // Process command here
+                            }
+                            KeyCode::Char('q') if key_event.modifiers == KeyModifiers::CONTROL => {
+                                self.is_running = false;
+                            }
+                            KeyCode::Char('c') if key_event.modifiers == KeyModifiers::CONTROL => {
+                                self.is_running = false;
+                            }
+                            KeyCode::Char('l') if key_event.modifiers == KeyModifiers::CONTROL => {
+                                execute!(io::stdout(), terminal::Clear(ClearType::All))?;
+                                execute!(io::stdout(), cursor::MoveTo(0, 0))?;
+                            }
+                            KeyCode::Char(c) => {
+                                print!("{}", c);
+                                io::stdout().flush()?;
+                            }
+                            KeyCode::Backspace => {
+                                execute!(io::stdout(), cursor::MoveLeft(1))?;
+                                execute!(io::stdout(), Print(" "))?;
+                                execute!(io::stdout(), cursor::MoveLeft(1))?;
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        
+        // Disable raw mode
+        terminal::disable_raw_mode()?;
+        Ok(())
     }
     
-    /// Check if full CUI features are supported
-    pub fn is_fully_supported(&self) -> bool {
-        matches!(self, CUICompatibility::FullySupported)
+    /// Execute a command
+    fn execute_command(&mut self, command: &str) -> anyhow::Result<()> {
+        match command.trim() {
+            "exit" | "quit" => {
+                self.is_running = false;
+            }
+            "clear" => {
+                execute!(io::stdout(), terminal::Clear(ClearType::All))?;
+                execute!(io::stdout(), cursor::MoveTo(0, 0))?;
+            }
+            "help" => {
+                self.show_help()?;
+            }
+            cmd => {
+                println!("Command executed: {}", cmd);
+            }
+        }
+        Ok(())
+    }
+    
+    /// Show help information
+    fn show_help(&self) -> anyhow::Result<()> {
+        execute!(io::stdout(), SetForegroundColor(Color::Green))?;
+        println!("NexusShell Advanced CUI - Available Commands:");
+        execute!(io::stdout(), ResetColor)?;
+        
+        let help_items = [
+            ("Tab", "Auto-completion"),
+            ("Ctrl+R", "Reverse history search"),
+            ("Ctrl+L", "Clear screen"),
+            ("Ctrl+C", "Interrupt/Exit"),
+            ("Ctrl+A", "Move to beginning of line"),
+            ("Ctrl+E", "Move to end of line"),
+            ("clear", "Clear screen"),
+            ("help", "Show this help"),
+            ("exit/quit", "Exit NexusShell"),
+        ];
+        
+        for (key, desc) in &help_items {
+            execute!(io::stdout(), SetForegroundColor(Color::Yellow))?;
+            print!("  {:12}", key);
+            execute!(io::stdout(), SetForegroundColor(Color::DarkGrey))?;
+            println!(" - {}", desc);
+            execute!(io::stdout(), ResetColor)?;
+        }
+        
+        Ok(())
+    }
+    
+    /// Get the current theme
+    pub fn theme(&self) -> &Theme {
+        &self.theme
+    }
+    
+    /// Set a new theme
+    pub fn set_theme(&mut self, theme_name: &str) -> anyhow::Result<()> {
+        self.theme = get_theme(theme_name)?;
+        Ok(())
+    }
+    
+    /// Get completion suggestions for input (simplified version)
+    pub fn get_completions(&self, input: &str, _pos: usize) -> Vec<String> {
+        // Simple completion example
+        let commands = vec![
+            "ls", "cd", "pwd", "mkdir", "rmdir", "cp", "mv", "rm",
+            "cat", "grep", "find", "git", "cargo", "help", "exit", "clear"
+        ];
+        
+        commands.into_iter()
+            .filter(|cmd| cmd.starts_with(input))
+            .map(|cmd| cmd.to_string())
+            .collect()
+    }
+    
+    /// Add command to history (placeholder)
+    pub fn add_to_history(&mut self, _command: String) {
+        // Placeholder for history functionality
+    }
+    
+    /// Search history (placeholder)
+    pub fn search_history(&self, _query: &str) -> Vec<&str> {
+        // Placeholder for history search
+        Vec::new()
     }
 }
 
-// Re-export all essential types and functions
-pub use anyhow::{Result, Context};
+/// Simple UI controller for basic testing
+pub struct SimpleUiController {
+    theme: Theme,
+}
+
+impl SimpleUiController {
+    /// Create a new simple UI controller
+    pub fn new() -> anyhow::Result<Self> {
+        let theme = get_theme("nxsh-dark-default")?;
+        Ok(Self { theme })
+    }
+
+    /// Get the current theme
+    pub fn theme(&self) -> &Theme {
+        &self.theme
+    }
+}
+
+impl Default for SimpleUiController {
+    fn default() -> Self {
+        Self::new().expect("Failed to create simple UI controller")
+    }
+}

@@ -85,3 +85,4 @@ mod tests {
         diff_streams(BufReader::new(Cursor::new(a)), BufReader::new(Cursor::new(b))).unwrap();
     }
 } 
+

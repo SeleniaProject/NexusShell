@@ -41,3 +41,4 @@ mod tests {
         source_cli(&[file.path().to_string_lossy().into()], &mut ctx).unwrap();
     }
 }
+

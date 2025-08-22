@@ -11,8 +11,7 @@ pub fn set_logging_system<T>(_logging: T) {}
 
 pub fn logstats_cli(args: &[String]) -> Result<()> {
     let mut mode = OutputMode::Plain;
-    for a in args.iter().skip(1) { // args[0] はコマンド名想定
-        match a.as_str() {
+    for a in args.iter().skip(1) { // args[0] はコマンド名想宁E        match a.as_str() {
             "--json" => mode = OutputMode::JsonCompact,
             "--pretty" => mode = OutputMode::JsonPretty,
             "--prom" | "--prometheus" => {
@@ -61,3 +60,4 @@ fn print_help() {
            -h, --help  Show this help and exit"
     );
 }
+

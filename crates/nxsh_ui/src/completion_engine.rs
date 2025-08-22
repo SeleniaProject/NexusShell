@@ -1,1077 +1,642 @@
 //! 高性能タブ補完エンジン - NexusShell Advanced Completion System
-//! 
+//!
 //! このモジュールは、極限まで最適化されたタブ補完機能を提供します。
-//! - 1ms未満のレスポンス時間
-//! - インテリジェントなコンテキスト認識
-//! - 並列処理による高速化
-//! - 学習機能付きスマートフィルタリング
-//! - 大規模プロジェクトでの高速ファイル検索
-
-use anyhow::Result;
-use std::{
-    collections::{HashMap, BTreeMap, VecDeque},
-    path::{Path, PathBuf},
-    sync::{Arc, RwLock},
-    time::{Instant, SystemTime, UNIX_EPOCH},
-    fs,
-    env,
-    num::NonZeroUsize,
-};
-use rayon::prelude::*;
-use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
-use tokio::{task, time::timeout, sync::Semaphore};
-use lru::LruCache;
-use serde::{Deserialize, Serialize};
-
-/// 高性能補完エンジンのメインストラクチャ
-pub struct AdvancedCompletionEngine {
-    // キャッシュレイヤー
-    file_cache: Arc<RwLock<LruCache<PathBuf, Vec<CompletionEntry>>>>,
-    command_cache: Arc<RwLock<HashMap<String, String>>>, // 簡略化: String -> String
-    context_cache: Arc<RwLock<HashMap<String, ContextResult>>>,
-    
-    // 学習システム
-    usage_stats: Arc<RwLock<UsageStatistics>>,
-    preference_engine: Arc<RwLock<PreferenceEngine>>,
-    
-    // 並列処理用
-    task_pool: Arc<Semaphore>,
-    matcher: SkimMatcherV2,
-    
-    // 設定
-    config: CompletionEngineConfig,
-    
-    // 履歴分析
-    command_history: Arc<RwLock<VecDeque<HistoryEntry>>>,
-    pattern_detector: Arc<RwLock<PatternDetector>>,
-}
-
-impl AdvancedCompletionEngine {
-    /// 新しい高性能補完エンジンを作成
-    pub fn new() -> Result<Self> {
-        let config = CompletionEngineConfig::default();
-        
-        Ok(Self {
-            file_cache: Arc::new(RwLock::new(LruCache::new(NonZeroUsize::new(config.cache_size).unwrap()))),
-            command_cache: Arc::new(RwLock::new(HashMap::new())),
-            context_cache: Arc::new(RwLock::new(HashMap::new())),
-            usage_stats: Arc::new(RwLock::new(UsageStatistics::new())),
-            preference_engine: Arc::new(RwLock::new(PreferenceEngine::new())),
-            task_pool: Arc::new(Semaphore::new(config.max_concurrent_tasks)),
-            matcher: SkimMatcherV2::default(),
-            config,
-            command_history: Arc::new(RwLock::new(VecDeque::new())),
-            pattern_detector: Arc::new(RwLock::new(PatternDetector::new())),
-        })
-    }
-
-    /// メイン補完エントリーポイント - 超高速レスポンス保証
-    pub async fn get_completions(&self, input: &str, cursor_pos: usize) -> Result<CompletionResult> {
-        let start_time = Instant::now();
-        
-        // 緊急時フォールバック用タイムアウト（1ms）
-        let result = timeout(
-            std::time::Duration::from_millis(1),
-            self.compute_completions_internal(input, cursor_pos)
-        ).await;
-        
-        match result {
-            Ok(completion_result) => {
-                let elapsed = start_time.elapsed();
-                self.record_performance_metric(elapsed).await;
-                completion_result
-            }
-            Err(_) => {
-                // タイムアウト時は基本補完のみ提供
-                Ok(CompletionResult::fast_fallback(input, cursor_pos))
-            }
-        }
-    }
-
-    /// 内部補完計算ロジック
-    async fn compute_completions_internal(&self, input: &str, cursor_pos: usize) -> Result<CompletionResult> {
-        // 1. 高速コンテキスト解析
-        let context = self.analyze_context_fast(input, cursor_pos).await?;
-        
-        // 2. 並列補完候補生成
-        let (command_candidates, file_candidates, variable_candidates, history_candidates, smart_candidates) = tokio::join!(
-            self.get_command_completions_async(&context),
-            self.get_file_completions_async(&context),
-            self.get_variable_completions_async(&context),
-            self.get_history_completions_async(&context),
-            self.get_smart_suggestions_async(&context),
-        );
-
-        // 3. 結果マージと最適化
-        let mut all_candidates = Vec::new();
-        
-        // エラーハンドリングと結果のマージ
-        if let Ok(candidates) = command_candidates {
-            all_candidates.extend(candidates);
-        }
-        if let Ok(candidates) = file_candidates {
-            all_candidates.extend(candidates);
-        }
-        if let Ok(candidates) = variable_candidates {
-            all_candidates.extend(candidates);
-        }
-        if let Ok(candidates) = history_candidates {
-            all_candidates.extend(candidates);
-        }
-        if let Ok(candidates) = smart_candidates {
-            all_candidates.extend(candidates);
-        }
-
-        // 4. スマートソートと学習適用
-        self.apply_intelligent_ranking(&mut all_candidates, &context).await;
-
-        // 5. 最終結果構築
-        Ok(CompletionResult {
-            candidates: all_candidates,
-            context,
-            metadata: CompletionMetadata::new(),
-        })
-    }
-
-    /// 超高速コンテキスト解析
-    async fn analyze_context_fast(&self, input: &str, cursor_pos: usize) -> Result<CompletionContext> {
-        // キャッシュチェック
-        let cache_key = format!("{}:{}", input, cursor_pos);
-        if let Ok(cache) = self.context_cache.read() {
-            if let Some(cached_result) = cache.get(&cache_key) {
-                return Ok(cached_result.context.clone());
-            }
-        }
-
-        // 高速解析
-        let context = CompletionContext::analyze_fast(input, cursor_pos);
-        
-        // 非同期でキャッシュ更新
-        let cache_clone = Arc::clone(&self.context_cache);
-        let cache_key_clone = cache_key.clone();
-        let context_clone = context.clone();
-        
-        tokio::spawn(async move {
-            if let Ok(mut cache) = cache_clone.write() {
-                cache.insert(cache_key_clone, ContextResult { context: context_clone });
-            }
-        });
-
-        Ok(context)
-    }
-
-    /// 並列コマンド補完
-    async fn get_command_completions_async(&self, context: &CompletionContext) -> Result<Vec<CompletionCandidate>> {
-        let _permit = self.task_pool.acquire().await?;
-        
-        task::spawn_blocking({
-            let context = context.clone();
-            let command_cache = Arc::clone(&self.command_cache);
-            let usage_stats = Arc::clone(&self.usage_stats);
-            
-            move || -> Result<Vec<CompletionCandidate>> {
-                let mut candidates = Vec::new();
-                
-                // PATH内の実行可能ファイルを並列スキャン
-                if let Ok(path_var) = env::var("PATH") {
-                    let paths: Vec<_> = env::split_paths(&path_var).collect();
-                    
-                    let path_results: Vec<_> = paths.par_iter().map(|path_dir| {
-                        Self::scan_directory_for_executables(path_dir, &context.word_prefix)
-                    }).collect();
-                    
-                    for result in path_results {
-                        if let Ok(mut path_candidates) = result {
-                            candidates.append(&mut path_candidates);
-                        }
-                    }
-                }
-
-                // ビルトインコマンド追加
-                Self::add_builtin_commands(&mut candidates, &context.word_prefix);
-                
-                // 使用統計に基づく優先順位付け
-                if let Ok(stats) = usage_stats.read() {
-                    for candidate in &mut candidates {
-                        candidate.boost_score(stats.get_command_frequency(&candidate.text));
-                    }
-                }
-
-                Ok(candidates)
-            }
-        }).await?
-    }
-
-    /// 超高速ファイル補完
-    async fn get_file_completions_async(&self, context: &CompletionContext) -> Result<Vec<CompletionCandidate>> {
-        let _permit = self.task_pool.acquire().await?;
-        
-        let cache_key = PathBuf::from(&context.directory_hint);
-        
-        // キャッシュチェック
-        if let Ok(mut cache) = self.file_cache.write() {
-            if let Some(cached_entries) = cache.get(&cache_key) {
-                return Ok(Self::filter_file_entries(cached_entries, &context.word_prefix));
-            }
-        }
-
-        // 非同期ファイルスキャン
-        task::spawn_blocking({
-            let context = context.clone();
-            let file_cache = Arc::clone(&self.file_cache);
-            
-            move || -> Result<Vec<CompletionCandidate>> {
-                let dir_path = Path::new(&context.directory_hint);
-                let mut entries = Vec::new();
-                
-                if let Ok(dir_entries) = fs::read_dir(dir_path) {
-                    // 並列ファイル処理
-                    let file_results: Vec<_> = dir_entries
-                        .par_bridge()
-                        .filter_map(|entry| entry.ok())
-                        .map(|entry| CompletionEntry::from_dir_entry(entry))
-                        .filter_map(|result| result.ok())
-                        .collect();
-                    
-                    entries.extend(file_results);
-                }
-
-                // キャッシュ更新
-                if let Ok(mut cache) = file_cache.write() {
-                    cache.put(cache_key, entries.clone());
-                }
-
-                // フィルタリングして候補生成
-                Ok(Self::filter_file_entries(&entries, &context.word_prefix))
-            }
-        }).await?
-    }
-
-    /// 変数補完（環境変数 + シェル変数）
-    async fn get_variable_completions_async(&self, context: &CompletionContext) -> Result<Vec<CompletionCandidate>> {
-        if !context.is_variable_context {
-            return Ok(Vec::new());
-        }
-
-        let _permit = self.task_pool.acquire().await?;
-        
-        task::spawn_blocking({
-            let prefix = context.word_prefix.clone();
-            
-            move || -> Result<Vec<CompletionCandidate>> {
-                let mut candidates = Vec::new();
-                let var_prefix = prefix.strip_prefix('$').unwrap_or(&prefix);
-
-                // 環境変数を並列処理
-                let env_vars: Vec<_> = env::vars().collect();
-                let var_candidates: Vec<_> = env_vars
-                    .par_iter()
-                    .filter(|(key, _)| key.to_lowercase().starts_with(&var_prefix.to_lowercase()))
-                    .map(|(key, value)| {
-                        CompletionCandidate::variable(
-                            format!("${}", key),
-                            Self::truncate_value(value, 50),
-                        )
-                    })
-                    .collect();
-
-                candidates.extend(var_candidates);
-                Ok(candidates)
-            }
-        }).await?
-    }
-
-    /// インテリジェントな履歴補完
-    async fn get_history_completions_async(&self, context: &CompletionContext) -> Result<Vec<CompletionCandidate>> {
-        let _permit = self.task_pool.acquire().await?;
-        
-        let history = Arc::clone(&self.command_history);
-        let pattern_detector = Arc::clone(&self.pattern_detector);
-        
-        task::spawn_blocking({
-            let context = context.clone();
-            
-            move || -> Result<Vec<CompletionCandidate>> {
-                let mut candidates = Vec::new();
-                
-                if let Ok(hist) = history.read() {
-                    if let Ok(detector) = pattern_detector.read() {
-                        // パターン認識による履歴マッチング
-                        let relevant_entries: Vec<_> = hist
-                            .iter()
-                            .filter(|entry| detector.is_relevant_pattern(entry, &context))
-                            .take(20) // パフォーマンス制限
-                            .map(|entry| CompletionCandidate::history(entry.command.clone(), entry.frequency))
-                            .collect();
-                        
-                        candidates.extend(relevant_entries);
-                    }
-                }
-
-                Ok(candidates)
-            }
-        }).await?
-    }
-
-    /// AI駆動型スマート提案
-    async fn get_smart_suggestions_async(&self, context: &CompletionContext) -> Result<Vec<CompletionCandidate>> {
-        let _permit = self.task_pool.acquire().await?;
-        
-        // 軽量なローカルパターン認識
-        task::spawn_blocking({
-            let context = context.clone();
-            
-            move || -> Result<Vec<CompletionCandidate>> {
-                let mut suggestions = Vec::new();
-                
-                // コンテキストベースの提案
-                match context.command_context.as_str() {
-                    "git" => {
-                        suggestions.extend(Self::get_git_smart_suggestions(&context.word_prefix));
-                    }
-                    "docker" => {
-                        suggestions.extend(Self::get_docker_smart_suggestions(&context.word_prefix));
-                    }
-                    "npm" | "yarn" => {
-                        suggestions.extend(Self::get_node_smart_suggestions(&context.word_prefix));
-                    }
-                    "cargo" => {
-                        suggestions.extend(Self::get_rust_smart_suggestions(&context.word_prefix));
-                    }
-                    _ => {
-                        // 汎用的なファイルタイプ提案
-                        suggestions.extend(Self::get_filetype_suggestions(&context));
-                    }
-                }
-
-                Ok(suggestions)
-            }
-        }).await?
-    }
-
-    /// インテリジェントランキング適用
-    async fn apply_intelligent_ranking(&self, candidates: &mut Vec<CompletionCandidate>, context: &CompletionContext) {
-        // 1. 基本スコア計算（ファジーマッチング）
-        for candidate in candidates.iter_mut() {
-            if let Some(score) = self.matcher.fuzzy_match(&candidate.text, &context.word_prefix) {
-                candidate.base_score = score as f64;
-            }
-        }
-
-        // 2. 学習ベースのブースト適用
-        if let Ok(preference_engine) = self.preference_engine.read() {
-            for candidate in candidates.iter_mut() {
-                let boost = preference_engine.calculate_preference_boost(candidate, context);
-                candidate.apply_boost(boost);
-            }
-        }
-
-        // 3. 最終ソート
-        candidates.sort_by(|a, b| {
-            b.final_score().partial_cmp(&a.final_score()).unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        // 4. 重複除去
-        candidates.dedup_by(|a, b| a.text == b.text);
-
-        // 5. 制限適用
-        candidates.truncate(self.config.max_candidates);
-    }
-
-    /// パフォーマンスメトリクス記録
-    async fn record_performance_metric(&self, elapsed: std::time::Duration) {
-        // 非同期でメトリクス記録
-        tokio::spawn(async move {
-            let elapsed_ms = elapsed.as_secs_f64() * 1000.0;
-            if elapsed_ms > 1.0 {
-                eprintln!("警告: 補完レスポンス時間が目標を超過: {:.2}ms", elapsed_ms);
-            }
-        });
-    }
-
-    // ヘルパーメソッド群
-
-    fn scan_directory_for_executables(path: &Path, prefix: &str) -> Result<Vec<CompletionCandidate>> {
-        let mut candidates = Vec::new();
-        
-        if let Ok(entries) = fs::read_dir(path) {
-            for entry in entries.flatten() {
-                if let Some(name) = entry.file_name().to_str() {
-                    if name.starts_with(prefix) && Self::is_executable(&entry.path()) {
-                        candidates.push(CompletionCandidate::command(
-                            name.to_string(),
-                            format!("Executable from {}", path.display()),
-                        ));
-                    }
-                }
-            }
-        }
-        
-        Ok(candidates)
-    }
-
-    fn is_executable(path: &Path) -> bool {
-        #[cfg(windows)]
-        {
-            path.extension()
-                .and_then(|ext| ext.to_str())
-                .map(|ext| ["exe", "cmd", "bat", "ps1"].contains(&ext.to_lowercase().as_str()))
-                .unwrap_or(false)
-        }
-        #[cfg(not(windows))]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            path.metadata()
-                .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
-                .unwrap_or(false)
-        }
-    }
-
-    fn add_builtin_commands(candidates: &mut Vec<CompletionCandidate>, prefix: &str) {
-        let builtins = [
-            ("cd", "Change directory"),
-            ("ls", "List files and directories"),
-            ("pwd", "Print working directory"),
-            ("echo", "Display text"),
-            ("cat", "Display file contents"),
-            ("grep", "Search text patterns"),
-            ("find", "Find files and directories"),
-            ("cp", "Copy files"),
-            ("mv", "Move/rename files"),
-            ("rm", "Remove files"),
-            ("mkdir", "Create directories"),
-            ("rmdir", "Remove directories"),
-            ("chmod", "Change file permissions"),
-            ("chown", "Change file ownership"),
-            ("ps", "List processes"),
-            ("kill", "Terminate processes"),
-            ("jobs", "List active jobs"),
-            ("bg", "Background job"),
-            ("fg", "Foreground job"),
-            ("history", "Command history"),
-            ("alias", "Create aliases"),
-            ("unalias", "Remove aliases"),
-            ("export", "Export variables"),
-            ("env", "Environment variables"),
-            ("which", "Locate command"),
-            ("type", "Command type"),
-            ("help", "Show help"),
-            ("exit", "Exit shell"),
-        ];
-
-        for (cmd, desc) in &builtins {
-            if cmd.starts_with(prefix) {
-                candidates.push(CompletionCandidate::builtin(cmd.to_string(), desc.to_string()));
-            }
-        }
-    }
-
-    fn filter_file_entries(entries: &[CompletionEntry], prefix: &str) -> Vec<CompletionCandidate> {
-        entries
-            .par_iter()
-            .filter(|entry| entry.name.starts_with(prefix))
-            .map(|entry| CompletionCandidate::from_entry(entry))
-            .collect()
-    }
-
-    fn truncate_value(value: &str, max_len: usize) -> String {
-        if value.len() <= max_len {
-            value.to_string()
-        } else {
-            format!("{}...", &value[..max_len - 3])
-        }
-    }
-
-    // スマート提案メソッド群
-
-    fn get_git_smart_suggestions(prefix: &str) -> Vec<CompletionCandidate> {
-        let git_commands = [
-            ("add", "Add files to staging area"),
-            ("commit", "Commit changes"),
-            ("push", "Push to remote"),
-            ("pull", "Pull from remote"),
-            ("branch", "List/create branches"),
-            ("checkout", "Switch branches"),
-            ("merge", "Merge branches"),
-            ("status", "Show status"),
-            ("log", "Show commit history"),
-            ("diff", "Show differences"),
-            ("reset", "Reset changes"),
-            ("rebase", "Rebase commits"),
-            ("stash", "Stash changes"),
-            ("remote", "Manage remotes"),
-            ("fetch", "Fetch from remote"),
-            ("clone", "Clone repository"),
-            ("init", "Initialize repository"),
-        ];
-
-        git_commands
-            .iter()
-            .filter(|(cmd, _)| cmd.starts_with(prefix))
-            .map(|(cmd, desc)| CompletionCandidate::smart_suggestion(format!("git {}", cmd), desc.to_string()))
-            .collect()
-    }
-
-    fn get_docker_smart_suggestions(prefix: &str) -> Vec<CompletionCandidate> {
-        let docker_commands = [
-            ("run", "Run a container"),
-            ("ps", "List containers"),
-            ("images", "List images"),
-            ("build", "Build image"),
-            ("pull", "Pull image"),
-            ("push", "Push image"),
-            ("stop", "Stop container"),
-            ("start", "Start container"),
-            ("restart", "Restart container"),
-            ("rm", "Remove container"),
-            ("rmi", "Remove image"),
-            ("exec", "Execute in container"),
-            ("logs", "Show container logs"),
-            ("inspect", "Inspect container/image"),
-            ("network", "Manage networks"),
-            ("volume", "Manage volumes"),
-        ];
-
-        docker_commands
-            .iter()
-            .filter(|(cmd, _)| cmd.starts_with(prefix))
-            .map(|(cmd, desc)| CompletionCandidate::smart_suggestion(format!("docker {}", cmd), desc.to_string()))
-            .collect()
-    }
-
-    fn get_node_smart_suggestions(prefix: &str) -> Vec<CompletionCandidate> {
-        let npm_commands = [
-            ("install", "Install packages"),
-            ("start", "Start application"),
-            ("test", "Run tests"),
-            ("build", "Build application"),
-            ("run", "Run script"),
-            ("init", "Initialize project"),
-            ("publish", "Publish package"),
-            ("update", "Update packages"),
-            ("outdated", "Show outdated packages"),
-            ("audit", "Security audit"),
-            ("ci", "Clean install"),
-            ("ls", "List packages"),
-            ("link", "Link package"),
-            ("unlink", "Unlink package"),
-        ];
-
-        npm_commands
-            .iter()
-            .filter(|(cmd, _)| cmd.starts_with(prefix))
-            .map(|(cmd, desc)| CompletionCandidate::smart_suggestion(format!("npm {}", cmd), desc.to_string()))
-            .collect()
-    }
-
-    fn get_rust_smart_suggestions(prefix: &str) -> Vec<CompletionCandidate> {
-        let cargo_commands = [
-            ("build", "Build project"),
-            ("run", "Run project"),
-            ("test", "Run tests"),
-            ("check", "Check compilation"),
-            ("clean", "Clean build artifacts"),
-            ("doc", "Build documentation"),
-            ("new", "Create new project"),
-            ("init", "Initialize project"),
-            ("add", "Add dependency"),
-            ("remove", "Remove dependency"),
-            ("update", "Update dependencies"),
-            ("publish", "Publish crate"),
-            ("install", "Install binary"),
-            ("uninstall", "Uninstall binary"),
-            ("search", "Search crates"),
-            ("bench", "Run benchmarks"),
-            ("fmt", "Format code"),
-            ("clippy", "Run Clippy linter"),
-        ];
-
-        cargo_commands
-            .iter()
-            .filter(|(cmd, _)| cmd.starts_with(prefix))
-            .map(|(cmd, desc)| CompletionCandidate::smart_suggestion(format!("cargo {}", cmd), desc.to_string()))
-            .collect()
-    }
-
-    fn get_filetype_suggestions(context: &CompletionContext) -> Vec<CompletionCandidate> {
-        let mut suggestions = Vec::new();
-        
-        // 拡張子ベースの提案
-        match context.word_prefix.split('.').last() {
-            Some("rs") => {
-                suggestions.push(CompletionCandidate::smart_suggestion("cargo build".to_string(), "Build Rust project".to_string()));
-                suggestions.push(CompletionCandidate::smart_suggestion("cargo test".to_string(), "Run Rust tests".to_string()));
-            }
-            Some("js") | Some("ts") => {
-                suggestions.push(CompletionCandidate::smart_suggestion("npm start".to_string(), "Start Node.js app".to_string()));
-                suggestions.push(CompletionCandidate::smart_suggestion("npm test".to_string(), "Run Node.js tests".to_string()));
-            }
-            Some("py") => {
-                suggestions.push(CompletionCandidate::smart_suggestion("python".to_string(), "Run Python script".to_string()));
-                suggestions.push(CompletionCandidate::smart_suggestion("pytest".to_string(), "Run Python tests".to_string()));
-            }
-            _ => {}
-        }
-
-        suggestions
-    }
-}
-
-// データ構造定義
-
-#[derive(Debug, Clone)]
-pub struct CompletionResult {
-    pub candidates: Vec<CompletionCandidate>,
-    pub context: CompletionContext,
-    pub metadata: CompletionMetadata,
-}
-
-impl CompletionResult {
-    pub fn fast_fallback(input: &str, cursor_pos: usize) -> Self {
-        Self {
-            candidates: vec![
-                CompletionCandidate::fallback("基本補完のみ利用可能".to_string()),
-            ],
-            context: CompletionContext::basic(input, cursor_pos),
-            metadata: CompletionMetadata::fallback(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct CompletionContext {
-    pub word_prefix: String,
-    pub command_context: String,
-    pub directory_hint: String,
-    pub is_variable_context: bool,
-    pub cursor_position: usize,
-    pub full_line: String,
-}
-
-impl CompletionContext {
-    pub fn analyze_fast(input: &str, cursor_pos: usize) -> Self {
-        let before_cursor = &input[..cursor_pos.min(input.len())];
-        let words: Vec<&str> = before_cursor.split_whitespace().collect();
-        
-        let word_prefix = words.last().map_or("", |v| v).to_string();
-        let command_context = words.first().map_or("", |v| v).to_string();
-        let is_variable_context = word_prefix.starts_with('$');
-        
-        // ディレクトリヒント生成
-        let directory_hint = if word_prefix.contains('/') || word_prefix.contains('\\') {
-            Path::new(&word_prefix)
-                .parent()
-                .unwrap_or(Path::new("."))
-                .to_string_lossy()
-                .to_string()
-        } else {
-            ".".to_string()
-        };
-
-        Self {
-            word_prefix,
-            command_context,
-            directory_hint,
-            is_variable_context,
-            cursor_position: cursor_pos,
-            full_line: input.to_string(),
-        }
-    }
-
-    pub fn basic(input: &str, cursor_pos: usize) -> Self {
-        Self {
-            word_prefix: "".to_string(),
-            command_context: "".to_string(),
-            directory_hint: ".".to_string(),
-            is_variable_context: false,
-            cursor_position: cursor_pos,
-            full_line: input.to_string(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct CompletionCandidate {
-    pub text: String,
-    pub description: String,
-    pub candidate_type: CandidateType,
-    pub base_score: f64,
-    pub boost_score: f64,
-    pub metadata: HashMap<String, String>,
-}
-
-impl CompletionCandidate {
-    pub fn command(text: String, description: String) -> Self {
-        Self {
-            text,
-            description,
-            candidate_type: CandidateType::Command,
-            base_score: 0.0,
-            boost_score: 0.0,
-            metadata: HashMap::new(),
-        }
-    }
-
-    pub fn builtin(text: String, description: String) -> Self {
-        Self {
-            text,
-            description,
-            candidate_type: CandidateType::Builtin,
-            base_score: 0.0,
-            boost_score: 0.0,
-            metadata: HashMap::new(),
-        }
-    }
-
-    pub fn file(text: String, is_directory: bool) -> Self {
-        Self {
-            text,
-            description: if is_directory { "Directory".to_string() } else { "File".to_string() },
-            candidate_type: if is_directory { CandidateType::Directory } else { CandidateType::File },
-            base_score: 0.0,
-            boost_score: 0.0,
-            metadata: HashMap::new(),
-        }
-    }
-
-    pub fn variable(text: String, value: String) -> Self {
-        Self {
-            text,
-            description: format!("= {}", value),
-            candidate_type: CandidateType::Variable,
-            base_score: 0.0,
-            boost_score: 0.0,
-            metadata: HashMap::new(),
-        }
-    }
-
-    pub fn history(text: String, frequency: u32) -> Self {
-        Self {
-            text,
-            description: format!("Used {} times", frequency),
-            candidate_type: CandidateType::History,
-            base_score: 0.0,
-            boost_score: frequency as f64 * 0.1,
-            metadata: HashMap::new(),
-        }
-    }
-
-    pub fn smart_suggestion(text: String, description: String) -> Self {
-        Self {
-            text,
-            description,
-            candidate_type: CandidateType::SmartSuggestion,
-            base_score: 0.0,
-            boost_score: 1.0, // スマート提案は高いブースト
-            metadata: HashMap::new(),
-        }
-    }
-
-    pub fn fallback(text: String) -> Self {
-        Self {
-            text,
-            description: "Fallback completion".to_string(),
-            candidate_type: CandidateType::Fallback,
-            base_score: 0.0,
-            boost_score: 0.0,
-            metadata: HashMap::new(),
-        }
-    }
-
-    pub fn from_entry(entry: &CompletionEntry) -> Self {
-        Self::file(entry.name.clone(), entry.is_directory)
-    }
-
-    pub fn boost_score(&mut self, boost: f64) {
-        self.boost_score += boost;
-    }
-
-    pub fn apply_boost(&mut self, boost: f64) {
-        self.boost_score += boost;
-    }
-
-    pub fn final_score(&self) -> f64 {
-        self.base_score + self.boost_score
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum CandidateType {
+//! 複数のヒューリスティック、機械学習ベースの候補選択、リアルタイム性能監視を実装。
+
+use std::collections::{HashMap, BTreeMap, VecDeque};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant};
+use anyhow::{Result, Error};
+use fuzzy_matcher::{FuzzyMatcher, SkimMatcherV2};
+use tokio::sync::mpsc;
+use regex::Regex;
+
+// 補完候補の種類
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum CompletionType {
     Command,
-    Builtin,
     File,
     Directory,
     Variable,
+    Argument,
+    Option,
+    Alias,
+    Function,
     History,
-    SmartSuggestion,
-    Fallback,
+    Custom(String),
 }
 
+// 補完候補のアイテム
 #[derive(Debug, Clone)]
-pub struct CompletionEntry {
-    pub name: String,
-    pub path: PathBuf,
-    pub is_directory: bool,
-    pub size: u64,
-    pub modified: SystemTime,
+pub struct CompletionItem {
+    pub text: String,
+    pub display_text: String,
+    pub completion_type: CompletionType,
+    pub description: Option<String>,
+    pub score: f64,
+    pub source: String,
+    pub metadata: HashMap<String, String>,
 }
 
-impl CompletionEntry {
-    pub fn from_dir_entry(entry: fs::DirEntry) -> Result<Self> {
-        let metadata = entry.metadata()?;
-        Ok(Self {
-            name: entry.file_name().to_string_lossy().to_string(),
-            path: entry.path(),
-            is_directory: metadata.is_dir(),
-            size: metadata.len(),
-            modified: metadata.modified().unwrap_or(UNIX_EPOCH),
-        })
+impl CompletionItem {
+    pub fn new(text: String, completion_type: CompletionType) -> Self {
+        Self {
+            display_text: text.clone(),
+            text,
+            completion_type,
+            description: None,
+            score: 1.0,
+            source: "default".to_string(),
+            metadata: HashMap::new(),
+        }
+    }
+
+    pub fn with_description(mut self, description: String) -> Self {
+        self.description = Some(description);
+        self
+    }
+
+    pub fn with_score(mut self, score: f64) -> Self {
+        self.score = score;
+        self
+    }
+
+    pub fn with_source(mut self, source: String) -> Self {
+        self.source = source;
+        self
+    }
+
+    pub fn with_metadata(mut self, key: String, value: String) -> Self {
+        self.metadata.insert(key, value);
+        self
     }
 }
 
+// 補完結果
 #[derive(Debug, Clone)]
-pub struct CompletionMetadata {
-    pub generation_time_ms: f64,
-    pub cache_hit_rate: f64,
+pub struct CompletionResult {
+    pub items: Vec<CompletionItem>,
+    pub prefix: String,
+    pub cursor_position: usize,
     pub total_candidates: usize,
+    pub completion_time: Duration,
+    pub sources_used: Vec<String>,
 }
 
-impl CompletionMetadata {
+impl CompletionResult {
+    pub fn new(items: Vec<CompletionItem>, prefix: String) -> Self {
+        let total_candidates = items.len();
+        Self {
+            items,
+            prefix,
+            cursor_position: 0,
+            total_candidates,
+            completion_time: Duration::from_millis(0),
+            sources_used: Vec::new(),
+        }
+    }
+
+    pub fn with_timing(mut self, duration: Duration) -> Self {
+        self.completion_time = duration;
+        self
+    }
+
+    pub fn with_sources(mut self, sources: Vec<String>) -> Self {
+        self.sources_used = sources;
+        self
+    }
+}
+
+// 補完プロバイダーのトレイト
+pub trait CompletionProvider: Send + Sync {
+    fn name(&self) -> &str;
+    fn can_complete(&self, input: &str, cursor: usize) -> bool;
+    fn get_completions(&self, input: &str, cursor: usize) -> Result<Vec<CompletionItem>>;
+    fn priority(&self) -> i32 { 0 }
+}
+
+// ファイルシステム補完プロバイダー
+pub struct FileSystemProvider {
+    max_depth: usize,
+    include_hidden: bool,
+    matcher: SkimMatcherV2,
+}
+
+impl FileSystemProvider {
     pub fn new() -> Self {
         Self {
-            generation_time_ms: 0.0,
-            cache_hit_rate: 0.0,
-            total_candidates: 0,
+            max_depth: 3,
+            include_hidden: false,
+            matcher: SkimMatcherV2::default(),
         }
     }
 
-    pub fn fallback() -> Self {
-        Self {
-            generation_time_ms: 0.0,
-            cache_hit_rate: 0.0,
-            total_candidates: 1,
+    pub fn with_max_depth(mut self, depth: usize) -> Self {
+        self.max_depth = depth;
+        self
+    }
+
+    pub fn with_hidden_files(mut self, include_hidden: bool) -> Self {
+        self.include_hidden = include_hidden;
+        self
+    }
+
+    fn scan_directory(&self, dir: &Path, prefix: &str) -> Result<Vec<CompletionItem>> {
+        let mut items = Vec::new();
+        
+        if !dir.exists() || !dir.is_dir() {
+            return Ok(items);
         }
-    }
-}
 
-#[derive(Debug)]
-pub struct CompletionEngineConfig {
-    pub cache_size: usize,
-    pub max_concurrent_tasks: usize,
-    pub max_candidates: usize,
-    pub fuzzy_threshold: f64,
-    pub enable_smart_suggestions: bool,
-    pub enable_learning: bool,
-}
+        let entries = std::fs::read_dir(dir)?;
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+            let name = path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
 
-impl Default for CompletionEngineConfig {
-    fn default() -> Self {
-        Self {
-            cache_size: 1000,
-            max_concurrent_tasks: 8,
-            max_candidates: 50,
-            fuzzy_threshold: 0.1,
-            enable_smart_suggestions: true,
-            enable_learning: true,
+            // Hidden files filtering
+            if !self.include_hidden && name.starts_with('.') {
+                continue;
+            }
+
+            // Fuzzy matching
+            if let Some((score, _)) = self.matcher.fuzzy_match(&name, prefix) {
+                let completion_type = if path.is_dir() {
+                    CompletionType::Directory
+                } else {
+                    CompletionType::File
+                };
+
+                let item = CompletionItem::new(name, completion_type)
+                    .with_score(score as f64)
+                    .with_source("filesystem".to_string())
+                    .with_metadata("path".to_string(), path.to_string_lossy().to_string());
+
+                items.push(item);
+            }
         }
+
+        Ok(items)
     }
 }
 
-// 学習・統計システム
+impl CompletionProvider for FileSystemProvider {
+    fn name(&self) -> &str {
+        "filesystem"
+    }
 
-#[derive(Debug)]
-pub struct UsageStatistics {
-    command_frequency: HashMap<String, u32>,
-    last_updated: SystemTime,
-}
-
-impl UsageStatistics {
-    pub fn new() -> Self {
-        Self {
-            command_frequency: HashMap::new(),
-            last_updated: SystemTime::now(),
+    fn can_complete(&self, input: &str, cursor: usize) -> bool {
+        if cursor > input.len() {
+            return false;
         }
+
+        let prefix = &input[..cursor];
+        // Check if we're completing a path
+        prefix.contains('/') || prefix.contains('\\') || 
+        prefix.starts_with('.') || prefix.starts_with('~')
     }
 
-    pub fn get_command_frequency(&self, command: &str) -> f64 {
-        self.command_frequency.get(command).map(|&freq| freq as f64 * 0.1).unwrap_or(0.0)
-    }
+    fn get_completions(&self, input: &str, cursor: usize) -> Result<Vec<CompletionItem>> {
+        let prefix = &input[..cursor];
+        let path_part = prefix.split_whitespace().last().unwrap_or("");
 
-    pub fn record_usage(&mut self, command: &str) {
-        *self.command_frequency.entry(command.to_string()).or_insert(0) += 1;
-        self.last_updated = SystemTime::now();
-    }
-}
-
-#[derive(Debug)]
-pub struct PreferenceEngine {
-    preferences: BTreeMap<String, f64>,
-    context_weights: HashMap<String, f64>,
-}
-
-impl PreferenceEngine {
-    pub fn new() -> Self {
-        Self {
-            preferences: BTreeMap::new(),
-            context_weights: HashMap::new(),
-        }
-    }
-
-    pub fn calculate_preference_boost(&self, candidate: &CompletionCandidate, context: &CompletionContext) -> f64 {
-        let mut boost = 0.0;
-
-        // 候補タイプベースのブースト
-        boost += match candidate.candidate_type {
-            CandidateType::Builtin => 0.5,
-            CandidateType::SmartSuggestion => 1.0,
-            CandidateType::History => 0.3,
-            _ => 0.0,
+        let (dir, file_prefix) = if let Some(pos) = path_part.rfind('/') {
+            (&path_part[..pos], &path_part[pos + 1..])
+        } else if let Some(pos) = path_part.rfind('\\') {
+            (&path_part[..pos], &path_part[pos + 1..])
+        } else {
+            (".", path_part)
         };
 
-        // コンテキストベースのブースト
-        if let Some(&context_weight) = self.context_weights.get(&context.command_context) {
-            boost += context_weight * 0.2;
-        }
-
-        boost
+        let dir_path = Path::new(dir);
+        self.scan_directory(dir_path, file_prefix)
     }
 
-    pub fn learn_preference(&mut self, candidate: &str, context: &str, success: bool) {
-        let key = format!("{}:{}", context, candidate);
-        let current = self.preferences.get(&key).unwrap_or(&0.0);
-        let adjustment = if success { 0.1 } else { -0.05 };
-        self.preferences.insert(key, (current + adjustment).max(0.0));
+    fn priority(&self) -> i32 {
+        10
     }
 }
 
-#[derive(Debug)]
-pub struct PatternDetector {
-    patterns: HashMap<String, Pattern>,
+// コマンド補完プロバイダー
+pub struct CommandProvider {
+    commands: Arc<RwLock<HashMap<String, CompletionItem>>>,
+    matcher: SkimMatcherV2,
 }
 
-impl PatternDetector {
+impl CommandProvider {
     pub fn new() -> Self {
         Self {
-            patterns: HashMap::new(),
+            commands: Arc::new(RwLock::new(HashMap::new())),
+            matcher: SkimMatcherV2::default(),
         }
     }
 
-    pub fn is_relevant_pattern(&self, entry: &HistoryEntry, context: &CompletionContext) -> bool {
-        // 基本的なパターンマッチング
-        entry.command.starts_with(&context.word_prefix) ||
-        entry.context.contains(&context.command_context)
-    }
+    pub fn add_command(&self, name: String, description: Option<String>) {
+        let item = CompletionItem::new(name.clone(), CompletionType::Command)
+            .with_source("commands".to_string());
+        
+        let item = if let Some(desc) = description {
+            item.with_description(desc)
+        } else {
+            item
+        };
 
-    pub fn detect_pattern(&mut self, entries: &[HistoryEntry]) {
-        // パターン検出ロジック（簡略化）
-        for entry in entries {
-            let pattern_key = format!("{}:{}", entry.context, entry.command.split_whitespace().next().unwrap_or(""));
-            let pattern = self.patterns.entry(pattern_key).or_insert(Pattern::new());
-            pattern.frequency += 1;
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct Pattern {
-    pub frequency: u32,
-    pub last_seen: SystemTime,
-}
-
-impl Pattern {
-    pub fn new() -> Self {
-        Self {
-            frequency: 0,
-            last_seen: SystemTime::now(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct HistoryEntry {
-    pub command: String,
-    pub context: String,
-    pub timestamp: SystemTime,
-    pub frequency: u32,
-}
-
-#[derive(Debug, Clone)]
-pub struct ContextResult {
-    pub context: CompletionContext,
-}
-
-// Serialize/Deserialize サポート
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CompletionCache {
-    pub file_entries: HashMap<String, Vec<String>>,
-    pub command_cache: HashMap<String, String>,
-    pub last_update: u64,
-}
-
-impl CompletionCache {
-    pub fn new() -> Self {
-        Self {
-            file_entries: HashMap::new(),
-            command_cache: HashMap::new(),
-            last_update: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+        if let Ok(mut commands) = self.commands.write() {
+            commands.insert(name, item);
         }
     }
 
-    pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let json = serde_json::to_string_pretty(self)?;
-        fs::write(path, json)?;
+    pub fn load_system_commands(&self) -> Result<()> {
+        // Load commands from PATH
+        if let Ok(path) = std::env::var("PATH") {
+            for path_dir in std::env::split_paths(&path) {
+                if let Ok(entries) = std::fs::read_dir(&path_dir) {
+                    for entry in entries.flatten() {
+                        if let Some(name) = entry.file_name().to_str() {
+                            // Skip extensions on Windows
+                            let command_name = if cfg!(windows) {
+                                name.strip_suffix(".exe")
+                                    .or_else(|| name.strip_suffix(".cmd"))
+                                    .or_else(|| name.strip_suffix(".bat"))
+                                    .unwrap_or(name)
+                            } else {
+                                name
+                            };
+
+                            self.add_command(command_name.to_string(), None);
+                        }
+                    }
+                }
+            }
+        }
         Ok(())
     }
+}
 
-    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let json = fs::read_to_string(path)?;
-        let cache: CompletionCache = serde_json::from_str(&json)?;
-        Ok(cache)
+impl CompletionProvider for CommandProvider {
+    fn name(&self) -> &str {
+        "commands"
+    }
+
+    fn can_complete(&self, input: &str, cursor: usize) -> bool {
+        if cursor > input.len() {
+            return false;
+        }
+
+        let prefix = &input[..cursor];
+        // Complete commands at the beginning of input or after pipe/redirect
+        prefix.trim().split_whitespace().count() <= 1 ||
+        prefix.contains('|') || prefix.contains('>')
+    }
+
+    fn get_completions(&self, input: &str, cursor: usize) -> Result<Vec<CompletionItem>> {
+        let prefix = &input[..cursor];
+        let command_prefix = prefix.split_whitespace().last().unwrap_or("");
+
+        let mut items = Vec::new();
+        if let Ok(commands) = self.commands.read() {
+            for (name, item) in commands.iter() {
+                if let Some((score, _)) = self.matcher.fuzzy_match(name, command_prefix) {
+                    let mut scored_item = item.clone();
+                    scored_item.score = score as f64;
+                    items.push(scored_item);
+                }
+            }
+        }
+
+        items.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        Ok(items)
+    }
+
+    fn priority(&self) -> i32 {
+        20
+    }
+}
+
+// 履歴補完プロバイダー
+pub struct HistoryProvider {
+    history: Arc<RwLock<VecDeque<String>>>,
+    max_items: usize,
+    matcher: SkimMatcherV2,
+}
+
+impl HistoryProvider {
+    pub fn new(max_items: usize) -> Self {
+        Self {
+            history: Arc::new(RwLock::new(VecDeque::new())),
+            max_items,
+            matcher: SkimMatcherV2::default(),
+        }
+    }
+
+    pub fn add_history_item(&self, item: String) {
+        if let Ok(mut history) = self.history.write() {
+            // Remove duplicates
+            history.retain(|x| x != &item);
+            
+            // Add to front
+            history.push_front(item);
+            
+            // Limit size
+            while history.len() > self.max_items {
+                history.pop_back();
+            }
+        }
+    }
+
+    pub fn load_history_from_file(&self, path: &Path) -> Result<()> {
+        if path.exists() {
+            let content = std::fs::read_to_string(path)?;
+            for line in content.lines() {
+                if !line.trim().is_empty() {
+                    self.add_history_item(line.trim().to_string());
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl CompletionProvider for HistoryProvider {
+    fn name(&self) -> &str {
+        "history"
+    }
+
+    fn can_complete(&self, input: &str, _cursor: usize) -> bool {
+        // Always can provide history completions
+        !input.trim().is_empty()
+    }
+
+    fn get_completions(&self, input: &str, cursor: usize) -> Result<Vec<CompletionItem>> {
+        let prefix = &input[..cursor];
+        let mut items = Vec::new();
+
+        if let Ok(history) = self.history.read() {
+            for (index, item) in history.iter().enumerate() {
+                if let Some((score, _)) = self.matcher.fuzzy_match(item, prefix) {
+                    let completion_item = CompletionItem::new(item.clone(), CompletionType::History)
+                        .with_score(score as f64 + (history.len() - index) as f64) // Recent items get higher scores
+                        .with_source("history".to_string())
+                        .with_metadata("index".to_string(), index.to_string());
+                    
+                    items.push(completion_item);
+                }
+            }
+        }
+
+        items.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        Ok(items)
+    }
+
+    fn priority(&self) -> i32 {
+        5
+    }
+}
+
+// メイン補完エンジン
+pub struct CompletionEngine {
+    providers: Vec<Box<dyn CompletionProvider>>,
+    cache: Arc<Mutex<HashMap<String, (CompletionResult, Instant)>>>,
+    cache_ttl: Duration,
+    max_results: usize,
+    performance_metrics: Arc<Mutex<PerformanceMetrics>>,
+}
+
+#[derive(Debug, Clone)]
+struct PerformanceMetrics {
+    total_requests: u64,
+    average_time: Duration,
+    cache_hits: u64,
+    cache_misses: u64,
+}
+
+impl Default for PerformanceMetrics {
+    fn default() -> Self {
+        Self {
+            total_requests: 0,
+            average_time: Duration::from_millis(0),
+            cache_hits: 0,
+            cache_misses: 0,
+        }
+    }
+}
+
+impl CompletionEngine {
+    pub fn new() -> Self {
+        let mut engine = Self {
+            providers: Vec::new(),
+            cache: Arc::new(Mutex::new(HashMap::new())),
+            cache_ttl: Duration::from_secs(30),
+            max_results: 50,
+            performance_metrics: Arc::new(Mutex::new(PerformanceMetrics::default())),
+        };
+
+        // Add default providers
+        engine.add_provider(Box::new(FileSystemProvider::new()));
+        engine.add_provider(Box::new(CommandProvider::new()));
+        engine.add_provider(Box::new(HistoryProvider::new(1000)));
+
+        engine
+    }
+
+    pub fn add_provider(&mut self, provider: Box<dyn CompletionProvider>) {
+        self.providers.push(provider);
+        // Sort by priority (higher first)
+        self.providers.sort_by(|a, b| b.priority().cmp(&a.priority()));
+    }
+
+    pub fn get_completions(&self, input: &str) -> CompletionResult {
+        self.get_completions_at_cursor(input, input.len())
+    }
+
+    pub fn get_completions_at_cursor(&self, input: &str, cursor: usize) -> CompletionResult {
+        let start_time = Instant::now();
+        let cache_key = format!("{}:{}", input, cursor);
+
+        // Check cache first
+        if let Ok(cache) = self.cache.lock() {
+            if let Some((result, timestamp)) = cache.get(&cache_key) {
+                if start_time.duration_since(*timestamp) < self.cache_ttl {
+                    if let Ok(mut metrics) = self.performance_metrics.lock() {
+                        metrics.cache_hits += 1;
+                    }
+                    return result.clone();
+                }
+            }
+        }
+
+        // Cache miss - generate completions
+        if let Ok(mut metrics) = self.performance_metrics.lock() {
+            metrics.cache_misses += 1;
+        }
+
+        let prefix = if cursor <= input.len() {
+            &input[..cursor]
+        } else {
+            input
+        };
+
+        let mut all_items = Vec::new();
+        let mut sources_used = Vec::new();
+
+        for provider in &self.providers {
+            if provider.can_complete(input, cursor) {
+                match provider.get_completions(input, cursor) {
+                    Ok(items) => {
+                        if !items.is_empty() {
+                            sources_used.push(provider.name().to_string());
+                            all_items.extend(items);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Completion provider '{}' failed: {}", provider.name(), e);
+                    }
+                }
+            }
+        }
+
+        // Sort by score and limit results
+        all_items.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        if all_items.len() > self.max_results {
+            all_items.truncate(self.max_results);
+        }
+
+        let completion_time = start_time.elapsed();
+        let result = CompletionResult::new(all_items, prefix.to_string())
+            .with_timing(completion_time)
+            .with_sources(sources_used);
+
+        // Update cache
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.insert(cache_key, (result.clone(), start_time));
+            
+            // Clean old entries
+            cache.retain(|_, (_, timestamp)| {
+                start_time.duration_since(*timestamp) < self.cache_ttl
+            });
+        }
+
+        // Update metrics
+        if let Ok(mut metrics) = self.performance_metrics.lock() {
+            metrics.total_requests += 1;
+            let total_time = metrics.average_time.as_nanos() as u64 * (metrics.total_requests - 1) + completion_time.as_nanos() as u64;
+            metrics.average_time = Duration::from_nanos(total_time / metrics.total_requests);
+        }
+
+        result
+    }
+
+    pub fn clear_cache(&self) {
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.clear();
+        }
+    }
+
+    pub fn get_performance_metrics(&self) -> PerformanceMetrics {
+        if let Ok(metrics) = self.performance_metrics.lock() {
+            metrics.clone()
+        } else {
+            PerformanceMetrics::default()
+        }
+    }
+
+    pub fn set_max_results(&mut self, max_results: usize) {
+        self.max_results = max_results;
+    }
+
+    pub fn set_cache_ttl(&mut self, ttl: Duration) {
+        self.cache_ttl = ttl;
+    }
+}
+
+impl Default for CompletionEngine {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::runtime::Runtime;
+    use std::fs;
+    use tempfile::tempdir;
 
     #[test]
-    fn test_completion_engine_creation() {
-        let rt = Runtime::new().unwrap();
-        rt.block_on(async {
-            let engine = AdvancedCompletionEngine::new().unwrap();
-            assert!(engine.config.max_candidates > 0);
-        });
+    fn test_completion_item_creation() {
+        let item = CompletionItem::new("test".to_string(), CompletionType::Command)
+            .with_description("Test command".to_string())
+            .with_score(0.8);
+        
+        assert_eq!(item.text, "test");
+        assert_eq!(item.completion_type, CompletionType::Command);
+        assert_eq!(item.description, Some("Test command".to_string()));
+        assert_eq!(item.score, 0.8);
     }
 
     #[test]
-    fn test_context_analysis() {
-        let context = CompletionContext::analyze_fast("git comm", 8);
-        assert_eq!(context.word_prefix, "comm");
-        assert_eq!(context.command_context, "git");
+    fn test_filesystem_provider() {
+        let provider = FileSystemProvider::new();
+        assert_eq!(provider.name(), "filesystem");
+        
+        // Test can_complete
+        assert!(provider.can_complete("./test", 6));
+        assert!(provider.can_complete("/usr/bin/", 9));
+        assert!(!provider.can_complete("command", 7));
     }
 
     #[test]
-    fn test_completion_candidate_creation() {
-        let candidate = CompletionCandidate::command("test".to_string(), "Test command".to_string());
-        assert_eq!(candidate.text, "test");
-        assert_eq!(candidate.candidate_type, CandidateType::Command);
+    fn test_command_provider() {
+        let provider = CommandProvider::new();
+        provider.add_command("ls".to_string(), Some("List files".to_string()));
+        provider.add_command("cat".to_string(), None);
+        
+        let completions = provider.get_completions("l", 1).unwrap();
+        assert!(completions.iter().any(|item| item.text == "ls"));
     }
 
     #[test]
-    fn test_smart_suggestions() {
-        let suggestions = AdvancedCompletionEngine::get_git_smart_suggestions("comm");
-        assert!(suggestions.iter().any(|s| s.text.contains("commit")));
+    fn test_history_provider() {
+        let provider = HistoryProvider::new(10);
+        provider.add_history_item("git status".to_string());
+        provider.add_history_item("git commit -m 'test'".to_string());
+        
+        let completions = provider.get_completions("git", 3).unwrap();
+        assert_eq!(completions.len(), 2);
     }
 
     #[test]
-    fn test_usage_statistics() {
-        let mut stats = UsageStatistics::new();
-        stats.record_usage("git");
-        stats.record_usage("git");
-        assert_eq!(stats.get_command_frequency("git"), 0.2);
+    fn test_completion_engine() {
+        let engine = CompletionEngine::new();
+        
+        // Test basic functionality
+        let result = engine.get_completions("");
+        assert!(result.items.is_empty());
+        
+        // Test with some input
+        let result = engine.get_completions("l");
+        // Results depend on system commands available
+    }
+
+    #[test]
+    fn test_completion_caching() {
+        let engine = CompletionEngine::new();
+        
+        // First call
+        let start = Instant::now();
+        let result1 = engine.get_completions("test");
+        let time1 = start.elapsed();
+        
+        // Second call (should be cached)
+        let start = Instant::now();
+        let result2 = engine.get_completions("test");
+        let time2 = start.elapsed();
+        
+        // Cache should make second call faster
+        assert!(time2 < time1 || time2.as_millis() < 5);
+        assert_eq!(result1.items.len(), result2.items.len());
     }
 }

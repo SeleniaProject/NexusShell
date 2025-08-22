@@ -67,3 +67,4 @@ mod tests {
         assert_eq!(ctx.get_var("opt").unwrap(), "a");
     }
 } 
+
