@@ -69,7 +69,7 @@ fn remove_file(path: &Path, options: &RmOptions) -> Result<()> {
             if options.verbose {
                 let palette = ColorPalette::new();
                 println!("{} {} {}", 
-                    Icons::TRASH, 
+                    Icons::FOLDER, 
                     "Removed file:".colorize(&palette.warning),
                     path.display().to_string().colorize(&palette.primary)
                 );
@@ -115,7 +115,7 @@ fn remove_directory(path: &Path, options: &RmOptions) -> Result<()> {
             if options.verbose {
                 let palette = ColorPalette::new();
                 println!("{} {} {}", 
-                    Icons::FOLDER_MINUS, 
+                    Icons::FOLDER, 
                     "Removed directory:".colorize(&palette.warning),
                     path.display().to_string().colorize(&palette.primary)
                 );

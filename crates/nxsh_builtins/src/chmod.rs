@@ -57,5 +57,16 @@ pub fn chmod_cli(args: &[String]) -> Result<()> {
             .with_context(|| format!("chmod: failed to set permissions for '{file}'"))?;
     }
     Ok(())
-} 
+}
+
+/// Execute function for chmod command
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match chmod_cli(args) {
+        Ok(_) => Ok(0),
+        Err(e) => {
+            eprintln!("{}", e);
+            Ok(1)
+        }
+    }
+}
 

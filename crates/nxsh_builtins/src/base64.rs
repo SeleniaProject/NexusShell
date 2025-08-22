@@ -173,3 +173,14 @@ fn decode_base64(data: &[u8], ignore_garbage: bool) -> Result<()> {
     Ok(())
 }
 
+/// Execute function for base64 command
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match base64_cli(args) {
+        Ok(_) => Ok(0),
+        Err(e) => {
+            eprintln!("{}", e);
+            Ok(1)
+        }
+    }
+}
+

@@ -338,5 +338,16 @@ mod tests {
     use std::f64::consts::PI;
     assert!((result.to_f64().unwrap() - PI).abs() < 0.01); // Allow small tolerance
     }
-} 
+}
+
+/// Execute function for bc command
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match bc_cli(args) {
+        Ok(_) => Ok(0),
+        Err(e) => {
+            eprintln!("{}", e);
+            Ok(1)
+        }
+    }
+}
 

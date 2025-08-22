@@ -997,7 +997,7 @@ mod tests {
 
 /// Execute function for cp command
 pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
-    match run(args) {
+    match cp_cli(args) {
         Ok(_) => Ok(0),
         Err(e) => {
             eprintln!("{}", e);

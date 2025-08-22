@@ -12,7 +12,7 @@ pub mod builtin;        // 🛠️ Built-in command handler
 pub mod help;           // 📚 Help system
 pub mod clear;          // 🧹 Clear screen
 pub mod history;        // 📜 Command history
-pub mod common;         // ⚙️ Shared types and helpers
+// pub mod common;         // ⚙️ Shared types and helpers (temporarily disabled - resolving duplicate modules)
 pub mod universal_formatter; // 🖼️ Formatter used by beautiful UI
 pub mod command;        // 🧾 Command metadata and helpers
 pub mod function;       // 🔁 Shell functions handling
