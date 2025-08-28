@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 use chrono::{DateTime, Utc};
 use anyhow::Result;
 
@@ -58,14 +59,15 @@ impl StructuredValue {
             Self::Range { .. } => "range",
         }
     }
+}
 
-    /// Convert to string representation
-    pub fn to_string(&self) -> String {
-        match self {
+impl fmt::Display for StructuredValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let output = match self {
             Self::Nothing => "null".to_string(),
             Self::Bool(b) => b.to_string(),
             Self::Int(i) => i.to_string(),
-            Self::Float(f) => f.to_string(),
+            Self::Float(f_val) => f_val.to_string(),
             Self::String(s) => s.clone(),
             Self::Date(dt) => dt.to_rfc3339(),
             Self::Binary(data) => format!("binary[{}]", data.len()),
@@ -74,10 +76,13 @@ impl StructuredValue {
             Self::Table(rows) => format!("table[{}]", rows.len()),
             Self::Path(p) => p.display().to_string(),
             Self::Duration(d) => format!("{}s", d.num_seconds()),
-            Self::Range { start, end, step } => format!("{}..{} step {}", start, end, step),
-        }
+            Self::Range { start, end, step } => format!("{start}..{end} step {step}"),
+        };
+        write!(f, "{output}")
     }
+}
 
+impl StructuredValue {
     /// Convert to JSON
     pub fn to_json(&self) -> Result<String> {
         serde_json::to_string_pretty(self).map_err(Into::into)
@@ -181,27 +186,27 @@ impl PipelineData {
                 let mut result = String::new();
                 
                 // Header
-                result.push_str("┌");
+                result.push('┌');
                 for (i, col) in columns.iter().enumerate() {
                     if i > 0 {
-                        result.push_str("┬");
+                        result.push('┬');
                     }
                     result.push_str(&"─".repeat(col.len().max(10)));
                 }
                 result.push_str("┐\n");
 
                 // Column names
-                result.push_str("│");
+                result.push('│');
                 for col in &columns {
                     result.push_str(&format!("{:^width$}│", col, width = col.len().max(10)));
                 }
                 result.push('\n');
 
                 // Separator
-                result.push_str("├");
+                result.push('├');
                 for (i, col) in columns.iter().enumerate() {
                     if i > 0 {
-                        result.push_str("┼");
+                        result.push('┼');
                     }
                     result.push_str(&"─".repeat(col.len().max(10)));
                 }
@@ -209,7 +214,7 @@ impl PipelineData {
 
                 // Data rows
                 for row in rows {
-                    result.push_str("│");
+                    result.push('│');
                     for col in &columns {
                         let value = row.get(col).map(|v| v.to_string()).unwrap_or_default();
                         result.push_str(&format!("{:width$}│", value, width = col.len().max(10)));
@@ -218,14 +223,14 @@ impl PipelineData {
                 }
 
                 // Bottom border
-                result.push_str("└");
+                result.push('└');
                 for (i, col) in columns.iter().enumerate() {
                     if i > 0 {
-                        result.push_str("┴");
+                        result.push('┴');
                     }
                     result.push_str(&"─".repeat(col.len().max(10)));
                 }
-                result.push_str("┘");
+                result.push('┘');
 
                 result
             }

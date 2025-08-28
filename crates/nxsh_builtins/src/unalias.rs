@@ -22,6 +22,13 @@ pub fn unalias_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
         }
     }
     Ok(())
+} 
+
+
+/// Execute function stub
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    eprintln!("Command not yet implemented");
+    Ok(1)
 }
 
 #[cfg(test)]
@@ -34,11 +41,4 @@ mod tests {
         unalias_cli(&["ll".into()], &ctx).unwrap();
         assert!(ctx.get_alias("ll").is_none());
     }
-} 
-
-
-/// Execute function stub
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
-    eprintln!("Command not yet implemented");
-    Ok(1)
 }

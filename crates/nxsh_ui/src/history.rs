@@ -82,6 +82,12 @@ pub struct History {
     session_id: String,
 }
 
+impl Default for History {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl History {
     pub fn new() -> Self {
         Self::with_config(HistoryConfig::default())
@@ -173,7 +179,7 @@ impl History {
     }
     
     /// Get the next entry in history
-    pub fn next(&mut self) -> Option<String> {
+    pub fn next_entry(&mut self) -> Option<String> {
         match self.current_index {
             None => None,
             Some(index) => {
@@ -373,7 +379,7 @@ mod tests {
         assert_eq!(history.entries.len(), 3);
         assert_eq!(history.previous(), Some("pwd".to_string()));
         assert_eq!(history.previous(), Some("cd /tmp".to_string()));
-        assert_eq!(history.next(), Some("pwd".to_string()));
+        assert_eq!(history.next_entry(), Some("pwd".to_string()));
     }
     
     #[test]

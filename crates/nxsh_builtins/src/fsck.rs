@@ -31,8 +31,10 @@ pub struct FsckOptions {
 
 /// Check modes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum CheckMode {
     /// Read-only check (default)
+    #[default]
     ReadOnly,
     /// Interactive repair
     Interactive,
@@ -40,11 +42,6 @@ pub enum CheckMode {
     Automatic,
 }
 
-impl Default for CheckMode {
-    fn default() -> Self {
-        CheckMode::ReadOnly
-    }
-}
 
 /// Parse command line arguments
 fn parse_fsck_args(args: &[String]) -> Result<FsckOptions> {
@@ -76,20 +73,20 @@ fn parse_fsck_args(args: &[String]) -> Result<FsckOptions> {
 /// Check a filesystem
 fn check_filesystem(fs_path: &str, options: &FsckOptions) -> Result<()> {
     if options.verbose {
-        println!("fsck: checking filesystem {}", fs_path);
+        println!("fsck: checking filesystem {fs_path}");
     }
     
     // Basic existence check
     if !Path::new(fs_path).exists() {
         if options.verbose {
-            println!("fsck: {} does not exist, skipping", fs_path);
+            println!("fsck: {fs_path} does not exist, skipping");
         }
         return Ok(());
     }
     
     // Simulate filesystem check
     if options.verbose {
-        println!("fsck: {} appears to be clean", fs_path);
+        println!("fsck: {fs_path} appears to be clean");
     }
     
     // On Windows, suggest using native tools
@@ -107,4 +104,10 @@ fn check_filesystem(fs_path: &str, options: &FsckOptions) -> Result<()> {
     }
     
     Ok(())
+}
+
+// Adapter function for the builtin command interface
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    fsck_cli(args).map_err(|e| crate::common::BuiltinError::Other(e.to_string()))?;
+    Ok(0)
 }

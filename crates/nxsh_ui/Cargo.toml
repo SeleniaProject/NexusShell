@@ -48,6 +48,8 @@ regex = "1.10"
 tokio = { version = "1.0", features = ["full", "sync"], optional = true }
 # Rich text and formatting
 textwrap = "0.16"
+# Fuzzy matching for completion
+fuzzy-matcher = "0.3"
 # High-performance parallel processing for completion
 rayon = "1.8"
 # LRU cache for ultra-fast file completion

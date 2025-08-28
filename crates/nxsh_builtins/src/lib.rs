@@ -12,7 +12,7 @@ pub mod builtin;        // 🛠️ Built-in command handler
 pub mod help;           // 📚 Help system
 pub mod clear;          // 🧹 Clear screen
 pub mod history;        // 📜 Command history
-// pub mod common;         // ⚙️ Shared types and helpers (temporarily disabled - resolving duplicate modules)
+pub mod common;         // ⚙️ Shared types and helpers
 pub mod universal_formatter; // 🖼️ Formatter used by beautiful UI
 pub mod command;        // 🧾 Command metadata and helpers
 pub mod function;       // 🔁 Shell functions handling
@@ -67,6 +67,7 @@ pub mod sleep;          // 😴 Pause execution
 pub mod date;           // 📅 Date and time
 pub mod env;            // 🌍 Environment variables
 pub mod export;         // 📤 Export variables
+pub mod export_builtin; // 📤 Export variables (new implementation)
 pub mod yes;            // ♻️ Repeat output
 pub mod true_cmd;       // ✅ Success command (renamed to avoid Rust keyword)
 pub mod uname;          // 💻 System information
@@ -79,7 +80,7 @@ pub mod xz;             // 🗜️ XZ compression
 pub mod zip;            // 📦 ZIP archives
 
 // Advanced Features 🎨 (Confirmed existing files only)
-pub mod beautiful_ls;   // ✨ Enhanced directory listing
+// pub mod beautiful_ls;   // ✨ Enhanced directory listing (temporarily disabled)
 pub mod smart_alias;    // 🧠 Intelligent aliases
 pub mod ui_design;      // 🎨 UI design tools
 
@@ -93,6 +94,20 @@ pub mod cksum;          // #️⃣ Checksum
 pub mod exec;           // 🚀 Execute commands
 pub mod exit;           // 🚪 Exit shell
 pub mod eval;           // 📜 Evaluate expressions
+
+// File System Tools 🔧 (Additional existing modules)
+pub mod fsck;           // 🔧 File system check
+pub mod logstats_builtin; // 📈 Log statistics
+
+// Compression Tools 🗜️ (Additional existing modules)
+pub mod zstd;           // 🗜️ Zstandard compression
+pub mod unzstd;         // 🗜️ Zstandard decompression
+
+// System Time Tools ⏰ (Additional existing modules)
+pub mod timedatectl;    // ⏰ Time and date control
+
+// Variable Management Tools 📝 (Additional existing modules)
+pub mod vars;           // 📝 Variable operations (let, declare, printf)
 
 // Import all command execution functions
 use crate::alias::execute as alias_execute;
@@ -148,7 +163,7 @@ use crate::unalias::execute as unalias_execute;
 use crate::bzip2::execute as bzip2_execute;
 use crate::xz::execute as xz_execute;
 use crate::zip::execute as zip_execute;
-use crate::beautiful_ls::execute as beautiful_ls_execute;
+// use crate::beautiful_ls::execute as beautiful_ls_execute;
 use crate::smart_alias::execute as smart_alias_execute;
 use crate::ui_design::execute as ui_design_execute;
 use crate::base64::execute as base64_execute;
@@ -158,6 +173,12 @@ use crate::cksum::execute as cksum_execute;
 use crate::exec::execute as exec_execute;
 use crate::exit::execute as exit_execute;
 use crate::eval::execute as eval_execute;
+use crate::fsck::execute as fsck_execute;
+use crate::logstats_builtin::execute as logstats_builtin_execute;
+use crate::zstd::execute as zstd_execute;
+use crate::unzstd::execute as unzstd_execute;
+use crate::timedatectl::execute_builtin as timedatectl_execute;
+use crate::vars::execute as vars_execute;
 
 /// A comprehensive NexusShell command that includes all major functionality
 /// with 200+ integrated commands and beautiful UI design.
@@ -214,13 +235,25 @@ pub fn is_builtin(name: &str) -> bool {
         "bzip2" | "xz" | "zip" |
         
         // Advanced Features 🎨
-        "beautiful_ls" | "smart_alias" | "ui_design" |
+        // "beautiful_ls" | "smart_alias" | "ui_design" |
         
         // Text Utilities 📄
         "base64" | "bc" | "cal" | "cksum" |
         
         // System Control 🎛️
-        "exec" | "exit" | "eval"
+        "exec" | "exit" | "eval" |
+        
+        // File System Tools 🔧
+        "fsck" | "logstats" |
+        
+        // Compression Tools 🗜️
+        "zstd" | "unzstd" |
+        
+        // System Time Tools ⏰
+        "timedatectl" |
+        
+        // Variable Management Tools 📝
+        "let" | "declare" | "printf"
     )
 }
 
@@ -300,7 +333,7 @@ pub fn list_builtins() -> Vec<BuiltinCommand> {
         BuiltinCommand::new("zip", "📦 Archive & Compression", "ZIP archives", "zip [OPTIONS] ZIPFILE [FILE...]"),
         
         // Advanced Features 🎨
-        BuiltinCommand::new("beautiful_ls", "🎨 Advanced Features", "Enhanced directory listing", "beautiful_ls [OPTIONS] [PATH...]"),
+        // BuiltinCommand::new("beautiful_ls", "🎨 Advanced Features", "Enhanced directory listing", "beautiful_ls [OPTIONS] [PATH...]"),
         BuiltinCommand::new("smart_alias", "🎨 Advanced Features", "Intelligent aliases", "smart_alias [OPTIONS] [NAME[=VALUE]...]"),
         BuiltinCommand::new("ui_design", "🎨 Advanced Features", "UI design tools", "ui_design [OPTIONS]"),
         
@@ -314,70 +347,124 @@ pub fn list_builtins() -> Vec<BuiltinCommand> {
         BuiltinCommand::new("exec", "🎛️ System Control", "Execute commands", "exec [OPTIONS] COMMAND [ARGS...]"),
         BuiltinCommand::new("exit", "🎛️ System Control", "Exit shell", "exit [STATUS]"),
         BuiltinCommand::new("eval", "🎛️ System Control", "Evaluate expressions", "eval [ARG...]"),
+        
+        // File System Tools 🔧
+        BuiltinCommand::new("fsck", "🔧 File System Tools", "File system check", "fsck [OPTIONS] [DEVICE]"),
+        BuiltinCommand::new("logstats", "🔧 File System Tools", "Log statistics", "logstats [OPTIONS] [FILE]"),
+        
+        // Compression Tools 🗜️
+        BuiltinCommand::new("zstd", "🗜️ Compression Tools", "Zstandard compression", "zstd [OPTIONS] [FILE]"),
+        BuiltinCommand::new("unzstd", "🗜️ Compression Tools", "Zstandard decompression", "unzstd [OPTIONS] [FILE]"),
+        
+        // System Time Tools ⏰
+        BuiltinCommand::new("timedatectl", "⏰ System Time Tools", "Time and date control", "timedatectl [OPTIONS] [COMMAND]"),
+        
+        // Variable Management Tools 📝
+        BuiltinCommand::new("let", "📝 Variable Management Tools", "Assign variables", "let VAR=VALUE"),
+        BuiltinCommand::new("declare", "📝 Variable Management Tools", "Declare variables", "declare [OPTIONS] [VAR[=VALUE]]"),
+        BuiltinCommand::new("printf", "📝 Variable Management Tools", "Formatted output", "printf FORMAT [ARGS]"),
     ]
 }
+
+// Re-export common types for external use
+pub use crate::common::{BuiltinContext, BuiltinError, BuiltinResult};
+
+// Additional exports for testing
+pub use execute_builtin as export_builtin;
+
+// Export command re-export for compatibility
+pub use crate::export_builtin::export_cli;
+pub mod tar {
+    //! Tar archive functionality (placeholder)
+    use crate::common::{BuiltinContext, BuiltinError, BuiltinResult};
+    
+    pub fn execute(_args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
+        Ok(0) // Placeholder implementation
+    }
+    
+    pub fn tar_cli(_args: &[String]) -> Result<(), anyhow::Error> {
+        Ok(()) // Placeholder implementation
+    }
+}
+
+pub use crate::logstats_builtin as logstats;
+
+pub mod logstats_cli_func {
+    //! Re-export logstats functionality for CLI use
+    pub use crate::logstats_builtin::*;
+    
+    pub fn logstats_cli(args: &[String]) -> Result<(), anyhow::Error> {
+        use crate::common::BuiltinContext;
+        let context = BuiltinContext::new();
+        crate::logstats_builtin::execute(args, &context)
+            .map_err(|e| anyhow::Error::msg(e.to_string()))?;
+        Ok(())
+    }
+}
+
+pub use logstats_cli_func::logstats_cli;
 
 /// Execute a built-in command
 pub fn execute_builtin(command: &str, args: &[String]) -> Result<i32, String> {
     let context = crate::common::BuiltinContext::new();
     match command {
         // Core Shell Features 🐚
-        "alias" => alias_execute(args, &context),
-        "builtin" => builtin_execute(args, &context),
-        "help" => help_execute(args, &context),
-        "clear" => clear_execute(args, &context),
-        "history" => history_execute(args, &context),
+        "alias" => alias_execute(args, &context).map_err(|e| e.to_string()),
+        "builtin" => builtin_execute(args, &context).map_err(|e| e.to_string()),
+        "help" => help_execute(args, &context).map_err(|e| e.to_string()),
+        "clear" => clear_execute(args, &context).map_err(|e| e.to_string()),
+        "history" => history_execute(args, &context).map_err(|e| e.to_string()),
         
         // File Operations 📁
-        "ls" => ls_execute(args, &context),
-        "pwd" => pwd_execute(args, &context),
-        "cd" => cd_execute(args, &context),
-        "touch" => touch_execute(args, &context),
-        "mkdir" => mkdir_execute(args, &context),
-        "cp" => cp_execute(args, &context),
-        "mv" => mv_execute(args, &context),
-        "rm" => rm_execute(args, &context),
-        "chmod" => chmod_execute(args, &context),
-        "chown" => chown_execute(args, &context),
-        "chgrp" => chgrp_execute(args, &context),
-        "ln" => ln_execute(args, &context),
-        "du" => du_execute(args, &context),
-        "df" => df_execute(args, &context),
-        "stat" => stat_execute(args, &context),
+        "ls" => ls_execute(args, &context).map_err(|e| e.to_string()),
+        "pwd" => pwd_execute(args, &context).map_err(|e| e.to_string()),
+        "cd" => cd_execute(args, &context).map_err(|e| e.to_string()),
+        "touch" => touch_execute(args, &context).map_err(|e| e.to_string()),
+        "mkdir" => mkdir_execute(args, &context).map_err(|e| e.to_string()),
+        "cp" => cp_execute(args, &context).map_err(|e| e.to_string()),
+        "mv" => mv_execute(args, &context).map_err(|e| e.to_string()),
+        "rm" => rm_execute(args, &context).map_err(|e| e.to_string()),
+        "chmod" => chmod_execute(args, &context).map_err(|e| e.to_string()),
+        "chown" => chown_execute(args, &context).map_err(|e| e.to_string()),
+        "chgrp" => chgrp_execute(args, &context).map_err(|e| e.to_string()),
+        "ln" => ln_execute(args, &context).map_err(|e| e.to_string()),
+        "du" => du_execute(args, &context).map_err(|e| e.to_string()),
+        "df" => df_execute(args, &context).map_err(|e| e.to_string()),
+        "stat" => stat_execute(args, &context).map_err(|e| e.to_string()),
         
         // Text Processing 📝
-        "cat" => cat_execute(args, &context),
-        "echo" => echo_execute(args, &context),
-        "head" => head_execute(args, &context),
-        "tail" => tail_execute(args, &context),
-        "cut" => cut_execute(args, &context),
-        "tr" => tr_execute(args, &context),
-        "uniq" => uniq_execute(args, &context),
-        "wc" => wc_execute(args, &context),
+        "cat" => cat_execute(args, &context).map_err(|e| e.to_string()),
+        "echo" => echo_execute(args, &context).map_err(|e| e.to_string()),
+        "head" => head_execute(args, &context).map_err(|e| e.to_string()),
+        "tail" => tail_execute(args, &context).map_err(|e| e.to_string()),
+        "cut" => cut_execute(args, &context).map_err(|e| e.to_string()),
+        "tr" => tr_execute(args, &context).map_err(|e| e.to_string()),
+        "uniq" => uniq_execute(args, &context).map_err(|e| e.to_string()),
+        "wc" => wc_execute(args, &context).map_err(|e| e.to_string()),
         
         // System Monitoring 📊
-        "ps" => ps_execute(args, &context),
-        "kill" => kill_execute(args, &context),
-        "top" => top_execute(args, &context),
-        "jobs" => jobs_execute(args, &context),
-        "bg" => bg_execute(args, &context),
-        "fg" => fg_execute(args, &context),
-        "free" => free_execute(args, &context),
-        "uptime" => uptime_execute(args, &context),
-        "whoami" => whoami_execute(args, &context),
+        "ps" => ps_execute(args, &context).map_err(|e| e.to_string()),
+        "kill" => kill_execute(args, &context).map_err(|e| e.to_string()),
+        "top" => top_execute(args, &context).map_err(|e| e.to_string()),
+        "jobs" => jobs_execute(args, &context).map_err(|e| e.to_string()),
+        "bg" => bg_execute(args, &context).map_err(|e| e.to_string()),
+        "fg" => fg_execute(args, &context).map_err(|e| e.to_string()),
+        "free" => free_execute(args, &context).map_err(|e| e.to_string()),
+        "uptime" => uptime_execute(args, &context).map_err(|e| e.to_string()),
+        "whoami" => whoami_execute(args, &context).map_err(|e| e.to_string()),
         
         // Network Tools 🌐
-        "ping" => ping_execute(args, &context),
-        "curl" => curl_execute(args, &context),
-        "wget" => wget_execute(args, &context),
+        "ping" => ping_execute(args, &context).map_err(|e| e.to_string()),
+        "curl" => curl_execute(args, &context).map_err(|e| e.to_string()),
+        "wget" => wget_execute(args, &context).map_err(|e| e.to_string()),
         
         // Shell Utilities 🔧
-        "which" => which_execute(args, &context),
-        "sleep" => sleep_execute(args, &context),
-        "date" => date_execute(args, &context),
-        "env" => env_execute(args, &context),
-        "export" => export_execute(args, &context),
-        "yes" => yes_execute(args, &context),
+        "which" => which_execute(args, &context).map_err(|e| e.to_string()),
+        "sleep" => sleep_execute(args, &context).map_err(|e| e.to_string()),
+        "date" => date_execute(args, &context).map_err(|e| e.to_string()),
+        "env" => env_execute(args, &context).map_err(|e| e.to_string()),
+        "export" => export_execute(args, &context).map_err(|e| e.to_string()),
+        "yes" => yes_execute(args, &context).map_err(|e| e.to_string()),
         "true" => {
             // true_execute has legacy signature fn(&[String]) -> Result<i32, String>
             // Call directly if available, else adapt
@@ -386,17 +473,17 @@ pub fn execute_builtin(command: &str, args: &[String]) -> Result<i32, String> {
                 Err(e) => Err(e),
             }
         }
-        "uname" => uname_execute(args, &context),
-        "unset" => unset_execute(args, &context),
-        "unalias" => unalias_execute(args, &context),
+        "uname" => uname_execute(args, &context).map_err(|e| e.to_string()),
+        "unset" => unset_execute(args, &context).map_err(|e| e.to_string()),
+        "unalias" => unalias_execute(args, &context).map_err(|e| e.to_string()),
         
         // Archive & Compression 📦
-        "bzip2" => bzip2_execute(args, &context),
-        "xz" => xz_execute(args, &context),
-        "zip" => zip_execute(args, &context),
+        "bzip2" => bzip2_execute(args, &context).map_err(|e| e.to_string()),
+        "xz" => xz_execute(args, &context).map_err(|e| e.to_string()),
+        "zip" => zip_execute(args, &context).map_err(|e| e.to_string()),
         
         // Advanced Features 🎨
-        "beautiful_ls" => beautiful_ls_execute(args, &context),
+        // "beautiful_ls" => beautiful_ls_execute(args, &context).map_err(|e| e.to_string()),
         "smart_alias" => {
             // smart_alias has legacy signature fn(&[String]) -> Result<i32, String>
             match smart_alias_execute(args) {
@@ -404,20 +491,34 @@ pub fn execute_builtin(command: &str, args: &[String]) -> Result<i32, String> {
                 Err(e) => Err(e),
             }
         }
-        "ui_design" => ui_design_execute(args, &context),
+        "ui_design" => ui_design_execute(args, &context).map_err(|e| e.to_string()),
         
         // Text Utilities 📄
-        "base64" => base64_execute(args, &context),
-        "bc" => bc_execute(args, &context),
-        "cal" => cal_execute(args, &context),
-        "cksum" => cksum_execute(args, &context),
+        "base64" => base64_execute(args, &context).map_err(|e| e.to_string()),
+        "bc" => bc_execute(args, &context).map_err(|e| e.to_string()),
+        "cal" => cal_execute(args, &context).map_err(|e| e.to_string()),
+        "cksum" => cksum_execute(args, &context).map_err(|e| e.to_string()),
         
         // System Control 🎛️
-        "exec" => exec_execute(args, &context),
-        "exit" => exit_execute(args, &context),
-        "eval" => eval_execute(args, &context),
+        "exec" => exec_execute(args, &context).map_err(|e| e.to_string()),
+        "exit" => exit_execute(args, &context).map_err(|e| e.to_string()),
+        "eval" => eval_execute(args, &context).map_err(|e| e.to_string()),
         
-        _ => Err(format!("Unknown builtin command: {}", command)),
+        // File System Tools 🔧
+        "fsck" => fsck_execute(args, &context).map_err(|e| e.to_string()),
+        "logstats" => logstats_builtin_execute(args, &context).map_err(|e| e.to_string()),
+        
+        // Compression Tools 🗜️
+        "zstd" => zstd_execute(args, &context).map_err(|e| e.to_string()),
+        "unzstd" => unzstd_execute(args, &context).map_err(|e| e.to_string()),
+        
+        // System Time Tools ⏰
+        "timedatectl" => timedatectl_execute(args, &context).map_err(|e| e.to_string()),
+        
+        // Variable Management Tools 📝
+        "let" | "declare" | "printf" => vars_execute(args, &context).map_err(|e| e.to_string()),
+        
+        _ => Err(format!("Unknown builtin command: {command}")),
     }
 }
 

@@ -119,13 +119,13 @@ fn test_braced_variable_expansion() {
                     assert_eq!(*name, "USER");
                 }
                 _ => {
-                    eprintln!("Expected VariableExpansion for argument, got {:?}", &args[0]);
+                    eprintln!("Expected VariableExpansion for argument, got {arg:?}", arg = &args[0]);
                     panic!("Expected VariableExpansion for argument");
                 }
             }
         }
         _ => {
-            eprintln!("Expected Command node, got {:?}", result);
+            eprintln!("Expected Command node, got {result:?}");
             panic!("Expected Command node");
         }
     }
@@ -292,7 +292,7 @@ fn test_whitespace_handling() {
             }
         }
         _ => {
-            eprintln!("Expected Command node, got {:?}", result);
+            eprintln!("Expected Command node, got {result:?}");
             panic!("Expected Command node");
         }
     }
@@ -330,7 +330,7 @@ fn test_complex_pipeline() {
             }
         }
         _ => {
-            eprintln!("Expected Pipeline node, got {:?}", result);
+            eprintln!("Expected Pipeline node, got {result:?}");
             panic!("Expected Pipeline node");
         }
     }
@@ -391,7 +391,7 @@ fn test_mixed_content() {
             }
         }
         _ => {
-            eprintln!("Expected Command node, got {:?}", result);
+            eprintln!("Expected Command node, got {result:?}");
             panic!("Expected Command node");
         }
     }

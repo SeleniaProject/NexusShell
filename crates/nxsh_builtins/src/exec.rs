@@ -27,5 +27,16 @@ pub fn exec_cli(args: &[String]) -> Result<()> {
         let status = Command::new(&args[0]).args(&args[1..]).status()?;
         std::process::exit(status.code().unwrap_or(1));
     }
+}
+
+/// Execute exec command
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match exec_cli(args) {
+        Ok(_) => Ok(0),
+        Err(e) => {
+            eprintln!("exec: {e}");
+            Ok(1)
+        }
+    }
 } 
 

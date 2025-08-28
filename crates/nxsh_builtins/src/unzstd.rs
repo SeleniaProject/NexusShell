@@ -9,6 +9,7 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
 };
+#[cfg(feature = "compression-zstd")]
 use ruzstd::streaming_decoder::StreamingDecoder;
 
 /// unzstd command implementation with Pure Rust decompression
@@ -265,5 +266,11 @@ fn print_unzstd_help() {
     println!("'.zst' or '.zstd'. Use -f to override this.");
     println!();
     println!("Report bugs at: https://github.com/facebook/zstd/issues");
+}
+
+/// Adapter function for the builtin command interface
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    unzstd_cli(args).map_err(|e| crate::common::BuiltinError::Other(e.to_string()))?;
+    Ok(0)
 }
 

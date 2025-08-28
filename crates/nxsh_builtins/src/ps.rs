@@ -39,7 +39,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
                 show_user_format = true;
             }
             arg if arg.starts_with('-') => {
-                eprintln!("ps: invalid option '{}'", arg);
+                eprintln!("ps: invalid option '{arg}'");
                 return Ok(1);
             }
             _ => {
@@ -56,7 +56,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
             Ok(0)
         }
         Err(e) => {
-            eprintln!("ps: {}", e);
+            eprintln!("ps: {e}");
             Ok(1)
         }
     }
@@ -270,10 +270,10 @@ fn create_current_process_info() -> ProcessInfo {
 
 fn display_processes(processes: &[ProcessInfo], show_full: bool, show_user_format: bool) {
     if show_user_format {
-        println!("{:<8} {:>5} {:>4} {:>4} {:>6} {:>6} {:<8} {:<1} {:>8} {:>8} {}", 
-                 "USER", "PID", "%CPU", "%MEM", "VSZ", "RSS", "TTY", "STAT", "START", "TIME", "COMMAND");
+        println!("{:<8} {:>5} {:>4} {:>4} {:>6} {:>6} {:<8} {:<1} {:>8} {:>8} COMMAND", 
+                 "USER", "PID", "%CPU", "%MEM", "VSZ", "RSS", "TTY", "STAT", "START", "TIME");
     } else {
-        println!("{:>5} {:<8} {:>8} {}", "PID", "TTY", "TIME", "CMD");
+        println!("{:>5} {:<8} {:>8} CMD", "PID", "TTY", "TIME");
     }
 
     for process in processes {
@@ -301,8 +301,8 @@ fn display_processes(processes: &[ProcessInfo], show_full: bool, show_user_forma
             let command = if show_full {
                 &process.command
             } else {
-                process.command.split('/').last()
-                    .or_else(|| process.command.split('\\').last())
+                process.command.split('/').next_back()
+                    .or_else(|| process.command.split('\\').next_back())
                     .unwrap_or(&process.command)
             };
 

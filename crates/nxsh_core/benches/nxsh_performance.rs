@@ -26,7 +26,7 @@ fn bench_nxsh_performance(c: &mut Criterion) {
     
     // Initialize systems
     let perf_config = PerformanceConfig::default();
-    let optimizer = rt.block_on(async {
+    let _optimizer = rt.block_on(async {
         PerformanceOptimizer::new(perf_config).await.unwrap()
     });
     
@@ -44,7 +44,7 @@ fn bench_nxsh_performance(c: &mut Criterion) {
             
             let startup_time = start.elapsed();
             assert!(startup_time <= Duration::from_millis(5), 
-                "Startup time {:?} exceeds 5ms SPEC requirement", startup_time);
+                "Startup time {startup_time:?} exceeds 5ms SPEC requirement");
             
             startup_time
         })
@@ -58,7 +58,7 @@ fn bench_nxsh_performance(c: &mut Criterion) {
             let completion_time = start.elapsed();
             
             assert!(completion_time < Duration::from_millis(1),
-                "Completion time {:?} exceeds 1ms SPEC requirement", completion_time);
+                "Completion time {completion_time:?} exceeds 1ms SPEC requirement");
                 
             completion_time
         })
@@ -86,7 +86,7 @@ fn bench_nxsh_performance(c: &mut Criterion) {
             
             // Memory growth should be reasonable
             assert!(memory_diff < 10 * 1024 * 1024, // 10MB max increase
-                "Memory growth {} bytes is excessive", memory_diff);
+                "Memory growth {memory_diff} bytes is excessive");
                 
             memory_diff
         })
@@ -122,7 +122,7 @@ fn bench_spec_compliance(c: &mut Criterion) {
             
             // Must be under 1ms per SPEC.md
             assert!(duration < Duration::from_millis(1), 
-                "SPEC VIOLATION: Completion took {:?}, must be <1ms", duration);
+                "SPEC VIOLATION: Completion took {duration:?}, must be <1ms");
                 
             duration
         })
@@ -141,7 +141,7 @@ fn bench_spec_compliance(c: &mut Criterion) {
             
             // Must be ≤5ms per SPEC.md
             assert!(duration <= Duration::from_millis(5),
-                "SPEC VIOLATION: Startup took {:?}, must be ≤5ms", duration);
+                "SPEC VIOLATION: Startup took {duration:?}, must be ≤5ms");
                 
             duration
         })
@@ -154,7 +154,7 @@ fn bench_spec_compliance(c: &mut Criterion) {
             
             // Simulate typical shell operations
             let _builtin_manager = BuiltinManager::new();
-            let _commands = vec!["ls", "cd", "pwd", "cat", "grep"];
+            let _commands = ["ls", "cd", "pwd", "cat", "grep"];
             
             let memory_after = get_memory_usage();
             let memory_increase = memory_after.saturating_sub(memory_before);
@@ -201,7 +201,7 @@ fn bench_stress_test(c: &mut Criterion) {
             
             // Each completion should still be <1ms even under stress
             assert!(avg_per_completion < Duration::from_millis(1),
-                "STRESS TEST FAILURE: Average completion time {:?} under load", avg_per_completion);
+                "STRESS TEST FAILURE: Average completion time {avg_per_completion:?} under load");
                 
             total_time
         })
@@ -215,7 +215,7 @@ fn bench_stress_test(c: &mut Criterion) {
             for cmd in &commands {
                 for _ in 0..100 {
                     let is_builtin = builtin_manager.is_builtin(cmd);
-                    assert!(is_builtin, "Command {} should be builtin", cmd);
+                    assert!(is_builtin, "Command {cmd} should be builtin");
                 }
             }
         })

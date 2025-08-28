@@ -30,8 +30,6 @@ use which::which;
 use nix::unistd::{User, Group, Uid, Gid};
 
 #[cfg(windows)]
-
-
 pub fn chown_cli(args: &[String]) -> Result<()> {
     // Parse arguments first to handle our enhanced options
     let parsed_args = parse_chown_args(args)?;
@@ -199,7 +197,7 @@ fn execute_chown_fallback(args: ChownArgs) -> Result<()> {
             if args.verbose || (args.changes && will_change) {
                 let uid_part = target_uid.map(|u| u.to_string()).unwrap_or_else(|| "unchanged".to_string());
                 let gid_part = target_gid.map(|g| g.to_string()).unwrap_or_else(|| "unchanged".to_string());
-                println!("changing ownership of '{}' to {}:{}", file, uid_part, gid_part);
+                println!("changing ownership of '{file}' to {uid_part}:{gid_part}");
             }
         }
         
@@ -232,8 +230,8 @@ fn resolve_user_to_uid(user: &str) -> Result<u32> {
     #[cfg(windows)]
     {
         match resolve_windows_user_name(user) {
-            Ok(uid) => return Ok(uid),
-            Err(e) => return Err(anyhow!("chown: user lookup failed: {}", e)),
+            Ok(uid) => Ok(uid),
+            Err(e) => Err(anyhow!("chown: user lookup failed: {}", e)),
         }
     }
 
@@ -262,8 +260,8 @@ fn resolve_group_to_gid(group: &str) -> Result<u32> {
     #[cfg(windows)]
     {
         match resolve_windows_group_name(group) {
-            Ok(gid) => return Ok(gid),
-            Err(e) => return Err(anyhow!("chown: group lookup failed: {}", e)),
+            Ok(gid) => Ok(gid),
+            Err(e) => Err(anyhow!("chown: group lookup failed: {}", e)),
         }
     }
 
@@ -359,7 +357,7 @@ fn change_windows_file_ownership(file_path: &str, _uid: Option<u32>, _gid: Optio
     // 3. Set the new security descriptor
     
     // For now, we'll just indicate that the operation is not fully supported
-    eprintln!("chown: Windows ACL ownership change is not fully implemented for '{}'", file_path);
+    eprintln!("chown: Windows ACL ownership change is not fully implemented for '{file_path}'");
     eprintln!("       This operation requires Windows-specific security APIs");
     
     Ok(())
@@ -457,6 +455,17 @@ fn print_chown_help() {
     println!("  chown :group file      Change the group of file to 'group'");
     println!();
     println!("Report chown bugs to <bugs@nexusshell.org>");
+}
+
+/// Execute chown command
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match chown_cli(args) {
+        Ok(_) => Ok(0),
+        Err(e) => {
+            eprintln!("chown: {e}");
+            Ok(1)
+        }
+    }
 }
 
 #[cfg(test)]

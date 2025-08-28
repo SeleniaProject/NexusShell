@@ -21,16 +21,6 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
             "-e" => interpret_escapes = true,
             "-E" => interpret_escapes = false,
             "--color" => colorful = true,
-            "--stylish" => {
-                // Special NexusShell stylish mode
-                let message = args.iter()
-                    .filter(|a| !a.starts_with("-"))
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                print_stylish_message(&message);
-                return Ok(0);
-            }
             _ if !arg.starts_with("-") => {
                 text_parts.push(arg.clone());
             }
@@ -45,7 +35,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
     } else if interpret_escapes {
         print_with_escapes(&message);
     } else {
-        print!("{}", message);
+        print!("{message}");
     }
 
     if !no_newline {
@@ -59,7 +49,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
 fn print_stylish_message(message: &str) {
     println!("┌─ 🚀 NexusShell Output ─────────────────┐");
     println!("│                                        │");
-    println!("│  ✨ {}  ✨", message);
+    println!("│  ✨ {message}  ✨");
     println!("│                                        │");
     println!("└────────────────────────────────────────┘");
 }
@@ -78,7 +68,7 @@ fn print_colorful_message(message: &str) {
     
     for (i, word) in words.iter().enumerate() {
         let color = colors[i % colors.len()];
-        print!("{}{}{}", color, word, reset);
+        print!("{color}{word}{reset}");
         if i < words.len() - 1 {
             print!(" ");
         }
@@ -122,7 +112,7 @@ fn print_with_escapes(message: &str) {
         }
     }
     
-    print!("{}", result);
+    print!("{result}");
 }
 
 #[cfg(test)]

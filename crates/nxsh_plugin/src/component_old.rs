@@ -546,7 +546,7 @@ mod tests {
             ComponentValue::String(s) => assert_eq!(s, "test"),
             other => {
                 eprintln!("Unexpected value type: {:?}. Expected String but got discriminant {:?}", other, std::mem::discriminant(&other));
-                assert!(false, "Expected String value type");
+                panic!("Expected String value type");
             }
         }
     }

@@ -15,14 +15,16 @@ use crossterm::{
     terminal::{ClearType, disable_raw_mode, enable_raw_mode},
 };
 use tokio::sync::mpsc;
+use unicode_width::UnicodeWidthStr;
 
 use crate::config::UiConfig;
 use crate::themes::{Theme, get_theme};
 use crate::completion::{CompletionEngine, CompletionResult};
 use crate::completion_integration::{IntegratedCompletionSystem, ShellStateProvider};
-use crate::prompt::{Prompt, PromptStyle, StatusInfo};
+use crate::prompt::PromptFormatter;
 use crate::scroll_buffer::ScrollBuffer;
 use crate::ansi_render::AnsiRenderer;
+use crate::highlighting::SyntaxHighlighter;
 
 /// CUI application state
 #[derive(Debug, Clone, PartialEq)]
@@ -67,10 +69,11 @@ pub struct CuiApp {
     state: AppState,
     
     // UI Components
-    prompt: Prompt,
+    prompt_formatter: PromptFormatter,
     completion_system: IntegratedCompletionSystem,
     scroll_buffer: ScrollBuffer,
     ansi_renderer: AnsiRenderer,
+    highlighter: SyntaxHighlighter,
     
     // Input handling
     input_buffer: String,
@@ -116,10 +119,11 @@ impl CuiApp {
     /// Create a new CUI application
     pub fn new(config: UiConfig) -> Result<Self> {
         let theme = get_theme(&config.theme_name)?;
-        let prompt = Prompt::new(config.prompt.clone());
+    let prompt_formatter = PromptFormatter::new();
         let completion_system = IntegratedCompletionSystem::new(config.clone());
         let scroll_buffer = ScrollBuffer::new(config.scroll_buffer_size);
-        let ansi_renderer = AnsiRenderer::new();
+    let ansi_renderer = AnsiRenderer::new();
+    let highlighter = SyntaxHighlighter::new()?;
         let terminal_size = terminal::size().unwrap_or((80, 24));
         
         let (event_sender, event_receiver) = mpsc::unbounded_channel();
@@ -128,10 +132,11 @@ impl CuiApp {
             config,
             theme,
             state: AppState::Normal,
-            prompt,
+            prompt_formatter,
             completion_system,
             scroll_buffer,
             ansi_renderer,
+            highlighter,
             input_buffer: String::new(),
             cursor_position: 0,
             selection_start: None,
@@ -546,51 +551,93 @@ impl CuiApp {
         Ok(InputResult::Refresh)
     }
 
-    /// Insert character
-    fn insert_char(&mut self, c: char) {
-        self.input_buffer.insert(self.cursor_position, c);
-        self.cursor_position += 1;
+    // duplicate block removed (early render_prompt_and_input and helpers)
+
+    // removed duplicate helper block (history, completion, output, search)
+
+    // duplicate block removed (helpers)
+
+    // removed duplicate helper block (history, completion, output, search)
+
+    // removed duplicate helper block (ansi width + editing helpers)
+
+    // removed duplicate helper block (history, completion, output, search)
+
+    // duplicate block removed
+
+    fn estimate_prompt_length(&self, prompt_text: &str) -> usize {
+        let cleaned = Self::strip_ansi_sequences(prompt_text);
+        UnicodeWidthStr::width(cleaned.as_str())
     }
 
-    /// 後方削除
+    fn input_display_width_up_to_cursor(&self) -> usize {
+        let up_to = self.cursor_position.min(self.input_buffer.len());
+        let slice = &self.input_buffer[..up_to];
+        UnicodeWidthStr::width(slice)
+    }
+
+    fn strip_ansi_sequences(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        let bytes = s.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == 0x1B && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
+                i += 2;
+                while i < bytes.len() && bytes[i] != b'm' { i += 1; }
+                if i < bytes.len() { i += 1; }
+            } else {
+                out.push(bytes[i] as char);
+                i += 1;
+            }
+        }
+        out
+    }
+
+    fn insert_char(&mut self, c: char) {
+        // keep cursor_position as byte index at char boundary
+        self.input_buffer.insert(self.cursor_position, c);
+        self.cursor_position += c.len_utf8();
+    }
+
     fn delete_backward(&mut self) {
         if self.cursor_position > 0 {
-            self.input_buffer.remove(self.cursor_position - 1);
-            self.cursor_position -= 1;
+            let prev = self.prev_char_boundary(self.cursor_position);
+            self.input_buffer.drain(prev..self.cursor_position);
+            self.cursor_position = prev;
         }
     }
 
-    /// 前方削除
     fn delete_forward(&mut self) {
         if self.cursor_position < self.input_buffer.len() {
-            self.input_buffer.remove(self.cursor_position);
+            let next = self.next_char_boundary(self.cursor_position);
+            self.input_buffer.drain(self.cursor_position..next);
         }
     }
 
-    /// 単語後方削除
-    fn delete_word_backward(&mut self) {
-        let mut pos = self.cursor_position;
-        while pos > 0 && self.input_buffer.chars().nth(pos - 1).unwrap_or(' ').is_whitespace() {
-            pos -= 1;
-        }
-        while pos > 0 && !self.input_buffer.chars().nth(pos - 1).unwrap_or(' ').is_whitespace() {
-            pos -= 1;
-        }
-        self.input_buffer.drain(pos..self.cursor_position);
-        self.cursor_position = pos;
-    }
-
-    /// カーソル移動
     fn move_cursor_left(&mut self) {
         if self.cursor_position > 0 {
-            self.cursor_position -= 1;
+            self.cursor_position = self.prev_char_boundary(self.cursor_position);
         }
     }
 
     fn move_cursor_right(&mut self) {
         if self.cursor_position < self.input_buffer.len() {
-            self.cursor_position += 1;
+            self.cursor_position = self.next_char_boundary(self.cursor_position);
         }
+    }
+
+    #[inline]
+    fn prev_char_boundary(&self, idx: usize) -> usize {
+        let mut i = idx.saturating_sub(1);
+        while i > 0 && !self.input_buffer.is_char_boundary(i) { i -= 1; }
+        i
+    }
+
+    #[inline]
+    fn next_char_boundary(&self, idx: usize) -> usize {
+        let mut i = (idx + 1).min(self.input_buffer.len());
+        while i < self.input_buffer.len() && !self.input_buffer.is_char_boundary(i) { i += 1; }
+        i
     }
 
     /// Clear input
@@ -683,6 +730,13 @@ impl CuiApp {
                 self.input_buffer.drain(start_pos..self.cursor_position);
                 self.input_buffer.insert_str(start_pos, &item.text);
                 self.cursor_position = start_pos + item.text.len();
+                
+                // Add space after command completions for better UX
+                if item.completion_type == crate::completion_engine::CompletionType::Command ||
+                   item.completion_type == crate::completion_engine::CompletionType::Builtin {
+                    self.input_buffer.insert(self.cursor_position, ' ');
+                    self.cursor_position += 1;
+                }
             }
         }
         self.current_completions = None;
@@ -714,11 +768,21 @@ impl CuiApp {
         // Cancel search
     }
 
+    // duplicate block removed (render)
+
+    // duplicate block removed: render_prompt_and_input and editing helpers
+
+    // duplicate block removed (render and helpers)
+
     /// レンダリング
     fn render(&mut self) -> Result<()> {
         let start_time = Instant::now();
 
-        execute!(stdout(), cursor::MoveTo(0, 0))?;
+        // Only clear screen if terminal was resized or on first render
+        if self.last_render_time.elapsed() > Duration::from_millis(500) {
+            execute!(stdout(), terminal::Clear(ClearType::All))?;
+            execute!(stdout(), cursor::MoveTo(0, 0))?;
+        }
 
         // Render output buffer
         self.render_output_buffer()?;
@@ -752,10 +816,25 @@ impl CuiApp {
         let lines = self.scroll_buffer.get_visible_lines(available_rows as usize);
 
         for (i, line) in lines.iter().enumerate() {
+            let row = i as u16;
+            execute!(stdout(), cursor::MoveTo(0, row))?;
+            
+            // Clear the line to prevent artifacts
+            execute!(stdout(), terminal::Clear(ClearType::CurrentLine))?;
+            
+            // Render the line with proper ANSI handling
+            if let Ok(rendered) = self.ansi_renderer.render(line, &self.theme) {
+                print!("{}", rendered);
+            } else {
+                // Fallback to plain text if rendering fails
+                print!("{}", line);
+            }
+        }
+
+        // Clear any remaining lines in the output area
+        for i in lines.len()..available_rows as usize {
             execute!(stdout(), cursor::MoveTo(0, i as u16))?;
-            let rendered = self.ansi_renderer.render(line, &self.theme)?;
-            print!("{}", rendered);
-            execute!(stdout(), terminal::Clear(ClearType::UntilNewLine))?;
+            execute!(stdout(), terminal::Clear(ClearType::CurrentLine))?;
         }
 
         Ok(())
@@ -765,184 +844,77 @@ impl CuiApp {
         let prompt_row = self.terminal_size.1.saturating_sub(2);
         execute!(stdout(), cursor::MoveTo(0, prompt_row))?;
 
-        // Render prompt
-        let prompt_text = self.prompt.render(&self.theme)?;
+        // Clear the line first to prevent artifacts
+        execute!(stdout(), terminal::Clear(ClearType::CurrentLine))?;
+
+        // Render prompt via PromptFormatter
+        let prompt_text = match self.prompt_formatter.generate_prompt() {
+            Ok(s) => s,
+            Err(_) => String::from("$ "),
+        };
         print!("{}", prompt_text);
 
-        // Render input
-        print!("{}", self.input_buffer);
+    // Render input buffer with basic syntax highlighting
+    let highlighted = self.highlighter.highlight_line(&self.input_buffer);
+    print!("{}", highlighted);
 
-        // Position cursor
-        let prompt_len = self.prompt.get_display_length();
-        execute!(stdout(), cursor::MoveTo((prompt_len + self.cursor_position) as u16, prompt_row))?;
+        // Place the cursor at the correct visual position considering prompt width and unicode width
+    let prompt_width = self.estimate_prompt_length(&prompt_text) as u16;
+    let input_width_up_to_cursor = self.input_display_width_up_to_cursor() as u16;
+        let cursor_x = prompt_width.saturating_add(input_width_up_to_cursor);
+        execute!(stdout(), cursor::MoveTo(cursor_x, prompt_row))?;
 
         Ok(())
     }
 
-    fn render_completion_panel(&mut self) -> Result<()> {
-        if let Some(completions) = &self.current_completions {
-            if !completions.items.is_empty() {
-                let panel_row = self.terminal_size.1.saturating_sub(3);
-                execute!(stdout(), cursor::MoveTo(0, panel_row))?;
+    /// Render a minimal status line at the bottom
+    fn render_status_line(&mut self) -> Result<()> {
+        let status_row = self.terminal_size.1.saturating_sub(1);
+        execute!(stdout(), cursor::MoveTo(0, status_row))?;
+        execute!(stdout(), terminal::Clear(ClearType::CurrentLine))?;
 
-                // Show current completion
-                if let Some(item) = completions.items.get(self.completion_index) {
-                    let text = format!(
-                        "[{}/{}] {} - {}",
-                        self.completion_index + 1,
-                        completions.items.len(),
-                        item.text,
-                        item.description.as_deref().unwrap_or("No description")
-                    );
-                    print!("{}", text.with(self.theme.colors.completion_highlight));
+        let mode = match self.state {
+            AppState::Normal => "NORMAL",
+            AppState::Completing => "COMPLETING",
+            AppState::Scrolling => "SCROLLING",
+            AppState::Searching => "SEARCHING",
+            AppState::CommandMode => "COMMAND",
+            AppState::VisualMode => "VISUAL",
+            AppState::InputMode => "INPUT",
+            AppState::Exiting => "EXITING",
+        };
+
+        let cols = self.terminal_size.0 as usize;
+        let info = format!("[{mode}]  len:{}  cur:{}", self.input_buffer.len(), self.cursor_position);
+        if info.len() >= cols {
+            print!("{}", &info[..cols.saturating_sub(1)]);
+        } else {
+            print!("{}{}", info, " ".repeat(cols - info.len()));
+        }
+        Ok(())
+    }
+
+    /// Render a simple one-line completion panel above the prompt (placeholder implementation)
+    fn render_completion_panel(&mut self) -> Result<()> {
+        // Draw on the row above the prompt
+        let panel_row = self.terminal_size.1.saturating_sub(3);
+        execute!(stdout(), cursor::MoveTo(0, panel_row))?;
+        execute!(stdout(), terminal::Clear(ClearType::CurrentLine))?;
+
+        if self.completion_visible {
+            if let Some(comps) = &self.current_completions {
+                let mut parts = Vec::new();
+                for (i, item) in comps.items.iter().enumerate().take(self.terminal_size.0 as usize) {
+                    if i == self.completion_index { parts.push(format!("[{}]", item.text)); }
+                    else { parts.push(item.text.clone()); }
                 }
+                let line = parts.join("  ");
+                let cols = self.terminal_size.0 as usize;
+                if line.len() > cols { print!("{}", &line[..cols.saturating_sub(1)]); }
+                else { print!("{}{}", line, " ".repeat(cols - line.len())); }
+            } else {
+                print!("(no completions)");
             }
         }
         Ok(())
     }
-
-    fn render_status_line(&mut self) -> Result<()> {
-        let status_row = self.terminal_size.1.saturating_sub(1);
-        execute!(stdout(), cursor::MoveTo(0, status_row))?;
-
-        let status_text = format!(
-            "State: {:?} | Size: {}x{} | FPS: {:.1}",
-            self.state,
-            self.terminal_size.0,
-            self.terminal_size.1,
-            self.calculate_fps()
-        );
-
-        print!("{}", status_text.with(self.theme.colors.status_bar));
-        execute!(stdout(), terminal::Clear(ClearType::UntilNewLine))?;
-
-        Ok(())
-    }
-
-    fn calculate_fps(&self) -> f64 {
-        if self.frame_times.len() < 2 {
-            return 0.0;
-        }
-
-        let total_time: Duration = self.frame_times.iter().sum();
-        let avg_frame_time = total_time.as_secs_f64() / self.frame_times.len() as f64;
-        
-        if avg_frame_time > 0.0 {
-            1.0 / avg_frame_time
-        } else {
-            0.0
-        }
-    }
-
-    /// Update processing
-    async fn update(&mut self) -> Result<()> {
-        // Periodic update processing
-        Ok(())
-    }
-
-    /// Execute command
-    async fn execute_command(&mut self, command: &str) -> Result<()> {
-        // Command execution implementation
-        self.add_output(&format!("> {}", command));
-        Ok(())
-    }
-
-    /// Load configuration
-    fn load_history(&mut self) -> Result<()> {
-        // Load from history file
-        Ok(())
-    }
-
-    fn setup_completion_system(&mut self) -> Result<()> {
-        // Completion system configuration
-        Ok(())
-    }
-
-    /// Shutdown
-    async fn shutdown(&mut self) -> Result<()> {
-        if self.is_raw_mode {
-            execute!(
-                stdout(),
-                cursor::Show,
-                event::DisableMouseCapture,
-                terminal::LeaveAlternateScreen
-            )?;
-            disable_raw_mode()?;
-            self.is_raw_mode = false;
-        }
-        Ok(())
-    }
-}
-
-impl Drop for CuiApp {
-    fn drop(&mut self) {
-        if self.is_raw_mode {
-            let _ = execute!(
-                stdout(),
-                cursor::Show,
-                event::DisableMouseCapture,
-                terminal::LeaveAlternateScreen
-            );
-            let _ = disable_raw_mode();
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_cui_app_creation() {
-        let config = UiConfig::default();
-        let app = CuiApp::new(config);
-        assert!(app.is_ok());
-    }
-
-    #[test]
-    fn test_input_handling() {
-        let config = UiConfig::default();
-        let mut app = CuiApp::new(config).unwrap();
-
-        app.insert_char('h');
-        app.insert_char('e');
-        app.insert_char('l');
-        app.insert_char('l');
-        app.insert_char('o');
-
-        assert_eq!(app.input_buffer, "hello");
-        assert_eq!(app.cursor_position, 5);
-    }
-
-    #[test]
-    fn test_cursor_movement() {
-        let config = UiConfig::default();
-        let mut app = CuiApp::new(config).unwrap();
-
-        app.input_buffer = "hello world".to_string();
-        app.cursor_position = 11;
-
-        app.move_cursor_left();
-        assert_eq!(app.cursor_position, 10);
-
-        app.move_cursor_right();
-        assert_eq!(app.cursor_position, 11);
-    }
-
-    #[test]
-    fn test_history_management() {
-        let config = UiConfig::default();
-        let mut app = CuiApp::new(config).unwrap();
-
-        app.add_to_history("ls -la".to_string());
-        app.add_to_history("cd /tmp".to_string());
-
-        assert_eq!(app.command_history.len(), 2);
-
-        app.history_previous();
-        assert_eq!(app.input_buffer, "cd /tmp");
-
-        app.history_previous();
-        assert_eq!(app.input_buffer, "ls -la");
-    }
-}

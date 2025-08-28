@@ -731,3 +731,16 @@ mod tests {
     }
 }
 
+/// Execute beautiful ls command
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    // Temporary fallback to basic ls functionality until universal_formatter is complete
+    use crate::ls::ls_cli;
+    match ls_cli(args) {
+        Ok(()) => Ok(0),
+        Err(e) => {
+            eprintln!("ls: {}", e);
+            Ok(1)
+        }
+    }
+}
+

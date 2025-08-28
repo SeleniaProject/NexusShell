@@ -90,7 +90,7 @@ pub fn cut_cli(args: &[String]) -> Result<()> {
                 process_reader(io::stdin().lock(), &options)?;
             } else {
                 let file = File::open(file_path)
-                    .with_context(|| format!("Failed to open file: {}", file_path))?;
+                    .with_context(|| format!("Failed to open file: {file_path}"))?;
                 let reader = BufReader::new(file);
                 process_reader(reader, &options)?;
             }
@@ -175,19 +175,19 @@ fn parse_field_list(fields: &str) -> Result<Vec<Range>> {
             if dash_pos == 0 {
                 // -N format
                 let end: usize = part[1..].parse()
-                    .with_context(|| format!("Invalid range: {}", part))?;
+                    .with_context(|| format!("Invalid range: {part}"))?;
                 ranges.push(Range::new(1, Some(end)));
             } else if dash_pos == part.len() - 1 {
                 // N- format
                 let start: usize = part[..dash_pos].parse()
-                    .with_context(|| format!("Invalid range: {}", part))?;
+                    .with_context(|| format!("Invalid range: {part}"))?;
                 ranges.push(Range::new(start, None));
             } else {
                 // N-M format
                 let start: usize = part[..dash_pos].parse()
-                    .with_context(|| format!("Invalid range start: {}", part))?;
+                    .with_context(|| format!("Invalid range start: {part}"))?;
                 let end: usize = part[dash_pos + 1..].parse()
-                    .with_context(|| format!("Invalid range end: {}", part))?;
+                    .with_context(|| format!("Invalid range end: {part}"))?;
                 if start > end {
                     return Err(anyhow!("Invalid range: start {} > end {}", start, end));
                 }
@@ -196,7 +196,7 @@ fn parse_field_list(fields: &str) -> Result<Vec<Range>> {
         } else {
             // Single field
             let field: usize = part.parse()
-                .with_context(|| format!("Invalid field number: {}", part))?;
+                .with_context(|| format!("Invalid field number: {part}"))?;
             if field == 0 {
                 return Err(anyhow!("Field numbers start from 1"));
             }
@@ -261,9 +261,7 @@ fn process_fields(line: &str, options: &CutOptions) -> Result<()> {
     }
     
     let default_delim = options.delimiter.to_string();
-    let output_delim = options.output_delimiter
-        .as_ref()
-        .map(|s| s.as_str())
+    let output_delim = options.output_delimiter.as_deref()
         .unwrap_or(&default_delim);
     
     println!("{}", selected_fields.join(output_delim));
@@ -318,11 +316,11 @@ fn process_bytes(line: &str, options: &CutOptions) -> Result<()> {
     
     // Convert bytes back to string (may not be valid UTF-8)
     match String::from_utf8(selected_bytes.clone()) {
-        Ok(s) => println!("{}", s),
+        Ok(s) => println!("{s}"),
         Err(_) => {
             // Print as lossy UTF-8
             let s = String::from_utf8_lossy(&selected_bytes);
-            println!("{}", s);
+            println!("{s}");
         }
     }
     

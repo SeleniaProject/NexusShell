@@ -196,7 +196,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
     let (options, files) = match parse_args(args) {
         Ok((opts, files)) => (opts, files),
         Err(e) => {
-            eprintln!("rm: {}", e);
+            eprintln!("rm: {e}");
             return Ok(1);
         }
     };
@@ -206,11 +206,10 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
         print!("rm: remove {} arguments? ", files.len());
         io::stdout().flush().unwrap_or(());
         let mut input = String::new();
-        if io::stdin().read_line(&mut input).is_ok() {
-            if !input.trim().starts_with('y') && !input.trim().starts_with('Y') {
+        if io::stdin().read_line(&mut input).is_ok()
+            && !input.trim().starts_with('y') && !input.trim().starts_with('Y') {
                 return Ok(0);
             }
-        }
     }
 
     for file in files {
@@ -230,7 +229,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
 
         if let Err(e) = result {
             if !options.force {
-                eprintln!("rm: {}", e);
+                eprintln!("rm: {e}");
                 return Ok(1);
             }
         }

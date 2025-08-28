@@ -142,7 +142,7 @@ async fn fsck_apply_free_clusters_commits_on_shadow() {
 #[cfg(not(unix))]
 #[tokio::test]
 async fn fsck_free_clusters_commit_not_supported_on_non_unix() {
-    let res = fsck_cli(&vec!["apply-journal".into(), "dummy.json".into(), "--commit".into()]).await;
+    let res =     fsck_cli(&["apply-journal".into(), "dummy.json".into(), "--commit".into()]);
     assert!(res.is_err());
 }
 

@@ -9,6 +9,10 @@ pub struct Seq {
 	pub ml_extra: u32,
 	pub of_code: u8,
 	pub of_extra: u32,
+	// Raw values for encoding
+	pub literal_length: u32,
+	pub match_length: u32,
+	pub offset: u32,
 }
 
 fn len_to_ll_code_and_extra(len: u32) -> (u8, u32) {
@@ -154,7 +158,17 @@ pub fn tokenize_sequences(input: &[u8]) -> (Vec<Seq>, Vec<u8>) {
 		if let Some((of_code, of_extra)) = dist_to_of_code_and_extra(m.dist) {
 			let (ll_code, ll_extra) = len_to_ll_code_and_extra(ll);
 			let (ml_code, ml_extra) = len_to_ml_code_and_extra(m.len);
-			seqs.push(Seq { ll_code, ll_extra, ml_code, ml_extra, of_code, of_extra });
+			seqs.push(Seq { 
+				ll_code, 
+				ll_extra, 
+				ml_code, 
+				ml_extra, 
+				of_code, 
+				of_extra,
+				literal_length: ll,
+				match_length: m.len,
+				offset: m.dist,
+			});
 			i = pos + (m.len as usize);
 			mpos += 1;
 		} else {
@@ -255,7 +269,17 @@ pub fn tokenize_full_with_dict(input: &[u8], dict: Option<&[u8]>) -> (Vec<Seq>, 
         if let Some((of_code, of_extra)) = dist_to_of_code_and_extra(m.dist) {
 			let (ll_code, ll_extra) = len_to_ll_code_and_extra(ll);
 			let (ml_code, ml_extra) = len_to_ml_code_and_extra(m.len);
-			seqs.push(Seq { ll_code, ll_extra, ml_code, ml_extra, of_code, of_extra });
+			seqs.push(Seq { 
+				ll_code, 
+				ll_extra, 
+				ml_code, 
+				ml_extra, 
+				of_code, 
+				of_extra,
+				literal_length: ll,
+				match_length: m.len,
+				offset: m.dist,
+			});
 			i = pos + (m.len as usize);
 			mpos += 1;
 		} else {
@@ -280,7 +304,17 @@ pub fn tokenize_first(input: &[u8]) -> Option<(Seq, Vec<u8>)> {
 			if let Some((of_code, of_extra)) = dist_to_of_code_and_extra(m.dist) {
 				let (ll_code, ll_extra) = len_to_ll_code_and_extra(pos as u32);
 				let (ml_code, ml_extra) = len_to_ml_code_and_extra(m.len);
-				let seq = Seq { ll_code, ll_extra, ml_code, ml_extra, of_code, of_extra };
+				let seq = Seq { 
+					ll_code, 
+					ll_extra, 
+					ml_code, 
+					ml_extra, 
+					of_code, 
+					of_extra,
+					literal_length: pos as u32,
+					match_length: m.len,
+					offset: m.dist,
+				};
 				// literals stream = prefix literals + tail after matched region
 				let mut literals = Vec::with_capacity(input.len());
 				if pos > 0 { literals.extend_from_slice(&input[..pos]); }

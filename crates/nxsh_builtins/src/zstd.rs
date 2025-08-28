@@ -1,8 +1,11 @@
+#![allow(unused_assignments)]
+
 use anyhow::{Context, Result};
 use std::io::{self, Read, Write, BufReader, BufWriter};
 use std::cmp::min;
 use std::fs::File;
 use std::path::Path;
+#[cfg(feature = "compression-zstd")]
 use ruzstd::streaming_decoder::StreamingDecoder;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -12,12 +15,12 @@ mod zstd_impl; // resides under src/zstd/zstd_impl via shim
 // Test-only instrumentation to capture chosen Sequences modes per block
 #[cfg(test)]
 mod __zstd_test_instrumentation {
-    use std::sync::{Mutex, Once};
-    static INIT: Once = Once::new();
-    static mut MODES: Option<Mutex<Vec<u8>>> = None;
+    use std::sync::{Mutex, OnceLock};
+    
+    static MODES: OnceLock<Mutex<Vec<u8>>> = OnceLock::new();
+    
     fn modes() -> &'static Mutex<Vec<u8>> {
-        INIT.call_once(|| unsafe { MODES = Some(Mutex::new(Vec::new())) });
-        unsafe { MODES.as_ref().unwrap() }
+        MODES.get_or_init(|| Mutex::new(Vec::new()))
     }
     pub fn clear() { modes().lock().unwrap().clear(); }
     pub fn push(mode: u8) { modes().lock().unwrap().push(mode); }
@@ -31,7 +34,6 @@ pub fn __zstd_modes_clear_for_tests() {
     #[cfg(test)]
     {
         __zstd_test_instrumentation::clear();
-        return;
     }
     #[cfg(not(test))]
     {
@@ -43,7 +45,7 @@ pub fn __zstd_modes_clear_for_tests() {
 pub fn __zstd_modes_snapshot_for_tests() -> Option<Vec<u8>> {
     #[cfg(test)]
     {
-        return Some(__zstd_test_instrumentation::snapshot());
+        Some(__zstd_test_instrumentation::snapshot())
     }
     #[cfg(not(test))]
     {
@@ -247,7 +249,7 @@ fn process_stdio(options: &ZstdOptions) -> Result<()> {
     let stdin = io::stdin();
     let mut reader = BufReader::new(stdin.lock());
 
-    // Decide output target: --stdout 優允E それ以外�E -o FILE があれ�Eファイル、なければ stdout
+    // Decide output target: --stdout 優允E それ以外�E -o FILE があれ�Eファイル、なければ stdout
     let to_stdout = options.stdout || options.output.is_none();
 
     if to_stdout {
@@ -395,18 +397,21 @@ fn process_single_file(filename: &str, options: &ZstdOptions) -> Result<()> {
 fn compress_stream_full<R: Read, W: Write>(reader: &mut R, writer: &mut W, options: &ZstdOptions) -> Result<()> {
     use zstd_impl::{compress_reader_to_writer, FullZstdOptions};
     // 1st milestone: emit a Compressed block with Raw literals + nbSeq=0.
-    // ここでは一旦全バッファ読み込みして1フレームに褁E�� Compressed_Block を生成！E28KiB上限を老E�E�E�、E    let mut input = Vec::new();
-    reader.read_to_end(&mut input)?;
+    // Read entire buffer and generate single frame with Compressed_Block. Considering 28KiB limit.
+    let mut input_buffer = Vec::new();
+    reader.read_to_end(&mut input_buffer)?;
 
-    // ぁE��れ本格エンコーダへ置換。現状は literals めERaw で詰め、Sequences は nbSeq=0 にする、E    // 冁E��の試験用パス�E�未使用�E�E    let mut _tmp = Vec::new();
-    let _ = compress_reader_to_writer(&input[..], &mut _tmp, FullZstdOptions { 
+    // Replace with real encoder later. Currently packs literals as Raw, sets Sequences to nbSeq=0.
+    // This is experimental path - not used currently.
+    let mut temp_output = Vec::new();
+    let _ = compress_reader_to_writer(&input_buffer[..], &mut temp_output, FullZstdOptions { 
         level: options.level, 
         checksum: options.checksum, 
         window_log: 20,
         force_four_stream: None,
     });
 
-    write_compressed_frame_literals_only(writer, &input, options.checksum)
+    write_compressed_frame_literals_only(writer, &input_buffer, options.checksum)
         .context("failed to write compressed(literals-only) frame")?;
     Ok(())
 }
@@ -420,7 +425,7 @@ fn decompress_stream<R: Read, W: Write>(
     let mut decoder = StreamingDecoder::new(reader)
         .map_err(|e| anyhow::anyhow!("Failed to create zstd decoder: {}", e))?;
 
-    // メモリ制限オプションは現状チE��ーダ API 未対応�Eため予紁E��Eo-op�E�E    
+    // メモリ制限オプションは現状チE��ーダ API 未対応�Eため予紁E��Eo-op�E�E    
     let mut buffer = vec![0u8; 64 * 1024]; // 64KB buffer
     let mut total_output = 0u64;
 
@@ -476,7 +481,7 @@ fn compress_stream_store<R: Read, W: Write>(
         #[cfg(not(feature = "parallel"))]
         {
             for chunk in input.chunks(chunk_size) {
-                write_store_frame_slice_with_options(writer, chunk, checksum, level)?;
+                write_store_frame_slice_with_options(&mut *writer, chunk, checksum, level)?;
             }
             return Ok(());
         }
@@ -734,9 +739,10 @@ fn write_compressed_frame_literals_only<W: Write>(mut w: W, payload: &[u8], chec
     // ensure total Block_Content <= 128KiB
     let max_lits = BLOCK_MAX_CONTENT - overhead_raw;
         let lits = remaining.min(max_lits);
-        // Literals_Section めERaw / RLE / Huffman(圧縮) から選抁E        let first = payload[offset];
+        // Literals_Section: choose from Raw / RLE / Huffman(compressed)
+        let first_byte = payload[offset];
         let mut is_rle = true;
-        for &b in &payload[offset..offset + lits] { if b != first { is_rle = false; break; } }
+        for &b in &payload[offset..offset + lits] { if b != first_byte { is_rle = false; break; } }
         let last_block = if offset + lits >= payload.len() { 1u32 } else { 0u32 };
 
     // Try Huffman-compressed literals when beneficial and possible
@@ -1209,7 +1215,7 @@ fn write_compressed_frame_literals_only<W: Write>(mut w: W, payload: &[u8], chec
             let b0 = (low4 << 4) | (0b11 << 2) | emit_lbt; // LBT: Raw(0) or RLE(1)
             w.write_all(&[b0, mid8, high8])?;
             // Literals payload
-            if emit_lbt == 0b01 { w.write_all(&[first])?; } else { w.write_all(&emit_literals)?; }
+            if emit_lbt == 0b01 { w.write_all(&[first_byte])?; } else { w.write_all(&emit_literals)?; }
             // Sequences Section
             if let Some(sec) = sequences_bytes {
                 #[cfg(test)]
@@ -1646,8 +1652,8 @@ mod tests {
         let b1 = frame[hdr_off + 1] as u32;
         let b2 = frame[hdr_off + 2] as u32;
         let header_val = b0 | (b1 << 8) | (b2 << 16);
-        let block_type = ((header_val >> 1) & 0x3) as u8;
-        block_type
+        
+        ((header_val >> 1) & 0x3) as u8
     }
 
     fn parse_fcs(frame: &[u8]) -> (usize, u64) {
@@ -1689,11 +1695,11 @@ mod tests {
         // Inspect captured modes (Symbol_Compression_Modes byte) for FSE (0x2A) then Repeat (0x3F)
         let modes = __zstd_test_instrumentation::snapshot();
         // Only assert that at least one sequences-bearing block existed
-        assert!(!modes.is_empty(), "no sequences modes captured: {:?}", modes);
+        assert!(!modes.is_empty(), "no sequences modes captured: {modes:?}");
         let pos_fse = modes.iter().position(|&m| m == 0x2A);
         let pos_rep = modes.iter().position(|&m| m == 0x3F);
         if let (Some(i), Some(j)) = (pos_fse, pos_rep) {
-            assert!(j > i, "Repeat should occur after an FSE_Compressed block: {:?}", modes);
+            assert!(j > i, "Repeat should occur after an FSE_Compressed block: {modes:?}");
         }
     }
 
@@ -1705,11 +1711,11 @@ mod tests {
         // Create a payload with specific frequency distribution to trigger FSE compression
         let mut payload = Vec::new();
         // Pattern that creates a specific weight distribution suitable for FSE compression
-        for _ in 0..20 { payload.push(b'A'); } // High frequency
-        for _ in 0..15 { payload.push(b'B'); } // Medium frequency  
-        for _ in 0..10 { payload.push(b'C'); } // Lower frequency
-        for _ in 0..5  { payload.push(b'D'); } // Even lower frequency
-        for _ in 0..1  { payload.push(b'E'); } // Minimal frequency
+        payload.extend(std::iter::repeat_n(b'A', 20)); // High frequency
+        payload.extend(std::iter::repeat_n(b'B', 15)); // Medium frequency  
+        payload.extend(std::iter::repeat_n(b'C', 10)); // Lower frequency
+        payload.extend(std::iter::repeat_n(b'D', 5));  // Even lower frequency
+        payload.extend(std::iter::repeat_n(b'E', 1));  // Minimal frequency
         
         if let Some((table, header)) = build_literals_huffman(&payload) {
             // Verify that FSE compression was considered
@@ -1757,7 +1763,7 @@ mod tests {
         for i in 0..64 { 
             let freq = if i < 4 { 50 } else if i < 16 { 10 } else { 1 };
             for _ in 0..freq { 
-                complex_payload.push((b'A' + (i % 26)) as u8); 
+                complex_payload.push(b'A' + (i % 26)); 
             }
         }
         
@@ -1841,16 +1847,18 @@ mod tests {
 
     #[test]
     fn zstd_store_parallel_chunked_multiple_frames_roundtrip() {
-        // 2.5 * chunk_size(4MiB) 相当�EチE�Eタを用意（ここでは小さぁE3*64KB にする�E�E        let chunk = vec![0xAAu8; 64 * 1024];
-        let payload = [chunk.clone(), chunk.clone(), chunk.clone()].concat();
+        // 2.5 * chunk_size(4MiB) equivalent test data (here using small 3*64KB)
+        let test_chunk = vec![0xAAu8; 64 * 1024];
+        let payload = [test_chunk.clone(), test_chunk.clone(), test_chunk.clone()].concat();
         let mut out = Vec::new();
-        // compress_stream_store は 1MiB 以下では単一フレームだが、ここでは slice API を直接褁E��回呼ぶ
-        // 実運用では threads>1 でフレームが褁E��に刁E��されることを模擬
+        // compress_stream_store uses single frame for <=1MiB, but here we directly call slice API multiple times
+        // This simulates parallel frame generation with threads>1 in production
     write_store_frame_slice_with_options(&mut out, &payload[..64*1024], false, 3).expect("w1");
     write_store_frame_slice_with_options(&mut out, &payload[64*1024..128*1024], false, 3).expect("w2");
     write_store_frame_slice_with_options(&mut out, &payload[128*1024..], false, 3).expect("w3");
-        // 連結フレーム全体を解凁E        let decoded = decode_all(&out);
-        assert_eq!(decoded, payload);
+        // Decode entire concatenated frames
+        let test_decoded = decode_all(&out);
+        assert_eq!(test_decoded, payload);
     }
 
     #[test]
@@ -1880,38 +1888,41 @@ mod tests {
 
     #[test]
     fn zstd_full_literals_huffman_in_compressed_block_and_roundtrip() {
-        // 非一様データ�E�英語テキスト風�E�E        let text = b"This is a tiny test block that should compress with Huffman coding pretty well. ";
+        // Non-uniform data - English text style
+        let test_text = b"This is a tiny test block that should compress with Huffman coding pretty well. ";
         let mut payload = Vec::new();
-        for _ in 0..20 { payload.extend_from_slice(text); }
+        for _ in 0..20 { payload.extend_from_slice(test_text); }
         let mut out = Vec::new();
         write_compressed_frame_literals_only(&mut out, &payload, false).expect("write");
         // Compressed block
         let btype = parse_block_type(&out);
         assert_eq!(btype, 2);
-        let decoded = decode_all(&out);
-        assert_eq!(decoded, payload);
+        let test_decoded = decode_all(&out);
+        assert_eq!(test_decoded, payload);
     }
 
     #[test]
     fn zstd_full_literals_huffman_four_streams_selected() {
-        // 入力サイズめE>1023 にして SF=00(1ストリーム)の条件を外し、Eストリーム選択を俁E��
-        let text = b"Four streams should be chosen for larger blocks with Huffman coding. ";
+        // Input size >1023 to bypass SF=00(1-stream) condition, trigger 4-stream selection
+        let test_text = b"Four streams should be chosen for larger blocks with Huffman coding. ";
         let mut payload = Vec::new();
-        while payload.len() <= 5000 { payload.extend_from_slice(text); }
+        while payload.len() <= 5000 { payload.extend_from_slice(test_text); }
         let mut out = Vec::new();
         write_compressed_frame_literals_only(&mut out, &payload, false).expect("write");
-        // LSH の SF ビットを検査して 4 ストリーム (SF!=00) を確誁E        assert_eq!(&out[0..4], &[0x28, 0xB5, 0x2F, 0xFD]);
+        // Check LSH SF bits to verify 4-stream (SF!=00) selection
+        assert_eq!(&out[0..4], &[0x28, 0xB5, 0x2F, 0xFD]);
         let fhd = out[4];
         let fcs_code = fhd >> 6;
         let fcs_bytes = match fcs_code { 0b00 => 1, 0b01 => 2, 0b10 => 4, 0b11 => 8, _ => unreachable!() };
-        let hdr_off = 5 + fcs_bytes; // BlockHeaderの先頭
-        let lsh_b0 = out[hdr_off + 3]; // BlockHeader(3 bytes) の直後が LSH 先頭
+        let hdr_off = 5 + fcs_bytes; // Block Header start
+        let lsh_b0 = out[hdr_off + 3]; // LSH start immediately after BlockHeader(3 bytes)
         let lbt = lsh_b0 & 0b11;
         let sf = (lsh_b0 >> 2) & 0b11;
         assert_eq!(lbt, 0b10, "LBT must be Compressed for Huffman literals");
         assert_ne!(sf, 0b00, "SF=00 would be 1-stream; expected 4-stream literals");
-        // 復号して正しく往復することを確誁E        let decoded = decode_all(&out);
-        assert_eq!(decoded, payload);
+        // Verify correct round-trip decode
+        let test_decoded = decode_all(&out);
+        assert_eq!(test_decoded, payload);
     }
 
     #[test]
@@ -1919,7 +1930,7 @@ mod tests {
         let payload: Vec<u8> = (0..1500).map(|i| (i as u8).wrapping_mul(31)).collect();
         let mut out = Vec::new();
         write_store_frame_slice_with_options(&mut out, &payload, true, 3).expect("write");
-        // 最後�E4バイトがチェチE��サム
+        // Last 4 bytes are checksum
         assert!(out.len() >= 4);
         let tail = &out[out.len()-4..];
         let expected64 = xxhash_rust::xxh64::xxh64(&payload, 0);
@@ -1941,3 +1952,9 @@ mod tests {
 }
 }
 
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match zstd_cli(args) {
+        Ok(()) => Ok(0),
+        Err(e) => Err(crate::common::BuiltinError::Other(e.to_string())),
+    }
+}

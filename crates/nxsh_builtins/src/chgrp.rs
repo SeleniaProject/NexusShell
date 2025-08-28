@@ -20,8 +20,6 @@ use which::which;
 use nix::unistd::{Group, Gid};
 
 #[cfg(windows)]
-
-
 pub fn chgrp_cli(args: &[String]) -> Result<()> {
     // Parse arguments first to handle our enhanced options
     let parsed_args = parse_chgrp_args(args)?;
@@ -125,7 +123,7 @@ fn execute_chgrp_fallback(args: ChgrpArgs) -> Result<()> {
 
     for file in &args.files {
         if args.verbose {
-            println!("changing group of '{}' to {}", file, target_gid);
+            println!("changing group of '{file}' to {target_gid}");
         }
         
         if args.recursive && Path::new(file).is_dir() {
@@ -157,8 +155,8 @@ fn resolve_group_to_gid(group: &str) -> Result<u32> {
     #[cfg(windows)]
     {
         match resolve_windows_group_name(group) {
-            Ok(gid) => return Ok(gid),
-            Err(e) => return Err(anyhow!("chgrp: group lookup failed: {}", e)),
+            Ok(gid) => Ok(gid),
+            Err(e) => Err(anyhow!("chgrp: group lookup failed: {}", e)),
         }
     }
 
@@ -243,7 +241,7 @@ fn change_windows_file_group(file_path: &str, _gid: u32) -> Result<()> {
     // 3. Set the new security descriptor
     
     // For now, we'll just indicate that the operation is not fully supported
-    eprintln!("chgrp: Windows ACL group change is not fully implemented for '{}'", file_path);
+    eprintln!("chgrp: Windows ACL group change is not fully implemented for '{file_path}'");
     eprintln!("       This operation requires Windows-specific security APIs");
     
     Ok(())
@@ -307,6 +305,17 @@ fn print_chgrp_help() {
     println!("GROUP can be either a symbolic group name or a numeric group ID (GID).");
     println!();
     println!("Report chgrp bugs to <bugs@nexusshell.org>");
+}
+
+/// Execute chgrp command
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match chgrp_cli(args) {
+        Ok(_) => Ok(0),
+        Err(e) => {
+            eprintln!("chgrp: {e}");
+            Ok(1)
+        }
+    }
 }
 
 #[cfg(test)]

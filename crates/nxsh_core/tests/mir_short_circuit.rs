@@ -18,7 +18,7 @@ fn and_short_circuits() {
     let right_cmp = AstNode::BinaryExpression { left: Box::new(div), operator: BinaryOperator::Equal, right: Box::new(AstNode::NumberLiteral { value: "0", number_type: NumberType::Decimal }) };
     let and_expr = AstNode::BinaryExpression { left: Box::new(left_cmp), operator: BinaryOperator::LogicalAnd, right: Box::new(right_cmp) };
     let ret = AstNode::Return(Some(Box::new(and_expr)));
-    let program = vec![assign_a, AstNode::Closure { params: vec![], body: Box::new(ret), captures: vec![], is_async: false }];
+    let program = [assign_a, AstNode::Closure { params: vec![], body: Box::new(ret), captures: vec![], is_async: false }];
     // call closure inline
     let call = AstNode::FunctionCall { name: Box::new(program.last().unwrap().clone()), args: vec![], is_async:false, generics: vec![] };
     let result = run_prog(vec![program[0].clone(), call]);

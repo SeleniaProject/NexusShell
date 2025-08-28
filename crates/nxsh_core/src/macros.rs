@@ -1,4 +1,5 @@
 use crate::compat::{Result, Context};
+use crate::memory_efficient::MemoryEfficientStringBuilder;
 use std::collections::HashMap;
 
 /// Macro system for NexusShell - providing powerful code generation and transformation
@@ -30,7 +31,11 @@ impl MacroSystem {
     /// Define a new macro
     pub fn define_macro(&mut self, name: String, macro_def: Macro) -> Result<()> {
         if self.builtin_macros.contains_key(&name) {
-            return Err(crate::compat::anyhow(format!("Cannot redefine builtin macro '{name}'")));
+            let mut error_msg = MemoryEfficientStringBuilder::with_capacity(50);
+            error_msg.push_str("Cannot redefine builtin macro '");
+            error_msg.push_str(&name);
+            error_msg.push('\'');
+            return Err(crate::compat::anyhow(error_msg.into_string()));
         }
         
         self.macros.insert(name, macro_def);
@@ -56,7 +61,11 @@ impl MacroSystem {
         } else if let Some(macro_def) = self.macros.get(name).cloned() {
             self.expand_user_macro(&macro_def, args)
         } else {
-            Err(crate::anyhow!("Macro '{}' not found", name))
+            let mut error_msg = MemoryEfficientStringBuilder::with_capacity(30);
+            error_msg.push_str("Macro '");
+            error_msg.push_str(name);
+            error_msg.push_str("' not found");
+            Err(crate::anyhow!("{}", error_msg.into_string()))
         };
 
         self.expansion_stack.pop();
@@ -79,7 +88,10 @@ impl MacroSystem {
                 
                 // Replace parameters with arguments
                 for (param, arg) in parameters.iter().zip(args.iter()) {
-                    result = result.replace(&format!("${param}"), arg);
+                    let mut search_pattern = MemoryEfficientStringBuilder::with_capacity(param.len() + 2);
+                    search_pattern.push('$');
+                    search_pattern.push_str(param);
+                    result = result.replace(&search_pattern.into_string(), arg);
                 }
 
                 Ok(result)
@@ -140,7 +152,12 @@ impl MacroSystem {
                 
                 let file_path = &args[0];
                 std::fs::read_to_string(file_path)
-                    .with_context(|| format!("Failed to read file: {file_path}"))
+                    .with_context(|| {
+                        let mut error_msg = MemoryEfficientStringBuilder::with_capacity(file_path.len() + 20);
+                        error_msg.push_str("Failed to read file: ");
+                        error_msg.push_str(file_path);
+                        error_msg.into_string()
+                    })
             },
             
             BuiltinMacro::Concat => {
@@ -159,7 +176,11 @@ impl MacroSystem {
             },
             
             BuiltinMacro::Stringify => {
-                Ok(format!("\"{}\"", args.join(" ")))
+                let mut result = MemoryEfficientStringBuilder::with_capacity(args.join(" ").len() + 2);
+                result.push('"');
+                result.push_str(&args.join(" "));
+                result.push('"');
+                Ok(result.into_string())
             },
             
             BuiltinMacro::Env => {
@@ -168,7 +189,13 @@ impl MacroSystem {
                 }
                 
                 std::env::var(&args[0])
-                    .with_context(|| format!("Environment variable '{}' not found", args[0]))
+                    .with_context(|| {
+                        let mut error_msg = MemoryEfficientStringBuilder::with_capacity(args[0].len() + 30);
+                        error_msg.push_str("Environment variable '");
+                        error_msg.push_str(&args[0]);
+                        error_msg.push_str("' not found");
+                        error_msg.into_string()
+                    })
             },
             
             BuiltinMacro::Date => {
@@ -260,7 +287,10 @@ impl MacroSystem {
         
         // Replace numbered arguments $0, $1, $2, etc.
         for (i, arg) in args.iter().enumerate() {
-            result = result.replace(&format!("${i}"), arg);
+            let mut search_pattern = MemoryEfficientStringBuilder::with_capacity(8);
+            search_pattern.push('$');
+            search_pattern.push_str(&i.to_string());
+            result = result.replace(&search_pattern.into_string(), arg);
         }
         
         // Process nested macros
@@ -298,12 +328,20 @@ impl MacroSystem {
         match iterator {
             MacroIterator::Args => Ok(args.to_vec()),
             MacroIterator::Range { start, end } => {
-                Ok((*start..*end).map(|i| i.to_string()).collect())
+                let mut result = Vec::with_capacity((end - start).max(0) as usize);
+                for i in *start..*end {
+                    result.push(i.to_string());
+                }
+                Ok(result)
             },
             MacroIterator::List(items) => Ok(items.clone()),
             MacroIterator::Split { arg_index, delimiter } => {
                 if *arg_index < args.len() {
-                    Ok(args[*arg_index].split(delimiter).map(|s| s.to_string()).collect())
+                    let split_items: Vec<String> = args[*arg_index]
+                        .split(delimiter)
+                        .map(|s| s.to_string())
+                        .collect();
+                    Ok(split_items)
                 } else {
                     Ok(vec![])
                 }
@@ -320,7 +358,10 @@ impl MacroSystem {
                 MacroStatement::Text(text) => {
                     let mut expanded = text.clone();
                     for (param, value) in bindings {
-                        expanded = expanded.replace(&format!("${param}"), value);
+                        let mut search_pattern = MemoryEfficientStringBuilder::with_capacity(param.len() + 2);
+                        search_pattern.push('$');
+                        search_pattern.push_str(param);
+                        expanded = expanded.replace(&search_pattern.into_string(), value);
                     }
                     result.push_str(&expanded);
                 },
@@ -330,7 +371,10 @@ impl MacroSystem {
                         .map(|arg| {
                             let mut expanded = arg.clone();
                             for (param, value) in bindings {
-                                expanded = expanded.replace(&format!("${param}"), value);
+                                let mut search_pattern = MemoryEfficientStringBuilder::with_capacity(param.len() + 2);
+                                search_pattern.push('$');
+                                search_pattern.push_str(param);
+                                expanded = expanded.replace(&search_pattern.into_string(), value);
                             }
                             expanded
                         })

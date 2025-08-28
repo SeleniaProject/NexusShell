@@ -309,6 +309,17 @@ fn process_line(ctx: &mut BcContext, line: &str) -> Result<()> {
     Ok(())
 }
 
+/// Execute function for bc command
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match bc_cli(args) {
+        Ok(_) => Ok(0),
+        Err(e) => {
+            eprintln!("{e}");
+            Ok(1)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,17 +348,6 @@ mod tests {
         let result = ctx.parse_number("3.14").unwrap();
     use std::f64::consts::PI;
     assert!((result.to_f64().unwrap() - PI).abs() < 0.01); // Allow small tolerance
-    }
-}
-
-/// Execute function for bc command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
-    match bc_cli(args) {
-        Ok(_) => Ok(0),
-        Err(e) => {
-            eprintln!("{}", e);
-            Ok(1)
-        }
     }
 }
 

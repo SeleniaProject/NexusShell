@@ -4,8 +4,8 @@ use nxsh_core::executor::Executor;
 
 fn sleep_command(seconds: &str) -> AstNode {
     AstNode::Command {
-        name: Box::new(AstNode::Word("sleep".into())),
-        args: vec![AstNode::Word(seconds.into())],
+        name: Box::new(AstNode::Word("sleep")),
+        args: vec![AstNode::Word(seconds)],
         redirections: vec![],
         background: false,
     }

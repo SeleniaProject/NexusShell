@@ -225,8 +225,35 @@ fn collect_system_metrics() {
 
 fn update_prometheus_metrics() {
     if let Some(collector) = METRICS_INSTANCE.get() {
-        if let Ok(_job_stats) = collector.job_stats.read() { /* metrics disabled placeholder */ }
-        if let Ok(_system_stats) = collector.system_stats.lock() { /* metrics disabled placeholder */ }
+        // Update job statistics
+        if let Ok(job_stats) = collector.job_stats.read() {
+            #[cfg(feature = "metrics")]
+            {
+                counter!("nxsh_jobs_total").absolute(job_stats.total_jobs);
+                counter!("nxsh_jobs_successful").absolute(job_stats.completed_jobs);
+                counter!("nxsh_jobs_failed").absolute(job_stats.failed_jobs);
+                counter!("nxsh_jobs_active").absolute(job_stats.active_jobs);
+                
+                if job_stats.total_jobs > 0 {
+                    let success_rate = job_stats.completed_jobs as f64 / job_stats.total_jobs as f64;
+                    histogram!("nxsh_job_success_rate").record(success_rate);
+                }
+                
+                histogram!("nxsh_job_duration_avg_ms").record(job_stats.average_duration_ms);
+            }
+        }
+        
+        // Update system statistics
+        if let Ok(system_stats) = collector.system_stats.lock() {
+            #[cfg(feature = "metrics")]
+            {
+                histogram!("nxsh_memory_usage_mb").record(system_stats.memory_usage_bytes as f64 / 1024.0 / 1024.0);
+                histogram!("nxsh_cpu_usage_percent").record(system_stats.cpu_usage_percent);
+                counter!("nxsh_uptime_seconds").absolute(system_stats.uptime_seconds);
+                counter!("nxsh_process_count").absolute(system_stats.process_count.into());
+                counter!("nxsh_thread_count").absolute(system_stats.thread_count.into());
+            }
+        }
     }
 }
 

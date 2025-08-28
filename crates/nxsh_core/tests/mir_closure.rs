@@ -16,7 +16,7 @@ fn lower_closure_and_call() {
     let prog = Lowerer::new().lower_program(&program);
     let main_fn = prog.get_function("main").expect("main function exists");
     let mut found = false;
-    for (_id, block) in &main_fn.blocks {
+    for block in main_fn.blocks.values() {
         for inst in &block.instructions {
             if matches!(inst, MirInstruction::ClosureCreate { .. }) { found = true; break; }
         }
@@ -46,12 +46,12 @@ fn lower_closure_with_capture_registers() {
     let prog = Lowerer::new().lower_program(&program);
     let main_fn = prog.get_function("main").expect("main function exists");
     let mut found = false;
-    for (_id, block) in &main_fn.blocks {
+    for block in main_fn.blocks.values() {
         for inst in &block.instructions {
             if let MirInstruction::ClosureCreate { captures, capture_regs, .. } = inst {
                 assert_eq!(captures.len(), 1, "expected one capture value");
                 assert_eq!(capture_regs.len(), 1, "expected one capture reg");
-                match &captures[0] { MirValue::Register(_) => {}, other => panic!("expected capture to lower to register, got {:?}", other) }
+                match &captures[0] { MirValue::Register(_) => {}, other => panic!("expected capture to lower to register, got {other:?}") }
                 found = true; break;
             }
         }
@@ -89,7 +89,7 @@ fn lower_nested_closure_captures() {
     let main_fn = prog.get_function("main").expect("main function exists");
     // Find outer closure to get its body block id if needed; but we just scan all blocks for inner closure
     let mut inner_found = false;
-    for (_id, block) in &main_fn.blocks {
+    for block in main_fn.blocks.values() {
         for inst in &block.instructions {
             if let MirInstruction::ClosureCreate { captures, .. } = inst {
                 // inner closure must have captures len 1 and capture is register if nested environment worked
@@ -132,7 +132,7 @@ fn execute_lowered_closure_via_variable_call() {
     let main_fn = prog.get_function("main").unwrap();
     // Scan for both create & call
     let mut saw_create = false; let mut saw_call = false;
-    for (_id, block) in &main_fn.blocks { for inst in &block.instructions { match inst { MirInstruction::ClosureCreate { .. } => saw_create = true, MirInstruction::ClosureCall { .. } => saw_call = true, _ => {} } } }
+    for block in main_fn.blocks.values() { for inst in &block.instructions { match inst { MirInstruction::ClosureCreate { .. } => saw_create = true, MirInstruction::ClosureCall { .. } => saw_call = true, _ => {} } } }
     assert!(saw_create && saw_call, "Expected ClosureCreate and ClosureCall when calling inline closure expression");
 }
 
@@ -215,7 +215,7 @@ fn execute_main_closure_with_arithmetic_body() {
     // sanity: ensure Add instruction present
     let main_fn = prog.get_function("main").unwrap();
     let mut saw_add = false;
-    for (_id, block) in &main_fn.blocks { for inst in &block.instructions { if let MirInstruction::Add { .. } = inst { saw_add = true; } } }
+    for block in main_fn.blocks.values() { for inst in &block.instructions { if let MirInstruction::Add { .. } = inst { saw_add = true; } } }
     assert!(saw_add, "Add instruction not lowered");
     let mut exec = MirExecutor::new();
     let result = exec.execute_main(&prog).expect("execute main");
@@ -242,7 +242,7 @@ fn execute_main_closure_with_comparisons_and_logic() {
     // ensure LessThan / Equal / logical conjunction lowered (accept And or AndSC)
     let main_fn = prog.get_function("main").unwrap();
     let mut saw_less = false; let mut saw_equal = false; let mut saw_and = false;
-    for (_id, block) in &main_fn.blocks {
+    for block in main_fn.blocks.values() {
         for inst in &block.instructions {
             match inst {
                 MirInstruction::LessThan { .. } => saw_less = true,
@@ -281,7 +281,7 @@ fn execute_main_closure_with_power_and_bitwise() {
     let program = AstNode::Program(vec![assign_x, assign_y, assign_z, assign_f, call_f]);
     let prog = Lowerer::new().lower_program(&program);
     let mut saw_pow=false; let mut saw_and=false; let mut saw_shl=false;
-    if let Some(main_fn) = prog.get_function("main") { for (_id, block) in &main_fn.blocks { for inst in &block.instructions { match inst { MirInstruction::Pow { .. } => saw_pow=true, MirInstruction::BitAnd { .. } => saw_and=true, MirInstruction::Shl { .. } => saw_shl=true, _=>{} } } } }
+    if let Some(main_fn) = prog.get_function("main") { for block in main_fn.blocks.values() { for inst in &block.instructions { match inst { MirInstruction::Pow { .. } => saw_pow=true, MirInstruction::BitAnd { .. } => saw_and=true, MirInstruction::Shl { .. } => saw_shl=true, _=>{} } } } }
     assert!(saw_pow && saw_and && saw_shl, "expected pow/bitand/shl lowering");
     let mut exec = MirExecutor::new();
     let result = exec.execute_main(&prog).expect("execute main");
@@ -300,7 +300,7 @@ fn execute_main_closure_with_regex_match() {
     let call_f = AstNode::FunctionCall { name: Box::new(AstNode::Word("f")), args: vec![], is_async: false, generics: vec![] };
     let program = AstNode::Program(vec![assign_s, assign_p, assign_f, call_f]);
     let prog = Lowerer::new().lower_program(&program);
-    let mut saw_regex=false; if let Some(main_fn)=prog.get_function("main") { for (_id, block) in &main_fn.blocks { for inst in &block.instructions { if let MirInstruction::RegexMatch { .. } = inst { saw_regex=true; } } } }
+    let mut saw_regex=false; if let Some(main_fn)=prog.get_function("main") { for block in main_fn.blocks.values() { for inst in &block.instructions { if let MirInstruction::RegexMatch { .. } = inst { saw_regex=true; } } } }
     assert!(saw_regex, "regex match not lowered");
     let mut exec = MirExecutor::new();
     let result = exec.execute_main(&prog).expect("execute main");
@@ -319,7 +319,7 @@ fn execute_main_closure_with_regex_not_match() {
     let call_f = AstNode::FunctionCall { name: Box::new(AstNode::Word("f")), args: vec![], is_async: false, generics: vec![] };
     let program = AstNode::Program(vec![assign_s, assign_p, assign_f, call_f]);
     let prog = Lowerer::new().lower_program(&program);
-    let mut saw_regex=false; if let Some(main_fn)=prog.get_function("main") { for (_id, block) in &main_fn.blocks { for inst in &block.instructions { if let MirInstruction::RegexMatch { not, .. } = inst { if *not { saw_regex=true; } } } } }
+    let mut saw_regex=false; if let Some(main_fn)=prog.get_function("main") { for block in main_fn.blocks.values() { for inst in &block.instructions { if let MirInstruction::RegexMatch { not, .. } = inst { if *not { saw_regex=true; } } } } }
     assert!(saw_regex, "regex not-match not lowered");
     let mut exec = MirExecutor::new();
     let result = exec.execute_main(&prog).expect("execute main");

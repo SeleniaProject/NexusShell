@@ -428,3 +428,9 @@ fn print_bzip2_version() {
     println!("or an external bzip2 binary if needed.");
 }
 
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match bzip2_cli(args) {
+        Ok(()) => Ok(0),
+        Err(e) => Err(crate::common::BuiltinError::Other(e.to_string())),
+    }
+}

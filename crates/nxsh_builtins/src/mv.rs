@@ -86,6 +86,12 @@ struct MoveStatistics {
     backups_created: usize,
 }
 
+impl Default for MvCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MvCommand {
     pub fn new() -> Self {
         Self {
@@ -248,11 +254,10 @@ impl MvCommand {
 
     pub fn execute(&mut self) -> Result<()> {
         // Validate destination
-        if self.sources.len() > 1 && !self.destination.is_dir() && self.options.target_directory.is_none() {
-            if !self.options.no_target_directory {
+        if self.sources.len() > 1 && !self.destination.is_dir() && self.options.target_directory.is_none()
+            && !self.options.no_target_directory {
                 return Err(anyhow!("mv: target '{}' is not a directory", self.destination.display()));
             }
-        }
 
         // Show progress bar for large operations
         let total_operations = self.sources.len();
@@ -279,7 +284,7 @@ impl MvCommand {
                     }
                 }
                 Err(e) => {
-                    eprintln!("mv: {}", e);
+                    eprintln!("mv: {e}");
                     self.statistics.errors += 1;
                 }
             }
@@ -308,7 +313,7 @@ impl MvCommand {
 
         // Determine target path
         let target = if self.destination.is_dir() && !self.options.no_target_directory {
-            self.destination.join(source.file_name().unwrap_or_else(|| source.as_os_str()))
+            self.destination.join(source.file_name().unwrap_or(source.as_os_str()))
         } else {
             self.destination.clone()
         };
@@ -341,11 +346,10 @@ impl MvCommand {
                 }
             }
 
-            if self.options.interactive && !self.options.force {
-                if !self.prompt_overwrite(&target)? {
+            if self.options.interactive && !self.options.force
+                && !self.prompt_overwrite(&target)? {
                     return Ok(());
                 }
-            }
 
             // Create backup if requested
             if self.options.backup != BackupMode::None {
@@ -391,6 +395,7 @@ impl MvCommand {
         Ok(())
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn copy_directory_recursive(&self, source: &Path, target: &Path) -> Result<()> {
         if !target.exists() {
             fs::create_dir_all(target)?;
@@ -535,6 +540,17 @@ pub fn mv_cli(args: &[String]) -> Result<()> {
     command.execute()
 }
 
+/// Execute the mv builtin command
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match mv_cli(args) {
+        Ok(_) => Ok(0),
+        Err(e) => {
+            eprintln!("mv: {e}");
+            Ok(1)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -626,11 +642,11 @@ mod tests {
         let source = temp_dir.path().join("source.txt");
         let dest = temp_dir.path().join("dest.txt");
         
-        // Create destination first (newer)
+        // Create destination first (older)
         File::create(&dest).unwrap().write_all(b"dest content").unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::thread::sleep(std::time::Duration::from_millis(50));
         
-        // Create source (older)
+        // Create source (newer)
         File::create(&source).unwrap().write_all(b"source content").unwrap();
         
         let mut cmd = MvCommand::new();
@@ -640,12 +656,12 @@ mod tests {
         
         assert!(cmd.execute().is_ok());
         
-        // Source should still exist because dest is newer
-        assert!(source.exists());
+        // Source should not exist because it was moved (dest was older)
+        assert!(!source.exists());
         
-        // Dest content should be unchanged
+        // Dest should contain source content now
         let dest_content = fs::read_to_string(&dest).unwrap();
-        assert_eq!(dest_content, "dest content");
+        assert_eq!(dest_content, "source content");
     }
 
     #[test]
@@ -767,16 +783,5 @@ mod tests {
         // Invalid option
         let args = vec!["-x".to_string(), "source.txt".to_string(), "dest.txt".to_string()];
         assert!(cmd.parse_args(&args).is_err());
-    }
-}
-
-/// Execute the mv builtin command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
-    match mv_cli(args) {
-        Ok(_) => Ok(0),
-        Err(e) => {
-            eprintln!("mv: {}", e);
-            Ok(1)
-        }
     }
 }

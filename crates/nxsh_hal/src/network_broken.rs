@@ -207,7 +207,7 @@ impl NetworkManager {
                 reachable: false,
                 response_time: Duration::default(),
                 test_time: SystemTime::now().duration_since(start_time).unwrap_or_default(),
-                error_message: Some(format!("{:?}", e)),
+                error_message: Some(format!("{e:?}")),
                 hop_count: 0,
                 quality_score: 0.0,
             }

@@ -28,6 +28,7 @@
 
 use anyhow::{Result, anyhow};
 use std::fs::{self, Metadata};
+use nxsh_core::memory_efficient::MemoryEfficientStringBuilder;
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
@@ -301,7 +302,10 @@ impl UserGroupCache {
             }
         }
         
-        format!("user{}", uid)
+        let mut result = MemoryEfficientStringBuilder::with_capacity(15);
+        result.push_str("user");
+        result.push_str(&uid.to_string());
+        result.into_string()
     }
     
     #[cfg(windows)]
@@ -312,7 +316,10 @@ impl UserGroupCache {
             return groupname;
         }
         
-        format!("group{}", gid)
+        let mut result = MemoryEfficientStringBuilder::with_capacity(20);
+        result.push_str("group");
+        result.push_str(&gid.to_string());
+        result.into_string()
     }
     
     #[cfg(windows)]
@@ -1026,9 +1033,18 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
         let icon = formatter.get_file_icon(entry.path.file_name().unwrap_or_default().to_str().unwrap_or(""));
         let name_with_icon = if use_colors {
             let colored_name = format_file_name(entry, use_colors, false);
-            format!("{} {}", icon, colored_name)
+            let mut result = MemoryEfficientStringBuilder::with_capacity(icon.len() + colored_name.len() + 1);
+            result.push_str(&icon);
+            result.push(' ');
+            result.push_str(&colored_name);
+            result.into_string()
         } else {
-            format!("{} {}", icon, entry.path.file_name().unwrap_or_default().to_string_lossy())
+            let filename = entry.path.file_name().unwrap_or_default().to_string_lossy();
+            let mut result = MemoryEfficientStringBuilder::with_capacity(icon.len() + filename.len() + 1);
+            result.push_str(&icon);
+            result.push(' ');
+            result.push_str(&filename);
+            result.into_string()
         };
         
         // Add classification suffix if requested
@@ -1042,7 +1058,10 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
             } else {
                 "".to_string()
             };
-            format!("{}{}", name_with_icon, suffix)
+            let mut result = MemoryEfficientStringBuilder::with_capacity(name_with_icon.len() + suffix.len());
+            result.push_str(&name_with_icon);
+            result.push_str(&suffix);
+            result.into_string()
         } else {
             name_with_icon
         };
@@ -1056,7 +1075,11 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
     
     // Show summary for large directories
     if entries.len() > 50 {
-        Notification::info(&format!("Listed {} items", entries.len()));
+        let mut msg = MemoryEfficientStringBuilder::with_capacity(20);
+        msg.push_str("Listed ");
+        msg.push_str(&entries.len().to_string());
+        msg.push_str(" items");
+        Notification::info(&msg.into_string());
     }
     
     Ok(())
@@ -1075,20 +1098,45 @@ fn print_long_entry(
     
     // Inode number
     if options.show_inode {
-        line.push_str(&format!("{:8} ", get_ino(&entry.metadata)));
+        let inode_str = get_ino(&entry.metadata).to_string();
+        let mut inode_part = MemoryEfficientStringBuilder::with_capacity(10);
+        let padding = 8_usize.saturating_sub(inode_str.len());
+        for _ in 0..padding {
+            inode_part.push(' ');
+        }
+        inode_part.push_str(&inode_str);
+        inode_part.push(' ');
+        line.push_str(&inode_part.into_string());
     }
     
     // Block size
     if options.show_size_blocks {
         let blocks = get_blocks(&entry.metadata);
-        line.push_str(&format!("{blocks:6} "));
+        let blocks_str = blocks.to_string();
+        let mut blocks_part = MemoryEfficientStringBuilder::with_capacity(8);
+        let padding = 6_usize.saturating_sub(blocks_str.len());
+        for _ in 0..padding {
+            blocks_part.push(' ');
+        }
+        blocks_part.push_str(&blocks_str);
+        blocks_part.push(' ');
+        line.push_str(&blocks_part.into_string());
     }
     
     // File type and permissions
     line.push_str(&format_permissions(&entry.metadata));
     
     // Number of links
-    line.push_str(&format!(" {:width$}", get_nlink(&entry.metadata), width = max_links));
+    let nlink = get_nlink(&entry.metadata);
+    let nlink_str = nlink.to_string();
+    let mut nlink_part = MemoryEfficientStringBuilder::with_capacity(max_links + 2);
+    nlink_part.push(' ');
+    let padding = max_links.saturating_sub(nlink_str.len());
+    for _ in 0..padding {
+        nlink_part.push(' ');
+    }
+    nlink_part.push_str(&nlink_str);
+    line.push_str(&nlink_part.into_string());
     
     // Owner
     if !options.long_no_owner {
@@ -1108,7 +1156,14 @@ fn print_long_entry(
                 get_user_name(get_uid(&entry.metadata))
             }
         };
-        line.push_str(&format!(" {owner:max_user$}"));
+        let mut owner_part = MemoryEfficientStringBuilder::with_capacity(max_user + 2);
+        owner_part.push(' ');
+        owner_part.push_str(&owner);
+        let padding = max_user.saturating_sub(owner.len());
+        for _ in 0..padding {
+            owner_part.push(' ');
+        }
+        line.push_str(&owner_part.into_string());
     }
     
     // Group
@@ -1129,16 +1184,34 @@ fn print_long_entry(
                 get_group_name(get_gid(&entry.metadata))
             }
         };
-        line.push_str(&format!(" {group:max_group$}"));
+        let mut group_part = MemoryEfficientStringBuilder::with_capacity(max_group + 2);
+        group_part.push(' ');
+        group_part.push_str(&group);
+        let padding = max_group.saturating_sub(group.len());
+        for _ in 0..padding {
+            group_part.push(' ');
+        }
+        line.push_str(&group_part.into_string());
     }
     
     // File size
     let size_str = format_file_size(entry.metadata.len(), options.human_readable);
-    line.push_str(&format!(" {size_str:>max_size$}"));
+    let mut size_part = MemoryEfficientStringBuilder::with_capacity(max_size + 2);
+    size_part.push(' ');
+    let padding = max_size.saturating_sub(size_str.len());
+    for _ in 0..padding {
+        size_part.push(' ');
+    }
+    size_part.push_str(&size_str);
+    line.push_str(&size_part.into_string());
     
     // Modification time
     let time_str = format_time(&entry.metadata, &options.time_style, options.full_time);
-    line.push_str(&format!(" {time_str}"));
+    // Pre-calculate capacity for optimal memory usage: 1 space + time string
+    let mut time_buf = MemoryEfficientStringBuilder::new(1 + time_str.len());
+    time_buf.push(' ');
+    time_buf.push_str(&time_str);
+    line.push_str(&time_buf.into_string());
     
     // File name with colors and git status
     line.push(' ');
@@ -1166,23 +1239,35 @@ fn print_short_format(entries: &[FileInfo], options: &LsOptions, use_colors: boo
             let mut line = String::new();
             
             if options.show_inode {
-                line.push_str(&format!("{} ", get_ino(&entry.metadata).to_string().muted()));
+                // Pre-calculate capacity for optimal memory usage: inode number (up to 20 digits) + 1 space
+                let mut inode_buf = MemoryEfficientStringBuilder::new(25);
+                inode_buf.push_str(&get_ino(&entry.metadata).to_string().muted());
+                inode_buf.push(' ');
+                line.push_str(&inode_buf.into_string());
             }
             
             if options.show_size_blocks {
                 let blocks = get_blocks(&entry.metadata);
-                line.push_str(&format!("{} ", blocks.to_string().dim()));
+                // Pre-calculate capacity for optimal memory usage: blocks number (up to 20 digits) + 1 space
+                let mut blocks_buf = MemoryEfficientStringBuilder::new(25);
+                blocks_buf.push_str(&blocks.to_string().dim());
+                blocks_buf.push(' ');
+                line.push_str(&blocks_buf.into_string());
             }
             
             // Add file icon
             let icon = formatter.get_file_icon(entry.path.file_name().unwrap_or_default().to_str().unwrap_or(""));
-            line.push_str(&format!("{} ", icon));
+            // Pre-calculate capacity for optimal memory usage: icon (typically 1-4 chars) + 1 space
+            let mut icon_buf = MemoryEfficientStringBuilder::new(6);
+            icon_buf.push_str(&icon);
+            icon_buf.push(' ');
+            line.push_str(&icon_buf.into_string());
             
             // Add colored file name
             let colored_name = format_file_name(entry, use_colors, options.classify);
             line.push_str(&colored_name);
             
-            println!("{}", line);
+            println!("{line}");
         }
     } else {
         // Multi-column output with beautiful formatting
@@ -1203,12 +1288,25 @@ fn print_columns(entries: &[FileInfo], options: &LsOptions, use_colors: bool, te
         let mut name = String::new();
         
         if options.show_inode {
-            name.push_str(&format!("{:8} ", get_ino(&entry.metadata)));
+            let inode_val = get_ino(&entry.metadata);
+            // Pre-calculate capacity for optimal memory usage: inode number + 8 spaces padding
+            let mut inode_buf = MemoryEfficientStringBuilder::new(30);
+            inode_buf.push_str(&inode_val.to_string());
+            inode_buf.push_str("        ");
+            let formatted = inode_buf.into_string();
+            name.push_str(&formatted[..8.min(formatted.len())]);
+            name.push(' ');
         }
         
         if options.show_size_blocks {
             let blocks = get_blocks(&entry.metadata);
-            name.push_str(&format!("{blocks:6} "));
+            // Pre-calculate capacity for optimal memory usage: blocks number + 6 spaces padding
+            let mut blocks_buf = MemoryEfficientStringBuilder::new(30);
+            blocks_buf.push_str(&blocks.to_string());
+            blocks_buf.push_str("      ");
+            let formatted = blocks_buf.into_string();
+            name.push_str(&formatted[..6.min(formatted.len())]);
+            name.push(' ');
         }
         
         let colored_name = format_file_name(entry, use_colors, options.classify);
@@ -1258,21 +1356,34 @@ fn print_beautiful_columns(entries: &[FileInfo], options: &LsOptions, use_colors
         let mut plain_item = String::new(); // For width calculation without ANSI codes
         
         if options.show_inode {
-            let inode_str = format!("{} ", get_ino(&entry.metadata));
+            let inode_val = get_ino(&entry.metadata);
+            // Pre-calculate capacity for optimal memory usage: inode number (up to 20 digits) + 1 space
+            let mut inode_buf = MemoryEfficientStringBuilder::new(25);
+            inode_buf.push_str(&inode_val.to_string());
+            inode_buf.push(' ');
+            let inode_str = inode_buf.into_string();
             item.push_str(&inode_str.clone().muted());
             plain_item.push_str(&inode_str);
         }
         
         if options.show_size_blocks {
             let blocks = get_blocks(&entry.metadata);
-            let blocks_str = format!("{} ", blocks);
+            // Pre-calculate capacity for optimal memory usage: blocks number (up to 20 digits) + 1 space
+            let mut blocks_buf = MemoryEfficientStringBuilder::new(25);
+            blocks_buf.push_str(&blocks.to_string());
+            blocks_buf.push(' ');
+            let blocks_str = blocks_buf.into_string();
             item.push_str(&blocks_str.clone().dim());
             plain_item.push_str(&blocks_str);
         }
         
         // Add beautiful icon
         let icon = formatter.get_file_icon(entry.path.file_name().unwrap_or_default().to_str().unwrap_or(""));
-        item.push_str(&format!("{} ", icon));
+        // Pre-calculate capacity for optimal memory usage: icon (typically 1-4 chars) + 1 space
+        let mut icon_buf = MemoryEfficientStringBuilder::new(6);
+        icon_buf.push_str(&icon);
+        icon_buf.push(' ');
+        item.push_str(&icon_buf.into_string());
         plain_item.push_str("🗎 "); // Use a consistent width placeholder for icons
         
         let colored_name = format_file_name(entry, use_colors, options.classify);
@@ -1310,7 +1421,7 @@ fn print_beautiful_columns(entries: &[FileInfo], options: &LsOptions, use_colors
                 }
             }
         }
-        println!("{}", line);
+        println!("{line}");
     }
     
     Ok(())
@@ -1482,10 +1593,16 @@ fn format_file_name(entry: &FileInfo, use_colors: bool, classify: bool) -> Strin
             GitStatus::Conflicted => NuColor::Red,
         };
         
-        return format!("{} {}", 
-            if git_indicator.is_empty() { "".to_string() } else { git_color.paint(git_indicator).to_string() },
-            style.paint(name)
-        );
+        // Pre-calculate capacity for optimal memory usage: git indicator + space + file name + classify char
+        let file_name = entry.path.file_name().unwrap_or_default().to_string_lossy();
+        let capacity = 4 + file_name.len() + 2; // git indicator + space + file name + classify char
+        let mut result = MemoryEfficientStringBuilder::new(capacity);
+        if !git_indicator.is_empty() {
+            result.push_str(&git_color.paint(git_indicator).to_string());
+            result.push(' ');
+        }
+        result.push_str(&style.paint(name).to_string());
+        return result.into_string();
     }
     
     style.paint(name).to_string()
@@ -1603,7 +1720,15 @@ fn get_windows_owner_group(path: &Path) -> Option<(String, String)> {
             let name = String::from_utf16(&name_buf).ok()?;
             let domain = if !domain_buf.is_empty() { Some(String::from_utf16(&domain_buf).ok()?) } else { None };
             Some(match domain {
-                Some(d) if !d.is_empty() => format!("{}\\{}", d, name),
+                Some(d) if !d.is_empty() => {
+                    // Pre-calculate capacity for optimal memory usage: domain + '\' + name
+                    let capacity = d.len() + 1 + name.len();
+                    let mut path_buf = MemoryEfficientStringBuilder::new(capacity);
+                    path_buf.push_str(&d);
+                    path_buf.push('\\');
+                    path_buf.push_str(&name);
+                    path_buf.into_string()
+                }
                 _ => name,
             })
         }
@@ -1624,7 +1749,7 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
     match ls_cli(args) {
         Ok(_) => Ok(0),
         Err(e) => {
-            eprintln!("ls: {}", e);
+            eprintln!("ls: {e}");
             Ok(1)
         }
     }

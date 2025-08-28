@@ -118,6 +118,7 @@ windows-sys = { version = "0.52", features = [
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Threading",
 ] }
+winapi = { version = "0.3", features = ["errhandlingapi", "handleapi", "processthreadsapi", "psapi", "sysinfoapi", "tlhelp32", "winbase", "minwindef"] }
 
 # Pure Rust cryptography
 sha2 = { version = "0.10", default-features = false, features = ["std"] }

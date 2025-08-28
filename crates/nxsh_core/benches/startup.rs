@@ -8,7 +8,7 @@ fn benchmark_startup(c: &mut Criterion) {
         b.iter(|| {
             let start = Instant::now();
             let output = Command::new("../../target/release/nxsh.exe")
-                .args(&["-c", "exit 0"])
+                .args(["-c", "exit 0"])
                 .output()
                 .expect("Failed to execute nxsh");
             
@@ -20,13 +20,13 @@ fn benchmark_startup(c: &mut Criterion) {
     group.bench_function("warm_start", |b| {
         // Pre-warm by running once
         let _ = Command::new("../../target/release/nxsh.exe")
-            .args(&["-c", "exit 0"])
+            .args(["-c", "exit 0"])
             .output();
         
         b.iter(|| {
             let start = Instant::now();
             let output = Command::new("../../target/release/nxsh.exe")
-                .args(&["-c", "exit 0"])
+                .args(["-c", "exit 0"])
                 .output()
                 .expect("Failed to execute nxsh");
             
@@ -110,11 +110,11 @@ fn benchmark_comparison_with_bash(c: &mut Criterion) {
     ];
     
     for (name, cmd) in &test_commands {
-        group.bench_function(&format!("nxsh_{}", name), |b| {
+        group.bench_function(format!("nxsh_{name}"), |b| {
             b.iter(|| {
                 let start = Instant::now();
                 let output = Command::new("../../target/release/nxsh.exe")
-                    .args(&["-c", cmd])
+                    .args(["-c", cmd])
                     .output()
                     .expect("Failed to execute nxsh");
                 
@@ -123,11 +123,11 @@ fn benchmark_comparison_with_bash(c: &mut Criterion) {
             })
         });
         
-        group.bench_function(&format!("bash_{}", name), |b| {
+        group.bench_function(format!("bash_{name}"), |b| {
             b.iter(|| {
                 let start = Instant::now();
                 let output = Command::new("bash")
-                    .args(&["-c", cmd])
+                    .args(["-c", cmd])
                     .output()
                     .expect("Failed to execute bash");
                 

@@ -14,7 +14,7 @@ pub fn execute(args: &[String]) -> Result<i32, String> {
             if args.len() >= 3 {
                 let name = &args[1];
                 let command = args[2..].join(" ");
-                println!("✅ Smart alias '{}' created for command '{}'", name, command);
+                println!("✅ Smart alias '{name}' created for command '{command}'");
                 Ok(0)
             } else {
                 eprintln!("Usage: smart_alias create <name> <command>");

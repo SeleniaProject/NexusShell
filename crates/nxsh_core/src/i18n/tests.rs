@@ -56,7 +56,7 @@ bytes.other = {count} Bytes
 }
 
 #[cfg(test)]
-mod tests {
+mod i18n_tests {
     use super::*;
 
     #[test]
@@ -326,18 +326,18 @@ invalid-key = Value with {unmatched brace
         // Existing locales should have no errors (empty vec or not present in report)
         if let Some(en_errors) = report.get("en-US") {
             if !en_errors.is_empty() {
-                println!("English locale errors: {:?}", en_errors);
+                println!("English locale errors: {en_errors:?}");
             }
             // Don't assert empty as validation might find issues we need to fix
         }
         if let Some(ja_errors) = report.get("ja-JP") {
             if !ja_errors.is_empty() {
-                println!("Japanese locale errors: {:?}", ja_errors);
+                println!("Japanese locale errors: {ja_errors:?}");
             }
         }
         if let Some(de_errors) = report.get("de-DE") {
             if !de_errors.is_empty() {
-                println!("German locale errors: {:?}", de_errors);
+                println!("German locale errors: {de_errors:?}");
             }
         }
     }

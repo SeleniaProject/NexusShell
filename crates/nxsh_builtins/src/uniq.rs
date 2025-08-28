@@ -42,6 +42,7 @@ pub struct UniqOptions {
     pub group: bool,
     pub input_file: Option<String>,
     pub output_file: Option<String>,
+    pub no_color: bool,
 }
 
 impl Builtin for UniqBuiltin {
@@ -111,6 +112,7 @@ fn parse_uniq_args(args: &[String]) -> ShellResult<UniqOptions> {
         group: false,
         input_file: None,
         output_file: None,
+        no_color: false,
     };
 
     let mut i = 0;
@@ -343,11 +345,15 @@ fn process_group<W: Write>(
         // Output all lines in the group
         for (i, line) in group_lines.iter().enumerate() {
             if options.count {
-                let colors = ColorPalette::new();
-                let count_str = if count > 1 {
-                    format!("{}{:7}{}", colors.warning, count, colors.reset)
+                let count_str = if options.no_color {
+                    format!("{count:7}")
                 } else {
-                    format!("{}{:7}{}", colors.info, count, colors.reset)
+                    let colors = ColorPalette::new();
+                    if count > 1 {
+                        format!("{}{:7}{}", colors.warning, count, colors.reset)
+                    } else {
+                        format!("{}{:7}{}", colors.info, count, colors.reset)
+                    }
                 };
                 write!(writer, "{count_str} {line}")?;
             } else {
@@ -365,11 +371,15 @@ fn process_group<W: Write>(
         let line = &group_lines[0];
         
         if options.count {
-            let colors = ColorPalette::new();
-            let count_str = if count > 1 {
-                format!("{}{:7}{}", colors.warning, count, colors.reset)
+            let count_str = if options.no_color {
+                format!("{count:7}")
             } else {
-                format!("{}{:7}{}", colors.info, count, colors.reset)
+                let colors = ColorPalette::new();
+                if count > 1 {
+                    format!("{}{:7}{}", colors.warning, count, colors.reset)
+                } else {
+                    format!("{}{:7}{}", colors.info, count, colors.reset)
+                }
             };
             write!(writer, "{count_str} {line}")?;
         } else {
@@ -393,6 +403,14 @@ pub fn uniq_cli(args: &[String]) -> anyhow::Result<()> {
         Ok(_) => Ok(()),
         Err(e) => Err(anyhow::anyhow!("uniq command failed: {}", e)),
     }
+} 
+
+
+
+/// Execute function stub
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    eprintln!("Command not yet implemented");
+    Ok(1)
 }
 
 #[cfg(test)]
@@ -415,6 +433,7 @@ mod tests {
             group: false,
             input_file: None,
             output_file: None,
+            no_color: false,
         };
 
         assert_eq!(extract_comparison_key("hello world", &options), "hello world");
@@ -450,6 +469,7 @@ mod tests {
             group: false,
             input_file: None,
             output_file: None,
+            no_color: false,
         };
 
         let mut output = Vec::new();
@@ -481,6 +501,7 @@ mod tests {
             group: false,
             input_file: None,
             output_file: None,
+            no_color: true,
         };
 
         let mut output = Vec::new();
@@ -493,12 +514,4 @@ mod tests {
 
         assert_eq!(String::from_utf8(output).unwrap(), expected);
     }
-} 
-
-
-
-/// Execute function stub
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
-    eprintln!("Command not yet implemented");
-    Ok(1)
 }

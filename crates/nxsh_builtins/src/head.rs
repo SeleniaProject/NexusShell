@@ -53,7 +53,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
                 match num_str.parse::<i64>() {
                     Ok(n) => line_count = n,
                     Err(_) => {
-                        eprintln!("head: invalid number of lines: '{}'", num_str);
+                        eprintln!("head: invalid number of lines: '{num_str}'");
                         return Ok(1);
                     }
                 }
@@ -63,13 +63,13 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
                 match num_str.parse::<u64>() {
                     Ok(n) => byte_count = Some(n),
                     Err(_) => {
-                        eprintln!("head: invalid number of bytes: '{}'", num_str);
+                        eprintln!("head: invalid number of bytes: '{num_str}'");
                         return Ok(1);
                     }
                 }
             }
             arg if arg.starts_with('-') => {
-                eprintln!("head: invalid option '{}'", arg);
+                eprintln!("head: invalid option '{arg}'");
                 return Ok(1);
             }
             _ => files.push(args[i].clone()),
@@ -99,7 +99,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
         };
 
         if let Err(e) = result {
-            eprintln!("head: {}: {}", filename, e);
+            eprintln!("head: {filename}: {e}");
             exit_code = 1;
         }
     }
@@ -109,7 +109,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
 
 fn read_from_file(filename: &str, line_count: i64, byte_count: Option<u64>) -> Result<(), Box<dyn std::error::Error>> {
     if !Path::new(filename).exists() {
-        return Err(format!("No such file or directory").into());
+        return Err("No such file or directory".to_string().into());
     }
 
     let file = File::open(filename)?;
@@ -142,6 +142,7 @@ fn read_lines<R: BufRead>(reader: R, line_count: i64) -> Result<(), Box<dyn std:
     }
 
     let mut count = 0;
+    #[allow(clippy::explicit_counter_loop)]
     for line in reader.lines() {
         if count >= line_count {
             break;

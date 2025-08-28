@@ -18,6 +18,7 @@
 use anyhow::{anyhow, Result};
 use std::fs::File;
 use std::io::{self, Read};
+use nxsh_core::memory_efficient::MemoryEfficientStringBuilder;
 use crate::common::TableFormatter;
 use crate::ui_design::{
     Colorize, 
@@ -255,51 +256,86 @@ fn print_counts(counts: (usize, usize, usize, usize, usize), label: &str, mode: 
         
         if headers.len() > 1 {
             // Multiple columns - use table format
-            println!("{} {}", formatter.icons.document, label.bright());
+            let mut header_msg = MemoryEfficientStringBuilder::with_capacity(50);
+            header_msg.push_str(formatter.icons.document);
+            header_msg.push(' ');
+            header_msg.push_str(&label.bright());
+            println!("{}", header_msg.into_string());
             let string_headers: Vec<String> = headers.iter().map(|s| s.to_string()).collect();
             let string_rows = vec![values.iter().map(|s| s.to_string()).collect()];
             print!("{}", formatter.create_table(&string_headers, &string_rows));
         } else {
             // Single column - use simple format
-            print!("{} {} {} {}", 
-                formatter.icons.bullet,
-                values[0],
-                headers[0].muted(),
-                label.dim()
-            );
+            let mut single_msg = MemoryEfficientStringBuilder::with_capacity(100);
+            single_msg.push_str(formatter.icons.bullet);
+            single_msg.push(' ');
+            single_msg.push_str(&values[0]);
+            single_msg.push(' ');
+            single_msg.push_str(&headers[0].muted());
+            single_msg.push(' ');
+            single_msg.push_str(&label.dim());
+            print!("{}", single_msg.into_string());
         }
     } else {
         // Simple format for stdin or totals
         let mut out_parts = vec![];
         
         if mode.contains(Mode::LINES) { 
-            out_parts.push(format!("{} {}", counts.0.to_string().info(), "lines".muted()));
+            let mut part = MemoryEfficientStringBuilder::with_capacity(20);
+            part.push_str(&counts.0.to_string().info());
+            part.push(' ');
+            part.push_str(&"lines".muted());
+            out_parts.push(part.into_string());
         }
         if mode.contains(Mode::WORDS) { 
-            out_parts.push(format!("{} {}", counts.1.to_string().primary(), "words".muted()));
+            let mut part = MemoryEfficientStringBuilder::with_capacity(20);
+            part.push_str(&counts.1.to_string().primary());
+            part.push(' ');
+            part.push_str(&"words".muted());
+            out_parts.push(part.into_string());
         }
         if mode.contains(Mode::BYTES) { 
-            out_parts.push(format!("{} {}", formatter.format_size(counts.2 as u64), "bytes".muted()));
+            let mut part = MemoryEfficientStringBuilder::with_capacity(20);
+            part.push_str(&formatter.format_size(counts.2 as u64));
+            part.push(' ');
+            part.push_str(&"bytes".muted());
+            out_parts.push(part.into_string());
         }
         if mode.contains(Mode::CHARS) { 
-            out_parts.push(format!("{} {}", counts.3.to_string().secondary(), "chars".muted()));
+            let mut part = MemoryEfficientStringBuilder::with_capacity(20);
+            part.push_str(&counts.3.to_string().secondary());
+            part.push(' ');
+            part.push_str(&"chars".muted());
+            out_parts.push(part.into_string());
         }
         if mode.contains(Mode::MAXLINE) { 
-            out_parts.push(format!("{} {}", counts.4.to_string(), "max".muted()));
+            let mut part = MemoryEfficientStringBuilder::with_capacity(20);
+            part.push_str(&counts.4.to_string());
+            part.push(' ');
+            part.push_str(&"max".muted());
+            out_parts.push(part.into_string());
         }
         
         if show_label {
-            println!("{} {} {}", 
-                formatter.icons.info,
-                out_parts.join(", "),
-                label.dim()
-            );
+            let mut result = MemoryEfficientStringBuilder::with_capacity(20);
+            result.push_str(formatter.icons.info);
+            result.push(' ');
+            result.push_str(&out_parts.join(", "));
+            result.push(' ');
+            result.push_str(&label.dim());
+            println!("{}", result.into_string());
         } else {
             println!("{}", out_parts.join(", "));
         }
     }
     
     Ok(())
+}
+
+/// Execute function stub
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    eprintln!("Command not yet implemented");
+    Ok(1)
 }
 
 #[cfg(test)]
@@ -331,7 +367,7 @@ mod tests {
 
         let mut list = NamedTempFile::new().unwrap();
         // NUL separated, final NUL present
-        write!(list, "{}\0", p1).unwrap();
+        write!(list, "{p1}\0").unwrap();
         let list_path = list.path().to_str().unwrap().to_string();
 
         // Build args: --files0-from=list plus positional p2
@@ -387,7 +423,7 @@ mod tests {
     #[test]
     fn test_utf8_characters() {
         let mut tmp = NamedTempFile::new().unwrap();
-        write!(tmp, "こんにちは\n").unwrap();
+        writeln!(tmp, "こんにちは").unwrap();
         let path = tmp.path().to_str().unwrap().to_string();
         let counts = count_stream(&path, Mode::LINES | Mode::WORDS | Mode::BYTES | Mode::CHARS).unwrap();
         assert_eq!(counts.0, 1); // one newline
@@ -425,12 +461,4 @@ mod tests {
         let result = wc_cli(&["-lwc".to_string(), path]);
         assert!(result.is_ok());
     }
-}
-
-
-
-/// Execute function stub
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
-    eprintln!("Command not yet implemented");
-    Ok(1)
 }

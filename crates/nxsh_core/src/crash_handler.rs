@@ -493,8 +493,8 @@ impl CrashHandler {
                         stats.most_recent_crash = Some(crash_time);
                     }
                 }
-                Err(e) => {
-                    nxsh_log_warn!("Failed to parse crash report line: {}", e);
+                Err(_e) => {
+                    nxsh_log_warn!("Failed to parse crash report line: {}", _e);
                 }
             }
         }
@@ -537,39 +537,331 @@ impl CrashHandler {
 
     #[allow(dead_code)]
     fn get_total_memory() -> Option<u64> {
-        // Simplified implementation - would need platform-specific code
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
+                for line in meminfo.lines() {
+                    if let Some(value) = line.strip_prefix("MemTotal:") {
+                        if let Ok(kb) = value.trim().split_whitespace().next().unwrap_or("0").parse::<u64>() {
+                            return Some(kb * 1024); // Convert KB to bytes
+                        }
+                    }
+                }
+            }
+        }
+        
+        #[cfg(target_os = "windows")]
+        {
+            use std::mem;
+            use winapi::um::sysinfoapi::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+            
+            unsafe {
+                let mut mem_status: MEMORYSTATUSEX = mem::zeroed();
+                mem_status.dwLength = mem::size_of::<MEMORYSTATUSEX>() as u32;
+                
+                if GlobalMemoryStatusEx(&mut mem_status) != 0 {
+                    return Some(mem_status.ullTotalPhys);
+                }
+            }
+        }
+        
+        #[cfg(target_os = "macos")]
+        {
+            use std::process::Command;
+            if let Ok(output) = Command::new("sysctl").args(["-n", "hw.memsize"]).output() {
+                if let Ok(mem_str) = String::from_utf8(output.stdout) {
+                    if let Ok(mem_bytes) = mem_str.trim().parse::<u64>() {
+                        return Some(mem_bytes);
+                    }
+                }
+            }
+        }
+        
         None
     }
 
     #[allow(dead_code)]
     fn get_available_memory() -> Option<u64> {
-        // Simplified implementation - would need platform-specific code
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
+                for line in meminfo.lines() {
+                    if let Some(value) = line.strip_prefix("MemAvailable:") {
+                        if let Ok(kb) = value.trim().split_whitespace().next().unwrap_or("0").parse::<u64>() {
+                            return Some(kb * 1024); // Convert KB to bytes
+                        }
+                    }
+                }
+            }
+        }
+        
+        #[cfg(target_os = "windows")]
+        {
+            use std::mem;
+            use winapi::um::sysinfoapi::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+            
+            unsafe {
+                let mut mem_status: MEMORYSTATUSEX = mem::zeroed();
+                mem_status.dwLength = mem::size_of::<MEMORYSTATUSEX>() as u32;
+                
+                if GlobalMemoryStatusEx(&mut mem_status) != 0 {
+                    return Some(mem_status.ullAvailPhys);
+                }
+            }
+        }
+        
+        #[cfg(target_os = "macos")]
+        {
+            use std::process::Command;
+            if let Ok(output) = Command::new("vm_stat").output() {
+                if let Ok(vm_stat_str) = String::from_utf8(output.stdout) {
+                    let mut free_pages = 0u64;
+                    for line in vm_stat_str.lines() {
+                        if line.starts_with("Pages free:") {
+                            if let Some(pages_str) = line.split(':').nth(1) {
+                                if let Ok(pages) = pages_str.trim().replace('.', "").parse::<u64>() {
+                                    free_pages = pages;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    // Assume 4KB page size
+                    return Some(free_pages * 4096);
+                }
+            }
+        }
+        
         None
     }
 
     #[allow(dead_code)]
     fn get_load_average() -> Option<f64> {
-        // Simplified implementation - would need platform-specific code
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(loadavg) = std::fs::read_to_string("/proc/loadavg") {
+                if let Some(first_load) = loadavg.split_whitespace().next() {
+                    if let Ok(load) = first_load.parse::<f64>() {
+                        return Some(load);
+                    }
+                }
+            }
+        }
+        
+        #[cfg(target_os = "macos")]
+        {
+            use std::process::Command;
+            if let Ok(output) = Command::new("uptime").output() {
+                if let Ok(uptime_str) = String::from_utf8(output.stdout) {
+                    // Parse load average from uptime output
+                    if let Some(load_part) = uptime_str.split("load averages:").nth(1) {
+                        if let Some(first_load) = load_part.trim().split_whitespace().next() {
+                            if let Ok(load) = first_load.parse::<f64>() {
+                                return Some(load);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        #[cfg(target_os = "windows")]
+        {
+            // Windows doesn't have direct load average, use CPU usage as approximation
+            use std::process::Command;
+            if let Ok(output) = Command::new("wmic")
+                .args(["cpu", "get", "loadpercentage", "/value"])
+                .output() {
+                if let Ok(output_str) = String::from_utf8(output.stdout) {
+                    for line in output_str.lines() {
+                        if line.starts_with("LoadPercentage=") {
+                            if let Some(value_str) = line.split('=').nth(1) {
+                                if let Ok(load_percent) = value_str.trim().parse::<f64>() {
+                                    return Some(load_percent / 100.0);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
         None
     }
 
     fn get_parent_pid() -> Option<u32> {
-        // Simplified implementation - would need platform-specific code
+        #[cfg(unix)]
+        {
+            use std::process;
+            use std::os::unix::process::parent_id;
+            Some(parent_id())
+        }
+        
+        #[cfg(target_os = "windows")]
+        {
+            use std::process;
+            use winapi::um::tlhelp32::{CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32, TH32CS_SNAPPROCESS};
+            use winapi::um::handleapi::CloseHandle;
+            use std::mem;
+            
+            unsafe {
+                let current_pid = process::id();
+                let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+                if snapshot == winapi::um::handleapi::INVALID_HANDLE_VALUE {
+                    return None;
+                }
+                
+                let mut entry: PROCESSENTRY32 = mem::zeroed();
+                entry.dwSize = mem::size_of::<PROCESSENTRY32>() as u32;
+                
+                if Process32First(snapshot, &mut entry) != 0 {
+                    loop {
+                        if entry.th32ProcessID == current_pid {
+                            CloseHandle(snapshot);
+                            return Some(entry.th32ParentProcessID);
+                        }
+                        
+                        if Process32Next(snapshot, &mut entry) == 0 {
+                            break;
+                        }
+                    }
+                }
+                
+                CloseHandle(snapshot);
+                None
+            }
+        }
+        
+        #[cfg(not(any(unix, target_os = "windows")))]
         None
     }
 
     fn get_memory_usage() -> Option<MemoryUsage> {
-        // Simplified implementation - would need platform-specific code
+        #[cfg(target_os = "linux")]
+        {
+            use std::process;
+            let pid = process::id();
+            if let Ok(status) = std::fs::read_to_string(format!("/proc/{}/status", pid)) {
+                let mut usage = MemoryUsage::default();
+                
+                for line in status.lines() {
+                    if let Some(value) = line.strip_prefix("VmRSS:") {
+                        if let Ok(kb) = value.trim().split_whitespace().next().unwrap_or("0").parse::<u64>() {
+                            usage.resident = kb * 1024;
+                        }
+                    } else if let Some(value) = line.strip_prefix("VmSize:") {
+                        if let Ok(kb) = value.trim().split_whitespace().next().unwrap_or("0").parse::<u64>() {
+                            usage.virt_mem = kb * 1024;
+                        }
+                    }
+                }
+                
+                return Some(usage);
+            }
+        }
+        
+        #[cfg(target_os = "windows")]
+        {
+            use winapi::um::processthreadsapi::GetCurrentProcess;
+            use winapi::um::psapi::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
+            use std::mem;
+            
+            unsafe {
+                let mut pmc: PROCESS_MEMORY_COUNTERS = mem::zeroed();
+                pmc.cb = mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+                
+                if GetProcessMemoryInfo(GetCurrentProcess(), &mut pmc, pmc.cb) != 0 {
+                    return Some(MemoryUsage {
+                        resident: pmc.WorkingSetSize as u64,
+                        virt_mem: pmc.PagefileUsage as u64,
+                        shared: 0,
+                        heap: 0,
+                        stack: 0,
+                    });
+                }
+            }
+        }
+        
         None
     }
 
     fn get_cpu_usage() -> Option<f64> {
-        // Simplified implementation - would need platform-specific code
+        #[cfg(target_os = "linux")]
+        {
+            use std::process;
+            let pid = process::id();
+            if let Ok(stat) = std::fs::read_to_string(format!("/proc/{}/stat", pid)) {
+                let fields: Vec<&str> = stat.split_whitespace().collect();
+                if fields.len() >= 15 {
+                    // utime (14th field) + stime (15th field)
+                    if let (Ok(utime), Ok(stime)) = (fields[13].parse::<u64>(), fields[14].parse::<u64>()) {
+                        let total_time = utime + stime;
+                        // Convert from clock ticks to seconds (assume 100 Hz)
+                        return Some(total_time as f64 / 100.0);
+                    }
+                }
+            }
+        }
+        
+        #[cfg(target_os = "windows")]
+        {
+            use winapi::um::processthreadsapi::{GetCurrentProcess, GetProcessTimes};
+            use winapi::shared::minwindef::FILETIME;
+            use std::mem;
+            
+            unsafe {
+                let mut creation_time: FILETIME = mem::zeroed();
+                let mut exit_time: FILETIME = mem::zeroed();
+                let mut kernel_time: FILETIME = mem::zeroed();
+                let mut user_time: FILETIME = mem::zeroed();
+                
+                if GetProcessTimes(
+                    GetCurrentProcess(),
+                    &mut creation_time,
+                    &mut exit_time,
+                    &mut kernel_time,
+                    &mut user_time,
+                ) != 0 {
+                    // Convert FILETIME to u64 (100-nanosecond intervals)
+                    let kernel_ticks = ((kernel_time.dwHighDateTime as u64) << 32) | kernel_time.dwLowDateTime as u64;
+                    let user_ticks = ((user_time.dwHighDateTime as u64) << 32) | user_time.dwLowDateTime as u64;
+                    let total_ticks = kernel_ticks + user_ticks;
+                    
+                    // Convert to seconds
+                    return Some(total_ticks as f64 / 10_000_000.0);
+                }
+            }
+        }
+        
         None
     }
 
     fn get_open_files() -> Option<Vec<String>> {
-        // Simplified implementation - would need platform-specific code
+        #[cfg(target_os = "linux")]
+        {
+            use std::process;
+            let pid = process::id();
+            let fd_dir = format!("/proc/{}/fd", pid);
+            
+            if let Ok(entries) = std::fs::read_dir(fd_dir) {
+                let mut files = Vec::new();
+                for entry in entries.flatten() {
+                    if let Ok(target) = std::fs::read_link(entry.path()) {
+                        files.push(target.to_string_lossy().to_string());
+                    }
+                }
+                return Some(files);
+            }
+        }
+        
+        #[cfg(target_os = "windows")]
+        {
+            // Windows implementation would require more complex API calls
+            // For now, return empty list as a reasonable fallback
+            return Some(Vec::new());
+        }
+        
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         None
     }
 }

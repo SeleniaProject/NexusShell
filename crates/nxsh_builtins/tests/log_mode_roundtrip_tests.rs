@@ -1,4 +1,4 @@
-use nxsh_builtins::logstats_cli;
+use nxsh_builtins::logstats_builtin::logstats_cli;
 
 #[allow(dead_code)]
 fn run_capture(args: &[&str]) -> String {
@@ -11,7 +11,7 @@ fn run_capture(args: &[&str]) -> String {
 #[test]
 fn json_contains_expected_keys() {
     // Just validate that JSON path succeeds and is well-formed
-    let args = vec!["logstats", "--json"]; 
+    let args = ["logstats", "--json"]; 
     let res = logstats_cli(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>());
     assert!(res.is_ok());
 }
@@ -19,7 +19,7 @@ fn json_contains_expected_keys() {
 #[test]
 fn prometheus_format_has_type_lines() {
     // Smoke: ensure prom path runs; detailed string check would require output capture infra
-    let args = vec!["logstats", "--prom"]; 
+    let args = ["logstats", "--prom"]; 
     let res = logstats_cli(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>());
     assert!(res.is_ok());
 }

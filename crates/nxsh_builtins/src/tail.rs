@@ -56,7 +56,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
                 match num_str.parse::<i64>() {
                     Ok(n) => line_count = n,
                     Err(_) => {
-                        eprintln!("tail: invalid number of lines: '{}'", num_str);
+                        eprintln!("tail: invalid number of lines: '{num_str}'");
                         return Ok(1);
                     }
                 }
@@ -66,13 +66,13 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
                 match num_str.parse::<u64>() {
                     Ok(n) => byte_count = Some(n),
                     Err(_) => {
-                        eprintln!("tail: invalid number of bytes: '{}'", num_str);
+                        eprintln!("tail: invalid number of bytes: '{num_str}'");
                         return Ok(1);
                     }
                 }
             }
             arg if arg.starts_with('-') => {
-                eprintln!("tail: invalid option '{}'", arg);
+                eprintln!("tail: invalid option '{arg}'");
                 return Ok(1);
             }
             _ => files.push(args[i].clone()),
@@ -102,7 +102,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
         };
 
         if let Err(e) = result {
-            eprintln!("tail: {}: {}", filename, e);
+            eprintln!("tail: {filename}: {e}");
             exit_code = 1;
         }
     }
@@ -117,7 +117,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
 
 fn read_from_file(filename: &str, line_count: i64, byte_count: Option<u64>) -> Result<(), Box<dyn std::error::Error>> {
     if !Path::new(filename).exists() {
-        return Err(format!("No such file or directory").into());
+        return Err("No such file or directory".to_string().into());
     }
 
     let mut file = File::open(filename)?;
@@ -172,7 +172,7 @@ fn read_last_lines<R: BufRead>(reader: R, line_count: i64) -> Result<(), Box<dyn
     }
 
     for line in lines {
-        println!("{}", line);
+        println!("{line}");
     }
 
     Ok(())
@@ -181,11 +181,7 @@ fn read_last_lines<R: BufRead>(reader: R, line_count: i64) -> Result<(), Box<dyn
 fn read_last_bytes(file: &mut File, byte_count: u64) -> Result<(), Box<dyn std::error::Error>> {
     let file_size = file.metadata()?.len();
     
-    let start_pos = if file_size > byte_count {
-        file_size - byte_count
-    } else {
-        0
-    };
+    let start_pos = file_size.saturating_sub(byte_count);
 
     file.seek(SeekFrom::Start(start_pos))?;
     

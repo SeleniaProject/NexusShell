@@ -20,8 +20,8 @@ pub fn whoami_cli(args: &[String]) -> Result<()> {
         Ok(username) => {
             let colors = ColorPalette::new();
             let icons = Icons::new();
-            println!("{}{} Current user: {}{}{}", 
-                colors.primary, "👤", colors.success, username, colors.reset);
+            println!("{}👤 Current user: {}{}{}", 
+                colors.primary, colors.success, username, colors.reset);
         },
         Err(_) => {
             // Fallback to current user detection

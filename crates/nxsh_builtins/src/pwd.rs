@@ -50,7 +50,7 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
                 return Ok(0);
             }
             _ if arg.starts_with('-') => {
-                eprintln!("pwd: invalid option '{}'", arg);
+                eprintln!("pwd: invalid option '{arg}'");
                 return Ok(1);
             }
             _ => {
@@ -65,7 +65,7 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
         match std::env::current_dir() {
             Ok(path) => path,
             Err(e) => {
-                eprintln!("❌ pwd error: {}", e);
+                eprintln!("❌ pwd error: {e}");
                 return Ok(1);
             }
         }
@@ -76,7 +76,7 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
             Err(_) => match std::env::current_dir() {
                 Ok(path) => path,
                 Err(e) => {
-                    eprintln!("❌ pwd error: {}", e);
+                    eprintln!("❌ pwd error: {e}");
                     return Ok(1);
                 }
             }
@@ -96,9 +96,9 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
     for (i, component) in components.iter().enumerate() {
         if !component.is_empty() {
             let color = if i % 2 == 0 { cyan } else { purple };
-            print!("{}{}{}", color, component, reset);
+            print!("{color}{component}{reset}");
             if i < components.len() - 1 && !component.is_empty() {
-                print!("{}/{}", purple, reset);
+                print!("{purple}/{reset}");
             }
         }
     }

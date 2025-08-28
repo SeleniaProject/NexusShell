@@ -283,17 +283,22 @@ impl UniversalFormatter {
         if let Some(meta) = metadata {
             if let Some(total) = meta.total_items {
                 if total > rows.len() {
-                    output.push_str(&self.cui.format_info_message(
-                        &format!("Showing {} of {} items", rows.len(), total)
-                    ));
+                    let mut info_msg = String::with_capacity(50);
+                    info_msg.push_str("Showing ");
+                    info_msg.push_str(&rows.len().to_string());
+                    info_msg.push_str(" of ");
+                    info_msg.push_str(&total.to_string());
+                    info_msg.push_str(" items");
+                    output.push_str(&self.cui.format_info_message(&info_msg));
                     output.push('\n');
                 }
             }
             
             if !meta.filters.is_empty() {
-                output.push_str(&self.cui.format_info_message(
-                    &format!("Filters applied: {}", meta.filters.join(", "))
-                ));
+                let mut filter_msg = String::with_capacity(30 + meta.filters.join(", ").len());
+                filter_msg.push_str("Filters applied: ");
+                filter_msg.push_str(&meta.filters.join(", "));
+                output.push_str(&self.cui.format_info_message(&filter_msg));
                 output.push('\n');
             }
             
@@ -302,9 +307,13 @@ impl UniversalFormatter {
                     SortDirection::Ascending => "ascending",
                     SortDirection::Descending => "descending",
                 };
-                output.push_str(&self.cui.format_info_message(
-                    &format!("Sorted by {} ({})", col, direction)
-                ));
+                let mut sort_msg = String::with_capacity(30 + col.len() + direction.len());
+                sort_msg.push_str("Sorted by ");
+                sort_msg.push_str(col);
+                sort_msg.push_str(" (");
+                sort_msg.push_str(direction);
+                sort_msg.push(')');
+                output.push_str(&self.cui.format_info_message(&sort_msg));
                 output.push('\n');
             }
             
@@ -319,9 +328,11 @@ impl UniversalFormatter {
         // Add summary footer for large tables
         if rows.len() > 20 {
             output.push('\n');
-            output.push_str(&self.cui.format_info_message(
-                &format!("Total: {} rows", rows.len())
-            ));
+            let mut summary = String::with_capacity(30);
+            summary.push_str("Total: ");
+            summary.push_str(&rows.len().to_string());
+            summary.push_str(" rows");
+            output.push_str(&self.cui.format_info_message(&summary));
         }
         
         Ok(output)
@@ -356,7 +367,18 @@ impl UniversalFormatter {
         
         if numbered {
             for (i, item) in items.iter().enumerate() {
-                output.push_str(&format!("{:3}. {}\n", i + 1, item));
+                let num = i + 1;
+                let mut line = String::with_capacity(10 + item.len());
+                if num < 10 {
+                    line.push_str("  ");
+                } else if num < 100 {
+                    line.push(' ');
+                }
+                line.push_str(&num.to_string());
+                line.push_str(". ");
+                line.push_str(item);
+                line.push('\n');
+                output.push_str(&line);
             }
         } else {
             let item_refs: Vec<&str> = items.iter().map(|s| s.as_str()).collect();
@@ -365,8 +387,11 @@ impl UniversalFormatter {
         
         if items.len() > 10 {
             output.push('\n');
-            output.push_str(&self.cui.format_info_message(
-                &format!("Total: {} items", items.len())
+            let mut total_msg = String::with_capacity(30);
+            total_msg.push_str("Total: ");
+            total_msg.push_str(&items.len().to_string());
+            total_msg.push_str(" items");
+            output.push_str(&self.cui.format_info_message(&total_msg));
             ));
         }
         
@@ -471,9 +496,12 @@ impl UniversalFormatter {
     
     /// Format error message
     fn format_error(&self, message: &str, details: Option<&str>, code: Option<i32>) -> String {
-        let mut msg = message.to_string();
+        let mut msg = String::with_capacity(message.len() + 20); // pre-allocate
+        msg.push_str(message);
         if let Some(code) = code {
-            msg.push_str(&format!(" (exit code: {})", code));
+            msg.push_str(" (exit code: ");
+            msg.push_str(&code.to_string());
+            msg.push(')');
         }
         
         let mut output = self.cui.format_error_message(&msg);

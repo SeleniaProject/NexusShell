@@ -64,7 +64,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
                 return Ok(0);
             }
             arg if arg.starts_with('-') => {
-                eprintln!("uname: invalid option '{}'", arg);
+                eprintln!("uname: invalid option '{arg}'");
                 return Ok(1);
             }
             _ => {

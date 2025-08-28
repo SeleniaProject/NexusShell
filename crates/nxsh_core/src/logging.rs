@@ -446,17 +446,27 @@ impl LoggingSystem {
         &self.config
     }
 
-    /// Update configuration
+    /// Update logging configuration with validation and change tracking
+    /// 
+    /// This function updates the logging system configuration, validates the new
+    /// settings, and logs the configuration changes for audit purposes.
+    /// 
+    /// # Arguments
+    /// * `config` - New logging configuration to apply
+    /// 
+    /// # Returns
+    /// Result indicating success or failure of the configuration update
     pub fn update_config(&mut self, config: LoggingConfig) -> Result<()> {
-        let old_config = self.config.clone();
+        let _old_config = self.config.clone();
         self.config = config;
         
-    nxsh_log_info!(
-            old_level = %old_config.level,
+        // Log configuration update for audit trail
+        nxsh_log_info!(
+            old_level = %_old_config.level,
             new_level = %self.config.level,
-            old_format = ?old_config.format,
+            old_format = ?_old_config.format,
             new_format = ?self.config.format,
-            "Logging configuration updated"
+            "Logging configuration updated successfully"
         );
         
         Ok(())

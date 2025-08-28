@@ -155,6 +155,12 @@ pub struct Icons {
     pub document: &'static str,
 }
 
+impl Default for Icons {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Icons {
     pub fn new() -> Self {
         Self {
@@ -165,6 +171,12 @@ impl Icons {
             info: "ℹ️",
             document: "📄",
         }
+    }
+}
+
+impl Default for TableFormatter {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -208,7 +220,7 @@ impl TableFormatter {
             if i > 0 {
                 output.push_str("  ");
             }
-            output.push_str(&format!("{:<12}", header));
+            output.push_str(&format!("{header:<12}"));
         }
         output.push('\n');
         
@@ -227,7 +239,7 @@ impl TableFormatter {
                 if i > 0 {
                     output.push_str("  ");
                 }
-                output.push_str(&format!("{:<12}", cell));
+                output.push_str(&format!("{cell:<12}"));
             }
             output.push('\n');
         }
@@ -336,7 +348,7 @@ impl TableFormatter {
                 if i > 0 {
                     output.push_str("  ");
                 }
-                output.push_str(&format!("{:<width$}", header, width = width));
+                output.push_str(&format!("{header:<width$}"));
             }
             output.push('\n');
 
@@ -359,7 +371,7 @@ impl TableFormatter {
                 if i > 0 {
                     output.push_str("  ");
                 }
-                output.push_str(&format!("{:<width$}", cell, width = width));
+                output.push_str(&format!("{cell:<width$}"));
             }
             output.push('\n');
         }

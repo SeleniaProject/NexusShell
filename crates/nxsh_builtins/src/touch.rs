@@ -487,6 +487,18 @@ fn print_help() {
     println!("  touch -m file.txt                 Update only modification time");
     println!();
     println!("Report touch bugs to <bug-reports@nexusshell.org>");
+} 
+
+
+/// Execute function for touch command
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match touch_cli(args) {
+        Ok(_) => Ok(0),
+        Err(e) => {
+            eprintln!("{e}");
+            Ok(1)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -567,17 +579,5 @@ mod tests {
         options.time_type = TimeType::Modify;
         assert!(!should_update_access_time(&options));
         assert!(should_update_modify_time(&options));
-    }
-} 
-
-
-/// Execute function for touch command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
-    match touch_cli(args) {
-        Ok(_) => Ok(0),
-        Err(e) => {
-            eprintln!("{}", e);
-            Ok(1)
-        }
     }
 }

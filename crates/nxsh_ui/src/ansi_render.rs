@@ -4,6 +4,8 @@ use std::path::Path;
 
 use ab_glyph::{point, FontRef, PxScale, Font, ScaleFont};
 use image::{ImageBuffer, Rgba};
+use anyhow::Result;
+use crate::Theme;
 
 /// Represents a minimal ANSI style for foreground color and bold attribute.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -122,18 +124,24 @@ fn render_segment(
             outlined.draw(|px, py, coverage| {
                 let xi = px as i32;
                 let yi = py as i32;
-                if xi >= 0 && yi >= 0 && (xi as u32) < img.width() && (yi as u32) < img.height() {
+                // Add bounds checking to prevent buffer overflow
+                if xi >= 0 && yi >= 0 && 
+                   (xi as u32) < img.width() && (yi as u32) < img.height() &&
+                   coverage > 0.0 {
                     let dst = img.get_pixel_mut(xi as u32, yi as u32);
-                    let sa = coverage; // 0.0..1.0
+                    let sa = coverage.clamp(0.0, 1.0); // Clamp coverage to valid range
                     let da = dst[3] as f32 / 255.0;
                     let out_a = sa + da * (1.0 - sa);
-                    for c in 0..3 {
-                        let sc = color[c] as f32 / 255.0;
-                        let dc = dst[c] as f32 / 255.0;
-                        let out_c = (sc * sa + dc * da * (1.0 - sa)) / out_a.max(1e-6);
-                        dst[c] = (out_c * 255.0).clamp(0.0, 255.0) as u8;
+                    
+                    if out_a > 0.0 {
+                        for c in 0..3 {
+                            let sc = color[c] as f32 / 255.0;
+                            let dc = dst[c] as f32 / 255.0;
+                            let out_c = (sc * sa + dc * da * (1.0 - sa)) / out_a.max(1e-6);
+                            dst[c] = (out_c * 255.0).clamp(0.0, 255.0) as u8;
+                        }
+                        dst[3] = (out_a * 255.0).clamp(0.0, 255.0) as u8;
                     }
-                    dst[3] = (out_a * 255.0).clamp(0.0, 255.0) as u8;
                 }
             });
         }
@@ -156,16 +164,28 @@ pub fn render_lines_to_image(
     let sf = font.as_scaled(scale);
     let line_height_px = ((sf.ascent() - sf.descent() + sf.line_gap()) * line_height).ceil() as i32;
     let char_w = (size * 0.6).ceil() as i32; // rough per-char width estimate
-    let width = (cols as i32 * char_w + 32).max(640) as u32;
-    let height = ((lines.len() as i32 * line_height_px) + (size as i32) + 24).max(360) as u32;
+    
+    // Ensure minimum sensible dimensions
+    let width = (cols as i32 * char_w + 32).clamp(640, 8192) as u32;
+    let height = ((lines.len() as i32 * line_height_px) + (size as i32) + 24).clamp(360, 8192) as u32;
+    
     let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_pixel(width, height, bg);
 
     let mut y = (size as i32) + 12; // top padding
     for line in lines {
+        // Ensure we don't render beyond the image bounds
+        if y + line_height_px >= height as i32 {
+            break;
+        }
+        
         let segments = parse_ansi_segments(line);
         let mut x = 16i32; // left padding
         for (style, text) in segments {
             x = render_segment(&mut img, font, x, y, scale, style, &text);
+            // Stop if we've gone beyond the right edge
+            if x >= width as i32 - 16 {
+                break;
+            }
         }
         y += line_height_px;
     }
@@ -189,6 +209,26 @@ pub fn render_ansi_file_to_png(
     let img = render_lines_to_image(&font, size, bg, cols, line_height, &lines);
     img.save(output)?;
     Ok(())
+}
+
+/// Simple text-based ANSI renderer used by the CUI to prepare a printable line.
+///
+/// For now, this is a thin pass-through that leaves ANSI escape sequences intact so
+/// the terminal can render them. It exists primarily to provide a stable interface
+/// for higher-level code and to make it easy to evolve into richer behavior later
+/// (e.g., theme-aware transformation, dimming, link handling, etc.).
+#[derive(Default, Debug, Clone, Copy)]
+pub struct AnsiRenderer;
+
+impl AnsiRenderer {
+    /// Create a new renderer instance.
+    pub fn new() -> Self { Self }
+
+    /// Render a single line of text for terminal output.
+    /// Currently returns the input unchanged. Theme is accepted for future use.
+    pub fn render(&self, line: &str, _theme: &Theme) -> Result<String> {
+        Ok(line.to_string())
+    }
 }
 
 

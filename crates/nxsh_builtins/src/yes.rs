@@ -36,10 +36,10 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
     };
 
     loop {
-        println!("{}", output_string);
+        println!("{output_string}");
         
         // Flush stdout to ensure immediate output
-        if let Err(_) = stdout().flush() {
+        if stdout().flush().is_err() {
             break;
         }
     }

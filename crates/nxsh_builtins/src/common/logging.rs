@@ -32,6 +32,8 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 #[cfg(feature = "logging")]
 use chrono::{DateTime, Utc};
+#[cfg(feature = "logging")]
+use hostname;
 
 #[cfg(feature = "logging")]
 static LOGGER_INSTANCE: OnceCell<LoggerInstance> = OnceCell::new();
@@ -342,10 +344,162 @@ fn setup_file_logging(config: &LoggingConfig, filter: EnvFilter, path: &Path) ->
 }
 
 #[cfg(feature = "logging")]
-fn setup_multiple_logging(_config: &LoggingConfig, _filter: EnvFilter, _outputs: &[LogOutput]) -> Result<()> {
-    // Complex multi-output dynamic composition is non-trivial due to type-level layering.
-    // Fallback to a single stderr subscriber to guarantee initialization without compile-time type issues.
-    setup_stderr_logging(_config, _filter)
+fn setup_multiple_logging(config: &LoggingConfig, filter: EnvFilter, outputs: &[LogOutput]) -> Result<()> {
+    use tracing_subscriber::{layer::SubscriberExt, Registry};
+    use std::io::{self, Write};
+    
+    // Custom writer that duplicates output to multiple destinations
+    struct MultiWriter {
+        writers: Vec<Box<dyn Write + Send + Sync>>,
+    }
+    
+    impl MultiWriter {
+        fn new() -> Self {
+            Self {
+                writers: Vec::new(),
+            }
+        }
+        
+        fn add_stdout(&mut self) {
+            self.writers.push(Box::new(io::stdout()));
+        }
+        
+        fn add_stderr(&mut self) {
+            self.writers.push(Box::new(io::stderr()));
+        }
+        
+        fn add_file(&mut self, path: &Path) -> Result<()> {
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .with_context(|| format!("Failed to open log file: {}", path.display()))?;
+            self.writers.push(Box::new(file));
+            Ok(())
+        }
+    }
+    
+    impl Write for MultiWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            let mut errors = Vec::new();
+            let mut bytes_written = 0;
+            
+            for writer in &mut self.writers {
+                match writer.write(buf) {
+                    Ok(n) => {
+                        if bytes_written == 0 {
+                            bytes_written = n;
+                        }
+                    }
+                    Err(e) => errors.push(e),
+                }
+            }
+            
+            if !errors.is_empty() && bytes_written == 0 {
+                return Err(errors.into_iter().next().unwrap());
+            }
+            
+            Ok(bytes_written)
+        }
+        
+        fn flush(&mut self) -> io::Result<()> {
+            for writer in &mut self.writers {
+                writer.flush()?;
+            }
+            Ok(())
+        }
+    }
+    
+    // Build multi-writer based on output configurations
+    let mut multi_writer = MultiWriter::new();
+    
+    for output in outputs {
+        match output {
+            LogOutput::Stdout => multi_writer.add_stdout(),
+            LogOutput::Stderr => multi_writer.add_stderr(),
+            LogOutput::File { path } => multi_writer.add_file(path)?,
+            LogOutput::Multiple { .. } => {
+                // Avoid infinite recursion - treat nested Multiple as stderr fallback
+                multi_writer.add_stderr();
+            }
+        }
+    }
+    
+    // Wrap multi_writer in Arc to allow sharing across multiple closures
+    let multi_writer = Arc::new(Mutex::new(multi_writer));
+    
+    // Create a wrapper that implements MakeWriter
+    #[derive(Clone)]
+    struct MultiWriterMakeWriter {
+        writer: Arc<Mutex<MultiWriter>>,
+    }
+    
+    impl<'a> tracing_subscriber::fmt::writer::MakeWriter<'a> for MultiWriterMakeWriter {
+        type Writer = MultiWriterHandle;
+        
+        fn make_writer(&'a self) -> Self::Writer {
+            MultiWriterHandle {
+                writer: self.writer.clone(),
+            }
+        }
+    }
+    
+    struct MultiWriterHandle {
+        writer: Arc<Mutex<MultiWriter>>,
+    }
+    
+    impl std::io::Write for MultiWriterHandle {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let mut writer = self.writer.lock().unwrap();
+            writer.write(buf)
+        }
+        
+        fn flush(&mut self) -> std::io::Result<()> {
+            let mut writer = self.writer.lock().unwrap();
+            writer.flush()
+        }
+    }
+    
+    let make_writer = MultiWriterMakeWriter {
+        writer: multi_writer,
+    };
+    
+    // Setup subscriber with the multi-writer
+    match config.format {
+        LogFormat::Json => {
+            Registry::default()
+                .with(filter)
+                .with(fmt::layer()
+                    .with_writer(make_writer.clone())
+                    .with_span_events(FmtSpan::CLOSE))
+                .init();
+        }
+        LogFormat::Pretty => {
+            Registry::default()
+                .with(filter)
+                .with(fmt::layer()
+                    .pretty()
+                    .with_writer(make_writer.clone()))
+                .init();
+        }
+        LogFormat::Compact => {
+            Registry::default()
+                .with(filter)
+                .with(fmt::layer()
+                    .compact()
+                    .with_writer(make_writer.clone()))
+                .init();
+        }
+        LogFormat::Plain => {
+            Registry::default()
+                .with(filter)
+                .with(fmt::layer()
+                    .with_writer(make_writer.clone()))
+                .init();
+        }
+    }
+    
+    Ok(())
 }
 
 /// Create a structured log entry
@@ -432,4 +586,4 @@ mod tests {
         init(Some(Level::DEBUG)); // should not panic
         info!("Test message");
     }
-} 
+}

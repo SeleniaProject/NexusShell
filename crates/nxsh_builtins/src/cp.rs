@@ -645,6 +645,28 @@ fn set_file_times(path: &Path, accessed: SystemTime, modified: SystemTime) -> Re
     }
 
     Ok(())
+} 
+
+
+/// Execute function for cp command
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    // Fallback to blocking synchronous cp implementation
+    use std::process::Command;
+    let mut cmd = Command::new("cp");
+    cmd.args(args);
+    match cmd.status() {
+        Ok(status) => {
+            if status.success() {
+                Ok(0)
+            } else {
+                Ok(status.code().unwrap_or(1))
+            }
+        }
+        Err(e) => {
+            eprintln!("cp: {e}");
+            Ok(1)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -905,8 +927,10 @@ mod tests {
 
         fs::write(&src_file, "Test content")?;
 
-        let mut options = CopyOptions::default();
-        options.preserve = true;
+        let options = CopyOptions {
+            preserve: true,
+            ..Default::default()
+        };
 
         copy_file_with_metadata(&src_file, &dst_file, &options)?;
 
@@ -928,8 +952,10 @@ mod tests {
         let test_data = "This is test data for integrity verification";
         fs::write(&src_file, test_data)?;
 
-        let mut options = CopyOptions::default();
-        options.verify_integrity = true;
+        let options = CopyOptions {
+            verify_integrity: true,
+            ..Default::default()
+        };
 
         copy_file_with_metadata(&src_file, &dst_file, &options)?;
 
@@ -948,8 +974,10 @@ mod tests {
 
         fs::write(&src_file, "Test content for retry")?;
 
-        let mut options = CopyOptions::default();
-        options.retry_count = 3;
+        let options = CopyOptions {
+            retry_count: 3,
+            ..Default::default()
+        };
 
         copy_file_with_metadata(&src_file, &dst_file, &options)?;
 
@@ -983,25 +1011,15 @@ mod tests {
 
         fs::write(&src_file, "Verbose test content")?;
 
-        let mut options = CopyOptions::default();
-        options.verbose = true;
+        let options = CopyOptions {
+            verbose: true,
+            ..Default::default()
+        };
 
         copy_file_with_metadata(&src_file, &dst_file, &options)?;
 
         assert!(dst_file.exists());
         assert_eq!(fs::read_to_string(&dst_file)?, "Verbose test content");
         Ok(())
-    }
-} 
-
-
-/// Execute function for cp command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
-    match cp_cli(args) {
-        Ok(_) => Ok(0),
-        Err(e) => {
-            eprintln!("{}", e);
-            Ok(1)
-        }
     }
 }

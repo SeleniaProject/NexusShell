@@ -179,7 +179,7 @@ fn test_no_expansion_cases() {
     
     for (input, expected) in cases {
         let out = run(input);
-        assert_eq!(out, vec![expected], "input '{}' should not expand", input);
+        assert_eq!(out, vec![expected], "input '{input}' should not expand");
     }
 }
 
@@ -238,7 +238,7 @@ fn test_step_ranges_comprehensive() {
     
     for (input, expected) in test_cases {
         let out = run(input);
-        assert_eq!(out, expected, "step range '{}' should expand correctly", input);
+        assert_eq!(out, expected, "step range '{input}' should expand correctly");
     }
 }
 
@@ -287,7 +287,7 @@ fn test_error_recovery() {
     for input in malformed_cases {
         let out = run(input);
         // Should not crash, should fall back to literal treatment
-        assert_eq!(out.len(), 1, "malformed input '{}' should fall back to literal", input);
+        assert_eq!(out.len(), 1, "malformed input '{input}' should fall back to literal");
         assert_eq!(out[0], input, "malformed input should be returned as-is");
     }
 }

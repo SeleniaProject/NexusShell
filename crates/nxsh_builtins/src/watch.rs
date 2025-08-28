@@ -205,7 +205,7 @@ impl Default for WatchStatistics {
 
 #[derive(Debug)]
 pub struct WatchManager {
-    config: WatchConfig,
+    config: Arc<RwLock<WatchConfig>>,
     command: String,
     args: Vec<String>,
     history: Arc<RwLock<VecDeque<WatchExecution>>>,
@@ -229,7 +229,7 @@ impl WatchManager {
         let terminal_size = terminal::size().unwrap_or((80, 24));
         
         Ok(Self {
-            config,
+            config: Arc::new(RwLock::new(config)),
             command,
             args,
             history: Arc::new(RwLock::new(VecDeque::with_capacity(MAX_HISTORY_SIZE))),
@@ -289,8 +289,8 @@ impl WatchManager {
     }
 
     async fn start_execution_loop(&self) -> Result<()> {
-        let mut interval_timer = interval(Duration::from_secs_f64(self.config.interval));
-        if self.config.precise_timing {
+        let mut interval_timer = interval(Duration::from_secs_f64(self.config.read().unwrap().interval));
+        if self.config.read().unwrap().precise_timing {
             interval_timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
         }
 
@@ -304,7 +304,7 @@ impl WatchManager {
                     }
                     Err(e) => {
                         eprintln!("Execution error: {}", e);
-                        if self.config.exit_on_error {
+                        if self.config.read().unwrap().exit_on_error {
                             break;
                         }
                     }
@@ -807,11 +807,15 @@ impl WatchManager {
             }
             KeyCode::Char('d') | KeyCode::Char('D') => {
                 // Toggle differences
-                // This would need mutable access to config
+                if let Ok(mut config) = self.config.write() {
+                    config.show_differences = !config.show_differences;
+                }
             }
             KeyCode::Char('s') | KeyCode::Char('S') => {
                 // Toggle statistics display
-                // This would need mutable access to config
+                if let Ok(mut config) = self.config.write() {
+                    config.show_statistics = !config.show_statistics;
+                }
             }
             KeyCode::Up => {
                 self.scroll_position = self.scroll_position.saturating_sub(1);

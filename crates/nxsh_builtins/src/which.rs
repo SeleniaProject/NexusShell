@@ -1,5 +1,5 @@
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use crate::common::{BuiltinResult, BuiltinContext};
 
 /// Locate a command in the PATH
@@ -21,7 +21,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
                 return Ok(0);
             }
             arg if arg.starts_with('-') => {
-                eprintln!("which: invalid option '{}'", arg);
+                eprintln!("which: invalid option '{arg}'");
                 return Ok(1);
             }
             _ => commands.push(&args[i]),
@@ -39,7 +39,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
         let found_paths = find_command(command, show_all);
         
         if found_paths.is_empty() {
-            eprintln!("which: no {} in PATH", command);
+            eprintln!("which: no {command} in PATH");
             exit_code = 1;
         } else {
             for path in found_paths {
@@ -95,7 +95,7 @@ fn find_command(command: &str, find_all: bool) -> Vec<PathBuf> {
             let command_with_ext = if extension.is_empty() {
                 command.to_string()
             } else {
-                format!("{}{}", command, extension)
+                format!("{command}{extension}")
             };
             
             command_path.push(&command_with_ext);
@@ -122,7 +122,7 @@ fn find_command(command: &str, find_all: bool) -> Vec<PathBuf> {
     found_paths
 }
 
-fn is_executable(path: &PathBuf) -> bool {
+fn is_executable(path: &Path) -> bool {
     if !path.is_file() {
         return false;
     }

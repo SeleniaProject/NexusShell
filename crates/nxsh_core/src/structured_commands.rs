@@ -174,7 +174,7 @@ impl StructuredCommand for GroupByCommand {
                         .map(|v| v.to_string())
                         .unwrap_or_else(|| "null".to_string());
                     
-                    groups.entry(key).or_insert_with(Vec::new).push(row);
+                    groups.entry(key).or_default().push(row);
                 }
 
                 let mut result = HashMap::new();
@@ -294,6 +294,41 @@ pub fn files_to_table(files: Vec<std::fs::DirEntry>) -> Result<StructuredValue> 
     Ok(StructuredValue::Table(rows))
 }
 
+/// Convert a list of file paths to a structured table
+pub fn paths_to_table(paths: &[std::path::PathBuf]) -> anyhow::Result<StructuredValue> {
+    let mut rows = Vec::new();
+    
+    for path in paths {
+        let mut row = std::collections::HashMap::new();
+        
+        row.insert("name".to_string(), StructuredValue::String(
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string()
+        ));
+        
+        row.insert("path".to_string(), StructuredValue::Path(path.clone()));
+        
+        if let Ok(metadata) = path.metadata() {
+            row.insert("type".to_string(), StructuredValue::String(
+                if metadata.is_dir() { "directory" } else { "file" }.to_string()
+            ));
+            
+            row.insert("size".to_string(), StructuredValue::Int(metadata.len() as i64));
+            
+            if let Ok(modified) = metadata.modified() {
+                let datetime = chrono::DateTime::<chrono::Utc>::from(modified);
+                row.insert("modified".to_string(), StructuredValue::Date(datetime));
+            }
+        }
+        
+        rows.push(row);
+    }
+    
+    Ok(StructuredValue::Table(rows))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,39 +392,4 @@ mod tests {
             panic!("Expected table");
         }
     }
-}
-
-/// Convert a list of file paths to a structured table
-pub fn paths_to_table(paths: &[std::path::PathBuf]) -> anyhow::Result<StructuredValue> {
-    let mut rows = Vec::new();
-    
-    for path in paths {
-        let mut row = std::collections::HashMap::new();
-        
-        row.insert("name".to_string(), StructuredValue::String(
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_string()
-        ));
-        
-        row.insert("path".to_string(), StructuredValue::Path(path.clone()));
-        
-        if let Ok(metadata) = path.metadata() {
-            row.insert("type".to_string(), StructuredValue::String(
-                if metadata.is_dir() { "directory" } else { "file" }.to_string()
-            ));
-            
-            row.insert("size".to_string(), StructuredValue::Int(metadata.len() as i64));
-            
-            if let Ok(modified) = metadata.modified() {
-                let datetime = chrono::DateTime::<chrono::Utc>::from(modified);
-                row.insert("modified".to_string(), StructuredValue::Date(datetime));
-            }
-        }
-        
-        rows.push(row);
-    }
-    
-    Ok(StructuredValue::Table(rows))
 }

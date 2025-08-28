@@ -303,7 +303,7 @@ fn parse_kill_args(args: &[String]) -> ShellResult<KillOptions> {
                     .map_err(|_| ShellError::command_not_found("Invalid signal number"))?;
                 
                 // Validate signal range
-                if signal_num < 1 || signal_num > 31 {
+                if !(1..=31).contains(&signal_num) {
                     return Err(ShellError::command_not_found(&format!("Invalid signal number: {signal_num}")));
                 }
                 
@@ -354,7 +354,7 @@ fn parse_signal(signal_str: &str, signal_map: &HashMap<String, i32>) -> ShellRes
     // 数値として解极E
     if let Ok(sig_num) = signal_str.parse::<i32>() {
         // Valid signal range check (typically 1-31 for Unix)
-        if sig_num < 1 || sig_num > 31 {
+        if !(1..=31).contains(&sig_num) {
             return Err(ShellError::command_not_found(&format!("Invalid signal number: {sig_num}")));
         }
         let sig_name = get_signal_name(sig_num).unwrap_or_else(|| sig_num.to_string());
@@ -519,7 +519,7 @@ fn execute_kill_job(job_id: u32, signal: i32) -> ShellResult<()> {
         12 => JobSignal::User2,
         _ => {
             return Err(ShellError::command_not_found(&format!(
-                "Signal {} not supported for job control", signal
+                "Signal {signal} not supported for job control"
             )));
         }
     };
@@ -533,16 +533,16 @@ fn execute_kill_job(job_id: u32, signal: i32) -> ShellResult<()> {
                 match job_manager.send_signal_to_job(job_id, job_signal) {
                     Ok(_) => Ok(()),
                     Err(e) => Err(ShellError::command_not_found(&format!(
-                        "Failed to send signal to job {}: {}", job_id, e
+                        "Failed to send signal to job {job_id}: {e}"
                     )))
                 }
             }
             Ok(None) => {
-                Err(ShellError::command_not_found(&format!("Job {} not found", job_id)))
+                Err(ShellError::command_not_found(&format!("Job {job_id} not found")))
             }
             Err(e) => {
                 Err(ShellError::command_not_found(&format!(
-                    "Failed to access job {}: {}", job_id, e
+                    "Failed to access job {job_id}: {e}"
                 )))
             }
         }
@@ -803,6 +803,13 @@ pub fn kill_cli(args: &[String]) -> anyhow::Result<()> {
     }
 }
 
+
+/// Execute function stub
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    eprintln!("Command not yet implemented");
+    Ok(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1022,9 +1029,9 @@ mod tests {
         let job_target = KillTarget::JobId(1);
         let name_target = KillTarget::ProcessName("firefox".to_string());
         
-        assert!(format!("{:?}", pid_target).contains("Pid"));
-        assert!(format!("{:?}", job_target).contains("JobId"));
-        assert!(format!("{:?}", name_target).contains("ProcessName"));
+        assert!(format!("{pid_target:?}").contains("Pid"));
+        assert!(format!("{job_target:?}").contains("JobId"));
+        assert!(format!("{name_target:?}").contains("ProcessName"));
     }
 
     #[test]
@@ -1038,7 +1045,7 @@ mod tests {
             targets: vec![KillTarget::Pid(1234)],
         };
         
-        let debug_str = format!("{:?}", options);
+        let debug_str = format!("{options:?}");
         assert!(debug_str.contains("signal: 15"));
         assert!(debug_str.contains("verbose: true"));
         assert!(debug_str.contains("timeout: Some(10)"));
@@ -1073,11 +1080,4 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid signal number"));
     }
-}
-
-
-/// Execute function stub
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
-    eprintln!("Command not yet implemented");
-    Ok(1)
 }

@@ -11,6 +11,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
     }
 
     let mut first_non_option_index = None;
+    #[allow(clippy::never_loop)]
     for (i, arg) in args.iter().enumerate() {
         match arg.as_str() {
             "-h" | "--help" => {

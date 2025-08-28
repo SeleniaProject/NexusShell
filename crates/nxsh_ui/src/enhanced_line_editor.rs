@@ -22,7 +22,6 @@ use std::{
 
 use crate::{
     tab_completion::{TabCompletionHandler, TabCompletionResult},
-
 };
 
 /// Enhanced line editor with visual completion
@@ -170,14 +169,13 @@ impl EnhancedLineEditor {
             // Auto-trigger completion after delay
             if self.config.enable_visual_completion {
                 let elapsed = last_key_time.elapsed();
-                if elapsed.as_millis() >= self.config.completion_delay_ms as u128 {
-                    if !self.completion_handler.is_panel_visible() && !self.input_buffer.is_empty() {
+                if elapsed.as_millis() >= self.config.completion_delay_ms as u128
+                    && !self.completion_handler.is_panel_visible() && !self.input_buffer.is_empty() {
                         // Auto-show completion suggestions
                         let _ = self.completion_handler
                             .handle_tab_key(&self.input_buffer, self.cursor_position)
                             .await;
                     }
-                }
             }
         }
     }
@@ -231,6 +229,14 @@ impl EnhancedLineEditor {
             }
 
             // Cursor movement
+            (KeyCode::Left, KeyModifiers::CONTROL) => {
+                self.move_cursor_word_left();
+                Ok(InputResult::Continue)
+            }
+            (KeyCode::Right, KeyModifiers::CONTROL) => {
+                self.move_cursor_word_right();
+                Ok(InputResult::Continue)
+            }
             (KeyCode::Left, _) => {
                 self.move_cursor_left();
                 Ok(InputResult::Continue)
@@ -255,16 +261,6 @@ impl EnhancedLineEditor {
             }
             (KeyCode::Down, _) => {
                 self.history_next();
-                Ok(InputResult::Continue)
-            }
-
-            // Word movement
-            (KeyCode::Left, KeyModifiers::CONTROL) => {
-                self.move_cursor_word_left();
-                Ok(InputResult::Continue)
-            }
-            (KeyCode::Right, KeyModifiers::CONTROL) => {
-                self.move_cursor_word_right();
                 Ok(InputResult::Continue)
             }
 

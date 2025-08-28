@@ -13,7 +13,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
     let mut complement = false;
     let mut squeeze_repeats = false;
     let mut truncate_set1 = false;
-    let mut set1 = String::new();
+    
     let mut set2 = String::new();
     let mut positional_args = Vec::new();
 
@@ -29,7 +29,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
                 return Ok(0);
             }
             arg if arg.starts_with('-') => {
-                eprintln!("tr: invalid option '{}'", arg);
+                eprintln!("tr: invalid option '{arg}'");
                 return Ok(1);
             }
             _ => positional_args.push(&args[i]),
@@ -42,11 +42,11 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
         return Ok(1);
     }
 
-    set1 = positional_args[0].to_string();
+    let set1: String = positional_args[0].to_string();
     if positional_args.len() > 1 {
         set2 = positional_args[1].to_string();
     } else if !delete_mode {
-        eprintln!("tr: missing operand after '{}'", set1);
+        eprintln!("tr: missing operand after '{set1}'");
         return Ok(1);
     }
 
@@ -55,7 +55,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
     let mut buffer = String::new();
 
     if let Err(e) = reader.read_to_string(&mut buffer) {
-        eprintln!("tr: error reading input: {}", e);
+        eprintln!("tr: error reading input: {e}");
         return Ok(1);
     }
 
@@ -71,7 +71,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
         result
     };
 
-    print!("{}", final_result);
+    print!("{final_result}");
     Ok(0)
 }
 

@@ -487,3 +487,14 @@ fn print_help() {
     println!("      --version         output version information and exit");
 }
 
+/// Execute stat command
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match stat_cli(args) {
+        Ok(_) => Ok(0),
+        Err(e) => {
+            eprintln!("stat: {e}");
+            Ok(1)
+        }
+    }
+}
+

@@ -1,4 +1,6 @@
 use anyhow::Result;
+use chrono;
+use dirs;
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -1082,7 +1084,3 @@ mod tests {
         assert!(completions.iter().any(|c| c.text.starts_with("gi")));
     }
 }
-
-// External dependencies
-use chrono;
-use dirs;

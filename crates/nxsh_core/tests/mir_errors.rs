@@ -16,7 +16,7 @@ fn error_div_by_zero() {
     let closure = AstNode::Closure { params: vec![], body: Box::new(AstNode::Return(Some(Box::new(expr)))), captures: vec![], is_async: false };
     let call = AstNode::FunctionCall { name: Box::new(closure), args: vec![], is_async: false, generics: vec![] };
     let result = run(vec![call]);
-    assert!(matches!(result, Err(nxsh_core::mir::MirError::DivByZero)), "expected DivByZero got {:?}", result);
+    assert!(matches!(result, Err(nxsh_core::mir::MirError::DivByZero)), "expected DivByZero got {result:?}");
 }
 
 #[test]
@@ -27,7 +27,7 @@ fn error_type_mismatch_arith() {
     let closure = AstNode::Closure { params: vec![], body: Box::new(AstNode::Return(Some(Box::new(expr)))), captures: vec![], is_async: false };
     let call = AstNode::FunctionCall { name: Box::new(closure), args: vec![], is_async: false, generics: vec![] };
     let result = run(vec![call]);
-    assert!(matches!(result, Err(nxsh_core::mir::MirError::TypeMismatch(_))), "expected TypeMismatch got {:?}", result);
+    assert!(matches!(result, Err(nxsh_core::mir::MirError::TypeMismatch(_))), "expected TypeMismatch got {result:?}");
 }
 
 #[test]
@@ -42,7 +42,7 @@ fn error_regex_compile() {
     let assign_f = AstNode::VariableAssignment { name: "f", operator: AssignmentOperator::Assign, value: Box::new(AstNode::Closure { params: vec![], body: Box::new(closure_body), captures: vec!["s","p"], is_async: false }), is_local: false, is_export: false, is_readonly: false };
     let call_f = AstNode::FunctionCall { name: Box::new(AstNode::Word("f")), args: vec![], is_async: false, generics: vec![] };
     let result = run(vec![assign_s, assign_p, assign_f, call_f]);
-    assert!(matches!(result, Err(nxsh_core::mir::MirError::RegexCompile(_, _))), "expected RegexCompile error got {:?}", result);
+    assert!(matches!(result, Err(nxsh_core::mir::MirError::RegexCompile(_, _))), "expected RegexCompile error got {result:?}");
 }
 
 #[test]
@@ -56,5 +56,5 @@ fn error_regex_type_mismatch() {
     let assign_f = AstNode::VariableAssignment { name: "f", operator: AssignmentOperator::Assign, value: Box::new(AstNode::Closure { params: vec![], body: Box::new(closure_body), captures: vec!["s","p"], is_async: false }), is_local: false, is_export: false, is_readonly: false };
     let call_f = AstNode::FunctionCall { name: Box::new(AstNode::Word("f")), args: vec![], is_async: false, generics: vec![] };
     let result = run(vec![assign_s, assign_p, assign_f, call_f]);
-    assert!(matches!(result, Err(nxsh_core::mir::MirError::TypeMismatch(_))), "expected regex TypeMismatch got {:?}", result);
+    assert!(matches!(result, Err(nxsh_core::mir::MirError::TypeMismatch(_))), "expected regex TypeMismatch got {result:?}");
 }

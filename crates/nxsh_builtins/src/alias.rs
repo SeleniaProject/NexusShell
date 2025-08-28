@@ -4,6 +4,7 @@
 //! and managing command aliases with cycle detection.
 
 use std::io::Write;
+use nxsh_core::memory_efficient::MemoryEfficientStringBuilder;
 use nxsh_core::{Builtin, Context, ExecutionResult, ShellResult, ShellError, context::ShellContext};
 
 
@@ -89,26 +90,43 @@ impl AliasCommand {
 
             // Validate alias name
             if !self.is_valid_alias_name(name) {
+                // Pre-calculate capacity for optimal memory usage
+                let capacity = 15 + name.len() + 21; // "alias: `" + name + "': invalid alias name"
+                let mut error_msg = MemoryEfficientStringBuilder::new(capacity);
+                error_msg.push_str("alias: `");
+                error_msg.push_str(name);
+                error_msg.push_str("': invalid alias name");
                 return Err(ShellError::new(
                     nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument),
-                    format!("alias: `{name}': invalid alias name")
+                    error_msg.into_string()
                 ));
             }
 
             // Check for cycles before setting the alias
             if self.would_create_cycle(name, value, ctx) {
+                // Pre-calculate capacity for optimal memory usage
+                let capacity = 15 + name.len() + 19; // "alias: `" + name + "': would create a cycle"
+                let mut error_msg = MemoryEfficientStringBuilder::new(capacity);
+                error_msg.push_str("alias: `");
+                error_msg.push_str(name);
+                error_msg.push_str("': would create a cycle");
                 return Err(ShellError::new(
                     nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument),
-                    format!("alias: `{name}': would create a cycle")
+                    error_msg.into_string()
                 ));
             }
 
             // Set the alias
             ctx.aliases.write().unwrap().insert(name.to_string(), value.to_string());
         } else {
+            // Pre-calculate capacity for optimal memory usage
+            let capacity = 15 + assignment.len() + 24; // "alias: `" + assignment + "': invalid alias assignment"
+            let mut error_msg = MemoryEfficientStringBuilder::new(capacity);
+            error_msg.push_str("alias: invalid assignment: ");
+            error_msg.push_str(assignment);
             return Err(ShellError::new(
                 nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument),
-                format!("alias: invalid assignment: {assignment}")
+                error_msg.into_string()
             ));
         }
 
@@ -118,13 +136,34 @@ impl AliasCommand {
     /// Print a specific alias
     fn print_alias(&self, name: &str, ctx: &mut ShellContext) -> ShellResult<()> {
         if let Some(value) = ctx.aliases.read().unwrap().get(name) {
-            let output = format!("alias {}='{}'\n", name, self.escape_value(value));
-            ctx.stdout.write(output.as_bytes())
-                .map_err(|e| ShellError::new(nxsh_core::error::ErrorKind::IoError(nxsh_core::error::IoErrorKind::FileWriteError), format!("Failed to write output: {e}")))?;
+            // Pre-calculate capacity for optimal memory usage
+            let capacity = 6 + name.len() + 3 + value.len() + 1; // "alias " + name + "='" + value + "'"
+            let mut output = MemoryEfficientStringBuilder::new(capacity);
+            output.push_str("alias ");
+            output.push_str(name);
+            output.push_str("='");
+            output.push_str(&self.escape_value(value));
+            output.push_str("'\n");
+            ctx.stdout.write(output.into_string().as_bytes())
+                .map_err(|e| {
+                    // Pre-calculate capacity for optimal memory usage
+                    let err_str = e.to_string();
+                    let capacity = 23 + err_str.len(); // "Failed to write output: " + error_message
+                    let mut error_msg = MemoryEfficientStringBuilder::new(capacity);
+                    error_msg.push_str("Failed to write output: ");
+                    error_msg.push_str(&err_str);
+                    ShellError::new(nxsh_core::error::ErrorKind::IoError(nxsh_core::error::IoErrorKind::FileWriteError), error_msg.into_string())
+                })?;
         } else {
+            // Pre-calculate capacity for optimal memory usage
+            let capacity = 8 + name.len() + 11; // "alias: " + name + ": not found"
+            let mut error_msg = MemoryEfficientStringBuilder::new(capacity);
+            error_msg.push_str("alias: ");
+            error_msg.push_str(name);
+            error_msg.push_str(": not found");
             return Err(ShellError::new(
                 nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::VariableNotFound),
-                format!("alias: {name}: not found")
+                error_msg.into_string()
             ));
         }
 
@@ -133,27 +172,45 @@ impl AliasCommand {
 
     /// Print all aliases
     fn print_all_aliases(&self, ctx: &mut ShellContext) -> ShellResult<()> {
-        let mut output = String::new();
-        
-        if let Ok(aliases_lock) = ctx.aliases.read() {
+        let output = if let Ok(aliases_lock) = ctx.aliases.read() {
             let mut aliases: Vec<_> = aliases_lock.iter().collect();
             
             // Sort aliases by name for consistent output
-            aliases.sort_by(|a, b| a.0.cmp(b.0));
-
+            aliases.sort_by_key(|(name, _)| *name);
+            
+            // Pre-calculate total capacity needed for better memory efficiency
+            let total_capacity = aliases.iter()
+                .map(|(name, value)| 6 + name.len() + 3 + value.len() + 2) // "alias " + name + "='" + value + "'\n"
+                .sum::<usize>();
+            
+            let mut output = MemoryEfficientStringBuilder::new(total_capacity);
+            
             for (name, value) in aliases {
-                output.push_str(&format!("alias {}='{}'\n", name, self.escape_value(value)));
+                output.push_str("alias ");
+                output.push_str(name);
+                output.push_str("='");
+                output.push_str(&self.escape_value(value));
+                output.push_str("'\n");
             }
+            output
         } else {
             return Err(ShellError::new(
                 nxsh_core::error::ErrorKind::InternalError(nxsh_core::error::InternalErrorKind::LockError),
                 "Failed to read aliases"
             ));
-        }
+        };
 
-        if !output.is_empty() {
-            ctx.stdout.write(output.as_bytes())
-                .map_err(|e| ShellError::new(nxsh_core::error::ErrorKind::IoError(nxsh_core::error::IoErrorKind::FileWriteError), format!("Failed to write output: {e}")))?;
+        if !output.as_string().is_empty() {
+            ctx.stdout.write(output.into_string().as_bytes())
+                .map_err(|e| {
+                    // Pre-calculate capacity for optimal memory usage
+                    let err_str = e.to_string();
+                    let capacity = 23 + err_str.len(); // "Failed to write output: " + error_message
+                    let mut error_msg = MemoryEfficientStringBuilder::new(capacity);
+                    error_msg.push_str("Failed to write output: ");
+                    error_msg.push_str(&err_str);
+                    ShellError::new(nxsh_core::error::ErrorKind::IoError(nxsh_core::error::IoErrorKind::FileWriteError), error_msg.into_string())
+                })?;
         }
 
         Ok(())

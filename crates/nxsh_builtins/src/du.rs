@@ -31,7 +31,7 @@ pub fn du_cli(args: &[String]) -> Result<()> {
     
     // Beautiful table output
     let table = TableFormatter::new();
-    let mut rows = vec![
+    let rows = vec![
         vec!["Path".to_string(), "Size".to_string(), "Type".to_string()],
         vec![
             path.to_string(),
@@ -106,7 +106,7 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
             match du_cli(args).await {
                 Ok(_) => Ok(0),
                 Err(e) => {
-                    eprintln!("du: {}", e);
+                    eprintln!("du: {e}");
                     Ok(1)
                 }
             }

@@ -165,7 +165,7 @@ fn parse_args(args: &[String]) -> Result<Command, Box<dyn std::error::Error>> {
             "-t" | "--type" => command.print_type = true,
             "-a" | "--all" => command.print_all = true,
             arg if arg.starts_with('-') => {
-                return Err(format!("command: unknown option: {}", arg).into());
+                return Err(format!("command: unknown option: {arg}").into());
             }
             _ => command.commands.push(args[i].clone()),
         }
@@ -183,9 +183,9 @@ fn find_command(name: &str, state: &ShellState, find_all: bool) -> CommandResult
         commands.push(CommandInfo {
             command_type: CommandType::Builtin,
             path: None,
-            description: format!("{} is a shell builtin", name),
+            description: format!("{name} is a shell builtin"),
             name: name.to_string(),
-            usage: format!("{} [arguments...]", name),
+            usage: format!("{name} [arguments...]"),
             examples: vec![name.to_string()],
         });
         if !find_all {
@@ -198,9 +198,9 @@ fn find_command(name: &str, state: &ShellState, find_all: bool) -> CommandResult
         commands.push(CommandInfo {
             command_type: CommandType::Alias,
             path: None,
-            description: format!("{} is aliased to `{}`", name, alias_value),
+            description: format!("{name} is aliased to `{alias_value}`"),
             name: name.to_string(),
-            usage: format!("{} [arguments...]", name),
+            usage: format!("{name} [arguments...]"),
             examples: vec![alias_value.to_string()],
         });
         if !find_all {
@@ -214,9 +214,9 @@ fn find_command(name: &str, state: &ShellState, find_all: bool) -> CommandResult
         commands.push(CommandInfo {
             command_type: CommandType::Function,
             path: None,
-            description: format!("{} is a function", name),
+            description: format!("{name} is a function"),
             name: name.to_string(),
-            usage: format!("{} [arguments...]", name),
+            usage: format!("{name} [arguments...]"),
             examples: vec![name.to_string()],
         });
         if !find_all {
@@ -230,9 +230,9 @@ fn find_command(name: &str, state: &ShellState, find_all: bool) -> CommandResult
         commands.push(CommandInfo {
             command_type: CommandType::External,
             path: Some(path.clone()),
-            description: format!("{} is {}", name, path),
+            description: format!("{name} is {path}"),
             name: name.to_string(),
-            usage: format!("{} [arguments...]", name),
+            usage: format!("{name} [arguments...]"),
             examples: vec![path.clone()],
         });
     }
@@ -256,17 +256,17 @@ fn find_in_path(name: &str) -> Option<String> {
             // On Windows, also check with .exe extension
             #[cfg(windows)]
             {
-                let exe_path = path_dir.join(format!("{}.exe", name));
+                let exe_path = path_dir.join(format!("{name}.exe"));
                 if exe_path.is_file() {
                     return Some(exe_path.to_string_lossy().to_string());
                 }
                 
-                let cmd_path = path_dir.join(format!("{}.cmd", name));
+                let cmd_path = path_dir.join(format!("{name}.cmd"));
                 if cmd_path.is_file() {
                     return Some(cmd_path.to_string_lossy().to_string());
                 }
                 
-                let bat_path = path_dir.join(format!("{}.bat", name));
+                let bat_path = path_dir.join(format!("{name}.bat"));
                 if bat_path.is_file() {
                     return Some(bat_path.to_string_lossy().to_string());
                 }
@@ -284,7 +284,7 @@ fn display_verbose_results(results: &[CommandInfo]) {
             CommandType::Function => println!("{}", info.description),
             CommandType::External => {
                 if let Some(path) = &info.path {
-                    println!("{}", path);
+                    println!("{path}");
                 }
             }
             CommandType::Keyword => println!("{}", info.description),
@@ -301,14 +301,14 @@ fn display_type_results(results: &[CommandInfo]) {
             CommandType::External => "file",
             CommandType::Keyword => "keyword",
         };
-        println!("{}", type_str);
+        println!("{type_str}");
     }
 }
 
 fn display_path_results(results: &[CommandInfo]) {
     for info in results {
         if let Some(path) = &info.path {
-            println!("{}", path);
+            println!("{path}");
         }
     }
 }

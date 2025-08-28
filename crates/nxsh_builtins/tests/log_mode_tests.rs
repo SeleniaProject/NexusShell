@@ -1,4 +1,4 @@
-use nxsh_builtins::logstats_cli;
+use nxsh_builtins::logstats_cli_func::logstats_cli;
 
 fn run_with_mode(mode: &str) -> anyhow::Result<()> {
     let args = match mode {
@@ -7,7 +7,7 @@ fn run_with_mode(mode: &str) -> anyhow::Result<()> {
         "prom" => vec!["logstats".to_string(), "--prom".to_string()],
         _ => vec!["logstats".to_string()],
     };
-    logstats_cli(&args).map(|_| ())
+    logstats_cli(&args)
 }
 
 #[test]

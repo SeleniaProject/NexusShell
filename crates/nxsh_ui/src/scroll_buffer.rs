@@ -9,12 +9,22 @@ pub struct ScrollBuffer {
 }
 
 impl ScrollBuffer {
+    /// Create a new buffer; size is currently advisory and ignored.
+    pub fn new(_size: usize) -> Self {
+        Self::default()
+    }
+
     /// Push a new line into the buffer, evicting old lines when over capacity.
     pub fn push(&mut self, line: impl Into<String>) {
         if self.lines.len() == MAX_LINES {
             self.lines.pop_front();
         }
         self.lines.push_back(line.into());
+    }
+
+    /// Back-compat helper used by some UI paths.
+    pub fn add_line(&mut self, line: impl Into<String>) {
+        self.push(line);
     }
 
     /// Scroll by delta lines. Positive = down, negative = up.
@@ -29,6 +39,11 @@ impl ScrollBuffer {
         let start = self.offset.min(self.lines.len());
         let end = (start + height).min(self.lines.len());
         self.lines.iter().skip(start).take(end - start).map(String::as_str)
+    }
+
+    /// Collect visible lines into a Vec<String> for rendering layers that prefer owned strings.
+    pub fn get_visible_lines(&self, height: usize) -> Vec<String> {
+        self.view(height).map(|s| s.to_string()).collect()
     }
 }
 

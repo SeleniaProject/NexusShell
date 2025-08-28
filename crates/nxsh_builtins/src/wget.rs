@@ -5,8 +5,11 @@
 //! (e.g. minimal containers or Windows without Git for Windows), it falls back
 //! to an enhanced internal implementation that supports common wget operations.
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Result, Context};
 use std::process::Command;
+use std::path::{Path, PathBuf};
+use std::fs::File;
+use std::io::{BufWriter, copy, Write};
 #[cfg(feature = "net-http")]
 use url::Url;
 use which::which;
@@ -240,6 +243,13 @@ fn run_internal_wget(_options: &WgetOptions) -> Result<()> {
     ))
 }
 
+
+/// Execute function stub
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    eprintln!("Command not yet implemented");
+    Ok(1)
+}
+
 #[cfg(feature = "net-http")]
 fn download_file(options: &WgetOptions, output_path: &Path) -> Result<()> {
     let mut request = ureq::get(&options.url);
@@ -368,11 +378,4 @@ mod tests {
         let options = parse_wget_args(&args).expect("Failed to parse wget args with output option");
         assert_eq!(options.output, Some("output.txt".to_string()));
     }
-}
-
-
-/// Execute function stub
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
-    eprintln!("Command not yet implemented");
-    Ok(1)
 }

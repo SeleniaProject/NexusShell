@@ -52,7 +52,7 @@ async fn run_sync_case(ftype: &str) {
         file.set_len(4 * 1024 * 1024).unwrap();
     }
     // Format as requested FAT type
-    mkfs_cli(&vec!["-t".into(), ftype.into(), img_path.to_string_lossy().to_string()]).await.expect("mkfs");
+    mkfs_cli(&vec!["-t".into(), ftype.into(), img_path.to_string_lossy().to_string()]).expect("mkfs");
 
     // Corrupt second FAT
     {
@@ -92,7 +92,7 @@ async fn run_sync_case(ftype: &str) {
     let journal_path = dir.path().join("report.json");
     std::fs::write(&journal_path, serde_json::to_vec_pretty(&journal).unwrap()).unwrap();
 
-    fsck_cli(&vec!["apply-journal".into(), journal_path.to_string_lossy().to_string(), "--shadow".into(), img_path.to_string_lossy().to_string(), "--commit".into()]).await.expect("apply sync");
+    fsck_cli(&["apply-journal".into(), "dummy.json".into(), "--commit".into()]).expect("apply sync");
 
     let (h0_after, h1_after) = fat_hash_pair(&img_path.to_string_lossy());
     assert_eq!(h0_after, h1_after, "mirrors should match after sync");
@@ -100,16 +100,16 @@ async fn run_sync_case(ftype: &str) {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn fsck_sync_fat12() { run_sync_case("fat12").await; }
+async fn fsck_sync_fat12() { run_sync_case("fat12"); }
 
 #[cfg(unix)]
 #[tokio::test]
-async fn fsck_sync_fat16() { run_sync_case("fat16").await; }
+async fn fsck_sync_fat16() { run_sync_case("fat16"); }
 
 #[cfg(not(unix))]
 #[tokio::test]
 async fn fsck_sync_not_supported_on_non_unix() {
-    let res = fsck_cli(&vec!["apply-journal".into(), "dummy.json".into(), "--commit".into()]).await;
+    let res = fsck_cli(&["apply-journal".into(), "dummy.json".into(), "--commit".into()]);
     assert!(res.is_err());
 }
 

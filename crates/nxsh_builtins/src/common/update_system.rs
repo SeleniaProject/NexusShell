@@ -329,7 +329,7 @@ async fn check_for_updates_internal(system: &UpdateSystem) -> Result<Option<Upda
     #[cfg(feature = "updates")]
     {
         retry_with_exponential_backoff(|| async {
-            check_for_updates_with_retry(&system).await
+            check_for_updates_with_retry(system).await
         }, system.config.max_retries, system.config.retry_delay_ms).await
     }
 }
@@ -532,7 +532,7 @@ fn verify_file_checksum_with_retry(file_path: &Path, expected_checksum: &str, ma
 #[cfg(feature = "updates")]
 fn verify_file_checksum_single_attempt(file_path: &Path, expected_checksum: &str) -> Result<()> {
     let file_contents = std::fs::read(file_path)
-        .with_context(|| format!("Failed to read file: {:?}", file_path))?;
+        .with_context(|| format!("Failed to read file: {file_path:?}"))?;
     
     let mut hasher = Sha256::new();
     hasher.update(&file_contents);
@@ -555,7 +555,7 @@ fn verify_file_checksum_single_attempt(file_path: &Path, expected_checksum: &str
 fn verify_file_size(file_path: &Path, expected_size: Option<u64>) -> Result<()> {
     if let Some(expected) = expected_size {
         let metadata = std::fs::metadata(file_path)
-            .with_context(|| format!("Failed to get metadata for {:?}", file_path))?;
+            .with_context(|| format!("Failed to get metadata for {file_path:?}"))?;
         
         let actual_size = metadata.len();
         if actual_size != expected {

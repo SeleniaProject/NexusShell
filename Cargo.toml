@@ -18,7 +18,7 @@ windows-sys = "0.48"
 rand = "0.8"
 terminal_size = "0.3"
 # Monitoring and logging dependencies
-tracing = "0.1"
+tracing = { version = "0.1", features = ["std", "release_max_level_info"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "time", "local-time"] }
 tracing-appender = "0.2"
 metrics = "0.23"
@@ -35,22 +35,37 @@ regex = "1.10"
 dirs = "5.0"
 tempfile = "3.8" 
 
-# Performance optimization profiles
+# Performance optimization profiles with extreme settings for world-class performance
 [profile.release]
-opt-level = 3
-codegen-units = 1
-lto = "fat"
-panic = "abort"
-strip = true
-incremental = false
+opt-level = 3                    # Maximum optimization level for best runtime performance
+codegen-units = 1               # Single codegen unit for better inlining and optimization
+lto = "fat"                     # Fat LTO for maximum optimization across all crates
+panic = "abort"                 # Abort on panic for smaller binary and better performance
+strip = "symbols"               # Remove all symbols for maximum size reduction
+incremental = false             # Disable incremental for maximum optimization in release
+overflow-checks = false         # Disable overflow checks for maximum performance
+debug-assertions = false        # Disable debug assertions for maximum performance
 
 [profile.release-small]
 inherits = "release"
-opt-level = "z"
+opt-level = "z"                 # Size optimization
 codegen-units = 1
 lto = "fat"
 panic = "abort"
-strip = true
+strip = "symbols"               # Remove all symbols
+incremental = false
+
+# Aggressive optimization profile for benchmarking and maximum performance
+[profile.bench]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+debug = false
+rpath = false
+overflow-checks = false
+debug-assertions = false
+incremental = false
+strip = "symbols"
 
 # Profile Guided Optimization build profile
 [profile.release-pgo]

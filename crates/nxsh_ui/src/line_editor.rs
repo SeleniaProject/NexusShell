@@ -43,6 +43,8 @@ impl NexusLineEditor {
             .completion_type(rustyline::CompletionType::List)
             .edit_mode(rustyline::EditMode::Emacs)
             .auto_add_history(true)
+            .tab_stop(4)  // Set consistent tab width for proper alignment
+            .completion_prompt_limit(25)  // Show up to 25 completion candidates
             .max_history_size(10000)?  // Full history capacity
             .build();
 
@@ -77,6 +79,8 @@ impl NexusLineEditor {
             .history_ignore_space(true)
             .history_ignore_dups(true)?
             .completion_type(rustyline::CompletionType::List)
+            .completion_prompt_limit(25)  // Show up to 25 completion candidates
+            .tab_stop(4)  // Set consistent tab width for proper alignment
             .build();
 
         let mut editor: Editor<RustyHelper, DefaultHistory> = Editor::with_config(config)?;
@@ -296,7 +300,21 @@ impl RustyHelper {
 
 impl RLHelperTrait for RustyHelper {}
 
-impl Highlighter for RustyHelper {}
+impl Highlighter for RustyHelper {
+    fn highlight<'l>(&self, line: &'l str, _pos: usize) -> std::borrow::Cow<'l, str> {
+        if let Ok(highlighter) = crate::highlighting::SyntaxHighlighter::new() {
+            let highlighted = highlighter.highlight_line(line);
+            std::borrow::Cow::Owned(highlighted)
+        } else {
+            std::borrow::Cow::Borrowed(line)
+        }
+    }
+    
+    fn highlight_hint<'h>(&self, hint: &'h str) -> std::borrow::Cow<'h, str> {
+        // Gray color for hints
+        std::borrow::Cow::Owned(format!("\x1b[90m{}\x1b[0m", hint))
+    }
+}
 
 impl Hinter for RustyHelper {
     type Hint = String;

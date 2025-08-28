@@ -12,22 +12,21 @@ use crossterm::{
     terminal::{size},
 };
 use std::{
-    io,
     collections::VecDeque,
     time::Instant,
 };
 
 use crate::{
-    completion_engine::AdvancedCompletionEngine,
-    completion_panel::{CompletionPanel, PanelConfig},
+    completion_engine::CompletionEngine,
+    // completion_panel::{CompletionPanel, PanelConfig}, // Temporarily disabled
 };
 
 /// Enhanced tab completion handler with visual panel
 pub struct TabCompletionHandler {
     /// Advanced completion engine
-    completion_engine: AdvancedCompletionEngine,
+    completion_engine: CompletionEngine,
     /// Visual completion panel
-    completion_panel: CompletionPanel,
+    // completion_panel: CompletionPanel, // Temporarily disabled
     /// Current completion state
     completion_state: CompletionState,
     /// Input history for smart suggestions
@@ -38,6 +37,7 @@ pub struct TabCompletionHandler {
 
 /// Current state of tab completion
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct CompletionState {
     /// Whether completion panel is visible
     pub is_visible: bool,
@@ -66,39 +66,15 @@ pub struct CompletionMetrics {
     pub last_update: Option<Instant>,
 }
 
-impl Default for CompletionState {
-    fn default() -> Self {
-        Self {
-            is_visible: false,
-            original_input: String::new(),
-            cursor_position: 0,
-            last_request_time: None,
-            tab_sequence_count: 0,
-            navigation_mode: false,
-        }
-    }
-}
 
 impl TabCompletionHandler {
     /// Create a new tab completion handler
     pub fn new() -> Result<Self> {
-        let completion_engine = AdvancedCompletionEngine::new()?;
-        let panel_config = PanelConfig {
-            max_width: 80,
-            max_height: 12,
-            candidates_per_page: 8,
-            show_categories: true,
-            show_icons: true,
-            show_descriptions: true,
-            enable_animations: true,
-            animation_duration_ms: 120,
-            auto_hide: true,
-        };
-        let completion_panel = CompletionPanel::new(panel_config);
-
+        let completion_engine = CompletionEngine::new();
+        
         Ok(Self {
             completion_engine,
-            completion_panel,
+            // completion_panel, // Temporarily disabled
             completion_state: CompletionState::default(),
             input_history: VecDeque::with_capacity(100),
             metrics: CompletionMetrics::default(),
@@ -118,13 +94,12 @@ impl TabCompletionHandler {
 
         // Get completion suggestions
         let completion_result = self.completion_engine
-            .get_completions(input, cursor_pos)
-            .await?;
+            .get_completions(input);
 
         // Update performance metrics
         self.update_metrics(start_time);
 
-        if completion_result.candidates.is_empty() {
+        if completion_result.items.is_empty() {
             // No candidates available
             self.hide_panel()?;
             return Ok(TabCompletionResult::NoSuggestions);
@@ -159,14 +134,14 @@ impl TabCompletionHandler {
         match (key_event.code, key_event.modifiers) {
             // Tab or Down arrow - next candidate
             (KeyCode::Tab, KeyModifiers::NONE) | (KeyCode::Down, _) => {
-                self.completion_panel.select_next()?;
+                // self.completion_panel.select_next()?;
                 self.render_panel().await?;
                 Ok(Some(TabCompletionResult::NavigationUpdate))
             }
             
             // Shift+Tab or Up arrow - previous candidate
             (KeyCode::BackTab, _) | (KeyCode::Up, _) => {
-                self.completion_panel.select_previous()?;
+                // self.completion_panel.select_previous()?;
                 self.render_panel().await?;
                 Ok(Some(TabCompletionResult::NavigationUpdate))
             }
@@ -203,36 +178,36 @@ impl TabCompletionHandler {
         completion_result: crate::completion_engine::CompletionResult,
     ) -> Result<TabCompletionResult> {
         // Check if there's a unique completion
-        if completion_result.candidates.len() == 1 {
-            let candidate = &completion_result.candidates[0];
+        if completion_result.items.len() == 1 {
+            let candidate = &completion_result.items[0];
             return Ok(TabCompletionResult::SingleCompletion {
                 text: candidate.text.clone(),
-                description: Some(candidate.description.clone()),
+                description: candidate.description.clone(),
             });
         }
 
         // Check for common prefix completion
-        if let Some(common_prefix) = self.find_common_prefix(&completion_result.candidates) {
-            if common_prefix.len() > completion_result.context.word_prefix.len() {
+        if let Some(common_prefix) = self.find_common_prefix(&completion_result.items) {
+            if common_prefix.len() > completion_result.prefix.len() {
                 return Ok(TabCompletionResult::PartialCompletion {
                     text: common_prefix,
-                    remaining_candidates: completion_result.candidates.len(),
+                    remaining_candidates: completion_result.items.len(),
                 });
             }
         }
 
         // Show visual completion panel
-        self.show_panel_with_candidates(completion_result.candidates).await?;
+        self.show_panel_with_candidates(completion_result.items).await?;
         
         Ok(TabCompletionResult::PanelShown {
-            candidate_count: self.completion_panel.candidate_count(),
+            candidate_count: 0, // Temporarily hardcoded
         })
     }
 
     /// Handle navigation tab press
     async fn handle_navigation_tab(&mut self) -> Result<TabCompletionResult> {
         if self.completion_state.is_visible {
-            self.completion_panel.select_next()?;
+            // self.completion_panel.select_next()?;
             self.render_panel().await?;
             Ok(TabCompletionResult::NavigationUpdate)
         } else {
@@ -243,7 +218,7 @@ impl TabCompletionHandler {
     /// Handle cycling tab press
     async fn handle_cycling_tab(&mut self) -> Result<TabCompletionResult> {
         if self.completion_state.is_visible {
-            self.completion_panel.select_next()?;
+            // self.completion_panel.select_next()?;
             self.render_panel().await?;
             Ok(TabCompletionResult::NavigationUpdate)
         } else {
@@ -254,9 +229,9 @@ impl TabCompletionHandler {
     /// Show completion panel with candidates
     async fn show_panel_with_candidates(
         &mut self,
-        candidates: Vec<crate::completion_engine::CompletionCandidate>,
+        _candidates: Vec<crate::completion_engine::CompletionItem>,
     ) -> Result<()> {
-        self.completion_panel.set_candidates(candidates)?;
+        // self.completion_panel.set_candidates(candidates)?;
         self.completion_state.is_visible = true;
         self.completion_state.navigation_mode = true;
         self.render_panel().await?;
@@ -266,13 +241,13 @@ impl TabCompletionHandler {
     /// Render the completion panel at current cursor position
     async fn render_panel(&mut self) -> Result<()> {
         // Update animation state
-        self.completion_panel.update_animation()?;
+        // self.completion_panel.update_animation()?;
 
         // Get current cursor position
-        let (cursor_x, cursor_y) = self.get_cursor_position()?;
+        let (_cursor_x, _cursor_y) = self.get_cursor_position()?;
         
         // Render panel
-        self.completion_panel.render(cursor_x, cursor_y)?;
+        // self.completion_panel.render(cursor_x, cursor_y)?;
         
         Ok(())
     }
@@ -280,7 +255,7 @@ impl TabCompletionHandler {
     /// Hide the completion panel
     fn hide_panel(&mut self) -> Result<()> {
         if self.completion_state.is_visible {
-            self.completion_panel.hide()?;
+            // self.completion_panel.hide()?;
             self.completion_state.is_visible = false;
             self.completion_state.navigation_mode = false;
             self.completion_state.tab_sequence_count = 0;
@@ -290,22 +265,23 @@ impl TabCompletionHandler {
 
     /// Accept the currently selected candidate
     async fn accept_selected_candidate(&mut self) -> Result<TabCompletionResult> {
-        if let Some(candidate) = self.completion_panel.get_selected_candidate() {
-            let result = TabCompletionResult::CompletionAccepted {
-                text: candidate.text.clone(),
-                description: Some(candidate.description.clone()),
-            };
-            self.hide_panel()?;
-            Ok(result)
-        } else {
+        // Temporarily disabled
+        // if let Some(candidate) = self.completion_panel.get_selected_candidate() {
+        //     let result = TabCompletionResult::CompletionAccepted {
+        //         text: candidate.text.clone(),
+        //         description: Some(candidate.description.clone()),
+        //     };
+        //     self.hide_panel()?;
+        //     Ok(result)
+        // } else {
             Ok(TabCompletionResult::NoAction)
-        }
+        // }
     }
 
     /// Find common prefix among candidates
     fn find_common_prefix(
         &self,
-        candidates: &[crate::completion_engine::CompletionCandidate],
+        candidates: &[crate::completion_engine::CompletionItem],
     ) -> Option<String> {
         if candidates.is_empty() {
             return None;
@@ -396,10 +372,10 @@ impl TabCompletionHandler {
     /// Update animation frame
     pub async fn update_animation(&mut self) -> Result<bool> {
         if self.completion_state.is_visible {
-            let needs_redraw = self.completion_panel.update_animation()?;
+            let needs_redraw = true; // Temporarily hardcoded
             if needs_redraw {
-                let (cursor_x, cursor_y) = self.get_cursor_position()?;
-                self.completion_panel.render(cursor_x, cursor_y)?;
+                let (_cursor_x, _cursor_y) = self.get_cursor_position()?;
+                // self.completion_panel.render(cursor_x, cursor_y)?;
             }
             Ok(needs_redraw)
         } else {
@@ -487,20 +463,22 @@ mod tests {
     fn test_common_prefix_finding() {
         let handler = TabCompletionHandler::new().unwrap();
         let candidates = vec![
-            crate::completion_engine::CompletionCandidate {
+            crate::completion_engine::CompletionItem {
                 text: "test_file_1.txt".to_string(),
-                description: "".to_string(),
-                candidate_type: crate::completion_engine::CandidateType::File,
-                base_score: 1.0,
-                boost_score: 0.0,
+                display_text: "test_file_1.txt".to_string(),
+                completion_type: crate::completion_engine::CompletionType::File,
+                description: Some("".to_string()),
+                score: 1.0,
+                source: "test".to_string(),
                 metadata: std::collections::HashMap::new(),
             },
-            crate::completion_engine::CompletionCandidate {
+            crate::completion_engine::CompletionItem {
                 text: "test_file_2.txt".to_string(),
-                description: "".to_string(),
-                candidate_type: crate::completion_engine::CandidateType::File,
-                base_score: 0.9,
-                boost_score: 0.0,
+                display_text: "test_file_2.txt".to_string(),
+                completion_type: crate::completion_engine::CompletionType::File,
+                description: Some("".to_string()),
+                score: 0.9,
+                source: "test".to_string(),
                 metadata: std::collections::HashMap::new(),
             },
         ];

@@ -361,7 +361,8 @@ impl ComponentRegistry {
                     log::info!("[plugin host.log] {}", msg);
                     Ok(vec![])
                 } else {
-                    Err(ComponentError::TypeMismatch { expected: "string".into(), actual: format!("{:?}", args.get(0)) })
+                    let first_arg = args.get(0);
+                    Err(ComponentError::TypeMismatch { expected: "string".into(), actual: format!("{first_arg:?}") })
                 }
             }
             "host.env_get" => {
@@ -369,7 +370,8 @@ impl ComponentRegistry {
                     let val = std::env::var(key).unwrap_or_default();
                     Ok(vec![ComponentValue::String(val)])
                 } else {
-                    Err(ComponentError::TypeMismatch { expected: "string".into(), actual: format!("{:?}", args.get(0)) })
+                    let first_arg = args.get(0);
+                    Err(ComponentError::TypeMismatch { expected: "string".into(), actual: format!("{first_arg:?}") })
                 }
             }
             "host.time_now_ms" => {

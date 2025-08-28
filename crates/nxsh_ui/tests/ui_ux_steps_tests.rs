@@ -25,7 +25,7 @@ fn interactive_unknown_param() {
     let mut ui = UIUXSystem::new();
     let mut sess = ui.start_interactive_mode("grep").unwrap();
     let err = sess.set_param("nonexist", "x").unwrap_err();
-    assert!(format!("{}", err).contains("Unknown parameter"));
+    assert!(format!("{err}").contains("Unknown parameter"));
 }
 
 

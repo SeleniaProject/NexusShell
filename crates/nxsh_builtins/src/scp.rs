@@ -30,5 +30,12 @@ pub fn scp_cli(args: &[String]) -> Result<()> {
     }
 
     Err(anyhow!("scp: no compatible scp client found in PATH; please install OpenSSH"))
-} 
+}
+
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match scp_cli(args) {
+        Ok(()) => Ok(0),
+        Err(e) => Err(crate::common::BuiltinError::Other(e.to_string())),
+    }
+}
 

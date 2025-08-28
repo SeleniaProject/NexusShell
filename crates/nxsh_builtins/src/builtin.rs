@@ -33,6 +33,13 @@ pub fn builtin_cli(args: &[String]) -> Result<()> {
         },
         _ => Err(anyhow!("builtin: unsupported command '{}'.", cmd)),
     }
+} 
+
+
+/// Execute function stub
+pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    eprintln!("Command not yet implemented");
+    Ok(1)
 }
 
 #[cfg(test)]
@@ -42,11 +49,4 @@ mod tests {
     fn list() {
         builtin_cli(&[]).unwrap();
     }
-} 
-
-
-/// Execute function stub
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
-    eprintln!("Command not yet implemented");
-    Ok(1)
 }

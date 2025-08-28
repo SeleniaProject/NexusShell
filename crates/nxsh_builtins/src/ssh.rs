@@ -38,5 +38,11 @@ pub fn ssh_cli(args: &[String]) -> Result<()> {
     }
 
     Err(anyhow!("ssh: no compatible ssh client found in PATH; please install OpenSSH"))
-} 
+}
 
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match ssh_cli(args) {
+        Ok(()) => Ok(0),
+        Err(e) => Err(crate::common::BuiltinError::Other(e.to_string())),
+    }
+}

@@ -16,6 +16,7 @@
 //! - Compression detection and automatic decompression
 //! - Advanced statistics and performance monitoring
 
+use nxsh_core::memory_efficient::MemoryEfficientStringBuilder;
 use anyhow::{Result, anyhow, Context as AnyhowContext};
 use std::io::{self, Read, Write, BufRead, BufReader, BufWriter}; // BufRead 忁E��E(ジェネリチE��墁E�� / reader 生�Eで使用)
 
@@ -1116,6 +1117,55 @@ fn process_url_to_writer(
         }
     }
 
+    // ftp: scheme support with basic authentication
+    if scheme == "ftp" {
+        #[cfg(feature = "net-ftp")]
+        {
+            use ftp::FtpStream;
+            use std::net::TcpStream;
+            
+            let host = url.host_str().ok_or_else(|| anyhow!(t!("cat-error-invalid-ftp-host")))?;
+            let port = url.port().unwrap_or(21);
+            let path = url.path();
+            
+            // Extract username and password from URL
+            let username = if url.username().is_empty() { "anonymous" } else { url.username() };
+            let password = url.password().unwrap_or("anonymous@example.com");
+            
+            // Connect to FTP server
+            let mut ftp_stream = FtpStream::connect(format!("{}:{}", host, port))
+                .map_err(|e| anyhow!(t!("cat-error-ftp-connect-failed", "error" => e.to_string())))?;
+            
+            // Login
+            ftp_stream.login(username, password)
+                .map_err(|e| anyhow!(t!("cat-error-ftp-login-failed", "error" => e.to_string())))?;
+            
+            // Retrieve file
+            let mut cursor = std::io::Cursor::new(Vec::new());
+            ftp_stream.retr(path, &mut cursor)
+                .map_err(|e| anyhow!(t!("cat-error-ftp-retrieve-failed", "error" => e.to_string())))?;
+            
+            ftp_stream.quit()
+                .map_err(|e| anyhow!(t!("cat-error-ftp-quit-failed", "error" => e.to_string())))?;
+            
+            cursor.set_position(0);
+            let reader = BufReader::new(cursor);
+            
+            return process_reader_with_progress(
+                Box::new(reader),
+                writer,
+                options,
+                url.as_str(),
+                None,
+            );
+        }
+        
+        #[cfg(not(feature = "net-ftp"))]
+        {
+            return Err(anyhow!(t!("cat-error-ftp-feature-missing")));
+        }
+    }
+
     // HTTP/HTTPS handled behind feature flag
     if scheme != "http" && scheme != "https" {
         return Err(anyhow!(t!("cat-error-unsupported-url-scheme", "scheme" => scheme)));
@@ -1237,17 +1287,29 @@ fn detect_encoding(data: &[u8]) -> &'static Encoding {
 
 fn print_statistics(stats: &FileStats, filename: &str) {
     println!("\n{}", style(t!("cat-stats-header", "filename" => filename)).bold());
+    
+    // Pre-calculate capacity for optimal memory usage: number string (up to 20 digits)
+    let mut buf = MemoryEfficientStringBuilder::new(25);
+    buf.push_str(&stats.bytes_read.to_string());
     println!("{}: {}", 
         style(t!("cat-stats-bytes-read")).cyan(), 
-        style(format!("{}", stats.bytes_read)).yellow()
+        style(buf.into_string()).yellow()
     );
+    
+    // Pre-calculate capacity for optimal memory usage: number string (up to 20 digits)
+    let mut buf = MemoryEfficientStringBuilder::new(25);
+    buf.push_str(&stats.lines_processed.to_string());
     println!("{}: {}", 
         style(t!("cat-stats-lines-processed")).cyan(), 
-        style(format!("{}", stats.lines_processed)).yellow()
+        style(buf.into_string()).yellow()
     );
+    
+    // Pre-calculate capacity for optimal memory usage: duration string (typically 10-20 chars)
+    let mut buf = MemoryEfficientStringBuilder::new(30);
+    buf.push_str(&format!("{:.2?}", stats.processing_time));
     println!("{}: {}", 
         style(t!("cat-stats-processing-time")).cyan(), 
-        style(format!("{:.2?}", stats.processing_time)).yellow()
+        style(buf.into_string()).yellow()
     );
     
     if let Some(encoding) = stats.encoding_detected {
@@ -1257,15 +1319,21 @@ fn print_statistics(stats: &FileStats, filename: &str) {
         );
     }
     
+    // Pre-calculate capacity for optimal memory usage: file type string (typically 10-20 chars)
+    let mut buf = MemoryEfficientStringBuilder::new(30);
+    buf.push_str(&format!("{:?}", stats.file_type));
     println!("{}: {}", 
         style(t!("cat-stats-file-type")).cyan(), 
-        style(format!("{:?}", stats.file_type)).yellow()
+        style(buf.into_string()).yellow()
     );
     
     if let Some(compression) = &stats.compression_detected {
+        // Pre-calculate capacity for optimal memory usage: compression type string (typically 10-20 chars)
+        let mut buf = MemoryEfficientStringBuilder::new(30);
+        buf.push_str(&format!("{compression:?}"));
         println!("{}: {}", 
             style(t!("cat-stats-compression")).cyan(), 
-            style(format!("{compression:?}")).yellow()
+            style(buf.into_string()).yellow()
         );
     }
     
@@ -1275,9 +1343,12 @@ fn print_statistics(stats: &FileStats, filename: &str) {
         0.0
     };
     
+    // Pre-calculate capacity for optimal memory usage: throughput number with 2 decimal places (typically 10 chars)
+    let mut buf = MemoryEfficientStringBuilder::new(15);
+    buf.push_str(&format!("{throughput:.2}"));
     println!("{}: {} MB/s", 
         style(t!("cat-stats-throughput")).cyan(), 
-        style(format!("{throughput:.2}")).yellow()
+        style(buf.into_string()).yellow()
     );
 }
 
@@ -1311,6 +1382,53 @@ fn print_help() {
     println!("{}", t!("cat-help-advanced-example3"));
     println!();
     println!("{}", t!("cat-help-report-bugs"));
+} 
+
+/// Display beautiful file header with icon and filename
+fn display_beautiful_file_header(filename: &str) {
+    let icons = Icons::new(); // Use Unicode icons
+    let colors = ColorPalette::new();
+    
+    let file_icon = if filename.ends_with(".md") || filename.ends_with(".txt") {
+        icons.document
+    } else if filename.ends_with(".rs") || filename.ends_with(".py") || filename.ends_with(".js") {
+        icons.code  
+    } else if filename.ends_with(".json") || filename.ends_with(".toml") || filename.ends_with(".yml") {
+        icons.document
+    } else {
+        icons.file
+    };
+    
+    // Create beautiful header with MemoryEfficientStringBuilder
+    // Pre-calculate capacity for optimal memory usage: color codes + separators + icon + filename + more separators
+    let capacity = 50 + filename.len() + file_icon.len();
+    let mut header = MemoryEfficientStringBuilder::new(capacity);
+    header.push_str(&colors.primary);
+    header.push_str("═");
+    header.push_str(&"═".repeat(10));
+    header.push_str("═══");
+    header.push_str(file_icon); // Fixed: use push_str instead of push for string
+    header.push(' ');
+    header.push_str(&filename.info());
+    header.push_str(" ═══");
+    header.push_str(&"═".repeat(10));
+    header.push_str(&colors.reset);
+    
+    println!("{}", header.into_string());
+}
+
+
+
+
+/// Execute function stub
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match cat_cli(args) {
+        Ok(()) => Ok(0),
+        Err(e) => {
+            eprintln!("cat: {e}");
+            Ok(1)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1340,8 +1458,10 @@ mod tests {
     
     #[test]
     fn test_line_numbering() -> Result<()> {
-        let mut options = CatOptions::default();
-        options.number_lines = true;
+        let options = CatOptions {
+            number_lines: true,
+            ..Default::default()
+        };
         
         let input = "Hello\nWorld\n";
         let mut output = Vec::new();
@@ -1361,8 +1481,10 @@ mod tests {
     
     #[test]
     fn test_show_ends() -> Result<()> {
-        let mut options = CatOptions::default();
-        options.show_ends = true;
+        let options = CatOptions {
+            show_ends: true,
+            ..Default::default()
+        };
         
         let input = "Hello\nWorld\n";
         let mut output = Vec::new();
@@ -1382,8 +1504,10 @@ mod tests {
     
     #[test]
     fn test_show_tabs() -> Result<()> {
-        let mut options = CatOptions::default();
-        options.show_tabs = true;
+        let options = CatOptions {
+            show_tabs: true,
+            ..Default::default()
+        };
         
         let input = "Hello\tWorld\n";
         let mut output = Vec::new();
@@ -1402,8 +1526,10 @@ mod tests {
     
     #[test]
     fn test_squeeze_blank() -> Result<()> {
-        let mut options = CatOptions::default();
-        options.squeeze_blank = true;
+        let options = CatOptions {
+            squeeze_blank: true,
+            ..Default::default()
+        };
         
         let input = "Hello\n\n\n\nWorld\n";
         let mut output = Vec::new();
@@ -1509,7 +1635,12 @@ mod tests {
     fn test_data_url_base64() -> Result<()> {
         // "Hello, 世界!" in UTF-8 base64
         let data = "SGVsbG8sIOS4lueVjCE=";
-        let url = Url::parse(&format!("data:text/plain;base64,{}", data)).unwrap();
+        // Pre-calculate capacity for optimal memory usage: prefix + data
+        let capacity = 25 + data.len(); // "data:text/plain;base64," + data
+        let mut url_str = MemoryEfficientStringBuilder::new(capacity);
+        url_str.push_str("data:text/plain;base64,");
+        url_str.push_str(data);
+        let url = Url::parse(&url_str.into_string()).unwrap();
         let opts = CatOptions::default();
         let mut out: Vec<u8> = Vec::new();
         let stats = process_url_to_writer(&url, &opts, None, &mut out)?;
@@ -1528,48 +1659,5 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&out), "Hello, 世界!");
         assert!(stats.bytes_read > 0);
         Ok(())
-    }
-} 
-
-/// Display beautiful file header with icon and filename
-fn display_beautiful_file_header(filename: &str) {
-    let icons = Icons::new(); // Use Unicode icons
-    let colors = ColorPalette::new();
-    
-    let file_icon = if filename.ends_with(".md") || filename.ends_with(".txt") {
-        icons.document
-    } else if filename.ends_with(".rs") || filename.ends_with(".py") || filename.ends_with(".js") {
-        icons.code  
-    } else if filename.ends_with(".json") || filename.ends_with(".toml") || filename.ends_with(".yml") {
-        icons.document
-    } else {
-        icons.file
-    };
-    
-    // Create beautiful header
-    let header = format!("{}{}{}═══{} {} {}═══{}", 
-        colors.primary,
-        "═",
-        "═".repeat(10),
-        file_icon,
-        filename.info(),
-        "═".repeat(10),
-        colors.reset
-    );
-    
-    println!("{}", header);
-}
-
-
-
-
-/// Execute function stub
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
-    match cat_cli(args) {
-        Ok(()) => Ok(0),
-        Err(e) => {
-            eprintln!("cat: {}", e);
-            Ok(1)
-        }
     }
 }

@@ -64,7 +64,7 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
     match chmod_cli(args) {
         Ok(_) => Ok(0),
         Err(e) => {
-            eprintln!("{}", e);
+            eprintln!("{e}");
             Ok(1)
         }
     }

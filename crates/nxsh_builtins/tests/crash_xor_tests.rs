@@ -25,9 +25,11 @@ fn sample_report() -> CrashReport {
 fn crash_xor_encryption_creates_encrypted_file() {
     // Prepare temp dir
     let dir = tempfile::tempdir().unwrap();
-    let mut config = CrashDiagnosisConfig::default();
-    config.crash_dump_dir = PathBuf::from(dir.path());
-    config.encrypt_dumps = true;
+    let _config = CrashDiagnosisConfig {
+        crash_dump_dir: PathBuf::from(dir.path()),
+        encrypt_dumps: true,
+        ..Default::default()
+    };
 
     std::env::set_var("NXSH_CRASH_XOR_KEY", "unit_test_key");
     let report = sample_report();

@@ -425,6 +425,97 @@ pub fn cd(args: &[String], ctx: &mut ShellContext) -> anyhow::Result<()> {
         0 => Ok(()),
         code => Err(anyhow::anyhow!("cd failed with exit code {}", code)),
     }
+} 
+
+
+
+/// Execute function for cd command
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    use super::ui_design::Colorize;
+    
+    let cyan = "\x1b[38;2;0;245;255m";     // #00f5ff
+    let green = "\x1b[38;2;46;213;115m";   // #2ed573
+    let yellow = "\x1b[38;2;255;190;11m";  // #ffbe0b
+    let reset = "\x1b[0m";
+    
+    // Handle arguments - only take the first argument, ignore the rest
+    let target_dir_owned;
+    let target_dir = if !args.is_empty() {
+        &args[0]
+    } else {
+        // No argument - go to home directory
+        match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+            Ok(home) => {
+                target_dir_owned = home;
+                &target_dir_owned
+            }
+            Err(_) => {
+                eprintln!("{yellow}cd:{reset} HOME directory not found");
+                return Ok(1);
+            }
+        }
+    };
+    
+    // Handle special cases
+    let target_path = if target_dir == "-" {
+        match std::env::var("OLDPWD") {
+            Ok(oldpwd) => {
+                println!("{cyan}{oldpwd}{reset}");
+                oldpwd
+            }
+            Err(_) => {
+                eprintln!("{yellow}cd:{reset} OLDPWD not set");
+                return Ok(1);
+            }
+        }
+    } else {
+        target_dir.to_string()
+    };
+    
+    // Expand home directory
+    let expanded_path = if target_path.starts_with('~') {
+        match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+            Ok(home) => target_path.replacen('~', &home, 1),
+            Err(_) => target_path
+        }
+    } else {
+        target_path
+    };
+    
+    // Get current directory for OLDPWD
+    let current_dir = match std::env::current_dir() {
+        Ok(dir) => dir.to_string_lossy().to_string(),
+        Err(_) => String::new(),
+    };
+    
+    // Change directory
+    match std::env::set_current_dir(&expanded_path) {
+        Ok(()) => {
+            // Set OLDPWD
+            std::env::set_var("OLDPWD", current_dir);
+            
+            // Update PWD
+            if let Ok(new_dir) = std::env::current_dir() {
+                std::env::set_var("PWD", new_dir.to_string_lossy().as_ref());
+            }
+            
+            // Show success with cyberpunk style
+            if !args.is_empty() && target_dir != "." {
+                let short_path = if expanded_path.len() > 50 {
+                    format!("...{}", &expanded_path[expanded_path.len() - 47..])
+                } else {
+                    expanded_path.clone()
+                };
+                println!("{cyan}📁 Changed to: {green}{short_path}{reset}");
+            }
+            
+            Ok(0)
+        }
+        Err(e) => {
+            eprintln!("{yellow}cd:{reset} cannot access '{expanded_path}': {e}");
+            Ok(1)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -589,96 +680,5 @@ SPACED_VALUE = value with spaces around equals
         assert_eq!(shell_ctx.get_var("SINGLE_QUOTED"), Some("single quoted".to_string()));
         assert_eq!(shell_ctx.get_var("EMPTY_VALUE"), Some("".to_string()));
         assert_eq!(shell_ctx.get_var("SPACED_VALUE"), Some("value with spaces around equals".to_string()));
-    }
-} 
-
-
-
-/// Execute function for cd command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
-    use super::ui_design::Colorize;
-    
-    let cyan = "\x1b[38;2;0;245;255m";     // #00f5ff
-    let green = "\x1b[38;2;46;213;115m";   // #2ed573
-    let yellow = "\x1b[38;2;255;190;11m";  // #ffbe0b
-    let reset = "\x1b[0m";
-    
-    // Handle arguments - only take the first argument, ignore the rest
-    let target_dir_owned;
-    let target_dir = if !args.is_empty() {
-        &args[0]
-    } else {
-        // No argument - go to home directory
-        match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
-            Ok(home) => {
-                target_dir_owned = home;
-                &target_dir_owned
-            }
-            Err(_) => {
-                eprintln!("{}cd:{} HOME directory not found", yellow, reset);
-                return Ok(1);
-            }
-        }
-    };
-    
-    // Handle special cases
-    let target_path = if target_dir == "-" {
-        match std::env::var("OLDPWD") {
-            Ok(oldpwd) => {
-                println!("{}{}{}", cyan, oldpwd, reset);
-                oldpwd
-            }
-            Err(_) => {
-                eprintln!("{}cd:{} OLDPWD not set", yellow, reset);
-                return Ok(1);
-            }
-        }
-    } else {
-        target_dir.to_string()
-    };
-    
-    // Expand home directory
-    let expanded_path = if target_path.starts_with('~') {
-        match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
-            Ok(home) => target_path.replacen('~', &home, 1),
-            Err(_) => target_path
-        }
-    } else {
-        target_path
-    };
-    
-    // Get current directory for OLDPWD
-    let current_dir = match std::env::current_dir() {
-        Ok(dir) => dir.to_string_lossy().to_string(),
-        Err(_) => String::new(),
-    };
-    
-    // Change directory
-    match std::env::set_current_dir(&expanded_path) {
-        Ok(()) => {
-            // Set OLDPWD
-            std::env::set_var("OLDPWD", current_dir);
-            
-            // Update PWD
-            if let Ok(new_dir) = std::env::current_dir() {
-                std::env::set_var("PWD", new_dir.to_string_lossy().as_ref());
-            }
-            
-            // Show success with cyberpunk style
-            if !args.is_empty() && target_dir != "." {
-                let short_path = if expanded_path.len() > 50 {
-                    format!("...{}", &expanded_path[expanded_path.len() - 47..])
-                } else {
-                    expanded_path.clone()
-                };
-                println!("{}📁 Changed to: {}{}{}", cyan, green, short_path, reset);
-            }
-            
-            Ok(0)
-        }
-        Err(e) => {
-            eprintln!("{}cd:{} cannot access '{}': {}", yellow, reset, expanded_path, e);
-            Ok(1)
-        }
     }
 }

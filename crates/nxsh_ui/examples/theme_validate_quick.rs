@@ -13,11 +13,11 @@ fn main() -> anyhow::Result<()> {
                     println!("ok");
                 } else {
                     println!("fail");
-                    for e in result.errors { println!("  - {}", e); }
+                    for e in result.errors { println!("  - {e}"); }
                 }
             }
             Err(e) => {
-                println!("error: {}", e);
+                println!("error: {e}");
             }
         }
     }

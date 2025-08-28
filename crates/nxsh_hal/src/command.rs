@@ -142,16 +142,43 @@ impl CommandResult {
     }
 }
 
-/// Execute a command with arguments
+/// Execute a command with arguments with security validation
 pub fn execute<P, I, S>(program: P, args: I) -> HalResult<CommandResult>
 where
     P: AsRef<OsStr>,
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let output = Command::new(program)
-        .args(args)
-        .output()?;
+    let program_str = program.as_ref().to_string_lossy();
+    
+    // Security validation: Check for potentially dangerous command patterns
+    if !is_safe_command(&program_str) {
+        return Err(HalError::process_error(
+            "execute", 
+            None, 
+            &format!("Unsafe command detected: {program_str}")
+        ));
+    }
+    
+    // Convert args to Vec for validation
+    let args_vec: Vec<_> = args.into_iter().collect();
+    
+    // Security validation: Check each argument
+    for (i, arg) in args_vec.iter().enumerate() {
+        let arg_str = arg.as_ref().to_string_lossy();
+        if !is_safe_argument(&arg_str) {
+            return Err(HalError::process_error(
+                "execute",
+                None,
+                &format!("Unsafe argument {i} detected: {arg_str}")
+            ));
+        }
+    }
+    
+    let output = StdCommand::new(program)
+        .args(args_vec)
+        .output()
+        .map_err(|e| HalError::process_error("execute", None, &e.to_string()))?;
 
     Ok(CommandResult::new(
         output.status.code().unwrap_or(-1),
@@ -160,16 +187,101 @@ where
     ))
 }
 
-/// Execute a command in the background
+/// Execute a command in the background with security validation
 pub fn execute_background<P, I, S>(program: P, args: I) -> HalResult<std::process::Child>
 where
     P: AsRef<OsStr>,
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    Command::new(program)
-        .args(args)
+    let program_str = program.as_ref().to_string_lossy();
+    
+    // Security validation: Check for potentially dangerous command patterns
+    if !is_safe_command(&program_str) {
+        return Err(HalError::process_error(
+            "execute_background", 
+            None, 
+            &format!("Unsafe command detected: {program_str}")
+        ));
+    }
+    
+    // Convert args to Vec for validation
+    let args_vec: Vec<_> = args.into_iter().collect();
+    
+    // Security validation: Check each argument
+    for (i, arg) in args_vec.iter().enumerate() {
+        let arg_str = arg.as_ref().to_string_lossy();
+        if !is_safe_argument(&arg_str) {
+            return Err(HalError::process_error(
+                "execute_background",
+                None,
+                &format!("Unsafe argument {i} detected: {arg_str}")
+            ));
+        }
+    }
+    
+    StdCommand::new(program)
+        .args(args_vec)
         .spawn()
+        .map_err(|e| HalError::process_error("execute_background", None, &e.to_string()))
+}
+
+/// Validate that a command is safe to execute
+/// This prevents execution of potentially dangerous commands and command injection
+fn is_safe_command(command: &str) -> bool {
+    // Reject empty commands
+    if command.trim().is_empty() {
+        return false;
+    }
+    
+    // Reject commands with dangerous characters that could indicate injection
+    let dangerous_chars = [';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>', '\n', '\r'];
+    if command.chars().any(|c| dangerous_chars.contains(&c)) {
+        return false;
+    }
+    
+    // Reject path traversal attempts
+    if command.contains("..") {
+        return false;
+    }
+    
+    // Reject commands that try to modify the environment maliciously
+    if command.starts_with("LD_PRELOAD=") || command.starts_with("DYLD_") {
+        return false;
+    }
+    
+    // Allow only alphanumeric characters, hyphens, underscores, dots, and forward slashes for paths
+    command.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '/' || c == '\\')
+}
+
+/// Validate that a command argument is safe
+/// This prevents argument injection and other security issues
+fn is_safe_argument(arg: &str) -> bool {
+    // Allow empty arguments (they're harmless)
+    if arg.is_empty() {
+        return true;
+    }
+    
+    // Check for null bytes (not allowed in arguments)
+    if arg.contains('\0') {
+        return false;
+    }
+    
+    // For simplicity, we allow most characters in arguments since they're properly escaped
+    // by the Command API, but we still check for particularly dangerous patterns
+    
+    // Reject arguments that look like they're trying to execute commands
+    if arg.starts_with("$(") || arg.starts_with("`") {
+        return false;
+    }
+    
+    // Reject arguments that try to redirect or pipe
+    if arg.contains(" > ") || arg.contains(" < ") || arg.contains(" | ") {
+        return false;
+    }
+    
+    // Arguments are generally safe when passed through Command API
+    true
 }
 
 /// Check if a command exists in PATH

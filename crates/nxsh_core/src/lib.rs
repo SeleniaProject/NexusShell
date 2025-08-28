@@ -21,6 +21,8 @@ pub use namespace::{NamespaceSystem, Module, Symbol, ImportStatement};
 pub use performance::{PerformanceOptimizer, PerformanceConfig, PerformanceReport};
 pub use startup::{StartupOptimizer, StartupConfig, StartupTimer, StartupReport};
 pub use memory::{MemoryManager, MemoryPool, StringInterner, global_memory_manager};
+pub use memory_efficient::{MemoryEfficientStringBuilder, fast_format};
+pub use simd_optimization::{SimdStringOps, CpuOptimizer, CpuFeatures};
 pub use closures::{ClosureSystem, Closure, Function, ExecutionContext};
 pub use error_handling::{ErrorHandlingSystem, ErrorHandler, ErrorInfo, ErrorResult};
 #[cfg(feature = "powershell_compat")]
@@ -72,7 +74,9 @@ pub mod startup; // Startup time optimization system
 pub mod structured_data; // NexusShell-inspired structured data processing
 pub mod structured_commands; // Commands for structured data
 pub mod memory;
+pub mod memory_efficient;
 pub mod io_optimization;
+pub mod simd_optimization;
 pub mod shell;
 pub mod locale_alias;
 #[cfg(feature = "security_auditor")] pub mod security_auditor; // Security audit and compliance system - Phase 4

@@ -261,7 +261,7 @@ fn test_glob_case_sensitivity() {
     // all returned names end with .txt ignoring case.
     assert!(!result2.is_empty(), "*.txt should return at least one match");
     for n in &result2 {
-        assert!(n.to_lowercase().ends_with(".txt"), "result {} should end with .txt (case-insensitive)", n);
+        assert!(n.to_lowercase().ends_with(".txt"), "result {n} should end with .txt (case-insensitive)");
     }
 }
 
@@ -334,7 +334,7 @@ fn test_complex_glob_patterns() {
 #[test]
 fn test_glob_safety_limits() {
     // Test that glob expansion respects safety limits using the CWD-locked helper
-    let files: Vec<String> = (0..300).map(|i| format!("file{:03}.txt", i)).collect();
+    let files: Vec<String> = (0..300).map(|i| format!("file{i:03}.txt")).collect();
     let file_refs: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
     let result = run_glob_test("*.txt", &file_refs);
 

@@ -483,12 +483,12 @@ mod tests {
         
         // First attempt should retry
         let result1 = system.handle_error(error.clone()).unwrap();
-        println!("First attempt result: {:?}", result1);
+        println!("First attempt result: {result1:?}");
         assert!(matches!(result1, ErrorResult::Retry));
         
         // Second attempt should exceed max retries
         let result2 = system.handle_error(error).unwrap();
-        println!("Second attempt result: {:?}", result2);
+        println!("Second attempt result: {result2:?}");
         assert!(matches!(result2, ErrorResult::MaxRetriesExceeded));
     }
 

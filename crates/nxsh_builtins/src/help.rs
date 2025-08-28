@@ -33,159 +33,159 @@ fn show_stylish_general_help() {
     let reset = "\x1b[0m";
     
     println!();
-    println!("{}╔══════════════════════════════════════════════════════════════════════════════╗{}", cyan, reset);
-    println!("{}║{}                    🚀 NEXUSSHELL COMPLETE COMMAND SUITE 🚀                   {}║{}", cyan, purple, cyan, reset);
-    println!("{}╚══════════════════════════════════════════════════════════════════════════════╝{}", cyan, reset);
+    println!("{cyan}╔══════════════════════════════════════════════════════════════════════════════╗{reset}");
+    println!("{cyan}║{purple}                    🚀 NEXUSSHELL COMPLETE COMMAND SUITE 🚀                   {cyan}║{reset}");
+    println!("{cyan}╚══════════════════════════════════════════════════════════════════════════════╝{reset}");
     println!();
 
     // File Operations
-    println!("{}📂 FILE OPERATIONS & MANAGEMENT{}", purple, reset);
-    println!("  {}ls{}        - 📋 List directory contents with style", yellow, reset);
-    println!("  {}pwd{}       - 📍 Show current working directory", yellow, reset);
-    println!("  {}cd{}        - 🔄 Change directory intelligently", yellow, reset);
-    println!("  {}touch{}     - ✨ Create/update file timestamps", yellow, reset);
-    println!("  {}mkdir{}     - 📁 Create directories recursively", yellow, reset);
-    println!("  {}cp{}        - 📄 Copy files and directories", yellow, reset);
-    println!("  {}mv{}        - 🔀 Move/rename files and folders", yellow, reset);
-    println!("  {}rm{}        - 🗑️  Remove files and directories", yellow, reset);
-    println!("  {}ln{}        - 🔗 Create symbolic/hard links", yellow, reset);
-    println!("  {}chmod{}     - 🔐 Change file permissions", yellow, reset);
-    println!("  {}chown{}     - 👤 Change file ownership", yellow, reset);
-    println!("  {}find{}      - 🔍 Advanced file search with patterns", yellow, reset);
-    println!("  {}locate{}    - ⚡ Fast file location", yellow, reset);
-    println!("  {}du{}        - 📊 Disk usage analysis", yellow, reset);
-    println!("  {}df{}        - 💿 Filesystem disk space info", yellow, reset);
-    println!("  {}stat{}      - 📋 Detailed file statistics", yellow, reset);
+    println!("{purple}📂 FILE OPERATIONS & MANAGEMENT{reset}");
+    println!("  {yellow}ls{reset}        - 📋 List directory contents with style");
+    println!("  {yellow}pwd{reset}       - 📍 Show current working directory");
+    println!("  {yellow}cd{reset}        - 🔄 Change directory intelligently");
+    println!("  {yellow}touch{reset}     - ✨ Create/update file timestamps");
+    println!("  {yellow}mkdir{reset}     - 📁 Create directories recursively");
+    println!("  {yellow}cp{reset}        - 📄 Copy files and directories");
+    println!("  {yellow}mv{reset}        - 🔀 Move/rename files and folders");
+    println!("  {yellow}rm{reset}        - 🗑️  Remove files and directories");
+    println!("  {yellow}ln{reset}        - 🔗 Create symbolic/hard links");
+    println!("  {yellow}chmod{reset}     - 🔐 Change file permissions");
+    println!("  {yellow}chown{reset}     - 👤 Change file ownership");
+    println!("  {yellow}find{reset}      - 🔍 Advanced file search with patterns");
+    println!("  {yellow}locate{reset}    - ⚡ Fast file location");
+    println!("  {yellow}du{reset}        - 📊 Disk usage analysis");
+    println!("  {yellow}df{reset}        - 💿 Filesystem disk space info");
+    println!("  {yellow}stat{reset}      - 📋 Detailed file statistics");
     println!();
 
     // Text Processing
-    println!("{}💬 TEXT PROCESSING & DATA MANIPULATION{}", coral, reset);
-    println!("  {}cat{}       - 📖 Display file contents beautifully", yellow, reset);
-    println!("  {}echo{}      - 🗨️  Output text with style options", yellow, reset);
-    println!("  {}head{}      - 📄 Display first lines of files", yellow, reset);
-    println!("  {}tail{}      - 📄 Display last lines (with follow)", yellow, reset);
-    println!("  {}wc{}        - 📏 Count lines, words, characters", yellow, reset);
-    println!("  {}uniq{}      - 🎯 Remove or count duplicate lines", yellow, reset);
-    println!("  {}cut{}       - ✂️  Extract columns from text", yellow, reset);
-    println!("  {}tr{}        - 🔄 Translate/transform characters", yellow, reset);
-    println!("  {}tee{}       - 🔀 Split output to file and stdout", yellow, reset);
-    println!("  {}sed{}       - ✏️  Stream editor for filtering", yellow, reset);
-    println!("  {}awk{}       - 🧮 Pattern scanning and processing", yellow, reset);
-    println!("  {}sort{}      - 📊 Sort lines with various options", yellow, reset);
-    println!("  {}join{}      - 🔗 Join lines from two files", yellow, reset);
-    println!("  {}paste{}     - 📋 Merge lines from files", yellow, reset);
-    println!("  {}split{}     - ✂️  Split files into pieces", yellow, reset);
-    println!("  {}comm{}      - 🔍 Compare two sorted files", yellow, reset);
-    println!("  {}diff{}      - 📊 Show differences between files", yellow, reset);
-    println!("  {}patch{}     - 🩹 Apply patches to files", yellow, reset);
-    println!("  {}grep{}      - 🔍 Search text patterns with colors", yellow, reset);
-    println!("  {}egrep{}     - 🔍 Extended regular expressions", yellow, reset);
-    println!("  {}fgrep{}     - 🔍 Fixed string search", yellow, reset);
+    println!("{coral}💬 TEXT PROCESSING & DATA MANIPULATION{reset}");
+    println!("  {yellow}cat{reset}       - 📖 Display file contents beautifully");
+    println!("  {yellow}echo{reset}      - 🗨️  Output text with style options");
+    println!("  {yellow}head{reset}      - 📄 Display first lines of files");
+    println!("  {yellow}tail{reset}      - 📄 Display last lines (with follow)");
+    println!("  {yellow}wc{reset}        - 📏 Count lines, words, characters");
+    println!("  {yellow}uniq{reset}      - 🎯 Remove or count duplicate lines");
+    println!("  {yellow}cut{reset}       - ✂️  Extract columns from text");
+    println!("  {yellow}tr{reset}        - 🔄 Translate/transform characters");
+    println!("  {yellow}tee{reset}       - 🔀 Split output to file and stdout");
+    println!("  {yellow}sed{reset}       - ✏️  Stream editor for filtering");
+    println!("  {yellow}awk{reset}       - 🧮 Pattern scanning and processing");
+    println!("  {yellow}sort{reset}      - 📊 Sort lines with various options");
+    println!("  {yellow}join{reset}      - 🔗 Join lines from two files");
+    println!("  {yellow}paste{reset}     - 📋 Merge lines from files");
+    println!("  {yellow}split{reset}     - ✂️  Split files into pieces");
+    println!("  {yellow}comm{reset}      - 🔍 Compare two sorted files");
+    println!("  {yellow}diff{reset}      - 📊 Show differences between files");
+    println!("  {yellow}patch{reset}     - 🩹 Apply patches to files");
+    println!("  {yellow}grep{reset}      - 🔍 Search text patterns with colors");
+    println!("  {yellow}egrep{reset}     - 🔍 Extended regular expressions");
+    println!("  {yellow}fgrep{reset}     - 🔍 Fixed string search");
     println!();
 
     // System Monitoring
-    println!("{}⚙️  SYSTEM MONITORING & PROCESS MANAGEMENT{}", green, reset);
-    println!("  {}ps{}        - 📋 List running processes", yellow, reset);
-    println!("  {}top{}       - 📊 Real-time process monitor", yellow, reset);
-    println!("  {}htop{}      - 🌈 Enhanced interactive monitor", yellow, reset);
-    println!("  {}kill{}      - ⚡ Terminate processes by PID", yellow, reset);
-    println!("  {}killall{}   - ⚡ Kill processes by name", yellow, reset);
-    println!("  {}pgrep{}     - 🔍 Find processes by pattern", yellow, reset);
-    println!("  {}pkill{}     - ⚡ Kill processes by pattern", yellow, reset);
-    println!("  {}jobs{}      - 💼 Display active jobs", yellow, reset);
-    println!("  {}bg{}        - 🔙 Put jobs in background", yellow, reset);
-    println!("  {}fg{}        - 🔜 Bring jobs to foreground", yellow, reset);
-    println!("  {}nohup{}     - 🛡️  Run commands persistently", yellow, reset);
-    println!("  {}disown{}    - 🚫 Remove jobs from table", yellow, reset);
-    println!("  {}free{}      - 💾 Display memory usage", yellow, reset);
-    println!("  {}uptime{}    - ⏰ Show system uptime and load", yellow, reset);
-    println!("  {}uname{}     - 💻 System information display", yellow, reset);
-    println!("  {}whoami{}    - 👤 Current username", yellow, reset);
-    println!("  {}who{}       - 👥 Show logged-in users", yellow, reset);
-    println!("  {}id{}        - 🆔 User and group IDs", yellow, reset);
-    println!("  {}groups{}    - 👥 Show user groups", yellow, reset);
+    println!("{green}⚙️  SYSTEM MONITORING & PROCESS MANAGEMENT{reset}");
+    println!("  {yellow}ps{reset}        - 📋 List running processes");
+    println!("  {yellow}top{reset}       - 📊 Real-time process monitor");
+    println!("  {yellow}htop{reset}      - 🌈 Enhanced interactive monitor");
+    println!("  {yellow}kill{reset}      - ⚡ Terminate processes by PID");
+    println!("  {yellow}killall{reset}   - ⚡ Kill processes by name");
+    println!("  {yellow}pgrep{reset}     - 🔍 Find processes by pattern");
+    println!("  {yellow}pkill{reset}     - ⚡ Kill processes by pattern");
+    println!("  {yellow}jobs{reset}      - 💼 Display active jobs");
+    println!("  {yellow}bg{reset}        - 🔙 Put jobs in background");
+    println!("  {yellow}fg{reset}        - 🔜 Bring jobs to foreground");
+    println!("  {yellow}nohup{reset}     - 🛡️  Run commands persistently");
+    println!("  {yellow}disown{reset}    - 🚫 Remove jobs from table");
+    println!("  {yellow}free{reset}      - 💾 Display memory usage");
+    println!("  {yellow}uptime{reset}    - ⏰ Show system uptime and load");
+    println!("  {yellow}uname{reset}     - 💻 System information display");
+    println!("  {yellow}whoami{reset}    - 👤 Current username");
+    println!("  {yellow}who{reset}       - 👥 Show logged-in users");
+    println!("  {yellow}id{reset}        - 🆔 User and group IDs");
+    println!("  {yellow}groups{reset}    - 👥 Show user groups");
     println!();
 
     // Network Tools
-    println!("{}🌐 NETWORK TOOLS & CONNECTIVITY{}", blue, reset);
-    println!("  {}ping{}      - 🏓 Test network connectivity", yellow, reset);
-    println!("  {}curl{}      - 🌐 HTTP/HTTPS client tool", yellow, reset);
-    println!("  {}wget{}      - ⬇️  Download files from web", yellow, reset);
-    println!("  {}nc{}        - 🔌 Network swiss army knife", yellow, reset);
-    println!("  {}netcat{}    - 🔌 Advanced network utility", yellow, reset);
-    println!("  {}ssh{}       - 🔐 Secure shell connection", yellow, reset);
-    println!("  {}scp{}       - 📁 Secure file copy", yellow, reset);
-    println!("  {}rsync{}     - 🔄 Efficient file synchronization", yellow, reset);
-    println!("  {}ftp{}       - 📁 File transfer protocol", yellow, reset);
-    println!("  {}telnet{}    - 📞 Remote terminal access", yellow, reset);
-    println!("  {}host{}      - 🌐 DNS lookup utility", yellow, reset);
-    println!("  {}nslookup{}  - 🌐 Interactive DNS lookup", yellow, reset);
-    println!("  {}dig{}       - 🌐 Advanced DNS lookup", yellow, reset);
-    println!("  {}traceroute{} - 🗺️  Trace network route", yellow, reset);
-    println!("  {}netstat{}   - 🌐 Network statistics", yellow, reset);
-    println!("  {}ss{}        - 🌐 Socket statistics", yellow, reset);
+    println!("{blue}🌐 NETWORK TOOLS & CONNECTIVITY{reset}");
+    println!("  {yellow}ping{reset}      - 🏓 Test network connectivity");
+    println!("  {yellow}curl{reset}      - 🌐 HTTP/HTTPS client tool");
+    println!("  {yellow}wget{reset}      - ⬇️  Download files from web");
+    println!("  {yellow}nc{reset}        - 🔌 Network swiss army knife");
+    println!("  {yellow}netcat{reset}    - 🔌 Advanced network utility");
+    println!("  {yellow}ssh{reset}       - 🔐 Secure shell connection");
+    println!("  {yellow}scp{reset}       - 📁 Secure file copy");
+    println!("  {yellow}rsync{reset}     - 🔄 Efficient file synchronization");
+    println!("  {yellow}ftp{reset}       - 📁 File transfer protocol");
+    println!("  {yellow}telnet{reset}    - 📞 Remote terminal access");
+    println!("  {yellow}host{reset}      - 🌐 DNS lookup utility");
+    println!("  {yellow}nslookup{reset}  - 🌐 Interactive DNS lookup");
+    println!("  {yellow}dig{reset}       - 🌐 Advanced DNS lookup");
+    println!("  {yellow}traceroute{reset} - 🗺️  Trace network route");
+    println!("  {yellow}netstat{reset}   - 🌐 Network statistics");
+    println!("  {yellow}ss{reset}        - 🌐 Socket statistics");
     println!();
 
     // Archive & Compression
-    println!("{}📦 ARCHIVE & COMPRESSION TOOLS{}", orange, reset);
-    println!("  {}tar{}       - 📦 Create/extract tape archives", yellow, reset);
-    println!("  {}zip{}       - 📁 Create ZIP archives", yellow, reset);
-    println!("  {}unzip{}     - 📂 Extract ZIP archives", yellow, reset);
-    println!("  {}gzip{}      - 🗜️  GZIP compression", yellow, reset);
-    println!("  {}gunzip{}    - 📂 GZIP decompression", yellow, reset);
-    println!("  {}xz{}        - 🗜️  XZ compression (high ratio)", yellow, reset);
-    println!("  {}unxz{}      - 📂 XZ decompression", yellow, reset);
-    println!("  {}zstd{}      - ⚡ Zstandard compression (fast)", yellow, reset);
-    println!("  {}unzstd{}    - 📂 Zstandard decompression", yellow, reset);
-    println!("  {}bzip2{}     - 🗜️  BZIP2 compression", yellow, reset);
-    println!("  {}bunzip2{}   - 📂 BZIP2 decompression", yellow, reset);
-    println!("  {}7z{}        - 📁 7-Zip archive utility", yellow, reset);
+    println!("{orange}📦 ARCHIVE & COMPRESSION TOOLS{reset}");
+    println!("  {yellow}tar{reset}       - 📦 Create/extract tape archives");
+    println!("  {yellow}zip{reset}       - 📁 Create ZIP archives");
+    println!("  {yellow}unzip{reset}     - 📂 Extract ZIP archives");
+    println!("  {yellow}gzip{reset}      - 🗜️  GZIP compression");
+    println!("  {yellow}gunzip{reset}    - 📂 GZIP decompression");
+    println!("  {yellow}xz{reset}        - 🗜️  XZ compression (high ratio)");
+    println!("  {yellow}unxz{reset}      - 📂 XZ decompression");
+    println!("  {yellow}zstd{reset}      - ⚡ Zstandard compression (fast)");
+    println!("  {yellow}unzstd{reset}    - 📂 Zstandard decompression");
+    println!("  {yellow}bzip2{reset}     - 🗜️  BZIP2 compression");
+    println!("  {yellow}bunzip2{reset}   - 📂 BZIP2 decompression");
+    println!("  {yellow}7z{reset}        - 📁 7-Zip archive utility");
     println!();
 
     // Shell Features
-    println!("{}🔧 SHELL FEATURES & ENVIRONMENT{}", pink, reset);
-    println!("  {}alias{}     - 🔗 Create command shortcuts", yellow, reset);
-    println!("  {}unalias{}   - 🚫 Remove command aliases", yellow, reset);
-    println!("  {}history{}   - 📚 Command history management", yellow, reset);
-    println!("  {}export{}    - 🔄 Set environment variables", yellow, reset);
-    println!("  {}unset{}     - 🗑️  Remove variables", yellow, reset);
-    println!("  {}env{}       - 🌍 Show/modify environment", yellow, reset);
-    println!("  {}set{}       - ⚙️  Set shell options", yellow, reset);
-    println!("  {}declare{}   - 📋 Declare variables/functions", yellow, reset);
-    println!("  {}which{}     - 🔍 Locate command files", yellow, reset);
-    println!("  {}type{}      - 🔍 Show command type", yellow, reset);
-    println!("  {}builtin{}   - 🏠 Execute builtin commands", yellow, reset);
+    println!("{pink}🔧 SHELL FEATURES & ENVIRONMENT{reset}");
+    println!("  {yellow}alias{reset}     - 🔗 Create command shortcuts");
+    println!("  {yellow}unalias{reset}   - 🚫 Remove command aliases");
+    println!("  {yellow}history{reset}   - 📚 Command history management");
+    println!("  {yellow}export{reset}    - 🔄 Set environment variables");
+    println!("  {yellow}unset{reset}     - 🗑️  Remove variables");
+    println!("  {yellow}env{reset}       - 🌍 Show/modify environment");
+    println!("  {yellow}set{reset}       - ⚙️  Set shell options");
+    println!("  {yellow}declare{reset}   - 📋 Declare variables/functions");
+    println!("  {yellow}which{reset}     - 🔍 Locate command files");
+    println!("  {yellow}type{reset}      - 🔍 Show command type");
+    println!("  {yellow}builtin{reset}   - 🏠 Execute builtin commands");
     println!();
 
     // Utilities
-    println!("{}🛠️  SYSTEM UTILITIES & TOOLS{}", lime, reset);
-    println!("  {}sleep{}     - 😴 Pause for specified time", yellow, reset);
-    println!("  {}timeout{}   - ⏲️  Run command with timeout", yellow, reset);
-    println!("  {}yes{}       - ♻️  Repeat string infinitely", yellow, reset);
-    println!("  {}seq{}       - 🔢 Generate number sequences", yellow, reset);
-    println!("  {}date{}      - 📅 Display/set system date", yellow, reset);
-    println!("  {}cal{}       - 📅 Display calendar", yellow, reset);
-    println!("  {}bc{}        - 🧮 Command-line calculator", yellow, reset);
-    println!("  {}expr{}      - 🧮 Evaluate expressions", yellow, reset);
-    println!("  {}true{}      - ✅ Always return success", yellow, reset);
-    println!("  {}false{}     - ❌ Always return failure", yellow, reset);
-    println!("  {}test{}      - 🧪 Evaluate conditional expressions", yellow, reset);
-    println!("  {}clear{}     - 🧹 Clear terminal screen", yellow, reset);
-    println!("  {}reset{}     - 🔄 Reset terminal to initial state", yellow, reset);
+    println!("{lime}🛠️  SYSTEM UTILITIES & TOOLS{reset}");
+    println!("  {yellow}sleep{reset}     - 😴 Pause for specified time");
+    println!("  {yellow}timeout{reset}   - ⏲️  Run command with timeout");
+    println!("  {yellow}yes{reset}       - ♻️  Repeat string infinitely");
+    println!("  {yellow}seq{reset}       - 🔢 Generate number sequences");
+    println!("  {yellow}date{reset}      - 📅 Display/set system date");
+    println!("  {yellow}cal{reset}       - 📅 Display calendar");
+    println!("  {yellow}bc{reset}        - 🧮 Command-line calculator");
+    println!("  {yellow}expr{reset}      - 🧮 Evaluate expressions");
+    println!("  {yellow}true{reset}      - ✅ Always return success");
+    println!("  {yellow}false{reset}     - ❌ Always return failure");
+    println!("  {yellow}test{reset}      - 🧪 Evaluate conditional expressions");
+    println!("  {yellow}clear{reset}     - 🧹 Clear terminal screen");
+    println!("  {yellow}reset{reset}     - 🔄 Reset terminal to initial state");
     println!();
 
-    println!("{}💡 TIPS:{}", lavender, reset);
-    println!("  • Type {}help <command>{} for detailed information", yellow, reset);
-    println!("  • Use {}Tab{} for command completion", yellow, reset); 
-    println!("  • Press {}Ctrl+C{} to interrupt commands", yellow, reset);
-    println!("  • Use {}man <command>{} for full manual pages", yellow, reset);
+    println!("{lavender}💡 TIPS:{reset}");
+    println!("  • Type {yellow}help <command>{reset} for detailed information");
+    println!("  • Use {yellow}Tab{reset} for command completion"); 
+    println!("  • Press {yellow}Ctrl+C{reset} to interrupt commands");
+    println!("  • Use {yellow}man <command>{reset} for full manual pages");
     println!();
     
-    println!("{}🎨 UI Features:{}", cyan, reset);
-    println!("  • {}Syntax highlighting{} for commands", green, reset);
-    println!("  • {}Smart completion{} with context", blue, reset);
-    println!("  • {}Beautiful file listings{} with icons", purple, reset);
-    println!("  • {}Colorized output{} for readability", coral, reset);
+    println!("{cyan}🎨 UI Features:{reset}");
+    println!("  • {green}Syntax highlighting{reset} for commands");
+    println!("  • {blue}Smart completion{reset} with context");
+    println!("  • {purple}Beautiful file listings{reset} with icons");
+    println!("  • {coral}Colorized output{reset} for readability");
     println!();
 }
 
@@ -201,241 +201,257 @@ fn show_stylish_command_help(command: &str) {
     match command {
         // File Operations
         "ls" => {
-            println!("{}📋 ls - Beautiful Directory Listing{}", cyan, reset);
-            println!("{}Usage:{} ls [OPTIONS] [PATH...]{}", yellow, reset, reset);
+            println!("{cyan}📋 ls - Beautiful Directory Listing{reset}");
+            println!("{yellow}Usage:{reset} ls [OPTIONS] [PATH...]{reset}");
             println!();
-            println!("{}Options:{}", green, reset);
-            println!("  {}-l, --long{}     Show detailed information", blue, reset);
-            println!("  {}-a, --all{}      Show hidden files", blue, reset);
-            println!("  {}-h, --human{}    Human readable sizes", blue, reset);
-            println!("  {}-R, --recursive{} List subdirectories recursively", blue, reset);
-            println!("  {}-t, --time{}     Sort by modification time", blue, reset);
-            println!("  {}-S, --size{}     Sort by file size", blue, reset);
-            println!("  {}-r, --reverse{}  Reverse sort order", blue, reset);
-            println!("  {}--color{}        Colorize output", blue, reset);
-            println!("  {}--icons{}        Show file type icons", blue, reset);
+            println!("{green}Options:{reset}");
+            println!("  {blue}-l, --long{reset}     Show detailed information");
+            println!("  {blue}-a, --all{reset}      Show hidden files");
+            println!("  {blue}-h, --human{reset}    Human readable sizes");
+            println!("  {blue}-R, --recursive{reset} List subdirectories recursively");
+            println!("  {blue}-t, --time{reset}     Sort by modification time");
+            println!("  {blue}-S, --size{reset}     Sort by file size");
+            println!("  {blue}-r, --reverse{reset}  Reverse sort order");
+            println!("  {blue}--color{reset}        Colorize output");
+            println!("  {blue}--icons{reset}        Show file type icons");
         }
         
         "cat" => {
-            println!("{}📖 cat - Display File Contents{}", cyan, reset);
-            println!("{}Usage:{} cat [OPTIONS] [FILE...]{}", yellow, reset, reset);
+            println!("{cyan}📖 cat - Display File Contents{reset}");
+            println!("{yellow}Usage:{reset} cat [OPTIONS] [FILE...]{reset}");
             println!();
-            println!("{}Options:{}", green, reset);
-            println!("  {}-n, --number{}   Number all output lines", blue, reset);
-            println!("  {}-b, --number-nonblank{} Number non-empty lines", blue, reset);
-            println!("  {}-s, --squeeze-blank{} Squeeze multiple blank lines", blue, reset);
-            println!("  {}-v, --show-nonprinting{} Show non-printing characters", blue, reset);
-            println!("  {}-E, --show-ends{} Display $ at end of lines", blue, reset);
-            println!("  {}-T, --show-tabs{} Display tabs as ^I", blue, reset);
+            println!("{green}Options:{reset}");
+            println!("  {blue}-n, --number{reset}   Number all output lines");
+            println!("  {blue}-b, --number-nonblank{reset} Number non-empty lines");
+            println!("  {blue}-s, --squeeze-blank{reset} Squeeze multiple blank lines");
+            println!("  {blue}-v, --show-nonprinting{reset} Show non-printing characters");
+            println!("  {blue}-E, --show-ends{reset} Display $ at end of lines");
+            println!("  {blue}-T, --show-tabs{reset} Display tabs as ^I");
         }
 
         "wc" => {
-            println!("{}📏 wc - Word, Line, Character Counter{}", cyan, reset);
-            println!("{}Usage:{} wc [OPTIONS] [FILE...]{}", yellow, reset, reset);
+            println!("{cyan}📏 wc - Word, Line, Character Counter{reset}");
+            println!("{yellow}Usage:{reset} wc [OPTIONS] [FILE...]{reset}");
             println!();
-            println!("{}Options:{}", green, reset);
-            println!("  {}-l, --lines{}    Count lines", blue, reset);
-            println!("  {}-w, --words{}    Count words", blue, reset);
-            println!("  {}-c, --chars{}    Count characters", blue, reset);
-            println!("  {}-m, --chars{}    Count characters (UTF-8 aware)", blue, reset);
-            println!("  {}-L, --max-line-length{} Show longest line length", blue, reset);
-            println!("  {}--total{}        Show grand total for multiple files", blue, reset);
+            println!("{green}Options:{reset}");
+            println!("  {blue}-l, --lines{reset}    Count lines");
+            println!("  {blue}-w, --words{reset}    Count words");
+            println!("  {blue}-c, --chars{reset}    Count characters");
+            println!("  {blue}-m, --chars{reset}    Count characters (UTF-8 aware)");
+            println!("  {blue}-L, --max-line-length{reset} Show longest line length");
+            println!("  {blue}--total{reset}        Show grand total for multiple files");
         }
 
         "grep" => {
-            println!("{}🔍 grep - Pattern Search with Style{}", cyan, reset);
-            println!("{}Usage:{} grep [OPTIONS] PATTERN [FILE...]{}", yellow, reset, reset);
+            println!("{cyan}🔍 grep - Pattern Search with Style{reset}");
+            println!("{yellow}Usage:{reset} grep [OPTIONS] PATTERN [FILE...]{reset}");
             println!();
-            println!("{}Options:{}", green, reset);
-            println!("  {}-i, --ignore-case{} Case insensitive search", blue, reset);
-            println!("  {}-v, --invert-match{} Invert match (show non-matching)", blue, reset);
-            println!("  {}-n, --line-number{} Show line numbers", blue, reset);
-            println!("  {}-H, --with-filename{} Show filename with matches", blue, reset);
-            println!("  {}-r, --recursive{} Search directories recursively", blue, reset);
-            println!("  {}-E, --extended-regexp{} Extended regular expressions", blue, reset);
-            println!("  {}-F, --fixed-strings{} Fixed string search", blue, reset);
-            println!("  {}-C, --context=NUM{} Show NUM lines of context", blue, reset);
-            println!("  {}--color=auto{}   Colorize matches", blue, reset);
+            println!("{green}Options:{reset}");
+            println!("  {blue}-i, --ignore-case{reset} Case insensitive search");
+            println!("  {blue}-v, --invert-match{reset} Invert match (show non-matching)");
+            println!("  {blue}-n, --line-number{reset} Show line numbers");
+            println!("  {blue}-H, --with-filename{reset} Show filename with matches");
+            println!("  {blue}-r, --recursive{reset} Search directories recursively");
+            println!("  {blue}-E, --extended-regexp{reset} Extended regular expressions");
+            println!("  {blue}-F, --fixed-strings{reset} Fixed string search");
+            println!("  {blue}-C, --context=NUM{reset} Show NUM lines of context");
+            println!("  {blue}--color=auto{reset}   Colorize matches");
         }
 
         "tar" => {
-            println!("{}📦 tar - Archive Management{}", cyan, reset);
-            println!("{}Usage:{} tar [OPTIONS] [FILE...]{}", yellow, reset, reset);
+            println!("{cyan}📦 tar - Archive Management{reset}");
+            println!("{yellow}Usage:{reset} tar [OPTIONS] [FILE...]{reset}");
             println!();
-            println!("{}Main Operations:{}", green, reset);
-            println!("  {}-c, --create{}   Create new archive", blue, reset);
-            println!("  {}-x, --extract{}  Extract from archive", blue, reset);
-            println!("  {}-t, --list{}     List archive contents", blue, reset);
-            println!("  {}-r, --append{}   Append files to archive", blue, reset);
-            println!("  {}-u, --update{}   Update archive with newer files", blue, reset);
+            println!("{green}Main Operations:{reset}");
+            println!("  {blue}-c, --create{reset}   Create new archive");
+            println!("  {blue}-x, --extract{reset}  Extract from archive");
+            println!("  {blue}-t, --list{reset}     List archive contents");
+            println!("  {blue}-r, --append{reset}   Append files to archive");
+            println!("  {blue}-u, --update{reset}   Update archive with newer files");
             println!();
-            println!("{}Compression:{}", green, reset);
-            println!("  {}-z, --gzip{}     GZIP compression", blue, reset);
-            println!("  {}-j, --bzip2{}    BZIP2 compression", blue, reset);
-            println!("  {}-J, --xz{}       XZ compression", blue, reset);
-            println!("  {}--zstd{}         Zstandard compression", blue, reset);
+            println!("{green}Compression:{reset}");
+            println!("  {blue}-z, --gzip{reset}     GZIP compression");
+            println!("  {blue}-j, --bzip2{reset}    BZIP2 compression");
+            println!("  {blue}-J, --xz{reset}       XZ compression");
+            println!("  {blue}--zstd{reset}         Zstandard compression");
             println!();
-            println!("{}Common Options:{}", green, reset);
-            println!("  {}-f, --file={}    Archive filename", blue, reset);
-            println!("  {}-v, --verbose{}  Verbose output", blue, reset);
-            println!("  {}-C, --directory{} Change to directory", blue, reset);
+            println!("{green}Common Options:{reset}");
+            println!("  {blue}-f, --file={reset}    Archive filename");
+            println!("  {blue}-v, --verbose{reset}  Verbose output");
+            println!("  {blue}-C, --directory{reset} Change to directory");
         }
 
         "ps" => {
-            println!("{}📋 ps - Process Status{}", cyan, reset);
-            println!("{}Usage:{} ps [OPTIONS]{}", yellow, reset, reset);
+            println!("{cyan}📋 ps - Process Status{reset}");
+            println!("{yellow}Usage:{reset} ps [OPTIONS]{reset}");
             println!();
-            println!("{}Options:{}", green, reset);
-            println!("  {}-e, --everyone{} Show all processes", blue, reset);
-            println!("  {}-f, --full{}     Full format listing", blue, reset);
-            println!("  {}-l, --long{}     Long format", blue, reset);
-            println!("  {}-u, --user{}     User-oriented format", blue, reset);
-            println!("  {}-x, --no-heading{} Show processes without controlling terminal", blue, reset);
-            println!("  {}--forest{}       ASCII art process tree", blue, reset);
-            println!("  {}--sort={}        Sort by specified field", blue, reset);
+            println!("{green}Options:{reset}");
+            println!("  {blue}-e, --everyone{reset} Show all processes");
+            println!("  {blue}-f, --full{reset}     Full format listing");
+            println!("  {blue}-l, --long{reset}     Long format");
+            println!("  {blue}-u, --user{reset}     User-oriented format");
+            println!("  {blue}-x, --no-heading{reset} Show processes without controlling terminal");
+            println!("  {blue}--forest{reset}       ASCII art process tree");
+            println!("  {blue}--sort={reset}        Sort by specified field");
         }
 
         "kill" => {
-            println!("{}⚡ kill - Terminate Processes{}", cyan, reset);
-            println!("{}Usage:{} kill [SIGNAL] PID...{}", yellow, reset, reset);
+            println!("{cyan}⚡ kill - Terminate Processes{reset}");
+            println!("{yellow}Usage:{reset} kill [SIGNAL] PID...{reset}");
             println!();
-            println!("{}Common Signals:{}", green, reset);
-            println!("  {}TERM (15){}      Polite termination request", blue, reset);
-            println!("  {}KILL (9){}       Force immediate termination", blue, reset);
-            println!("  {}HUP (1){}        Hang up (reload config)", blue, reset);
-            println!("  {}INT (2){}        Interrupt (Ctrl+C)", blue, reset);
-            println!("  {}STOP (19){}      Stop (pause) process", blue, reset);
-            println!("  {}CONT (18){}      Continue stopped process", blue, reset);
+            println!("{green}Common Signals:{reset}");
+            println!("  {blue}TERM (15){reset}      Polite termination request");
+            println!("  {blue}KILL (9){reset}       Force immediate termination");
+            println!("  {blue}HUP (1){reset}        Hang up (reload config)");
+            println!("  {blue}INT (2){reset}        Interrupt (Ctrl+C)");
+            println!("  {blue}STOP (19){reset}      Stop (pause) process");
+            println!("  {blue}CONT (18){reset}      Continue stopped process");
             println!();
-            println!("{}Examples:{}", green, reset);
+            println!("{green}Examples:{reset}");
             println!("  kill 1234          Send TERM signal to PID 1234");
             println!("  kill -9 1234       Force kill PID 1234");
             println!("  kill -HUP 1234     Send hang-up signal");
         }
 
         "curl" => {
-            println!("{}🌐 curl - HTTP/HTTPS Client{}", cyan, reset);
-            println!("{}Usage:{} curl [OPTIONS] URL{}", yellow, reset, reset);
+            println!("{cyan}🌐 curl - HTTP/HTTPS Client{reset}");
+            println!("{yellow}Usage:{reset} curl [OPTIONS] URL{reset}");
             println!();
-            println!("{}Common Options:{}", green, reset);
-            println!("  {}-o, --output{}   Write output to file", blue, reset);
-            println!("  {}-O, --remote-name{} Save with remote filename", blue, reset);
-            println!("  {}-L, --location{} Follow redirects", blue, reset);
-            println!("  {}-i, --include{}  Include response headers", blue, reset);
-            println!("  {}-v, --verbose{}  Verbose output", blue, reset);
-            println!("  {}-s, --silent{}   Silent mode", blue, reset);
-            println!("  {}-X, --request{}  HTTP method (GET, POST, etc.)", blue, reset);
-            println!("  {}-H, --header{}   Custom header", blue, reset);
-            println!("  {}-d, --data{}     Send data in POST request", blue, reset);
-            println!("  {}--json{}         Send JSON data", blue, reset);
+            println!("{green}Common Options:{reset}");
+            println!("  {blue}-o, --output{reset}   Write output to file");
+            println!("  {blue}-O, --remote-name{reset} Save with remote filename");
+            println!("  {blue}-L, --location{reset} Follow redirects");
+            println!("  {blue}-i, --include{reset}  Include response headers");
+            println!("  {blue}-v, --verbose{reset}  Verbose output");
+            println!("  {blue}-s, --silent{reset}   Silent mode");
+            println!("  {blue}-X, --request{reset}  HTTP method (GET, POST, etc.)");
+            println!("  {blue}-H, --header{reset}   Custom header");
+            println!("  {blue}-d, --data{reset}     Send data in POST request");
+            println!("  {blue}--json{reset}         Send JSON data");
         }
 
         "ssh" => {
-            println!("{}🔐 ssh - Secure Shell{}", cyan, reset);
-            println!("{}Usage:{} ssh [OPTIONS] [user@]hostname [command]{}", yellow, reset, reset);
+            println!("{cyan}🔐 ssh - Secure Shell{reset}");
+            println!("{yellow}Usage:{reset} ssh [OPTIONS] [user@]hostname [command]{reset}");
             println!();
-            println!("{}Options:{}", green, reset);
-            println!("  {}-p, --port{}     Specify port number", blue, reset);
-            println!("  {}-i, --identity{} Use specific private key", blue, reset);
-            println!("  {}-L, --local{}    Local port forwarding", blue, reset);
-            println!("  {}-R, --remote{}   Remote port forwarding", blue, reset);
-            println!("  {}-N, --no-command{} No remote command", blue, reset);
-            println!("  {}-f, --fork{}     Go to background", blue, reset);
-            println!("  {}-v, --verbose{}  Verbose output", blue, reset);
-            println!("  {}-A, --forward-agent{} Forward authentication agent", blue, reset);
-            println!("  {}-X, --x11{}      Enable X11 forwarding", blue, reset);
+            println!("{green}Options:{reset}");
+            println!("  {blue}-p, --port{reset}     Specify port number");
+            println!("  {blue}-i, --identity{reset} Use specific private key");
+            println!("  {blue}-L, --local{reset}    Local port forwarding");
+            println!("  {blue}-R, --remote{reset}   Remote port forwarding");
+            println!("  {blue}-N, --no-command{reset} No remote command");
+            println!("  {blue}-f, --fork{reset}     Go to background");
+            println!("  {blue}-v, --verbose{reset}  Verbose output");
+            println!("  {blue}-A, --forward-agent{reset} Forward authentication agent");
+            println!("  {blue}-X, --x11{reset}      Enable X11 forwarding");
         }
 
         "yes" => {
-            println!("{}♻️  yes - Repeat Output{}", cyan, reset);
-            println!("{}Usage:{} yes [STRING]{}", yellow, reset, reset);
+            println!("{cyan}♻️  yes - Repeat Output{reset}");
+            println!("{yellow}Usage:{reset} yes [STRING]{reset}");
             println!();
-            println!("{}Description:{}", green, reset);
+            println!("{green}Description:{reset}");
             println!("  Outputs STRING (or 'y' by default) repeatedly until killed.");
             println!("  Useful for automating confirmations in scripts.");
             println!();
-            println!("{}Examples:{}", green, reset);
+            println!("{green}Examples:{reset}");
             println!("  yes                Output 'y' infinitely");
             println!("  yes hello          Output 'hello' infinitely");
             println!("  yes | head -5      Output 'y' 5 times");
         }
 
         "true" => {
-            println!("{}✅ true - Success Command{}", cyan, reset);
-            println!("{}Usage:{} true{}", yellow, reset, reset);
+            println!("{cyan}✅ true - Success Command{reset}");
+            println!("{yellow}Usage:{reset} true{reset}");
             println!();
-            println!("{}Description:{}", green, reset);
+            println!("{green}Description:{reset}");
             println!("  Always exits with status 0 (success).");
             println!("  Useful in shell scripts for infinite loops and conditional expressions.");
             println!();
-            println!("{}Examples:{}", green, reset);
+            println!("{green}Examples:{reset}");
             println!("  while true; do echo hello; sleep 1; done");
             println!("  if true; then echo 'This always runs'; fi");
         }
 
         "false" => {
-            println!("{}❌ false - Failure Command{}", cyan, reset);
-            println!("{}Usage:{} false{}", yellow, reset, reset);
+            println!("{cyan}❌ false - Failure Command{reset}");
+            println!("{yellow}Usage:{reset} false{reset}");
             println!();
-            println!("{}Description:{}", green, reset);
+            println!("{green}Description:{reset}");
             println!("  Always exits with status 1 (failure).");
             println!("  Useful in shell scripts for testing and conditional expressions.");
         }
 
         "uname" => {
-            println!("{}💻 uname - System Information{}", cyan, reset);
-            println!("{}Usage:{} uname [OPTIONS]{}", yellow, reset, reset);
+            println!("{cyan}💻 uname - System Information{reset}");
+            println!("{yellow}Usage:{reset} uname [OPTIONS]{reset}");
             println!();
-            println!("{}Options:{}", green, reset);
-            println!("  {}-a, --all{}      Print all information", blue, reset);
-            println!("  {}-s, --kernel-name{} Print kernel name", blue, reset);
-            println!("  {}-n, --nodename{} Print network node hostname", blue, reset);
-            println!("  {}-r, --release{}  Print kernel release", blue, reset);
-            println!("  {}-v, --version{}  Print kernel version", blue, reset);
-            println!("  {}-m, --machine{}  Print machine hardware name", blue, reset);
-            println!("  {}-p, --processor{} Print processor type", blue, reset);
-            println!("  {}-o, --operating-system{} Print operating system", blue, reset);
+            println!("{green}Options:{reset}");
+            println!("  {blue}-a, --all{reset}      Print all information");
+            println!("  {blue}-s, --kernel-name{reset} Print kernel name");
+            println!("  {blue}-n, --nodename{reset} Print network node hostname");
+            println!("  {blue}-r, --release{reset}  Print kernel release");
+            println!("  {blue}-v, --version{reset}  Print kernel version");
+            println!("  {blue}-m, --machine{reset}  Print machine hardware name");
+            println!("  {blue}-p, --processor{reset} Print processor type");
+            println!("  {blue}-o, --operating-system{reset} Print operating system");
         }
 
         "alias" => {
-            println!("{}🔗 alias - Command Shortcuts{}", cyan, reset);
-            println!("{}Usage:{} alias [NAME[=VALUE]...]{}", yellow, reset, reset);
+            println!("{cyan}🔗 alias - Command Shortcuts{reset}");
+            println!("{yellow}Usage:{reset} alias [NAME[=VALUE]...]{reset}");
             println!();
-            println!("{}Description:{}", green, reset);
+            println!("{green}Description:{reset}");
             println!("  Create shortcuts for frequently used commands.");
             println!("  Without arguments, shows all current aliases.");
             println!();
-            println!("{}Examples:{}", green, reset);
+            println!("{green}Examples:{reset}");
             println!("  alias ll='ls -la'     Create 'll' alias");
             println!("  alias grep='grep --color=auto'");
             println!("  alias                 Show all aliases");
         }
 
         "history" => {
-            println!("{}📚 history - Command History{}", cyan, reset);
-            println!("{}Usage:{} history [OPTIONS] [N]{}", yellow, reset, reset);
+            println!("{cyan}📚 history - Command History{reset}");
+            println!("{yellow}Usage:{reset} history [OPTIONS] [N]{reset}");
             println!();
-            println!("{}Options:{}", green, reset);
-            println!("  {}-c, --clear{}    Clear history", blue, reset);
-            println!("  {}-d, --delete{}   Delete specific entry", blue, reset);
-            println!("  {}-a, --append{}   Append to history file", blue, reset);
-            println!("  {}-r, --read{}     Read history file", blue, reset);
-            println!("  {}-w, --write{}    Write history to file", blue, reset);
+            println!("{green}Options:{reset}");
+            println!("  {blue}-c, --clear{reset}    Clear history");
+            println!("  {blue}-d, --delete{reset}   Delete specific entry");
+            println!("  {blue}-a, --append{reset}   Append to history file");
+            println!("  {blue}-r, --read{reset}     Read history file");
+            println!("  {blue}-w, --write{reset}    Write history to file");
         }
 
         _ => {
-            println!("{}❓ Command '{}{}{}' - No detailed help available{}", coral, yellow, command, coral, reset);
+            // Attempt to delegate to builtin's own --help if available
+            let known_simple = [
+                "ls","cp","mv","rm","mkdir","rmdir","touch","grep","find","head","tail","wc","cut","tr","uniq",
+                "ps","kill","free","uptime","uname","ping","wget","curl","zip","unzip","xz","bzip2","zstd","unzstd",
+                "alias","unalias","export","unset","history","which","date","cal","echo","cat","stat","du","df"
+            ];
+            if known_simple.contains(&command) {
+                // Reuse central dispatcher so behavior matches actual command
+                if let Err(e) = crate::execute_builtin(command, &["--help".to_string()]) {
+                    // Fallback to generic message if command doesn't support --help yet
+                    println!("{coral}❓ Command '{yellow}{command}{coral}' - No detailed help available ({e}){reset}");
+                }
+                return;
+            }
+
+            // Generic fallback list
+            println!("{coral}❓ Command '{yellow}{command}{coral}' - No detailed help available{reset}");
             println!();
-            println!("{}📚 Available commands with detailed help:{}", green, reset);
+            println!("{green}📚 Available commands with detailed help:{reset}");
             println!();
-            println!("{}File Operations:{} ls, cat, cp, mv, rm, ln, chmod, find, du, df", blue, reset);
-            println!("{}Text Processing:{} grep, wc, head, tail, cut, tr, sed, awk, sort", blue, reset);
-            println!("{}System Tools:{} ps, kill, top, ssh, curl, tar, zip", blue, reset);
-            println!("{}Shell Features:{} alias, history, export, which, true, false", blue, reset);
-            println!("{}Network:{} ping, wget, curl, ssh, scp, netstat", blue, reset);
-            println!("{}Archives:{} tar, zip, unzip, gzip, xz, zstd", blue, reset);
+            println!("{blue}File Operations:{reset} ls, cat, cp, mv, rm, ln, chmod, find, du, df");
+            println!("{blue}Text Processing:{reset} grep, wc, head, tail, cut, tr, sed, awk, sort");
+            println!("{blue}System Tools:{reset} ps, kill, top, ssh, curl, tar, zip");
+            println!("{blue}Shell Features:{reset} alias, history, export, which, true, false");
+            println!("{blue}Network:{reset} ping, wget, curl, ssh, scp, netstat");
+            println!("{blue}Archives:{reset} tar, zip, unzip, gzip, xz, zstd");
             println!();
-            println!("{}💡 Try:{} help <command> for specific information", yellow, reset);
+            println!("{yellow}💡 Try:{reset} help <command> for specific information");
         }
     }
     println!();

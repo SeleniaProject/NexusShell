@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     io::{BufReader, BufWriter, Read, Write, BufRead},
     fs::{File, OpenOptions},
     path::Path,
@@ -8,10 +7,8 @@ use std::{
 };
 use crate::compat::Result;
 
-/// Buffered I/O manager for optimized file operations
+/// High-performance I/O manager with smart optimizations
 pub struct IoManager {
-    read_buffers: Arc<RwLock<HashMap<String, BufReader<File>>>>,
-    write_buffers: Arc<RwLock<HashMap<String, BufWriter<File>>>>,
     buffer_size: usize,
     stats: Arc<RwLock<IoStats>>,
 }
@@ -19,187 +16,102 @@ pub struct IoManager {
 impl IoManager {
     pub fn new(buffer_size: usize) -> Self {
         Self {
-            read_buffers: Arc::new(RwLock::new(HashMap::new())),
-            write_buffers: Arc::new(RwLock::new(HashMap::new())),
-            buffer_size,
+            buffer_size: buffer_size.max(4096), // Ensure minimum efficient buffer size
             stats: Arc::new(RwLock::new(IoStats::default())),
         }
     }
 
+    /// Optimized file reading with smart buffer sizing  
     pub fn read_file_buffered(&self, path: &Path) -> Result<String> {
-        let path_str = path.to_string_lossy().to_string();
         let start = Instant::now();
         
-        let mut content = String::new();
-        
-        // Try to get existing buffered reader
-        if let Ok(mut buffers) = self.read_buffers.write() {
-            if let Some(reader) = buffers.get_mut(&path_str) {
-                reader.read_to_string(&mut content)?;
-                self.update_read_stats(content.len() as u64, start.elapsed());
-                return Ok(content);
-            }
-        }
-
-        // Create new buffered reader
+        // For small files, use pre-allocated capacity optimization
         let file = File::open(path)?;
-        let mut reader = BufReader::with_capacity(self.buffer_size, file);
-        reader.read_to_string(&mut content)?;
+        let metadata = file.metadata()?;
+        let file_size = metadata.len() as usize;
 
-        // Cache the reader for reuse
-        if let Ok(mut buffers) = self.read_buffers.write() {
-            // Reset reader position for next use
-            let file = File::open(path)?;
-            let new_reader = BufReader::with_capacity(self.buffer_size, file);
-            buffers.insert(path_str, new_reader);
-        }
+        // Optimize based on file size
+        let mut content = if file_size > 0 && file_size <= 64 * 1024 {
+            // For small to medium files, pre-allocate exact capacity  
+            String::with_capacity(file_size)
+        } else {
+            // For large files or unknown size, use default
+            String::new()
+        };
+
+        // Use optimal buffer size based on file size
+        let optimal_buffer_size = if file_size <= 4096 {
+            file_size.max(512)  // Minimum 512 bytes
+        } else if file_size <= 64 * 1024 {
+            8192  // 8KB for medium files
+        } else {
+            self.buffer_size  // Use configured size for large files
+        };
+
+        let mut reader = BufReader::with_capacity(optimal_buffer_size, file);
+        reader.read_to_string(&mut content)?;
 
         self.update_read_stats(content.len() as u64, start.elapsed());
         Ok(content)
     }
 
+    /// Optimized line reading with efficient buffer sizing
     pub fn read_file_lines(&self, path: &Path) -> Result<Vec<String>> {
-        let path_str = path.to_string_lossy().to_string();
         let start = Instant::now();
         
-        let mut lines = Vec::new();
-        
-        // Try to use existing buffered reader
-        if let Ok(mut buffers) = self.read_buffers.write() {
-            if let Some(reader) = buffers.get_mut(&path_str) {
-                for line_result in reader.lines() {
-                    lines.push(line_result?);
-                }
-                self.update_read_stats(lines.len() as u64, start.elapsed());
-                return Ok(lines);
-            }
-        }
-
-        // Create new buffered reader
+        // For line reading, use a simple direct read approach for consistency
         let file = File::open(path)?;
         let reader = BufReader::with_capacity(self.buffer_size, file);
-        
-        for line_result in reader.lines() {
-            lines.push(line_result?);
-        }
-
-        // Cache new reader
-        if let Ok(mut buffers) = self.read_buffers.write() {
-            let file = File::open(path)?;
-            let new_reader = BufReader::with_capacity(self.buffer_size, file);
-            buffers.insert(path_str, new_reader);
-        }
+        let lines: Vec<String> = reader.lines().collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(crate::error::ShellError::io)?;
 
         self.update_read_stats(lines.len() as u64, start.elapsed());
         Ok(lines)
     }
 
+    /// Optimized file writing with smart buffer sizing
     pub fn write_file_buffered(&self, path: &Path, content: &str) -> Result<()> {
-        let path_str = path.to_string_lossy().to_string();
         let start = Instant::now();
         
-        // Try to use existing buffered writer
-        if let Ok(mut buffers) = self.write_buffers.write() {
-            if let Some(writer) = buffers.get_mut(&path_str) {
-                writer.write_all(content.as_bytes())?;
-                writer.flush()?;
-                self.update_write_stats(content.len() as u64, start.elapsed());
-                return Ok(());
-            }
-        }
+        // Use optimal buffer size based on content size
+        let optimal_buffer_size = if content.len() <= 4096 {
+            content.len().max(512)  // Minimum 512 bytes
+        } else if content.len() <= 64 * 1024 {
+            8192  // 8KB for medium content
+        } else {
+            self.buffer_size  // Use configured size for large content
+        };
 
-        // Create new buffered writer
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(path)?;
-        
-        let mut writer = BufWriter::with_capacity(self.buffer_size, file);
+        let file = File::create(path)?;
+        let mut writer = BufWriter::with_capacity(optimal_buffer_size, file);
         writer.write_all(content.as_bytes())?;
         writer.flush()?;
-
-        // Cache writer for reuse
-        if let Ok(mut buffers) = self.write_buffers.write() {
-            let file = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(path)?;
-            let new_writer = BufWriter::with_capacity(self.buffer_size, file);
-            buffers.insert(path_str, new_writer);
-        }
-
+        
         self.update_write_stats(content.len() as u64, start.elapsed());
         Ok(())
     }
 
+    /// Optimized append operation with smart buffering
     pub fn append_file_buffered(&self, path: &Path, content: &str) -> Result<()> {
-        let path_str = path.to_string_lossy().to_string();
         let start = Instant::now();
         
-        // Try to use existing buffered writer
-        if let Ok(mut buffers) = self.write_buffers.write() {
-            if let Some(writer) = buffers.get_mut(&path_str) {
-                writer.write_all(content.as_bytes())?;
-                writer.flush()?;
-                self.update_write_stats(content.len() as u64, start.elapsed());
-                return Ok(());
-            }
-        }
-
-        // Create new buffered writer for appending
+        let optimal_buffer_size = if content.len() <= 4096 {
+            content.len().max(512)  
+        } else {
+            8192  
+        };
+        
         let file = OpenOptions::new()
             .create(true)
             .append(true)
             .open(path)?;
-        
-        let mut writer = BufWriter::with_capacity(self.buffer_size, file);
+            
+        let mut writer = BufWriter::with_capacity(optimal_buffer_size, file);
         writer.write_all(content.as_bytes())?;
         writer.flush()?;
-
-        // Cache writer
-        if let Ok(mut buffers) = self.write_buffers.write() {
-            buffers.insert(path_str, writer);
-        }
-
+        
         self.update_write_stats(content.len() as u64, start.elapsed());
         Ok(())
-    }
-
-    pub fn flush_all(&self) -> Result<()> {
-        if let Ok(mut buffers) = self.write_buffers.write() {
-            for writer in buffers.values_mut() {
-                writer.flush()?;
-            }
-        }
-        Ok(())
-    }
-
-    pub fn close_file(&self, path: &Path) {
-        let path_str = path.to_string_lossy().to_string();
-        
-        if let Ok(mut read_buffers) = self.read_buffers.write() {
-            read_buffers.remove(&path_str);
-        }
-        
-        if let Ok(mut write_buffers) = self.write_buffers.write() {
-            if let Some(mut writer) = write_buffers.remove(&path_str) {
-                let _ = writer.flush();
-            }
-        }
-    }
-
-    pub fn clear_cache(&self) {
-        if let Ok(mut read_buffers) = self.read_buffers.write() {
-            read_buffers.clear();
-        }
-        
-        if let Ok(mut write_buffers) = self.write_buffers.write() {
-            for writer in write_buffers.values_mut() {
-                let _ = writer.flush();
-            }
-            write_buffers.clear();
-        }
     }
 
     pub fn stats(&self) -> IoStats {
@@ -423,10 +335,12 @@ mod tests {
 
     #[test] 
     fn test_io_stats_calculations() {
-        let mut stats = IoStats::default();
-        stats.bytes_read = 1024 * 1024; // 1MB
-        stats.read_operations = 10;
-        stats.total_read_time = Duration::from_millis(100);
+        let stats = IoStats {
+            bytes_read: 1024 * 1024, // 1MB
+            read_operations: 10,
+            total_read_time: Duration::from_millis(100),
+            ..Default::default()
+        };
         
         assert!(stats.read_throughput_mbps() > 0.0);
         assert_eq!(stats.avg_read_time_ms(), 10.0);

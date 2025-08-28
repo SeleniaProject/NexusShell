@@ -362,6 +362,21 @@ fn print_help() {
     println!("  mkdir -v dir1 dir2 dir3   Create multiple directories with verbose output");
     println!();
     println!("Report mkdir bugs to <bug-reports@nexusshell.org>");
+} 
+
+
+
+
+
+/// Execute function for mkdir command
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match mkdir_cli(args) {
+        Ok(_) => Ok(0),
+        Err(e) => {
+            eprintln!("{e}");
+            Ok(1)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -429,20 +444,5 @@ mod tests {
         // Set all permissions for all
         mode = apply_symbolic_clause(mode, "a=rwx").unwrap();
         assert_eq!(mode, 0o777);
-    }
-} 
-
-
-
-
-
-/// Execute function for mkdir command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
-    match mkdir_cli(args) {
-        Ok(_) => Ok(0),
-        Err(e) => {
-            eprintln!("{}", e);
-            Ok(1)
-        }
     }
 }

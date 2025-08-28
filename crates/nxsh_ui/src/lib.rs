@@ -36,6 +36,10 @@ pub mod history;
 pub mod prompt;
 pub mod input_handler;
 pub mod ui_ux;
+pub mod enhanced_line_editor;
+pub mod tab_completion;
+pub mod completion_panel;
+pub mod completion_engine;
 
 /// Animation manager for UI elements
 pub struct Animation {
@@ -230,6 +234,7 @@ pub struct AdvancedCuiController {
     theme: Theme,
     prompt: PromptRenderer,
     is_running: bool,
+    history: Vec<String>,
 }
 
 impl AdvancedCuiController {
@@ -242,6 +247,7 @@ impl AdvancedCuiController {
             theme,
             prompt,
             is_running: false,
+            history: Vec::new(),
         })
     }
     
@@ -260,36 +266,33 @@ impl AdvancedCuiController {
             
             // Read events
             if event::poll(std::time::Duration::from_millis(500))? {
-                match event::read()? {
-                    Event::Key(key_event) => {
-                        match key_event.code {
-                            KeyCode::Enter => {
-                                println!();
-                                // Process command here
-                            }
-                            KeyCode::Char('q') if key_event.modifiers == KeyModifiers::CONTROL => {
-                                self.is_running = false;
-                            }
-                            KeyCode::Char('c') if key_event.modifiers == KeyModifiers::CONTROL => {
-                                self.is_running = false;
-                            }
-                            KeyCode::Char('l') if key_event.modifiers == KeyModifiers::CONTROL => {
-                                execute!(io::stdout(), terminal::Clear(ClearType::All))?;
-                                execute!(io::stdout(), cursor::MoveTo(0, 0))?;
-                            }
-                            KeyCode::Char(c) => {
-                                print!("{}", c);
-                                io::stdout().flush()?;
-                            }
-                            KeyCode::Backspace => {
-                                execute!(io::stdout(), cursor::MoveLeft(1))?;
-                                execute!(io::stdout(), Print(" "))?;
-                                execute!(io::stdout(), cursor::MoveLeft(1))?;
-                            }
-                            _ => {}
+                if let Event::Key(key_event) = event::read()? {
+                    match key_event.code {
+                        KeyCode::Enter => {
+                            println!();
+                            // Process command here
                         }
+                        KeyCode::Char('q') if key_event.modifiers == KeyModifiers::CONTROL => {
+                            self.is_running = false;
+                        }
+                        KeyCode::Char('c') if key_event.modifiers == KeyModifiers::CONTROL => {
+                            self.is_running = false;
+                        }
+                        KeyCode::Char('l') if key_event.modifiers == KeyModifiers::CONTROL => {
+                            execute!(io::stdout(), terminal::Clear(ClearType::All))?;
+                            execute!(io::stdout(), cursor::MoveTo(0, 0))?;
+                        }
+                        KeyCode::Char(c) => {
+                            print!("{}", c);
+                            io::stdout().flush()?;
+                        }
+                        KeyCode::Backspace => {
+                            execute!(io::stdout(), cursor::MoveLeft(1))?;
+                            execute!(io::stdout(), Print(" "))?;
+                            execute!(io::stdout(), cursor::MoveLeft(1))?;
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
         }
@@ -373,15 +376,78 @@ impl AdvancedCuiController {
             .collect()
     }
     
-    /// Add command to history (placeholder)
-    pub fn add_to_history(&mut self, _command: String) {
-        // Placeholder for history functionality
+    /// Add command to history with deduplication and size management
+    pub fn add_to_history(&mut self, command: String) {
+        // Skip empty commands and duplicates of the last command
+        if command.trim().is_empty() {
+            return;
+        }
+        
+        if let Some(last) = self.history.last() {
+            if last == &command {
+                return; // Don't add duplicate consecutive commands
+            }
+        }
+        
+        // Add the command
+        self.history.push(command);
+        
+        // Maintain history size limit (default 10000)
+        const MAX_HISTORY_SIZE: usize = 10000;
+        if self.history.len() > MAX_HISTORY_SIZE {
+            self.history.drain(0..self.history.len() - MAX_HISTORY_SIZE);
+        }
     }
     
-    /// Search history (placeholder)
-    pub fn search_history(&self, _query: &str) -> Vec<&str> {
-        // Placeholder for history search
-        Vec::new()
+    /// Search history with fuzzy matching and relevance scoring
+    pub fn search_history(&self, query: &str) -> Vec<&str> {
+        if query.is_empty() {
+            return self.history.iter().rev().take(20).map(|s| s.as_str()).collect();
+        }
+        
+        let query_lower = query.to_lowercase();
+        let mut matches: Vec<(usize, &str)> = Vec::new();
+        
+        for (index, cmd) in self.history.iter().enumerate().rev() {
+            let cmd_lower = cmd.to_lowercase();
+            
+            // Calculate relevance score
+            let score = if cmd_lower.starts_with(&query_lower) {
+                1000 + index // Exact prefix match gets highest score
+            } else if cmd_lower.contains(&query_lower) {
+                500 + index // Substring match gets medium score  
+            } else if self.fuzzy_match(&cmd_lower, &query_lower) {
+                100 + index // Fuzzy match gets low score
+            } else {
+                continue;
+            };
+            
+            matches.push((score, cmd.as_str()));
+        }
+        
+        // Sort by score descending and take top 20 results
+        matches.sort_by(|a, b| b.0.cmp(&a.0));
+        matches.into_iter().take(20).map(|(_, cmd)| cmd).collect()
+    }
+    
+    /// Simple fuzzy matching algorithm
+    fn fuzzy_match(&self, text: &str, pattern: &str) -> bool {
+        let mut text_chars = text.chars();
+        let pattern_chars = pattern.chars();
+        
+        for pattern_char in pattern_chars {
+            let mut found = false;
+            for text_char in text_chars.by_ref() {
+                if text_char == pattern_char {
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                return false;
+            }
+        }
+        true
     }
 }
 

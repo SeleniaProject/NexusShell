@@ -172,7 +172,7 @@ fn bench_process_operations(c: &mut Criterion) {
     let mut group = c.benchmark_group("process_operations");
     
     let monitor = ProcessMonitor::new();
-    let executor = CommandExecutor::new();
+    let _executor = CommandExecutor::new();
 
     group.bench_function("process_monitoring", |b| {
         use nxsh_hal::process_enhanced::ProcessInfo;

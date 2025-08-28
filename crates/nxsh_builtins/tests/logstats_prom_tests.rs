@@ -1,4 +1,4 @@
-use nxsh_builtins::logstats_cli;
+use nxsh_builtins::logstats_cli_func::logstats_cli;
 
 #[test]
 fn logstats_prometheus_format_contains_headers_and_metrics() {

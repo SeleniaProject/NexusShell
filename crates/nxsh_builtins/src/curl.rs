@@ -32,9 +32,9 @@ pub fn curl_cli(args: &[String]) -> Result<()> {
             print!("{body}");
             return Ok(());
         }
-        return Err(anyhow!(
+        Err(anyhow!(
             "curl: internal fallback enabled but only supports simple GET (curl <URL>)"
-        ));
+        ))
     }
 
     #[cfg(not(feature = "net-http"))]

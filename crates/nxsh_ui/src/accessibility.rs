@@ -337,7 +337,7 @@ impl AccessibilityManager {
         // Also emit OSC 9 event for external screen reader bridges
         let _ = self.emit_osc9_metadata("nxsh.accessibility:announce", &serde_json::json!({
             "text": text,
-            "priority": format!("{:?}", priority)
+            "priority": format!("{priority:?}")
         }).to_string());
         
         Ok(())

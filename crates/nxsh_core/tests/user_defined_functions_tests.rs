@@ -60,7 +60,7 @@ fn test_higher_order_functions() {
         ]);
     } else {
         // Use safe assertion instead of panic
-        assert!(false, "Expected array result from map function, got: {:?}", result);
+        panic!("Expected array result from map function, got: {result:?}");
     }
     
     // Test filter function
@@ -85,7 +85,7 @@ fn test_higher_order_functions() {
         ]);
     } else {
         // Use safe assertion instead of panic
-        assert!(false, "Expected array result from filter function, got: {:?}", result);
+        panic!("Expected array result from filter function, got: {result:?}");
     }
     
     // Test reduce function
@@ -109,7 +109,7 @@ fn test_performance_optimized_functions() {
     let mut executor = MirExecutor::new();
     
     // Test performance with larger datasets
-    let large_array: Vec<MirValue> = (1..=1000).map(|i| MirValue::Integer(i)).collect();
+    let large_array: Vec<MirValue> = (1..=1000).map(MirValue::Integer).collect();
     
     let start = std::time::Instant::now();
     let sum_args = vec![
@@ -123,7 +123,7 @@ fn test_performance_optimized_functions() {
     assert_eq!(result, MirValue::Integer(500500));
     
     // Performance assertion: should complete in under 1ms
-    assert!(duration.as_micros() < 1000, "Reduce function took too long: {:?}", duration);
+    assert!(duration.as_micros() < 1000, "Reduce function took too long: {duration:?}");
     
-    println!("✅ Performance test passed! Large array sum in {:?}", duration);
+    println!("✅ Performance test passed! Large array sum in {duration:?}");
 }

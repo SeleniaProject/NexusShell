@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 use exmex::Express;  // Replaced meval with exmex for better C/C++ dependency elimination
 use nxsh_core::context::ShellContext;
+use nxsh_core::memory_efficient::MemoryEfficientStringBuilder;
 
 // NOTE: We intentionally avoid pulling in the regex crate here so that super-min
 // builds (which omit advanced-regex) do not drag in large dependencies. Lightweight
@@ -65,7 +66,7 @@ pub fn declare_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
 pub fn printf_cli(args: &[String]) -> Result<()> {
     if args.is_empty() { return Ok(()); }
     let format_str = &args[0];
-    let mut out = String::new();
+    let mut out = MemoryEfficientStringBuilder::new(format_str.len() * 2);
     let mut arg_iter = args.iter().skip(1);
     let bytes: Vec<char> = format_str.chars().collect();
     let mut i = 0;
@@ -75,25 +76,77 @@ pub fn printf_cli(args: &[String]) -> Result<()> {
             if i >= bytes.len() { break; }
             let mut zero = false;
             if bytes[i] == '0' { zero = true; i += 1; }
-            let mut width_str = String::new();
-            while i < bytes.len() && bytes[i].is_ascii_digit() { width_str.push(bytes[i]); i += 1; }
+            let mut width_str = MemoryEfficientStringBuilder::new(8);
+            while i < bytes.len() && bytes[i].is_ascii_digit() { 
+                width_str.push(bytes[i]); 
+                i += 1; 
+            }
             if i >= bytes.len() { break; }
             let ty = bytes[i];
             i += 1;
-            let width: usize = width_str.parse().unwrap_or(0);
+            let width: usize = width_str.into_string().parse().unwrap_or(0);
             let arg = arg_iter.next().ok_or_else(|| anyhow::anyhow!("missing printf argument"))?;
             let formatted = match ty {
-                'd' => { let v: i64 = arg.parse()?; if width>0 { if zero { format!("{v:0width$}") } else { format!("{v:width$}") } } else { format!("{v}") } },
-                'x' => { let v: i64 = arg.parse()?; if width>0 { if zero { format!("{v:0width$x}") } else { format!("{v:width$x}") } } else { format!("{v:x}") } },
+                'd' => { 
+                    let v: i64 = arg.parse()?; 
+                    if width > 0 { 
+                        if zero { 
+                            let mut result = MemoryEfficientStringBuilder::new(width + 2);
+                            let num_str = v.to_string();
+                            let padding = width.saturating_sub(num_str.len());
+                            if v < 0 {
+                                result.push('-');
+                                for _ in 0..padding { result.push('0'); }
+                                result.push_str(&num_str[1..]);
+                            } else {
+                                for _ in 0..padding { result.push('0'); }
+                                result.push_str(&num_str);
+                            }
+                            result.into_string()
+                        } else { 
+                            let mut result = MemoryEfficientStringBuilder::new(width + 2);
+                            let num_str = v.to_string();
+                            let padding = width.saturating_sub(num_str.len());
+                            for _ in 0..padding { result.push(' '); }
+                            result.push_str(&num_str);
+                            result.into_string()
+                        } 
+                    } else { 
+                        v.to_string() 
+                    } 
+                },
+                'x' => { 
+                    let v: i64 = arg.parse()?; 
+                    if width > 0 { 
+                        if zero { 
+                            let mut result = MemoryEfficientStringBuilder::new(width + 2);
+                            let hex_str = format!("{v:x}");
+                            let padding = width.saturating_sub(hex_str.len());
+                            for _ in 0..padding { result.push('0'); }
+                            result.push_str(&hex_str);
+                            result.into_string()
+                        } else { 
+                            let mut result = MemoryEfficientStringBuilder::new(width + 2);
+                            let hex_str = format!("{v:x}");
+                            let padding = width.saturating_sub(hex_str.len());
+                            for _ in 0..padding { result.push(' '); }
+                            result.push_str(&hex_str);
+                            result.into_string()
+                        } 
+                    } else { 
+                        format!("{v:x}") 
+                    } 
+                },
                 's' => arg.clone(),
                 '%' => "%".into(),
                 _ => {
                     // Unknown specifier, emit literally
-                    let mut lit = String::from("%");
+                    let mut lit = MemoryEfficientStringBuilder::new(8);
+                    lit.push('%');
                     if zero { lit.push('0'); }
-                    lit.push_str(&width_str);
+                    lit.push_str(&width.to_string());
                     lit.push(ty);
-                    lit
+                    lit.into_string()
                 }
             };
             out.push_str(&formatted);
@@ -102,7 +155,27 @@ pub fn printf_cli(args: &[String]) -> Result<()> {
             i += 1;
         }
     }
-    print!("{out}");
+    print!("{}", out.into_string());
     Ok(())
+}
+
+/// Adapter function for the builtin command interface
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    if args.is_empty() {
+        return Err(crate::common::BuiltinError::Other("No command specified".to_string()));
+    }
+    
+    // Create a minimal shell context for variable operations
+    let shell_ctx = ShellContext::new();
+    
+    let result = match args[0].as_str() {
+        "let" => let_cli(&args[1..], &shell_ctx),
+        "declare" => declare_cli(&args[1..], &shell_ctx),
+        "printf" => printf_cli(&args[1..]),
+        _ => return Err(crate::common::BuiltinError::Other(format!("Unknown command: {}", args[0]))),
+    };
+    
+    result.map_err(|e| crate::common::BuiltinError::Other(e.to_string()))?;
+    Ok(0)
 }
 

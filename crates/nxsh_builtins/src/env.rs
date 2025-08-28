@@ -48,7 +48,7 @@ impl EnvCommand {
                     if let Some((key, value)) = arg.split_once('=') {
                         set_vars.push((key.to_string(), value.to_string()));
                     } else {
-                        return CommandResult::error(&format!("Invalid assignment: {}", arg));
+                        return CommandResult::error(&format!("Invalid assignment: {arg}"));
                     }
                 }
                 arg if !arg.starts_with('-') => {
@@ -121,7 +121,7 @@ Examples:
         env_vars.sort_by(|a, b| a.0.cmp(&b.0));
 
         for (key, value) in env_vars {
-            output.push_str(&format!("{}={}{}", key, value, separator));
+            output.push_str(&format!("{key}={value}{separator}"));
         }
 
         // Remove the trailing separator if present
@@ -139,13 +139,13 @@ Examples:
         for var in vars {
             match env::var(var) {
                 Ok(value) => {
-                    output.push_str(&format!("{}={}{}", var, value, separator));
+                    output.push_str(&format!("{var}={value}{separator}"));
                 }
                 Err(env::VarError::NotPresent) => {
-                    return CommandResult::error(&format!("env: {}: not set", var));
+                    return CommandResult::error(&format!("env: {var}: not set"));
                 }
                 Err(env::VarError::NotUnicode(_)) => {
-                    return CommandResult::error(&format!("env: {}: contains invalid Unicode", var));
+                    return CommandResult::error(&format!("env: {var}: contains invalid Unicode"));
                 }
             }
         }

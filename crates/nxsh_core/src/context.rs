@@ -1588,7 +1588,7 @@ mod tests {
         let handle = thread::spawn(move || {
             let _guard = history_mutex.lock().unwrap();
             eprintln!("Simulated panic to poison mutex for testing");
-            assert!(false, "Simulated panic to poison mutex");
+            panic!("Simulated panic to poison mutex");
         });
         
         // Wait for thread to panic and poison the mutex
@@ -1611,7 +1611,7 @@ mod tests {
         let handle = thread::spawn(move || {
             let _guard = dir_mutex.lock().unwrap();
             eprintln!("Simulated panic to poison mutex for testing");
-            assert!(false, "Simulated panic to poison mutex");
+            panic!("Simulated panic to poison mutex");
         });
         
         let _ = handle.join();
@@ -1631,7 +1631,7 @@ mod tests {
         let handle = thread::spawn(move || {
             let _guard = status_mutex.lock().unwrap();
             eprintln!("Simulated panic to poison mutex for testing");
-            assert!(false, "Simulated panic to poison mutex");
+            panic!("Simulated panic to poison mutex");
         });
         
         let _ = handle.join();
@@ -1688,7 +1688,7 @@ mod tests {
             
             // Test write operations
             context.set_exit_status(i);
-            context.pushd(format!("/tmp/test{}", i).into());
+            context.pushd(format!("/tmp/test{i}").into());
         }
         
         // Context should remain in valid state
@@ -1704,14 +1704,14 @@ mod tests {
         env::set_var("SHLVL", "");
         env::set_var("_", "");
         
-        let result = detect_login_shell();
+        let _result = detect_login_shell();
         
         // Clean up
         env::remove_var("SHLVL");
         env::remove_var("_");
         
-        // Should handle empty values gracefully
-        assert!(!result || result, "Should handle empty environment variables without crashing");
+        // Should handle empty values gracefully without any issues
+        // Test passes - empty environment variables handled correctly
     }
 
     #[test]
@@ -1727,7 +1727,7 @@ mod tests {
             env::set_var("SHLVL", shlvl);
             
             // Should not panic on malformed input
-            let result = detect_login_shell();
+            let _result = detect_login_shell();
             
             // Clean up
             env::remove_var("LOGNAME");
@@ -1735,9 +1735,8 @@ mod tests {
             env::remove_var("SHELL");
             env::remove_var("SHLVL");
             
-            // Result should be deterministic
-            assert!(result == true || result == false, 
-                    "Should handle malformed SHLVL '{}' gracefully", shlvl);
+            // Test passes - malformed SHLVL values handled gracefully
+            // Test passes - malformed SHLVL values handled gracefully
         }
     }
 }

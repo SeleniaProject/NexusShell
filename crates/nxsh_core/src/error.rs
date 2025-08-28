@@ -170,6 +170,7 @@ pub enum SecurityErrorKind {
     SandboxViolation,
     PolicyViolation,
     UnsafeOperation,
+    InvalidInput,  // Added for command injection prevention
 }
 
 /// System error subcategories

@@ -48,7 +48,7 @@ fn test_simple_background_job() {
                 assert!(execution_result.stdout.contains("Background job started"));
             }
             Err(e) => {
-                eprintln!("Background job execution failed: {:?}", e);
+                eprintln!("Background job execution failed: {e:?}");
                 // For now, we'll accept this as the feature is still being implemented
             }
         }
@@ -69,7 +69,7 @@ fn test_basic_execution() {
         let result = executor.execute(&ast, &mut context);
         match result {
             Ok(_) => println!("Basic execution successful"),
-            Err(e) => println!("Execution failed: {:?}", e),
+            Err(e) => println!("Execution failed: {e:?}"),
         }
     }
 }
@@ -96,7 +96,7 @@ fn test_multiple_background_jobs() {
                     println!("Command '{}' started: {}", cmd, exec_result.stdout);
                 }
                 Err(e) => {
-                    eprintln!("Command '{}' failed: {:?}", cmd, e);
+                    eprintln!("Command '{cmd}' failed: {e:?}");
                 }
             }
         }
@@ -106,7 +106,7 @@ fn test_multiple_background_jobs() {
     let job_manager = context.job_manager();
     let job_manager_guard = job_manager.lock().expect("Failed to lock job manager");
     let stats = job_manager_guard.get_statistics().expect("Failed to get job statistics");
-    println!("Job statistics: {:?}", stats);
+    println!("Job statistics: {stats:?}");
     assert!(stats.total_jobs > 0, "Should have created background jobs");
 }
 
@@ -127,7 +127,7 @@ fn test_job_control_signals() {
                 assert_eq!(exec_result.exit_code, 0);
             }
             Err(e) => {
-                eprintln!("jobs command failed: {:?}", e);
+                eprintln!("jobs command failed: {e:?}");
             }
         }
     }
@@ -147,7 +147,7 @@ fn test_background_job_statistics() {
     assert_eq!(stats.running_jobs, 0);
     assert_eq!(stats.stopped_jobs, 0);
     
-    println!("Initial job statistics: {:?}", stats);
+    println!("Initial job statistics: {stats:?}");
 }
 
 #[test]
@@ -176,7 +176,7 @@ fn test_process_group_management() {
                 }
             }
             Err(e) => {
-                eprintln!("Process group test failed: {:?}", e);
+                eprintln!("Process group test failed: {e:?}");
             }
         }
     }
@@ -207,12 +207,12 @@ fn test_job_completion_notification() {
                 if !notifications.is_empty() {
                     println!("Received {} notifications", notifications.len());
                     for notification in notifications {
-                        println!("Notification: {:?}", notification);
+                        println!("Notification: {notification:?}");
                     }
                 }
             }
             Err(e) => {
-                eprintln!("Job completion test failed: {:?}", e);
+                eprintln!("Job completion test failed: {e:?}");
             }
         }
     }
@@ -236,7 +236,7 @@ fn test_background_job_error_handling() {
                 assert_eq!(exec_result.exit_code, 0);
             }
             Err(e) => {
-                println!("Background error handling test: {:?}", e);
+                println!("Background error handling test: {e:?}");
                 // Error handling is working
             }
         }
@@ -269,7 +269,7 @@ fn test_concurrent_background_execution() {
                     assert_eq!(exec_result.exit_code, 0);
                 }
                 Err(e) => {
-                    eprintln!("Failed to start concurrent job '{}': {:?}", cmd, e);
+                    eprintln!("Failed to start concurrent job '{cmd}': {e:?}");
                 }
             }
         }
@@ -283,7 +283,7 @@ fn test_concurrent_background_execution() {
     let job_manager_guard = job_manager.lock().expect("Failed to lock job manager");
     let stats = job_manager_guard.get_statistics().expect("Failed to get job statistics");
     
-    println!("Concurrent execution statistics: {:?}", stats);
+    println!("Concurrent execution statistics: {stats:?}");
     assert!(stats.total_jobs >= 3, "Should have created at least 3 background jobs");
 }
 
@@ -311,7 +311,7 @@ fn test_background_job_resource_cleanup() {
                 let job_manager = context.job_manager();
                 let job_manager_guard = job_manager.lock().expect("Failed to lock job manager");
                 let stats_before = job_manager_guard.get_statistics().expect("Failed to get statistics");
-                println!("Statistics before cleanup: {:?}", stats_before);
+                println!("Statistics before cleanup: {stats_before:?}");
                 
                 // Process notifications to update job statuses
                 let notifications = job_manager_guard.process_notifications();
@@ -320,14 +320,14 @@ fn test_background_job_resource_cleanup() {
                 // Check if job is finished
                 let jobs = job_manager_guard.get_all_jobs();
                 let finished_jobs = jobs.iter().filter(|job| job.is_finished()).count();
-                println!("Finished jobs: {}", finished_jobs);
+                println!("Finished jobs: {finished_jobs}");
                 
                 // Manual cleanup would be triggered here in normal operation
                 // For testing, we verify that the cleanup mechanism exists
                 assert!(stats_before.total_jobs > 0, "Should have created jobs");
             }
             Err(e) => {
-                eprintln!("Resource cleanup test failed: {:?}", e);
+                eprintln!("Resource cleanup test failed: {e:?}");
             }
         }
     }

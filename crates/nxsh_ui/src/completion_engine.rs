@@ -3,14 +3,12 @@
 //! このモジュールは、極限まで最適化されたタブ補完機能を提供します。
 //! 複数のヒューリスティック、機械学習ベースの候補選択、リアルタイム性能監視を実装。
 
-use std::collections::{HashMap, BTreeMap, VecDeque};
-use std::path::{Path, PathBuf};
+use std::collections::{HashMap, VecDeque};
+use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
-use anyhow::{Result, Error};
-use fuzzy_matcher::{FuzzyMatcher, SkimMatcherV2};
-use tokio::sync::mpsc;
-use regex::Regex;
+use anyhow::Result;
+use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
 
 // 補完候補の種類
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -23,7 +21,9 @@ pub enum CompletionType {
     Option,
     Alias,
     Function,
+    Builtin,
     History,
+    SmartSuggestion,
     Custom(String),
 }
 
@@ -123,6 +123,12 @@ pub struct FileSystemProvider {
     matcher: SkimMatcherV2,
 }
 
+impl Default for FileSystemProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FileSystemProvider {
     pub fn new() -> Self {
         Self {
@@ -164,7 +170,7 @@ impl FileSystemProvider {
             }
 
             // Fuzzy matching
-            if let Some((score, _)) = self.matcher.fuzzy_match(&name, prefix) {
+            if let Some(score) = self.matcher.fuzzy_match(&name, prefix) {
                 let completion_type = if path.is_dir() {
                     CompletionType::Directory
                 } else {
@@ -172,7 +178,7 @@ impl FileSystemProvider {
                 };
 
                 let item = CompletionItem::new(name, completion_type)
-                    .with_score(score as f64)
+                    .with_score(score as f64 / 100.0) // Normalize score
                     .with_source("filesystem".to_string())
                     .with_metadata("path".to_string(), path.to_string_lossy().to_string());
 
@@ -225,6 +231,12 @@ impl CompletionProvider for FileSystemProvider {
 pub struct CommandProvider {
     commands: Arc<RwLock<HashMap<String, CompletionItem>>>,
     matcher: SkimMatcherV2,
+}
+
+impl Default for CommandProvider {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CommandProvider {
@@ -289,7 +301,7 @@ impl CompletionProvider for CommandProvider {
 
         let prefix = &input[..cursor];
         // Complete commands at the beginning of input or after pipe/redirect
-        prefix.trim().split_whitespace().count() <= 1 ||
+        prefix.split_whitespace().count() <= 1 ||
         prefix.contains('|') || prefix.contains('>')
     }
 
@@ -300,9 +312,9 @@ impl CompletionProvider for CommandProvider {
         let mut items = Vec::new();
         if let Ok(commands) = self.commands.read() {
             for (name, item) in commands.iter() {
-                if let Some((score, _)) = self.matcher.fuzzy_match(name, command_prefix) {
+                if let Some(score) = self.matcher.fuzzy_match(name, command_prefix) {
                     let mut scored_item = item.clone();
-                    scored_item.score = score as f64;
+                    scored_item.score = score as f64 / 100.0; // Normalize score
                     items.push(scored_item);
                 }
             }
@@ -377,9 +389,9 @@ impl CompletionProvider for HistoryProvider {
 
         if let Ok(history) = self.history.read() {
             for (index, item) in history.iter().enumerate() {
-                if let Some((score, _)) = self.matcher.fuzzy_match(item, prefix) {
+                if let Some(score) = self.matcher.fuzzy_match(item, prefix) {
                     let completion_item = CompletionItem::new(item.clone(), CompletionType::History)
-                        .with_score(score as f64 + (history.len() - index) as f64) // Recent items get higher scores
+                        .with_score((score as f64 / 100.0) + (history.len() - index) as f64 / 100.0) // Normalize and add recency boost
                         .with_source("history".to_string())
                         .with_metadata("index".to_string(), index.to_string());
                     
@@ -407,7 +419,7 @@ pub struct CompletionEngine {
 }
 
 #[derive(Debug, Clone)]
-struct PerformanceMetrics {
+pub struct PerformanceMetrics {
     total_requests: u64,
     average_time: Duration,
     cache_hits: u64,
@@ -446,7 +458,7 @@ impl CompletionEngine {
     pub fn add_provider(&mut self, provider: Box<dyn CompletionProvider>) {
         self.providers.push(provider);
         // Sort by priority (higher first)
-        self.providers.sort_by(|a, b| b.priority().cmp(&a.priority()));
+        self.providers.sort_by_key(|b| std::cmp::Reverse(b.priority()));
     }
 
     pub fn get_completions(&self, input: &str) -> CompletionResult {
@@ -562,8 +574,6 @@ impl Default for CompletionEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use tempfile::tempdir;
 
     #[test]
     fn test_completion_item_creation() {
@@ -617,7 +627,7 @@ mod tests {
         assert!(result.items.is_empty());
         
         // Test with some input
-        let result = engine.get_completions("l");
+        let _result = engine.get_completions("l");
         // Results depend on system commands available
     }
 

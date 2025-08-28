@@ -22,21 +22,20 @@ pub fn clear_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
 pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
     // Check for special styling options
-    let show_banner = args.iter().any(|arg| arg == "--banner" || arg == "--stylish");
+    let show_banner = args.iter().any(|arg| arg == "--banner");
     
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!("clear - clear the terminal screen with style");
         println!("Usage: clear [OPTION]");
         println!("  -h, --help     display this help and exit");
         println!("  --banner       show stylish NexusShell banner after clearing");
-        println!("  --stylish      same as --banner");
         return Ok(0);
     }
 
     // Send ANSI escape sequence to clear screen and move cursor to top-left
     print!("\x1B[2J\x1B[H");
     if let Err(e) = io::stdout().flush() {
-        eprintln!("clear: {}", e);
+        eprintln!("clear: {e}");
         return Ok(1);
     }
     
@@ -56,19 +55,19 @@ fn show_nexus_banner() {
     let reset = "\x1b[0m";
 
     println!();
-    println!("{}        ███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗{}", cyan, reset);
-    println!("{}        ████╗  ██║██╔════╝╚██╗██╔╝██║   ██║██╔════╝{}", cyan, reset);
-    println!("{}        ██╔██╗ ██║█████╗   ╚███╔╝ ██║   ██║███████╗{}", purple, reset);
-    println!("{}        ██║╚██╗██║██╔══╝   ██╔██╗ ██║   ██║╚════██║{}", purple, reset);
-    println!("{}        ██║ ╚████║███████╗██╔╝ ██╗╚██████╔╝███████║{}", coral, reset);
-    println!("{}        ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝{}", coral, reset);
+    println!("{cyan}        ███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗{reset}");
+    println!("{cyan}        ████╗  ██║██╔════╝╚██╗██╔╝██║   ██║██╔════╝{reset}");
+    println!("{purple}        ██╔██╗ ██║█████╗   ╚███╔╝ ██║   ██║███████╗{reset}");
+    println!("{purple}        ██║╚██╗██║██╔══╝   ██╔██╗ ██║   ██║╚════██║{reset}");
+    println!("{coral}        ██║ ╚████║███████╗██╔╝ ██╗╚██████╔╝███████║{reset}");
+    println!("{coral}        ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝{reset}");
     println!();
-    println!("{}           ╔═══════════════════════════════════╗{}", green, reset);
-    println!("{}           ║  {}🚀 Welcome to NexusShell 🚀{}     ║{}", green, cyan, green, reset);
-    println!("{}           ║  {}✨ Cyberpunk Edition ✨{}         ║{}", green, purple, green, reset);
-    println!("{}           ╚═══════════════════════════════════╝{}", green, reset);
+    println!("{green}           ╔═══════════════════════════════════╗{reset}");
+    println!("{green}           ║  {cyan}🚀 Welcome to NexusShell 🚀{green}     ║{reset}");
+    println!("{green}           ║  {purple}✨ Cyberpunk Edition ✨{green}         ║{reset}");
+    println!("{green}           ╚═══════════════════════════════════╝{reset}");
     println!();
-    println!("{}💡 Try: help, echo --stylish \"Hello!\", smart_alias list{}", cyan, reset);
+    println!("{cyan}💡 Try: help, echo \"Hello!\", smart_alias list{reset}");
     println!();
 }
 

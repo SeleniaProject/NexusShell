@@ -181,6 +181,17 @@ fn compute_checksum_stream<R: Read>(reader: &mut R, algorithm: &str) -> Result<(
     }
 }
 
+/// Execute cksum command
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match cksum_cli(args) {
+        Ok(_) => Ok(0),
+        Err(e) => {
+            eprintln!("cksum: {e}");
+            Ok(1)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

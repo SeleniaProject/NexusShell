@@ -1,6 +1,10 @@
 #[cfg(feature = "cli-args")] use clap::{Parser};
 use std::time::Instant;
-use std::io::{self, Write, IsTerminal};
+use std::io::{self, IsTerminal};
+
+// Add required imports for enhanced functionality
+extern crate whoami;
+extern crate chrono;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -16,26 +20,27 @@ fn show_startup_banner() {
     let bold = "\x1b[1m";
     let reset = "\x1b[0m";
     
-    println!("{}{}┌─────────────────────────────────────────────────────────────┐{}", bold, cyan, reset);
-    println!("{}│{}        {}███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗{}        {}│{}", cyan, reset, purple, reset, cyan, reset);
-    println!("{}│{}        {}████╗  ██║██╔════╝╚██╗██╔╝██║   ██║██╔════╝{}        {}│{}", cyan, reset, purple, reset, cyan, reset);
-    println!("{}│{}        {}██╔██╗ ██║█████╗   ╚███╔╝ ██║   ██║███████╗{}        {}│{}", cyan, reset, purple, reset, cyan, reset);
-    println!("{}│{}        {}██║╚██╗██║██╔══╝   ██╔██╗ ██║   ██║╚════██║{}        {}│{}", cyan, reset, purple, reset, cyan, reset);
-    println!("{}│{}        {}██║ ╚████║███████╗██╔╝ ██╗╚██████╔╝███████║{}        {}│{}", cyan, reset, purple, reset, cyan, reset);
-    println!("{}│{}        {}╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝{}        {}│{}", cyan, reset, purple, reset, cyan, reset);
-    println!("{}├─────────────────────────────────────────────────────────────┤{}", cyan, reset);
-    println!("{}│{}  {}🚀 Welcome to NexusShell v{}{:<3}{} - Cyberpunk Edition 🚀{}   {}│{}", cyan, reset, coral, yellow, VERSION, coral, reset, cyan, reset);
-    println!("{}│{}  {}✨ Modern POSIX-compatible shell with style ✨{}             {}│{}", cyan, reset, green, reset, cyan, reset);
-    println!("{}├─────────────────────────────────────────────────────────────┤{}", cyan, reset);
-    println!("{}│{}  {}💡 Quick Start:{}                                            {}│{}", cyan, reset, blue, reset, cyan, reset);
-    println!("{}│{}    {}• Type 'help' for command overview{}                      {}│{}", cyan, reset, yellow, reset, cyan, reset);
-    println!("{}│{}    {}• Try 'echo --stylish \"Hello World!\"'{}                   {}│{}", cyan, reset, yellow, reset, cyan, reset);
-    println!("{}│{}    {}• Use 'clear --banner' for welcome screen{}               {}│{}", cyan, reset, yellow, reset, cyan, reset);
-    println!("{}│{}    {}• Type 'exit' or 'quit' to leave{}                        {}│{}", cyan, reset, yellow, reset, cyan, reset);
-    println!("{}└─────────────────────────────────────────────────────────────┘{}", cyan, reset);
+    println!("{bold}{cyan}┌─────────────────────────────────────────────────────────────┐{reset}");
+    println!("{cyan}│{reset}        {purple}███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗{reset}        {cyan}│{reset}");
+    println!("{cyan}│{reset}        {purple}████╗  ██║██╔════╝╚██╗██╔╝██║   ██║██╔════╝{reset}        {cyan}│{reset}");
+    println!("{cyan}│{reset}        {purple}██╔██╗ ██║█████╗   ╚███╔╝ ██║   ██║███████╗{reset}        {cyan}│{reset}");
+    println!("{cyan}│{reset}        {purple}██║╚██╗██║██╔══╝   ██╔██╗ ██║   ██║╚════██║{reset}        {cyan}│{reset}");
+    println!("{cyan}│{reset}        {purple}██║ ╚████║███████╗██╔╝ ██╗╚██████╔╝███████║{reset}        {cyan}│{reset}");
+    println!("{cyan}│{reset}        {purple}╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝{reset}        {cyan}│{reset}");
+    println!("{cyan}├─────────────────────────────────────────────────────────────┤{reset}");
+    println!("{cyan}│{reset}  {coral}🚀 Welcome to NexusShell v{yellow}{VERSION:<3}{coral} - Cyberpunk Edition 🚀{reset}   {cyan}│{reset}");
+    println!("{cyan}│{reset}  {green}✨ Modern POSIX-compatible shell with style ✨{reset}             {cyan}│{reset}");
+    println!("{cyan}├─────────────────────────────────────────────────────────────┤{reset}");
+    println!("{cyan}│{reset}  {blue}💡 Quick Start:{reset}                                            {cyan}│{reset}");
+    println!("{cyan}│{reset}    {yellow}• Type 'help' for command overview{reset}                      {cyan}│{reset}");
+    println!("{cyan}│{reset}    {yellow}• Try 'echo \"Hello World!\"'{reset}                        {cyan}│{reset}");
+    println!("{cyan}│{reset}    {yellow}• Use 'clear --banner' for welcome screen{reset}               {cyan}│{reset}");
+    println!("{cyan}│{reset}    {yellow}• Type 'exit' or 'quit' to leave{reset}                        {cyan}│{reset}");
+    println!("{cyan}└─────────────────────────────────────────────────────────────┘{reset}");
 }
 
 /// Show stylish bash-like prompt with cyberpunk colors
+#[allow(dead_code)]
 fn show_stylish_prompt() {
     use std::env;
     use std::path::PathBuf;
@@ -85,20 +90,16 @@ fn show_stylish_prompt() {
     let git_info = get_git_info();
 
     // Construct the stylish prompt
-    print!("{}{}╭─{}[{}{}@{}{}{}", 
-        bold, cyan,           // Bold cyan for box drawing
-        reset, purple,        // Reset, then purple for bracket
-        username, hostname,   // Username and hostname
-        purple, reset);       // Purple bracket close, reset
+    print!("{bold}{cyan}╭─{reset}[{purple}{username}@{hostname}{purple}{reset}");       // Purple bracket close, reset
 
-    print!(" {}📁 {}{}", coral, display_path, reset);
+    print!(" {coral}📁 {display_path}{reset}");
 
     // Add git info if available
     if let Some(branch) = git_info {
-        print!(" {}🌿 {}{}", green, branch, reset);
+        print!(" {green}🌿 {branch}{reset}");
     }
 
-    print!("{}{}]{}", purple, reset, reset);
+    print!("{purple}{reset}]{reset}");
     
     // Time display
     let now = std::time::SystemTime::now()
@@ -108,19 +109,20 @@ fn show_stylish_prompt() {
     let hours = (secs % 86400) / 3600;
     let minutes = (secs % 3600) / 60;
     
-    print!(" {}⏰ {:02}:{:02}{}", yellow, hours, minutes, reset);
+    print!(" {yellow}⏰ {hours:02}:{minutes:02}{reset}");
     
     println!();
-    print!("{}{}╰─{}❯{} ", bold, cyan, coral, reset);
+    print!("{bold}{cyan}╰─{coral}❯{reset} ");
 }
 
 /// Get git branch information if in a git repository
+#[allow(dead_code)]
 fn get_git_info() -> Option<String> {
     use std::process::Command;
     
     // Try to get git branch
     if let Ok(output) = Command::new("git")
-        .args(&["rev-parse", "--abbrev-ref", "HEAD"])
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .output() 
     {
         if output.status.success() {
@@ -159,50 +161,44 @@ fn busybox_mode() -> ! {
     let args: Vec<String> = std::env::args().collect();
     
     // Get first argument (program name or command name)
-    let command = if args.len() > 1 && !args[1].starts_with("--") {
-        &args[1]
+    let (command, cmd_args) = if args.len() > 1 && !args[1].starts_with("--") {
+        (args[1].as_str(), &args[2..])
     } else {
         // Infer command from program name
-        if let Some(exe) = args.get(0) {
+        if let Some(exe) = args.first() {
             let prog = std::path::Path::new(exe).file_stem()
                 .and_then(|s| s.to_str()).unwrap_or("");
-            if prog.starts_with("nxsh-") {
-                &prog[5..] // Remove "nxsh-" prefix
+            if let Some(cmd) = prog.strip_prefix("nxsh-") {
+                // Remove "nxsh-" prefix
+                (cmd, &args[1..])
+            } else if prog == "nxsh" && args.len() > 1 {
+                // For nxsh, the actual command is the first argument
+                (args[1].as_str(), &args[2..])
             } else {
-                prog
+                (prog, &args[1..])
             }
         } else {
-            ""
+            ("", &args[1..])
         }
     };
 
-    // Prepare argument list
-    let cmd_args = if args.len() > 1 && !args[1].starts_with("--") {
-        &args[2..] // Exclude command name
-    } else {
-        &args[1..] // When inferred from program name
-    };
-
+    // Prepare argument list is now done above
+    
     // Execute builtin commands using the central dispatcher
-    let context = nxsh_builtins::BuiltinContext::new();
-    match nxsh_builtins::execute_builtin(command, cmd_args, &context) {
+    match nxsh_builtins::execute_builtin(command, cmd_args) {
         Ok(exit_code) => {
             std::process::exit(exit_code);
         }
-        Err(nxsh_builtins::BuiltinError::UnknownCommand(_)) => {
-            eprintln!("nxsh-busybox: {}: command not found", command);
+        Err(error_str) => {
+            eprintln!("nxsh-busybox: {command}: {error_str}");
             std::process::exit(127);
-        }
-        Err(e) => {
-            eprintln!("nxsh-busybox: {}: {}", command, e);
-            std::process::exit(1);
         }
     }
 }
 
 #[allow(dead_code)]
 fn print_busybox_help() {
-    println!("NexusShell BusyBox v{}", VERSION);
+    println!("NexusShell BusyBox v{VERSION}");
     println!("Usage: nxsh-busybox [COMMAND] [ARGS...]");
     println!();
     println!("Supported commands:");
@@ -232,7 +228,7 @@ struct CliArgs {
     #[arg(long)]
     non_interactive: bool,
     
-    /// Execute script file
+    /// Execute command string
     #[arg(short = 'c', long)]
     command: Option<String>,
     
@@ -248,11 +244,9 @@ struct CliArgs {
     #[arg(long)]
     theme: Option<String>,
     
-    /// Script file to execute
-    script_file: Option<String>,
-    
-    /// Arguments to pass to script
-    script_args: Vec<String>,
+    /// Remaining arguments (treated as a command to execute)
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    args: Vec<String>,
 }
 
 #[cfg(not(feature = "cli-args"))]
@@ -262,27 +256,17 @@ fn parse_simple_args() -> (bool, bool, Option<String>, bool, Option<String>) {
     let mut interactive = false;
     let mut command = None;
     let mut debug = false;
-    let mut script_file = None;
+    let script_file = None; // Always None for simple args
     
-    let mut i = 1;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--busybox" => busybox = true,
-            "-i" | "--interactive" => interactive = true,
-            "-c" => {
-                if i + 1 < args.len() {
-                    command = Some(args[i + 1].clone());
-                    i += 1;
-                }
-            },
-            "-d" | "--debug" => debug = true,
-            arg if !arg.starts_with("-") => {
-                script_file = Some(arg.to_string());
-                break;
-            },
-            _ => {} // Ignore unknown options
-        }
-        i += 1;
+    // If we have arguments, they represent a command to execute
+    // Format: nxsh.exe command arg1 arg2 ...
+    // This should be treated as: -c "command arg1 arg2 ..."
+    if args.len() > 1 {
+        // Join all arguments after the program name as a single command
+        let cmd_parts: Vec<String> = args[1..].to_vec();
+        let full_command = cmd_parts.join(" ");
+        command = Some(full_command);
+        return (busybox, interactive, command, debug, script_file);
     }
     
     (busybox, interactive, command, debug, script_file)
@@ -293,11 +277,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Start startup time measurement
     #[cfg(feature = "startup-profiling")]
-    let _profiler = nxsh_core::startup_profiler::StartupProfiler::new();
+    let _profiler = nxsh_core::StartupOptimizer::init(nxsh_core::StartupConfig::default());
     
     // Setup crash handler
     #[cfg(feature = "crash-handler")]
-    nxsh_core::crash_handler::setup_crash_handler();
+    let _crash_handler = nxsh_core::crash_handler::CrashHandler::new(nxsh_core::crash_handler::CrashHandlerConfig::default());
     
     // Early BusyBox mode detection
     if is_busybox_invocation() {
@@ -305,20 +289,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     
     // Parse CLI arguments
-    #[cfg(feature = "cli-args")]
-    let args = CliArgs::parse();
-    
     #[cfg(not(feature = "cli-args"))]
     let (busybox, interactive, command, debug, script_file) = parse_simple_args();
     
     #[cfg(feature = "cli-args")]
-    let (busybox, interactive, command, debug, script_file) = (
-        args.busybox,
-        args.interactive,
-        args.command,
-        args.debug,
-        args.script_file
-    );
+    let (busybox, interactive, command, debug, script_file) = {
+        let args = CliArgs::parse();
+        let command = if args.command.is_some() {
+            args.command
+        } else if !args.args.is_empty() {
+            // Treat remaining args as a command to execute
+            Some(args.args.join(" "))
+        } else {
+            None
+        };
+        (
+            args.busybox,
+            args.interactive,
+            command,
+            args.debug,
+            None::<String>, // No script_file in new structure
+        )
+    };
     
     // BusyBox mode
     if busybox {
@@ -329,7 +321,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if debug {
         std::env::set_var("RUST_LOG", "debug");
         #[cfg(feature = "logging")]
-        nxsh_core::logging::init_logger()?;
+        let _logger = nxsh_core::LoggingSystem::new(nxsh_core::logging::LoggingConfig::default())?;
     }
     
     // Load configuration - use simplified approach for now
@@ -344,7 +336,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Initialize plugin system
     #[cfg(feature = "plugins")]
-    let plugin_manager = nxsh_plugin::PluginManager::new()?;
+    let _plugin_manager = nxsh_plugin::PluginManager::new();
     
     // Initialize parser
     let parser = nxsh_parser::ShellCommandParser::new();
@@ -352,7 +344,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Output startup time
     let startup_time = start_time.elapsed();
     if debug {
-        println!("Startup time: {:?}", startup_time);
+        println!("Startup time: {startup_time:?}");
     }
     
     // Command execution mode
@@ -392,8 +384,7 @@ fn run_command(command: &str, shell_state: &mut nxsh_core::ShellState, parser: &
     
     // Check if it's a built-in command in nxsh_builtins first
     if nxsh_builtins::is_builtin(command_name) {
-        let context = nxsh_builtins::BuiltinContext::new();
-        match nxsh_builtins::execute_builtin(command_name, args, &context) {
+        match nxsh_builtins::execute_builtin(command_name, args) {
             Ok(exit_code) => {
                 if exit_code != 0 {
                     std::process::exit(exit_code);
@@ -401,7 +392,7 @@ fn run_command(command: &str, shell_state: &mut nxsh_core::ShellState, parser: &
                 return Ok(());
             }
             Err(e) => {
-                eprintln!("Error: {}", e);
+                eprintln!("Error: {e}");
                 std::process::exit(1);
             }
         }
@@ -426,81 +417,69 @@ fn run_script(script_path: &str, shell_state: &mut nxsh_core::ShellState, parser
     Ok(())
 }
 
+#[cfg(feature = "ui")]
 fn run_interactive_mode(
     shell_state: &mut nxsh_core::ShellState, 
     parser: &nxsh_parser::ShellCommandParser,
-    #[cfg(feature = "ui")] _ui: &mut nxsh_ui::SimpleUiController
+    _ui: &mut nxsh_ui::SimpleUiController
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Show stylish startup banner
     show_startup_banner();
     println!();
-    
+    // Use enhanced ReadLine with tab completion and syntax highlighting
+    let mut rl = nxsh_ui::readline::ReadLine::new()?;
+
     loop {
-        // Display stylish prompt
-        show_stylish_prompt();
-        std::io::stdout().flush()?;
-        
-        // Read input
-        let mut input = String::new();
-        match std::io::stdin().read_line(&mut input) {
-            Ok(0) => break, // EOF
-            Ok(_) => {
-                let input = input.trim();
-                if input.is_empty() {
-                    continue;
-                }
-                
-                // Handle exit commands
-                if input == "exit" || input == "quit" {
-                    break;
-                }
-                
-                // Parse and execute commands
-                let parts: Vec<String> = input.split_whitespace().map(|s| s.to_string()).collect();
-                if !parts.is_empty() {
-                    let command_name = &parts[0];
-                    let args = &parts[1..];
-                    
-                    // Check if it's a built-in command in nxsh_builtins first
-                    if nxsh_builtins::is_builtin(command_name) {
-                        let context = nxsh_builtins::BuiltinContext::new();
-                        match nxsh_builtins::execute_builtin(command_name, args, &context) {
-                            Ok(exit_code) => {
-                                if exit_code != 0 {
-                                    eprintln!("Command exited with code {}", exit_code);
-                                }
-                                continue;
-                            }
-                            Err(e) => {
-                                eprintln!("Error: {}", e);
-                                continue;
-                            }
+        let prompt = get_enhanced_prompt();
+        let input_line = rl.read_line(&prompt)?; // Handles Tab, arrows, highlight
+        let input = input_line.trim();
+
+        if input.is_empty() {
+            continue;
+        }
+
+        // Handle exit commands
+        if input == "exit" || input == "quit" {
+            break;
+        }
+
+        // Parse and execute commands
+        let parts: Vec<String> = input.split_whitespace().map(|s| s.to_string()).collect();
+        if !parts.is_empty() {
+            let command_name = &parts[0];
+            let args = &parts[1..];
+
+            // Prefer built-ins
+            if nxsh_builtins::is_builtin(command_name) {
+                match nxsh_builtins::execute_builtin(command_name, args) {
+                    Ok(exit_code) => {
+                        if exit_code != 0 {
+                            eprintln!("Command exited with code {exit_code}");
                         }
+                        continue;
                     }
-                }
-                
-                // Fall back to regular parser/AST execution
-                match parser.parse(input) {
-                    Ok(ast) => {
-                        match nxsh_core::execute_ast(&ast, shell_state) {
-                            Ok(exit_code) => {
-                                if exit_code != 0 {
-                                    eprintln!("Command exited with code {}", exit_code);
-                                }
-                            },
-                            Err(e) => {
-                                eprintln!("Error: {}", e);
-                            }
-                        }
-                    },
                     Err(e) => {
-                        eprintln!("Parse error: {}", e);
+                        eprintln!("Error: {e}");
+                        continue;
                     }
+                }
+            }
+        }
+
+        // Fall back to regular parser/AST execution
+        match parser.parse(input) {
+            Ok(ast) => match nxsh_core::execute_ast(&ast, shell_state) {
+                Ok(exit_code) => {
+                    if exit_code != 0 {
+                        eprintln!("Command exited with code {exit_code}");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {e}");
                 }
             },
             Err(e) => {
-                eprintln!("Input error: {}", e);
-                break;
+                eprintln!("Parse error: {e}");
             }
         }
     }
@@ -509,16 +488,201 @@ fn run_interactive_mode(
     Ok(())
 }
 
+#[cfg(not(feature = "ui"))]
+fn run_interactive_mode(
+    shell_state: &mut nxsh_core::ShellState, 
+    parser: &nxsh_parser::ShellCommandParser,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Minimal fallback interactive loop without advanced UI
+    println!("NexusShell (UI disabled). Type 'exit' to quit.");
+    let mut line = String::new();
+    loop {
+        use std::io::Write;
+        print!("nxsh$ ");
+        std::io::stdout().flush()?;
+        line.clear();
+        if std::io::stdin().read_line(&mut line)? == 0 { break; }
+        let input = line.trim();
+        if input.is_empty() { continue; }
+        if input == "exit" || input == "quit" { break; }
+
+        let parts: Vec<String> = input.split_whitespace().map(|s| s.to_string()).collect();
+        if !parts.is_empty() {
+            let command_name = &parts[0];
+            let args = &parts[1..];
+            if nxsh_builtins::is_builtin(command_name) {
+                match nxsh_builtins::execute_builtin(command_name, args) {
+                    Ok(code) if code == 0 => {},
+                    Ok(code) => eprintln!("Command exited with code {code}"),
+                    Err(e) => eprintln!("Error: {e}"),
+                }
+                continue;
+            }
+        }
+        match parser.parse(input) {
+            Ok(ast) => match nxsh_core::execute_ast(&ast, shell_state) {
+                Ok(code) if code == 0 => {},
+                Ok(code) => eprintln!("Command exited with code {code}"),
+                Err(e) => eprintln!("Error: {e}"),
+            },
+            Err(e) => eprintln!("Parse error: {e}"),
+        }
+    }
+    println!("Exiting NexusShell.");
+    Ok(())
+}
+
+/// Generate enhanced prompt for ReadLine
+fn get_enhanced_prompt() -> String {
+    use std::env;
+    use std::path::PathBuf;
+    // Emergency fallback: simple single-line prompt for terminals that have redraw issues
+    if env::var("NXSH_SIMPLE_PROMPT").map(|v| v == "1").unwrap_or(false) {
+        return "$ ".to_string();
+    }
+    
+    // Cyberpunk color scheme
+    let cyan = "\x1b[38;2;0;245;255m";      // #00f5ff
+    let purple = "\x1b[38;2;153;69;255m";   // #9945ff
+    let coral = "\x1b[38;2;255;71;87m";     // #ff4757
+    let green = "\x1b[38;2;46;213;115m";    // #2ed573
+    let yellow = "\x1b[38;2;255;190;11m";   // #ffbe0b
+    let bold = "\x1b[1m";
+    let reset = "\x1b[0m";
+    
+    // Get username
+    let username = whoami::username();
+    
+    // Get hostname (simplified)
+    let hostname = env::var("COMPUTERNAME")
+        .or_else(|_| env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "localhost".to_string());
+    
+    // Get current directory
+    let current_dir = env::current_dir()
+        .map(|path| {
+            if let Ok(home) = env::var("HOME").or_else(|_| env::var("USERPROFILE")) {
+                let home_path = PathBuf::from(home);
+                if let Ok(relative) = path.strip_prefix(&home_path) {
+                    format!("~/{}", relative.display())
+                } else {
+                    path.display().to_string()
+                }
+            } else {
+                path.display().to_string()
+            }
+        })
+        .unwrap_or_else(|_| "?".to_string());
+    
+    // Get git branch if in git repository
+    let git_branch = get_git_branch();
+    let git_display = if let Some(branch) = git_branch {
+        format!(" {yellow}🌿 {branch}{reset}")
+    } else {
+        String::new()
+    };
+    
+    // Get current time
+    let now = chrono::Local::now();
+    let time_str = now.format("%H:%M").to_string();
+    
+    // Create multi-line prompt
+    format!("{bold}{cyan}╭─[{green}{username}{reset}{cyan}@{purple}{hostname}{reset} {coral}📁 {}{green}{git_display}{cyan}] {yellow}⏰ {time_str}{reset}\n{cyan}╰─❯{reset} ", 
+        abbreviate_path(&current_dir))
+}
+
+/// Abbreviate long paths for display
+fn abbreviate_path(path: &str) -> String {
+    let max_length = 50;
+    if path.len() <= max_length {
+        path.to_string()
+    } else {
+        let parts: Vec<&str> = path.split('/').collect();
+        if parts.len() > 3 {
+            format!(".../{}",
+                parts[parts.len()-2..].join("/"))
+        } else {
+            format!("...{}", &path[path.len() - max_length + 3..])
+        }
+    }
+}
+
+/// Get current git branch
+fn get_git_branch() -> Option<String> {
+    use std::process::Command;
+    
+    let output = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .output();
+    
+    if let Ok(output) = output {
+        if output.status.success() {
+            let branch = String::from_utf8_lossy(&output.stdout);
+            let branch = branch.trim();
+            if !branch.is_empty() && branch != "HEAD" {
+                return Some(branch.to_string());
+            }
+        }
+    }
+    None
+}
+
 fn run_non_interactive_mode(shell_state: &mut nxsh_core::ShellState, parser: &nxsh_parser::ShellCommandParser) -> Result<(), Box<dyn std::error::Error>> {
     use std::io::Read;
     
     let mut input = String::new();
     std::io::stdin().read_to_string(&mut input)?;
     
-    let ast = parser.parse(&input)?;
-    let exit_code = nxsh_core::execute_ast(&ast, shell_state)?;
-    if exit_code != 0 {
-        std::process::exit(exit_code);
+    // Process each line as a separate command
+    for line in input.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        
+        // Parse the command line into parts
+        let parts: Vec<String> = line.split_whitespace().map(|s| s.to_string()).collect();
+        if parts.is_empty() {
+            continue;
+        }
+        
+        let command_name = &parts[0];
+        let args = &parts[1..];
+        
+        // Check if it's a built-in command in nxsh_builtins first
+        if nxsh_builtins::is_builtin(command_name) {
+            match nxsh_builtins::execute_builtin(command_name, args) {
+                Ok(exit_code) => {
+                    if exit_code != 0 {
+                        eprintln!("Command exited with code {exit_code}");
+                    }
+                    continue;
+                }
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    continue;
+                }
+            }
+        }
+        
+        // Fall back to regular parser/AST execution
+        match parser.parse(line) {
+            Ok(ast) => {
+                match nxsh_core::execute_ast(&ast, shell_state) {
+                    Ok(exit_code) => {
+                        if exit_code != 0 {
+                            eprintln!("Command exited with code {exit_code}");
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Error: {e}");
+                    }
+                }
+            },
+            Err(e) => {
+                eprintln!("Parse error: {e}");
+            }
+        }
     }
     
     Ok(())
@@ -538,6 +702,6 @@ mod tests {
 
     #[test]
     fn test_version_constant() {
-        assert!(!VERSION.is_empty());
+        assert!(!VERSION.trim().is_empty());
     }
 }

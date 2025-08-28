@@ -1,2 +1,6 @@
 [build]
 target-dir = "target" 
+
+[env]
+# Optimize for local CPU features during development and release builds
+RUSTFLAGS = "-C target-cpu=native"

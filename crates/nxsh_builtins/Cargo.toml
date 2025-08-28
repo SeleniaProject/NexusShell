@@ -6,7 +6,7 @@ license = "Apache-2.0 OR MIT"
 
 [features]
 # Full (desktop/server) build keeps legacy behavior. BusyBox/minimal build will disable default features via nxsh_cli.
-default = ["minimal"]
+default = ["minimal", "compression-bzip2", "compression-lzma", "compression-zip"]
 linux = []  # Linux-specific features (procfs removed as it's C/C++ dependent)
 metrics = ["dep:metrics", "dep:metrics-exporter-prometheus"]  # Enable metrics + prometheus exporter
 # Advanced updater (HTTP + semantic versioning + signatures). All heavy HTTP/crypto deps made optional.
@@ -20,6 +20,7 @@ heavy-i18n = ["dep:chrono-tz"]
 # Lightweight i18n without timezone database - for size-sensitive builds
 light-i18n = ["dep:fluent", "dep:fluent-bundle", "dep:unic-langid"]
 net-http = ["dep:ureq"] # Internal lightweight HTTP fallback for curl/wget
+net-ftp = ["dep:suppaftp"] # FTP client support for cat command
 # PowerShell typed objects (experimental) - kept out of minimal build
 powershell-objects = []
 system-info = ["dep:sysinfo"]            # System / process inspection utilities
@@ -205,6 +206,9 @@ ctrlc = "3.4"
 fluent = { version = "0.16", optional = true }
 fluent-bundle = { version = "0.15", optional = true }
 unic-langid = { version = "0.9", optional = true }
+
+# Network protocols - Pure Rust
+suppaftp = { version = "5.3", optional = true }
 
 # Timezone support - Pure Rust
 chrono-tz = { version = "0.8", optional = true }

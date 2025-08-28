@@ -37,7 +37,7 @@ pub fn export_cli(args: Vec<String>) -> Result<()> {
                 if arg.starts_with('-') {
                     return Err(ShellError::new(
                         ErrorKind::InvalidArgument,
-                        format!("Unknown option: {}", arg)
+                        format!("Unknown option: {arg}")
                     ).into());
                 }
 
@@ -47,11 +47,11 @@ pub fn export_cli(args: Vec<String>) -> Result<()> {
                 }
 
                 if name_mode {
-                    return remove_from_export(&arg);
+                    return remove_from_export(arg);
                 }
 
                 // Handle variable assignment
-                return handle_export_assignment(&arg);
+                return handle_export_assignment(arg);
             }
         }
         i += 1;
@@ -99,7 +99,7 @@ fn print_all_exported_vars() {
     // Also print exported functions in a POSIX-compatible form
     // We treat all defined functions as exportable for subshells in this simplified model
     for fname in list_functions() {
-        println!("declare -fx {}", fname);
+        println!("declare -fx {fname}");
     }
 }
 
@@ -112,12 +112,12 @@ fn handle_export_assignment(arg: &str) -> Result<()> {
         if !is_valid_var_name(name) {
             return Err(ShellError::new(
                 ErrorKind::InvalidArgument,
-                format!("Invalid variable name: {}", name)
+                format!("Invalid variable name: {name}")
             ).into());
         }
 
         env::set_var(name, value);
-        println!("Exported {}={}", name, value);
+        println!("Exported {name}={value}");
     } else {
         // Just variable name: export existing variable
         let name = arg;
@@ -125,19 +125,19 @@ fn handle_export_assignment(arg: &str) -> Result<()> {
         if !is_valid_var_name(name) {
             return Err(ShellError::new(
                 ErrorKind::InvalidArgument,
-                format!("Invalid variable name: {}", name)
+                format!("Invalid variable name: {name}")
             ).into());
         }
 
         match env::var(name) {
             Ok(value) => {
                 // Variable already exists, just mark as exported
-                println!("Exported {}={}", name, value);
+                println!("Exported {name}={value}");
             }
             Err(_) => {
                 // Variable doesn't exist, create with empty value
                 env::set_var(name, "");
-                println!("Exported {}=", name);
+                println!("Exported {name}=");
             }
         }
     }
@@ -149,7 +149,7 @@ fn remove_from_export(name: &str) -> Result<()> {
     if !is_valid_var_name(name) {
         return Err(ShellError::new(
             ErrorKind::InvalidArgument,
-            format!("Invalid variable name: {}", name)
+            format!("Invalid variable name: {name}")
         ).into());
     }
 
@@ -158,10 +158,10 @@ fn remove_from_export(name: &str) -> Result<()> {
         Ok(_) => {
             // We cannot truly "unexport" while preserving a local-only var here; emulate by clearing from process env
             env::remove_var(name);
-            println!("Removed {} from exports", name);
+            println!("Removed {name} from exports");
         }
         Err(_) => {
-            println!("Variable {} not found", name);
+            println!("Variable {name} not found");
         }
     }
 
@@ -224,7 +224,7 @@ pub fn export_var(name: &str, value: &str) -> Result<()> {
     if !is_valid_var_name(name) {
         return Err(ShellError::new(
             ErrorKind::InvalidArgument,
-            format!("Invalid variable name: {}", name)
+            format!("Invalid variable name: {name}")
         ).into());
     }
 
@@ -236,13 +236,13 @@ pub fn unexport_var(name: &str) -> Result<()> {
     if !is_valid_var_name(name) {
         return Err(ShellError::new(
             ErrorKind::InvalidArgument,
-            format!("Invalid variable name: {}", name)
+            format!("Invalid variable name: {name}")
         ).into());
     }
 
     if env::var(name).is_ok() {
         env::remove_var(name);
-        println!("Variable {} is no longer exported", name);
+        println!("Variable {name} is no longer exported");
     }
 
     Ok(())
@@ -258,7 +258,7 @@ pub fn handle_shell_assignment(assignment: &str) -> Result<()> {
         if !is_valid_var_name(name) {
             return Err(ShellError::new(
                 ErrorKind::InvalidArgument,
-                format!("Invalid variable name: {}", name)
+                format!("Invalid variable name: {name}")
             ).into());
         }
 
@@ -288,7 +288,7 @@ pub fn substitute_variables(input: &str) -> String {
                     chars.next(); // consume '{'
                     let mut var_name = String::new();
                     
-                    while let Some(c) = chars.next() {
+                    for c in chars.by_ref() {
                         if c == '}' {
                             break;
                         }
@@ -333,7 +333,7 @@ fn export_functions(names: &[String]) -> Result<()> {
     if names.is_empty() {
         // Print all exported functions
         for fname in list_functions() {
-            println!("declare -fx {}", fname);
+            println!("declare -fx {fname}");
         }
         return Ok(());
     }
@@ -343,18 +343,18 @@ fn export_functions(names: &[String]) -> Result<()> {
         if !is_valid_var_name(name) {
             return Err(ShellError::new(
                 ErrorKind::InvalidArgument,
-                format!("Invalid function name: {}", name)
+                format!("Invalid function name: {name}")
             ).into());
         }
         match get_function(name) {
             Some(_func) => {
                 // In Bash, function bodies are exported via FUNCNAME() { ...; }; here we mark by emitting declare -fx
-                println!("declare -fx {}", name);
+                println!("declare -fx {name}");
             }
             None => {
                 return Err(ShellError::new(
                     ErrorKind::InvalidArgument,
-                    format!("Function not found: {}", name)
+                    format!("Function not found: {name}")
                 ).into());
             }
         }

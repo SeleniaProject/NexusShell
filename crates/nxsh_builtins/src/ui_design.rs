@@ -96,6 +96,12 @@ impl Colorize for String {
 // Table formatting
 pub struct TableFormatter;
 
+impl Default for TableFormatter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TableFormatter {
     pub fn new() -> Self {
         Self
@@ -106,7 +112,7 @@ impl TableFormatter {
     }
     
     pub fn format_size(&self, size: u64) -> String {
-        format!("{}", size)
+        format!("{size}")
     }
     
     pub fn get_file_icon(&self, _filename: &str) -> String {
@@ -272,7 +278,7 @@ fn set_theme(theme_name: &str) {
             println!("Applied Forest theme with nature colors");
         }
         _ => {
-            eprintln!("Unknown theme: {}", theme_name);
+            eprintln!("Unknown theme: {theme_name}");
             eprintln!("Use 'ui_design list' to see available themes");
         }
     }

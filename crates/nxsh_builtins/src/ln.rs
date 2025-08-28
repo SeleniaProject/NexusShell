@@ -25,7 +25,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
                 return Ok(0);
             }
             arg if arg.starts_with('-') => {
-                eprintln!("ln: invalid option '{}'", arg);
+                eprintln!("ln: invalid option '{arg}'");
                 return Ok(1);
             }
             _ => files.push(&args[i]),
@@ -35,8 +35,8 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
 
     if files.len() < 2 {
         let default_file = String::new();
-        let first_file = files.get(0).map(|s| s.as_str()).unwrap_or(&default_file);
-        eprintln!("ln: missing destination file operand after '{}'", first_file);
+        let first_file = files.first().map(|s| s.as_str()).unwrap_or(&default_file);
+        eprintln!("ln: missing destination file operand after '{first_file}'");
         return Ok(1);
     }
 
@@ -44,13 +44,13 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
     let link_name = files[1];
 
     if Path::new(link_name).exists() && !force {
-        eprintln!("ln: failed to create link '{}': File exists", link_name);
+        eprintln!("ln: failed to create link '{link_name}': File exists");
         return Ok(1);
     }
 
     if force && Path::new(link_name).exists() {
         if let Err(e) = fs::remove_file(link_name) {
-            eprintln!("ln: cannot remove '{}': {}", link_name, e);
+            eprintln!("ln: cannot remove '{link_name}': {e}");
             return Ok(1);
         }
     }
@@ -83,9 +83,9 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
         Ok(()) => {
             if verbose {
                 if symbolic {
-                    println!("'{}' -> '{}'", link_name, target);
+                    println!("'{link_name}' -> '{target}'");
                 } else {
-                    println!("'{}' => '{}'", link_name, target);
+                    println!("'{link_name}' => '{target}'");
                 }
             }
             Ok(0)

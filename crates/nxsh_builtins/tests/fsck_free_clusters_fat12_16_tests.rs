@@ -63,7 +63,7 @@ async fn run_free_cluster_case(ftype: &str, entry_bytes: u8) {
         let file = std::fs::OpenOptions::new().create(true).read(true).write(true).truncate(true).open(&img_path).unwrap();
         file.set_len(2 * 1024 * 1024).unwrap();
     }
-    mkfs_cli(&vec!["-t".into(), ftype.into(), img_path.to_string_lossy().to_string()]).await.expect("mkfs should succeed");
+    mkfs_cli(&vec!["-t".into(), ftype.into(), img_path.to_string_lossy().to_string()]).expect("mkfs should succeed");
 
     let cl = allocate_one_cluster_by_hand(&img_path.to_string_lossy(), entry_bytes);
     let before = read_fat_entry_generic(&img_path.to_string_lossy(), cl, entry_bytes);
@@ -86,7 +86,7 @@ async fn run_free_cluster_case(ftype: &str, entry_bytes: u8) {
     let journal_path = dir.path().join("report_free.json");
     std::fs::write(&journal_path, serde_json::to_vec_pretty(&journal).unwrap()).unwrap();
 
-    fsck_cli(&vec!["apply-journal".into(), journal_path.to_string_lossy().to_string(), "--shadow".into(), img_path.to_string_lossy().to_string(), "--commit".into()]).await.expect("apply commit");
+    fsck_cli(&vec!["apply-journal".into(), journal_path.to_string_lossy().to_string(), "--shadow".into(), img_path.to_string_lossy().to_string(), "--commit".into()]).expect("apply commit");
 
     let after = read_fat_entry_generic(&img_path.to_string_lossy(), cl, entry_bytes);
     assert_eq!(after & 0xFFFF, 0);
@@ -94,16 +94,16 @@ async fn run_free_cluster_case(ftype: &str, entry_bytes: u8) {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn fsck_free_cluster_fat16() { run_free_cluster_case("fat16", 2).await; }
+async fn fsck_free_cluster_fat16() { run_free_cluster_case("fat16", 2); }
 
 #[cfg(unix)]
 #[tokio::test]
-async fn fsck_free_cluster_fat12() { run_free_cluster_case("fat12", 2).await; }
+async fn fsck_free_cluster_fat12() { run_free_cluster_case("fat12", 2); }
 
 #[cfg(not(unix))]
 #[tokio::test]
 async fn fsck_free_clusters_commit_not_supported_on_non_unix_fat12_16() {
-    let res = fsck_cli(&vec!["apply-journal".into(), "dummy.json".into(), "--commit".into()]).await;
+    let res = fsck_cli(&["apply-journal".into(), "dummy.json".into(), "--commit".into()]);
     assert!(res.is_err());
 }
 

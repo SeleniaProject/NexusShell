@@ -101,7 +101,7 @@ fn test_type_compatibility() {
         assert_eq!(arr[2], MirValue::Integer(2));
     } else {
         // Use safe assertion instead of panic
-        assert!(false, "Expected array result from filter function, got: {:?}", result);
+        panic!("Expected array result from filter function, got: {result:?}");
     }
     
     println!("✅ All type compatibility tests passed!");

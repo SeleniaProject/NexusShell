@@ -1898,7 +1898,7 @@ mod tests {
 
     #[test]
     fn test_output_formats() {
-        let formats = vec![
+        let formats = [
             OutputFormat::Html,
             OutputFormat::Markdown,
             OutputFormat::Pdf,

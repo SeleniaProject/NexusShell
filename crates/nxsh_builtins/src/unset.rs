@@ -23,18 +23,6 @@ pub fn unset_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn unset_var() {
-        let ctx = ShellContext::new();
-        ctx.set_var("FOO", "bar");
-        unset_cli(&["FOO".into()], &ctx).unwrap();
-        assert!(ctx.get_var("FOO").is_none());
-    }
-}
-
 /// Execute the unset builtin command
 pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
     if args.is_empty() {
@@ -55,7 +43,7 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
                     return Ok(0);
                 }
                 _ => {
-                    eprintln!("unset: invalid option '{}'", var_name);
+                    eprintln!("unset: invalid option '{var_name}'");
                     return Ok(1);
                 }
             }
@@ -65,5 +53,17 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
     }
 
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn unset_var() {
+        let ctx = ShellContext::new();
+        ctx.set_var("FOO", "bar");
+        unset_cli(&["FOO".into()], &ctx).unwrap();
+        assert!(ctx.get_var("FOO").is_none());
+    }
 } 
 

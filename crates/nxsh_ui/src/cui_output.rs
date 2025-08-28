@@ -274,7 +274,11 @@ impl CUIOutputFormatter {
             0
         };
         
-        let filled = (current as f64 / total as f64 * config.width as f64) as usize;
+        let filled = if total > 0 {
+            (current as f64 / total as f64 * config.width as f64) as usize
+        } else {
+            0
+        };
         let empty = config.width.saturating_sub(filled);
         
         let mut output = String::new();
@@ -298,8 +302,10 @@ impl CUIOutputFormatter {
         // This is a simplified implementation
         
         print!("\r{}", output);
-        io::stdout().flush()
-            .context("Failed to flush progress output")?;
+        if let Err(e) = io::stdout().flush() {
+            // Log the error but don't fail the entire operation
+            eprintln!("Warning: Failed to flush progress output: {}", e);
+        }
         
         Ok(())
     }
@@ -324,28 +330,22 @@ impl CUIOutputFormatter {
                 output.push(' ');
             }
             
-            // Truncate cell if too long
-            let cell_content = if cell.len() > width {
-                format!("{}…", &cell[..width.saturating_sub(1)])
+            // Ensure width is at least 1 to prevent panic
+            let safe_width = width.max(1);
+            
+            // Truncate cell if too long, handling Unicode properly
+            let cell_content = if cell.chars().count() > safe_width {
+                let truncated: String = cell.chars().take(safe_width.saturating_sub(1)).collect();
+                format!("{}…", truncated)
             } else {
-                format!("{:<width$}", cell, width = width)
+                format!("{:<width$}", cell, width = safe_width)
             };
             
-            if self.colors_enabled {
-                if is_header_or_alternate {
-                    // Bold for headers, dim for alternate rows
-                    if is_header_or_alternate && row == row { // Header detection (simplified)
-                        output.push_str("\x1b[1m");
-                        output.push_str(&cell_content);
-                        output.push_str("\x1b[0m");
-                    } else {
-                        output.push_str("\x1b[2m");
-                        output.push_str(&cell_content);
-                        output.push_str("\x1b[0m");
-                    }
-                } else {
-                    output.push_str(&cell_content);
-                }
+            if self.colors_enabled && is_header_or_alternate {
+                // Apply styling for headers or alternate rows
+                output.push_str("\x1b[1m");
+                output.push_str(&cell_content);
+                output.push_str("\x1b[0m");
             } else {
                 output.push_str(&cell_content);
             }

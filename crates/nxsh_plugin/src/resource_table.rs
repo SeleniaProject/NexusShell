@@ -673,6 +673,7 @@ mod tests {
     
     #[derive(Debug)]
     struct TestResource {
+        #[allow(dead_code)]
         data: String,
     }
     

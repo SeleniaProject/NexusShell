@@ -252,7 +252,7 @@ fn collect_system_info() -> Result<SystemInfo> {
         use sysinfo::{System, SystemExt};
         let mut sys = System::new();
         sys.refresh_system();
-    return Ok(SystemInfo {
+    Ok(SystemInfo {
             os: sys.name().unwrap_or_else(|| "Unknown".to_string()),
             arch: std::env::consts::ARCH.to_string(),
             hostname: hostname::get()
@@ -263,7 +263,7 @@ fn collect_system_info() -> Result<SystemInfo> {
                 let load = sys.load_average();
                 Some([load.one, load.five, load.fifteen])
             },
-        });
+        })
     }
     #[cfg(not(feature = "system-info"))]
     {
@@ -290,7 +290,7 @@ fn collect_process_info() -> Result<ProcessInfo> {
         let (memory_usage, cpu_usage, process_uptime) = if let Some(process) = current_process {
             (process.memory() * 1024, process.cpu_usage() as f64, process.run_time())
         } else { (0, 0.0, 0) };
-    return Ok(ProcessInfo {
+    Ok(ProcessInfo {
             pid,
             ppid: current_process.and_then(|p| p.parent().map(|pid| pid.as_u32())),
             command_line: std::env::args().collect(),
@@ -300,7 +300,7 @@ fn collect_process_info() -> Result<ProcessInfo> {
             process_uptime,
             memory_usage,
             cpu_usage,
-        });
+        })
     }
     #[cfg(not(feature = "system-info"))]
     {
@@ -325,13 +325,13 @@ fn collect_memory_info() -> Result<MemoryInfo> {
         use sysinfo::{System, SystemExt};
         let mut sys = System::new();
         sys.refresh_memory();
-        return Ok(MemoryInfo {
+        Ok(MemoryInfo {
             total_memory: sys.total_memory() * 1024,
             available_memory: sys.available_memory() * 1024,
             used_memory: sys.used_memory() * 1024,
             swap_total: sys.total_swap() * 1024,
             swap_used: sys.used_swap() * 1024,
-        });
+        })
     }
     #[cfg(not(feature = "system-info"))]
     {

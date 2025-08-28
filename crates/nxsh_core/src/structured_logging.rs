@@ -105,7 +105,7 @@ impl StructuredLogger {
     fn is_file_logging_disabled() -> bool {
         #[cfg(feature = "busybox_min")]
         {
-            return true;
+            true
         }
         #[cfg(not(feature = "busybox_min"))]
         {
@@ -535,7 +535,7 @@ mod tests {
     fn test_command_execution_log() {
         let mut log = CommandExecutionLog::start(
             "ls",
-            &vec!["-la".to_string()],
+            &["-la".to_string()],
             &PathBuf::from("/home/user")
         );
         

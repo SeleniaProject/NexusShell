@@ -1,4 +1,4 @@
-use nxsh_builtins::export_cli;
+use nxsh_builtins::export_builtin::export_cli;
 use nxsh_core::context::ShellContext;
 
 #[test]

@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
-use nxsh_core::io_optimization::IoManager;
+use nxsh_core::io_optimization::{IoManager, AsyncIoManager};
 use std::{fs, path::PathBuf};
 use tempfile::tempdir;
 
@@ -92,7 +92,7 @@ fn bench_multiple_file_operations(c: &mut Criterion) {
     // Create multiple files for testing
     let file_count = 10;
     let file_paths: Vec<PathBuf> = (0..file_count)
-        .map(|i| dir.path().join(format!("test_{}.txt", i)))
+        .map(|i| dir.path().join(format!("test_{i}.txt")))
         .collect();
     
     // Benchmark sequential file operations
@@ -151,7 +151,7 @@ fn bench_line_reading(c: &mut Criterion) {
     // Create file with many lines
     let line_count = 1000;
     let content: String = (0..line_count)
-        .map(|i| format!("This is line number {}\n", i))
+        .map(|i| format!("This is line number {i}\n"))
         .collect();
     
     fs::write(&file_path, &content).unwrap();
@@ -218,14 +218,15 @@ fn bench_buffer_sizes(c: &mut Criterion) {
 }
 
 #[cfg(feature = "async")]
+#[allow(dead_code)]
 fn bench_async_operations(c: &mut Criterion) {
-    let rt = tokio::runtime::Runtime::new().unwrap();
+    let _rt = tokio::runtime::Runtime::new().unwrap();
     let dir = tempdir().unwrap();
     let content = "test content for async operations";
     
     let file_count = 20;
     let file_paths: Vec<PathBuf> = (0..file_count)
-        .map(|i| dir.path().join(format!("async_test_{}.txt", i)))
+        .map(|i| dir.path().join(format!("async_test_{i}.txt")))
         .collect();
     
     let mut group = c.benchmark_group("async_operations");
@@ -234,16 +235,20 @@ fn bench_async_operations(c: &mut Criterion) {
     let async_io = AsyncIoManager::new(8192, 5); // 5 concurrent operations
     
     group.bench_function("async_concurrent_write", |b| {
-        b.to_async(&rt).iter(|| async {
-            let data: Vec<_> = file_paths.iter()
-                .map(|path| (path.as_path(), content))
-                .collect();
-            async_io.write_multiple_files(data).await.unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        b.iter(|| {
+            rt.block_on(async {
+                let data: Vec<_> = file_paths.iter()
+                    .map(|path| (path.as_path(), content))
+                    .collect();
+                async_io.write_multiple_files(data).await.unwrap();
+            });
         });
     });
     
     group.bench_function("async_concurrent_read", |b| {
-        // Pre-write files
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        // Pre-write files using runtime
         rt.block_on(async {
             let data: Vec<_> = file_paths.iter()
                 .map(|path| (path.as_path(), content))
@@ -251,9 +256,11 @@ fn bench_async_operations(c: &mut Criterion) {
             async_io.write_multiple_files(data).await.unwrap();
         });
         
-        b.to_async(&rt).iter(|| async {
-            let paths: Vec<_> = file_paths.iter().map(|p| p.as_path()).collect();
-            let _results = async_io.read_multiple_files(paths).await.unwrap();
+        b.iter(|| {
+            rt.block_on(async {
+                let paths: Vec<_> = file_paths.iter().map(|p| p.as_path()).collect();
+                let _results = async_io.read_multiple_files(paths).await.unwrap();
+            });
         });
     });
     

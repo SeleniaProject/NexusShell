@@ -62,7 +62,7 @@ async fn fsck_apply_sync_fat_mirrors_commits_on_shadow() {
 
     // Format as FAT32
     mkfs_cli(&vec!["-t".into(), "fat32".into(), img_path.to_string_lossy().to_string()])
-        .await
+        
         .expect("mkfs should succeed");
 
     // Corrupt the second FAT mirror to ensure mismatch
@@ -112,7 +112,7 @@ async fn fsck_apply_sync_fat_mirrors_commits_on_shadow() {
         img_path.to_string_lossy().to_string(),
         "--commit".into(),
     ])
-    .await
+    
     .expect("apply-journal --commit should succeed");
 
     // After commit, FAT0 and FAT1 hashes should match
@@ -124,7 +124,7 @@ async fn fsck_apply_sync_fat_mirrors_commits_on_shadow() {
 #[tokio::test]
 async fn fsck_apply_commit_not_supported_on_non_unix() {
     // On non-Unix platforms, commit is not supported and should error
-    let res = fsck_cli(&vec!["apply-journal".into(), "dummy.json".into(), "--commit".into()]).await;
+    let res =     fsck_cli(&["apply-journal".into(), "dummy.json".into(), "--commit".into()]);
     assert!(res.is_err());
 }
 

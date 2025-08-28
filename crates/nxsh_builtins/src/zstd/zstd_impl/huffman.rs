@@ -181,7 +181,7 @@ pub fn build_fse_compressed_weights_header(table: &HuffmanTable) -> Option<Vec<u
             // Output state bits (if any)
             if nb_bits > 0 {
                 let bits_to_write = state & ((1u32 << nb_bits) - 1);
-                if let Err(_) = bw.write_bits(bits_to_write as u64, nb_bits) {
+                if bw.write_bits(bits_to_write as u64, nb_bits).is_err() {
                     return None;
                 }
             }
@@ -191,15 +191,15 @@ pub fn build_fse_compressed_weights_header(table: &HuffmanTable) -> Option<Vec<u
         }
         
         // Write final state
-        if let Err(_) = bw.write_bits(state as u64, table_log) {
+        if bw.write_bits(state as u64, table_log).is_err() {
             return None;
         }
         
         // Add end marker and align to byte
-        if let Err(_) = bw.write_bits(1, 1) {
+        if bw.write_bits(1, 1).is_err() {
             return None;
         }
-        if let Err(_) = bw.align_to_byte() {
+        if bw.align_to_byte().is_err() {
             return None;
         }
     }
@@ -216,7 +216,7 @@ pub fn build_fse_compressed_weights_header(table: &HuffmanTable) -> Option<Vec<u
     
     // Build header: headerByte < 128 indicates FSE compression
     // Format: bit 0-5 = accuracy log, bit 6 = reserved (0), bit 7 = compression type (0 for FSE)
-    let header_byte = table_log as u8; // This is < 128 to indicate FSE compression
+    let header_byte = table_log; // This is < 128 to indicate FSE compression
     
     let mut result = Vec::with_capacity(total_size);
     result.push(header_byte);
@@ -251,6 +251,7 @@ pub fn encode_four_stream_huffman(lits: &[u8], table: &HuffmanTable) -> Option<F
     let remainder = lits.len() % 4;
     
     let mut chunk_sizes = [chunk_size; 4];
+    #[allow(clippy::needless_range_loop)]
     for i in 0..remainder {
         chunk_sizes[i] += 1;
     }
@@ -307,7 +308,7 @@ fn encode_single_stream_huffman(lits: &[u8], table: &HuffmanTable) -> Option<Vec
             if let Some((code, bits)) = table.codes[lit as usize] {
                 // Reverse bits for LSB-first encoding
                 let reversed_code = reverse_bits(code, bits);
-                if let Err(_) = bw.write_bits(reversed_code as u64, bits) {
+                if bw.write_bits(reversed_code as u64, bits).is_err() {
                     return None;
                 }
             } else {
@@ -316,7 +317,7 @@ fn encode_single_stream_huffman(lits: &[u8], table: &HuffmanTable) -> Option<Vec
         }
         
         // Align to byte boundary
-        if let Err(_) = bw.align_to_byte() {
+        if bw.align_to_byte().is_err() {
             return None;
         }
     }
@@ -515,7 +516,7 @@ mod tests {
         
         // Verify jump table constraints
         for (i, &size) in four_stream.jump_table.iter().enumerate() {
-            assert!(size > 0, "Jump table entry {} should be positive", i);
+            assert!(size > 0, "Jump table entry {i} should be positive");
         }
     }
 

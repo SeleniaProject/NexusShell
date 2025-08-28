@@ -8,14 +8,14 @@ fn test_nxsh_tty_nocolor() {
     
     let supports_color = std::env::var("NXSH_TTY_NOCOLOR").is_err() && 
                          (std::env::var("NO_COLOR").is_err() || std::env::var("NO_COLOR").unwrap_or_default().is_empty());
-    println!("Without NXSH_TTY_NOCOLOR: supports_color = {}", supports_color);
+    println!("Without NXSH_TTY_NOCOLOR: supports_color = {supports_color}");
     
     // Test 2: NXSH_TTY_NOCOLOR set
     env::set_var("NXSH_TTY_NOCOLOR", "1");
     
     let supports_color = std::env::var("NXSH_TTY_NOCOLOR").is_err() && 
                          (std::env::var("NO_COLOR").is_err() || std::env::var("NO_COLOR").unwrap_or_default().is_empty());
-    println!("With NXSH_TTY_NOCOLOR=1: supports_color = {}", supports_color);
+    println!("With NXSH_TTY_NOCOLOR=1: supports_color = {supports_color}");
     
     // Clean up
     env::remove_var("NXSH_TTY_NOCOLOR");
@@ -25,7 +25,7 @@ fn test_nxsh_tty_nocolor() {
     
     let supports_color = std::env::var("NXSH_TTY_NOCOLOR").is_err() && 
                          (std::env::var("NO_COLOR").is_err() || std::env::var("NO_COLOR").unwrap_or_default().is_empty());
-    println!("With NO_COLOR=1: supports_color = {}", supports_color);
+    println!("With NO_COLOR=1: supports_color = {supports_color}");
     
     // Clean up
     env::remove_var("NO_COLOR");

@@ -24,6 +24,13 @@ pub fn eval_cli(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    match eval_cli(args) {
+        Ok(()) => Ok(0),
+        Err(e) => Err(crate::common::BuiltinError::Other(e.to_string())),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

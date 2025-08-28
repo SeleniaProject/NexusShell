@@ -62,9 +62,9 @@ fn test_mir_basic_arithmetic_performance() {
     // Performance should be very fast.
     // Allow a bit of slack on Windows/CI/debug builds where timers and scheduling jitter.
     let micros = duration.as_micros();
-    assert!(micros < 2_000, "MIR execution took too long: {:?}", duration);
+    assert!(micros < 2_000, "MIR execution took too long: {duration:?}");
     
-    println!("✅ MIR arithmetic performance: {:?}", duration);
+    println!("✅ MIR arithmetic performance: {duration:?}");
 }
 
 #[test]
@@ -103,14 +103,14 @@ fn test_mir_builtin_functions_performance() {
     // All operations should be very fast
     // Allow a bit more headroom in debug/Windows environments
     // Allow looser threshold in CI/Windows/debug environments
-    assert!(echo_duration.as_micros() < 1000, "Echo took too long: {:?}", echo_duration);
-    assert!(pwd_duration.as_micros() < 1000, "Pwd took too long: {:?}", pwd_duration);
-    assert!(wc_duration.as_micros() < 500, "Wc took too long: {:?}", wc_duration);
+    assert!(echo_duration.as_micros() < 1000, "Echo took too long: {echo_duration:?}");
+    assert!(pwd_duration.as_micros() < 1000, "Pwd took too long: {pwd_duration:?}");
+    assert!(wc_duration.as_micros() < 500, "Wc took too long: {wc_duration:?}");
     
     println!("✅ MIR builtin functions performance:");
-    println!("  - echo: {:?}", echo_duration);
-    println!("  - pwd: {:?}", pwd_duration);
-    println!("  - wc: {:?}", wc_duration);
+    println!("  - echo: {echo_duration:?}");
+    println!("  - pwd: {pwd_duration:?}");
+    println!("  - wc: {wc_duration:?}");
 }
 
 #[test]
@@ -147,12 +147,12 @@ fn test_mir_string_operations_performance() {
     }
     
     // Performance validation
-    assert!(grep_duration.as_micros() < 1000, "Grep took too long: {:?}", grep_duration);
-    assert!(sort_duration.as_micros() < 1000, "Sort took too long: {:?}", sort_duration);
+    assert!(grep_duration.as_micros() < 1000, "Grep took too long: {grep_duration:?}");
+    assert!(sort_duration.as_micros() < 1000, "Sort took too long: {sort_duration:?}");
     
     println!("✅ MIR string operations performance:");
-    println!("  - grep: {:?}", grep_duration);
-    println!("  - sort: {:?}", sort_duration);
+    println!("  - grep: {grep_duration:?}");
+    println!("  - sort: {sort_duration:?}");
 }
 
 #[test]
@@ -191,9 +191,9 @@ fn test_mir_complex_pipeline_performance() {
     let pipeline_duration = start.elapsed();
     
     // Complex pipeline should still be fast
-    assert!(pipeline_duration.as_millis() < 10, "Complex pipeline took too long: {:?}", pipeline_duration);
+    assert!(pipeline_duration.as_millis() < 10, "Complex pipeline took too long: {pipeline_duration:?}");
     
-    println!("✅ MIR complex pipeline performance: {:?}", pipeline_duration);
+    println!("✅ MIR complex pipeline performance: {pipeline_duration:?}");
 }
 
 #[test]
@@ -213,9 +213,9 @@ fn test_mir_function_call_overhead() {
     let avg_per_call = total_duration.as_nanos() / 1000;
     
     // Each function call should be very fast (sub-microsecond ideal)
-    assert!(avg_per_call < 10000, "Function call overhead too high: {} ns per call", avg_per_call);
+    assert!(avg_per_call < 10000, "Function call overhead too high: {avg_per_call} ns per call");
     
-    println!("✅ MIR function call overhead: {} ns per call", avg_per_call);
+    println!("✅ MIR function call overhead: {avg_per_call} ns per call");
 }
 
 #[test]
@@ -234,9 +234,9 @@ fn test_mir_memory_efficiency() {
     assert!(result.is_ok());
     
     // Should handle large content efficiently
-    assert!(wc_large_duration.as_millis() < 50, "Large content processing too slow: {:?}", wc_large_duration);
+    assert!(wc_large_duration.as_millis() < 50, "Large content processing too slow: {wc_large_duration:?}");
     
-    println!("✅ MIR memory efficiency with large data: {:?}", wc_large_duration);
+    println!("✅ MIR memory efficiency with large data: {wc_large_duration:?}");
 }
 
 #[test]
@@ -256,7 +256,7 @@ fn test_mir_statistics_tracking() {
     // Otherwise, if instructions are tracked, they should be at least the number of function calls.
     let instr = stats.instructions_executed;
     assert!(
-        instr == 0 || (instr as u64) >= stats.function_calls,
+        instr == 0 || instr >= stats.function_calls,
         "Instructions should be 0 for builtin-only paths or >= function_calls (instr={}, calls={})",
         instr,
         stats.function_calls

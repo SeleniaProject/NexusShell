@@ -60,7 +60,7 @@ mod unix_fsck {
 #[test]
 fn fsck_skip_on_non_unix() {
     // No-op test to keep suite green on non-Unix platforms
-    assert!(true);
+    // Test passes by default
 }
 
 

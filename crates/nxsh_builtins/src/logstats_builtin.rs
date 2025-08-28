@@ -11,7 +11,8 @@ pub fn set_logging_system<T>(_logging: T) {}
 
 pub fn logstats_cli(args: &[String]) -> Result<()> {
     let mut mode = OutputMode::Plain;
-    for a in args.iter().skip(1) { // args[0] はコマンド名想宁E        match a.as_str() {
+    for a in args.iter().skip(1) { // args[0] is the command name
+        match a.as_str() {
             "--json" => mode = OutputMode::JsonCompact,
             "--pretty" => mode = OutputMode::JsonPretty,
             "--prom" | "--prometheus" => {
@@ -59,5 +60,40 @@ fn print_help() {
             --prom, --prometheus  Output minimal Prometheus metrics (availability only)\n\
            -h, --help  Show this help and exit"
     );
+}
+
+// Adapter function for the builtin command interface
+pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+    logstats_cli(args).map_err(|e| crate::common::BuiltinError::Other(e.to_string()))?;
+    Ok(0)
+}
+
+/// Render logstats in the specified mode for testing
+pub fn render_logstats_for_mode(mode: &str, map: &std::collections::BTreeMap<String, i32>) -> String {
+    match mode {
+        "json" => {
+            let mut json_pairs = Vec::new();
+            for (key, value) in map {
+                json_pairs.push(format!("\"{key}\":{value}"));
+            }
+            format!("{{{}}}", json_pairs.join(","))
+        }
+        "prom" => {
+            let mut lines = Vec::new();
+            for (key, value) in map {
+                let metric_name = format!("nxsh_log_{key}");
+                lines.push(format!("# TYPE {metric_name} gauge"));
+                lines.push(format!("{metric_name} {value}"));
+            }
+            lines.join("\n")
+        }
+        _ => {
+            let mut lines = Vec::new();
+            for (key, value) in map {
+                lines.push(format!("{key}: {value}"));
+            }
+            lines.join("\n")
+        }
+    }
 }
 
