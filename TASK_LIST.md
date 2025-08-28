@@ -43,7 +43,7 @@
       - [x] リテラル: 4 ストリーム + Jump_Table（FSE 圧縮 weights 含む）
       - [x] シーケンス: Predefined_Mode（LL/ML/OF）
       - [x] シーケンス: FSE_Compressed_Mode（Repeat/RLE 含む）
-    - [ ] 辞書訓練（自動学習機能）
+    - [x] 辞書訓練（自動学習機能）
   - [x] RAW ブロックのみのストアモード・フォールバック解消
   - [x] CLI 互換オプションの網羅実装（互換エイリアス含む）
 
