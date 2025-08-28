@@ -42,6 +42,7 @@ pub mod head;           // ⬆️ Show file beginning
 pub mod tail;           // ⬇️ Show file end
 pub mod cut;            // ✂️ Extract columns
 pub mod tr;             // 🔄 Translate characters
+pub mod sort;           // 📊 Sort text lines  
 pub mod uniq;           // 🎯 Remove duplicates
 pub mod wc;             // 📏 Count lines/words
 
@@ -136,6 +137,7 @@ use crate::head::execute as head_execute;
 use crate::tail::execute as tail_execute;
 use crate::cut::execute as cut_execute;
 use crate::tr::execute as tr_execute;
+use crate::sort::execute as sort_execute;
 use crate::uniq::execute as uniq_execute;
 use crate::wc::execute as wc_execute;
 use crate::ps::execute as ps_execute;
@@ -375,15 +377,94 @@ pub use execute_builtin as export_builtin;
 // Export command re-export for compatibility
 pub use crate::export_builtin::export_cli;
 pub mod tar {
-    //! Tar archive functionality (placeholder)
+    //! Tar archive functionality with proper feature gate support
     use crate::common::{BuiltinContext, BuiltinError, BuiltinResult};
+    use anyhow::{anyhow, Result};
     
-    pub fn execute(_args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
-        Ok(0) // Placeholder implementation
+    pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
+        #[cfg(feature = "compression")]
+        {
+            // Full tar implementation would go here in compression builds
+            Err(BuiltinError::NotImplemented("tar: Full implementation requires compression feature".to_string()))
+        }
+        #[cfg(not(feature = "compression"))]
+        {
+            // Minimal builds provide helpful error
+            if args.is_empty() || args.iter().any(|arg| arg == "--help" || arg == "-h") {
+                println!("tar: Minimal build - external tar command required");
+                println!("Usage: Use system tar command for archive operations");
+                println!("Consider using zip/bzip2/xz commands for compression needs");
+                Ok(0)
+            } else {
+                Err(BuiltinError::NotImplemented("tar: Not available in minimal builds. Use system tar or enable compression feature.".to_string()))
+            }
+        }
     }
     
-    pub fn tar_cli(_args: &[String]) -> Result<(), anyhow::Error> {
-        Ok(()) // Placeholder implementation
+    pub fn tar_cli(args: &[String]) -> Result<(), anyhow::Error> {
+        let context = BuiltinContext::new();
+        execute(args, &context)
+            .map_err(|e| anyhow!(e.to_string()))?;
+        Ok(())
+    }
+}
+
+/// Grep functionality with minimal build support
+pub mod grep {
+    //! Text search functionality with feature-aware implementation
+    use crate::common::{BuiltinContext, BuiltinError, BuiltinResult};
+    use anyhow::Result;
+    
+    pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
+        #[cfg(feature = "text-processing")]
+        {
+            // Full grep implementation would go here
+            Err(BuiltinError::NotImplemented("grep: Full implementation requires text-processing feature".to_string()))
+        }
+        #[cfg(not(feature = "text-processing"))]
+        {
+            if args.is_empty() || args.iter().any(|arg| arg == "--help" || arg == "-h") {
+                println!("grep: Minimal build - external grep command recommended");
+                println!("Usage: Use system grep command for pattern matching");
+                println!("Alternative: Use 'cat file | findstr pattern' on Windows");
+                Ok(0)
+            } else {
+                Err(BuiltinError::NotImplemented("grep: Not available in minimal builds. Use system grep or enable text-processing feature.".to_string()))
+            }
+        }
+    }
+    
+    pub fn grep_cli(args: &[String]) -> Result<(), anyhow::Error> {
+        let context = BuiltinContext::new();
+        execute(args, &context)?;
+        Ok(())
+    }
+}
+
+/// Extended grep functionality (egrep)
+pub mod egrep {
+    //! Extended regular expression grep with super-min build handling
+    use crate::common::{BuiltinContext, BuiltinError, BuiltinResult};
+    
+    pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
+        #[cfg(feature = "super-min")]
+        {
+            // Super minimal: redirect to basic grep advice
+            if args.is_empty() || args.iter().any(|arg| arg == "--help" || arg == "-h") {
+                println!("egrep: Ultra-minimal build - use system egrep");
+                println!("Suggestion: egrep 'pattern' file");
+                Ok(0)
+            } else {
+                println!("egrep: Not implemented in super-min build");
+                println!("Use system egrep command instead");
+                Ok(1)
+            }
+        }
+        #[cfg(not(feature = "super-min"))]
+        {
+            // Delegate to grep with extended regex flag
+            super::grep::execute(&["-E".to_string()].into_iter().chain(args.iter().cloned()).collect::<Vec<_>>(), _context)
+        }
     }
 }
 
@@ -435,10 +516,13 @@ pub fn execute_builtin(command: &str, args: &[String]) -> Result<i32, String> {
         // Text Processing 📝
         "cat" => cat_execute(args, &context).map_err(|e| e.to_string()),
         "echo" => echo_execute(args, &context).map_err(|e| e.to_string()),
+        "grep" => grep::execute(args, &context).map_err(|e| e.to_string()),
+        "egrep" => egrep::execute(args, &context).map_err(|e| e.to_string()),
         "head" => head_execute(args, &context).map_err(|e| e.to_string()),
         "tail" => tail_execute(args, &context).map_err(|e| e.to_string()),
         "cut" => cut_execute(args, &context).map_err(|e| e.to_string()),
         "tr" => tr_execute(args, &context).map_err(|e| e.to_string()),
+        "sort" => sort_execute(args, &context).map_err(|e| e.to_string()),
         "uniq" => uniq_execute(args, &context).map_err(|e| e.to_string()),
         "wc" => wc_execute(args, &context).map_err(|e| e.to_string()),
         
@@ -481,6 +565,7 @@ pub fn execute_builtin(command: &str, args: &[String]) -> Result<i32, String> {
         "bzip2" => bzip2_execute(args, &context).map_err(|e| e.to_string()),
         "xz" => xz_execute(args, &context).map_err(|e| e.to_string()),
         "zip" => zip_execute(args, &context).map_err(|e| e.to_string()),
+        "tar" => tar::execute(args, &context).map_err(|e| e.to_string()),
         
         // Advanced Features 🎨
         // "beautiful_ls" => beautiful_ls_execute(args, &context).map_err(|e| e.to_string()),

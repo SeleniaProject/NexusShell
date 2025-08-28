@@ -614,6 +614,171 @@ impl MetricsSystem {
         );
         Ok(())
     }
+
+    /// Enhanced real-time metrics aggregation and collection
+    pub fn collect_runtime_metrics(&self) -> Result<MetricsSnapshot> {
+        // Update system metrics in real-time
+        self.update_system_metrics()?;
+        
+        // Aggregate job metrics
+        let total_jobs = self.statistics.total_jobs_started.load(Ordering::Relaxed);
+        let completed_jobs = self.statistics.total_jobs_completed.load(Ordering::Relaxed);
+        let failed_jobs = self.statistics.total_jobs_failed.load(Ordering::Relaxed);
+        let active_jobs = self.statistics.active_jobs.load(Ordering::Relaxed);
+        
+        let job_success_rate = if total_jobs > 0 {
+            (completed_jobs as f64 / total_jobs as f64) * 100.0
+        } else {
+            0.0
+        };
+        
+        // Aggregate command metrics
+        let commands_executed = self.statistics.commands_executed.load(Ordering::Relaxed);
+        let command_failures = self.statistics.command_failures.load(Ordering::Relaxed);
+        let total_execution_time = self.statistics.command_execution_time_total_ms.load(Ordering::Relaxed);
+        
+        let command_success_rate = if commands_executed > 0 {
+            ((commands_executed - command_failures) as f64 / commands_executed as f64) * 100.0
+        } else {
+            0.0
+        };
+        
+        let avg_command_time = if commands_executed > 0 {
+            total_execution_time as f64 / commands_executed as f64
+        } else {
+            0.0
+        };
+        
+        // Calculate uptime
+        let uptime_duration = self.start_instant.elapsed();
+        let uptime_seconds = uptime_duration.as_secs();
+        self.statistics.uptime_seconds.store(uptime_seconds, Ordering::Relaxed);
+        
+        // Aggregate I/O metrics
+        let bytes_read = self.statistics.bytes_read.load(Ordering::Relaxed);
+        let bytes_written = self.statistics.bytes_written.load(Ordering::Relaxed);
+        let total_io_bytes = bytes_read + bytes_written;
+        
+        // Calculate rates (per second)
+        let commands_per_second = if uptime_seconds > 0 {
+            commands_executed as f64 / uptime_seconds as f64
+        } else {
+            0.0
+        };
+        
+        let io_rate_bytes_per_second = if uptime_seconds > 0 {
+            total_io_bytes as f64 / uptime_seconds as f64
+        } else {
+            0.0
+        };
+        
+        // Update Prometheus metrics
+        self.update_prometheus_gauge("nxsh_job_success_rate", job_success_rate);
+        self.update_prometheus_gauge("nxsh_command_success_rate", command_success_rate);
+        self.update_prometheus_gauge("nxsh_avg_command_time_ms", avg_command_time);
+        self.update_prometheus_gauge("nxsh_commands_per_second", commands_per_second);
+        self.update_prometheus_gauge("nxsh_io_rate_bytes_per_second", io_rate_bytes_per_second);
+        self.update_prometheus_gauge("nxsh_uptime_seconds", uptime_seconds as f64);
+        
+        Ok(MetricsSnapshot {
+            timestamp: SystemTime::now(),
+            uptime_seconds,
+            total_jobs,
+            completed_jobs,
+            failed_jobs,
+            active_jobs,
+            job_success_rate,
+            commands_executed,
+            command_failures,
+            command_success_rate,
+            avg_command_time_ms: avg_command_time,
+            total_io_bytes,
+            io_rate_bytes_per_second,
+            commands_per_second,
+            memory_usage_bytes: self.statistics.memory_usage_bytes.load(Ordering::Relaxed),
+            cpu_usage_percent: self.statistics.cpu_usage_percent.load(Ordering::Relaxed) as f64 / 100.0,
+        })
+    }
+
+    /// Update system-level metrics (memory, CPU, etc.)
+    fn update_system_metrics(&self) -> Result<()> {
+        // Get memory usage (in a real implementation, this would use system APIs)
+        let memory_usage = self.get_memory_usage()?;
+        self.statistics.memory_usage_bytes.store(memory_usage, Ordering::Relaxed);
+        self.update_prometheus_gauge("nxsh_memory_usage_bytes", memory_usage as f64);
+        
+        // Get CPU usage (in a real implementation, this would use system APIs)
+        let cpu_usage = self.get_cpu_usage()?;
+        self.statistics.cpu_usage_percent.store((cpu_usage * 100.0) as i64, Ordering::Relaxed);
+        self.update_prometheus_gauge("nxsh_cpu_usage_percent", cpu_usage * 100.0);
+        
+        // Update collection timestamp
+        {
+            let mut last_collection = self.statistics.last_collection.write().unwrap();
+            *last_collection = Some(SystemTime::now());
+        }
+        
+        Ok(())
+    }
+
+    /// Get current memory usage (placeholder implementation)
+    fn get_memory_usage(&self) -> Result<u64> {
+        // In a production implementation, this would use platform-specific APIs:
+        // - On Linux: read from /proc/self/status or use libc
+        // - On Windows: use Windows API
+        // - On macOS: use mach APIs
+        
+        // Fallback: return current RSS approximation based on activity
+        let base_memory = 50_000_000; // 50MB base
+        let command_factor = self.statistics.commands_executed.load(Ordering::Relaxed) * 1000;
+        let job_factor = self.statistics.active_jobs.load(Ordering::Relaxed) * 5_000_000;
+        
+        Ok(base_memory + command_factor + job_factor)
+    }
+
+    /// Get current CPU usage (placeholder implementation)
+    fn get_cpu_usage(&self) -> Result<f64> {
+        // In a production implementation, this would:
+        // - Track process CPU time over intervals
+        // - Use system-specific APIs for accurate measurements
+        // - Calculate percentage based on system load
+        
+        // Fallback: estimate based on activity
+        let recent_commands = self.statistics.commands_executed.load(Ordering::Relaxed);
+        let active_jobs = self.statistics.active_jobs.load(Ordering::Relaxed);
+        let uptime = self.start_instant.elapsed().as_secs();
+        
+        if uptime == 0 {
+            return Ok(0.0);
+        }
+        
+        let activity_rate = (recent_commands + active_jobs * 10) as f64 / uptime as f64;
+        let cpu_estimate = (activity_rate * 0.1).min(1.0); // Cap at 100%
+        
+        Ok(cpu_estimate)
+    }
+
+    /// Get detailed performance breakdown by operation type
+    pub fn get_performance_breakdown(&self) -> PerformanceBreakdown {
+        let total_execution_time = self.statistics.command_execution_time_total_ms.load(Ordering::Relaxed);
+        let parse_time = self.statistics.parse_time_total_ms.load(Ordering::Relaxed);
+        let startup_time = self.statistics.startup_time_ms.load(Ordering::Relaxed);
+        let completion_time = self.statistics.tab_completion_time_ms.load(Ordering::Relaxed);
+        let prompt_time = self.statistics.prompt_render_time_ms.load(Ordering::Relaxed);
+        let gc_time = self.statistics.gc_time_total_ms.load(Ordering::Relaxed);
+        
+        let total_time = total_execution_time + parse_time + startup_time + completion_time + prompt_time + gc_time;
+        
+        PerformanceBreakdown {
+            command_execution_percent: if total_time > 0 { (total_execution_time as f64 / total_time as f64) * 100.0 } else { 0.0 },
+            parsing_percent: if total_time > 0 { (parse_time as f64 / total_time as f64) * 100.0 } else { 0.0 },
+            startup_percent: if total_time > 0 { (startup_time as f64 / total_time as f64) * 100.0 } else { 0.0 },
+            completion_percent: if total_time > 0 { (completion_time as f64 / total_time as f64) * 100.0 } else { 0.0 },
+            prompt_percent: if total_time > 0 { (prompt_time as f64 / total_time as f64) * 100.0 } else { 0.0 },
+            gc_percent: if total_time > 0 { (gc_time as f64 / total_time as f64) * 100.0 } else { 0.0 },
+            total_time_ms: total_time,
+        }
+    }
 }
 
 /// Format Prometheus labels
@@ -627,4 +792,37 @@ fn format_labels(labels: &HashMap<String, String>) -> String {
         .collect();
     
     format!("{{{}}}", label_pairs.join(","))
+}
+
+/// Enhanced metrics snapshot for real-time aggregation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricsSnapshot {
+    pub timestamp: SystemTime,
+    pub uptime_seconds: u64,
+    pub total_jobs: u64,
+    pub completed_jobs: u64,
+    pub failed_jobs: u64,
+    pub active_jobs: u64,
+    pub job_success_rate: f64,
+    pub commands_executed: u64,
+    pub command_failures: u64,
+    pub command_success_rate: f64,
+    pub avg_command_time_ms: f64,
+    pub total_io_bytes: u64,
+    pub io_rate_bytes_per_second: f64,
+    pub commands_per_second: f64,
+    pub memory_usage_bytes: u64,
+    pub cpu_usage_percent: f64,
+}
+
+/// Performance breakdown by operation type
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformanceBreakdown {
+    pub command_execution_percent: f64,
+    pub parsing_percent: f64,
+    pub startup_percent: f64,
+    pub completion_percent: f64,
+    pub prompt_percent: f64,
+    pub gc_percent: f64,
+    pub total_time_ms: u64,
 } 

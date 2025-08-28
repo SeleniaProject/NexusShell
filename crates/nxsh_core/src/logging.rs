@@ -507,6 +507,90 @@ impl LoggingSystem {
         Ok(())
     }
 
+    /// Enhanced initialization with MultiOutputWriter for flexible subscriber composition
+    #[cfg(feature = "logging")]
+    pub async fn initialize_with_multi_output(&mut self) -> Result<()> {
+        // Create log directory if it doesn't exist
+        if self.config.file_output {
+            fs::create_dir_all(&self.config.log_dir)
+                .with_context(|| format!("Failed to create log directory: {:?}", self.config.log_dir))?;
+        }
+
+        // Parse log level
+        let level_filter = match self.config.level.to_lowercase().as_str() {
+            "trace" => LevelFilter::TRACE,
+            "debug" => LevelFilter::DEBUG,
+            "info" => LevelFilter::INFO,
+            "warn" => LevelFilter::WARN,
+            "error" => LevelFilter::ERROR,
+            _ => LevelFilter::INFO,
+        };
+
+        // Create environment filter
+        let env_filter = EnvFilter::from_default_env()
+            .add_directive(level_filter.into());
+
+        // Timer selection
+        #[allow(unused)]
+        let timer = {
+            #[cfg(feature = "heavy-time")] { ChronoUtc::rfc_3339() }
+            #[cfg(all(feature = "logging", not(feature = "heavy-time")))] { crate::logging::minimal_time::SimpleUnixTime }
+        };
+
+        // Build MultiOutputWriter with desired outputs
+        let mut multi_writer = MultiOutputWriter::new()
+            .with_console(self.config.console_output)
+            .with_stats(self.statistics.clone());
+
+        // Add file output if configured
+        if self.config.file_output {
+            let rotation = match self.config.rotation { 
+                LogRotation::Hourly => Rotation::HOURLY, 
+                LogRotation::Daily => Rotation::DAILY, 
+                LogRotation::Never => Rotation::NEVER 
+            };
+            let file_appender = tracing_appender::rolling::RollingFileAppender::new(
+                rotation, &self.config.log_dir, "nxsh.log"
+            );
+            let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+            self._guard = Some(guard);
+            multi_writer = multi_writer.with_file(non_blocking);
+        }
+
+        let writer_factory = move || multi_writer;
+
+        let fmt_layer_boxed = match self.config.format {
+            LogFormat::Json => {
+                #[cfg(feature = "logging-json")]
+                { fmt::layer().json().with_span_list(true).with_timer(timer).with_writer(writer_factory).boxed() }
+                #[cfg(not(feature = "logging-json"))]
+                { fmt::layer().compact().with_timer(timer).with_writer(writer_factory).boxed() }
+            }
+            LogFormat::Pretty => fmt::layer().with_ansi(true).with_span_events(fmt::format::FmtSpan::FULL).with_timer(timer).with_writer(writer_factory).boxed(),
+            LogFormat::Compact => fmt::layer().compact().with_timer(timer).with_writer(writer_factory).boxed(),
+            LogFormat::Full => fmt::layer().with_span_events(fmt::format::FmtSpan::FULL).with_thread_ids(true).with_thread_names(true).with_timer(timer).with_writer(writer_factory).boxed(),
+        };
+
+        let subscriber = Registry::default().with(env_filter).with(fmt_layer_boxed);
+        tracing::subscriber::set_global_default(subscriber).context("Failed to set global tracing subscriber")?;
+
+        // Clean up old log files
+        self.cleanup_old_logs().await?;
+
+        nxsh_log_info!(
+            level = %self.config.level,
+            format = ?self.config.format,
+            rotation = ?self.config.rotation,
+            log_dir = ?self.config.log_dir,
+            "Enhanced multi-output logging system initialized"
+        );
+
+        self.statistics.files_created.fetch_add(1, Ordering::Relaxed);
+        self.update_last_log_time();
+
+        Ok(())
+    }
+
     /// Clean up old log files based on retention policy
     async fn cleanup_old_logs(&self) -> Result<()> {
         if !self.config.file_output || self.config.retention_days == 0 {

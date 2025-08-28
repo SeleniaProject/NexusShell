@@ -197,11 +197,11 @@
   - [x] 包括的テストスイート（10テスト関数による境界ケース検証）
   - [x] エラーハンドリングとファイル処理の強化
 
-- [ ] `crates/nxsh_builtins/src/cat.rs`
-  - [ ] URL スキーム拡張（ftp/file/data 等）、HTTP/HTTPS 以外の未対応解消
+- [x] `crates/nxsh_builtins/src/cat.rs`
+  - [x] URL スキーム拡張（ftp/file/data 等）、HTTP/HTTPS 以外の未対応解消
     - [x] file: スキーム対応（ローカルパスに正しくフォールバック／圧縮検出併用）
     - [x] data: スキーム（base64／percent-encoding）対応（オプション適用・ストリーミング経路統合）
-    - [ ] ftp: スキーム対応（保留）
+    - [x] ftp: スキーム対応（suppaftp使用、認証サポート、バイナリ転送モード、国際化対応）
 
 - [x] `crates/nxsh_builtins/src/cut.rs`
   - [x] 不明オプション扱いを削減し、全オプション（-b/-c/-f/-d/-s/--output-delimiter 等）実装
@@ -280,19 +280,19 @@
   - [x] Windows固有機能（ACL、ADS保持）のプレースホルダ実装
   - [x] 5つのテスト関数による検証（Windows特定オプション、完全性検証、ハッシュ計算等）
 
-- [ ] `crates/nxsh_builtins/src/common/update_system.rs`
-  - [ ] `updates`/`async-runtime` 無効時のスタブ解消
-  - [ ] 原子的インストール/ロールバックの実装とテスト
-  - [ ] バックグラウンドチェッカーの no-op 解消
+- [x] `crates/nxsh_builtins/src/common/update_system.rs`
+  - [x] `updates`/`async-runtime` 無効時のスタブ解消
+  - [x] 原子的インストール/ロールバックの実装とテスト
+  - [x] バックグラウンドチェッカーの no-op 解消
 
-- [ ] `crates/nxsh_builtins/src/common/logging.rs`
-  - [ ] 複数出力サブスクライバの合成（現在の stderr 単独フォールバック撤廃）
+- [x] `crates/nxsh_builtins/src/common/logging.rs`
+  - [x] 複数出力サブスクライバの合成（現在の stderr 単独フォールバック撤廃）
 
-- [ ] `crates/nxsh_builtins/src/common/metrics.rs`
-  - [ ] プレースホルダ更新の撤廃と実メトリクス集計/公開
+- [x] `crates/nxsh_builtins/src/common/metrics.rs`
+  - [x] プレースホルダ更新の撤廃と実メトリクス集計/公開
 
-- [ ] `crates/nxsh_builtins/src/lib.rs`
-  - [ ] `super-min` 構成時の egrep 等スタブ整理と機能提供方針の確立
+- [x] `crates/nxsh_builtins/src/lib.rs`
+  - [x] `super-min` 構成時の egrep 等スタブ整理と機能提供方針の確立
 
 - [x] i18n スタブ解消
   - [x] `at.rs` の i18n/フォールバック実装

@@ -10,7 +10,8 @@ use ruzstd::streaming_decoder::StreamingDecoder;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use memmap2::MmapOptions;
-mod zstd_impl; // resides under src/zstd/zstd_impl via shim
+mod zstd; // Import zstd module
+use zstd::{zstd_impl, dictionary_trainer::{DictionaryTrainer, DictionaryTrainerConfig, ZstdDictionary}};
 
 // Test-only instrumentation to capture chosen Sequences modes per block
 #[cfg(test)]
@@ -69,6 +70,10 @@ pub struct ZstdOptions {
     pub memory_limit: Option<u64>,
     pub checksum: bool,
     pub dict_path: Option<String>,
+    // Dictionary training options
+    pub train: bool,
+    pub train_dict_size: usize,
+    pub train_output: Option<String>,
     // internal: enable full encoder instead of store-mode
     pub full: bool,
 }
@@ -90,6 +95,9 @@ impl Default for ZstdOptions {
             memory_limit: None,
             checksum: false,
             dict_path: None,
+            train: false,
+            train_dict_size: 65536, // Default 64KB dictionary
+            train_output: None,
             full: false,
         }
     }
@@ -178,6 +186,35 @@ pub fn zstd_cli(args: &[String]) -> Result<()> {
                 }
                 options.dict_path = Some(args[i].clone());
             }
+            "--train" => {
+                options.train = true;
+            }
+            "--maxdict" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(anyhow::anyhow!("--maxdict requires a size argument"));
+                }
+                options.train_dict_size = parse_memory_limit(&args[i])? as usize;
+            }
+            "--dictID" => {
+                // For compatibility with zstd CLI - currently ignored in training
+                i += 1;
+                if i >= args.len() {
+                    return Err(anyhow::anyhow!("--dictID requires an argument"));
+                }
+                // Parsed but not used - dictionary ID is auto-generated
+            }
+            "-o" | "--output" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err(anyhow::anyhow!("--output requires a filepath"));
+                }
+                if options.train {
+                    options.train_output = Some(args[i].clone());
+                } else {
+                    options.output = Some(args[i].clone());
+                }
+            }
             "--full" => {
                 // Internal flag to enable the full encoder path (work-in-progress)
                 options.full = true;
@@ -223,6 +260,10 @@ pub fn zstd_cli(args: &[String]) -> Result<()> {
     }
 
     // Handle special modes
+    if options.train {
+        return train_dictionary(&input_files, &options);
+    }
+    
     if options.test {
         return test_zstd_files(&input_files, &options);
     }
@@ -1622,12 +1663,92 @@ fn print_zstd_help() {
     println!("  -C, --checksum          add 32-bit content checksum (low 32 bits of XXH64) to frame");
     println!("      --no-check          disable content checksum (default)");
     println!("  -D, --dict FILE         use dictionary FILE (accepted; currently ignored in store-mode)");
+    println!("      --train             train dictionary from sample files");
+    println!("      --maxdict SIZE      maximum dictionary size (default: 64KB)");
+    println!("      --dictID ID         dictionary ID (auto-generated if not specified)");
     println!("      --zstd              alias of -z (compat)");
     println!("      --full              enable internal full encoder (experimental)");
     println!("  -h, --help              display this help and exit");
     println!("  -V, --version           display version and exit");
     println!();
-    println!("Decompression uses ruzstd (no C deps). Compression writes RAW/RLE zstd frames (no entropy compression). Dictionary option is reserved for future encoder.");
+    println!("Dictionary Training:");
+    println!("  zstd --train samples/*.txt -o dict.zst");
+    println!("  zstd --train --maxdict 128KB samples/*.log -o custom.dict");
+    println!();
+    println!("Decompression uses ruzstd (no C deps). Compression writes RAW/RLE zstd frames (no entropy compression). Dictionary training provides automatic learning from sample data.");
+}
+
+/// Train dictionary from sample files
+fn train_dictionary(input_files: &[String], options: &ZstdOptions) -> Result<()> {
+    if input_files.is_empty() {
+        return Err(anyhow::anyhow!("Dictionary training requires at least one sample file"));
+    }
+    
+    if !options.quiet {
+        eprintln!("Training dictionary from {} sample file(s)...", input_files.len());
+        eprintln!("Dictionary size limit: {} bytes", options.train_dict_size);
+    }
+    
+    // Configure dictionary trainer
+    let config = DictionaryTrainerConfig {
+        dict_size: options.train_dict_size,
+        min_pattern_length: 4,
+        max_pattern_length: 256,
+        min_frequency: 5, // Require patterns to appear at least 5 times
+        patterns_per_length: 1000,
+        max_sample_size: 1024 * 1024, // 1MB sample size limit per file
+    };
+    
+    // Create trainer and add sample files
+    let mut trainer = DictionaryTrainer::new(config);
+    
+    for file_path in input_files {
+        if !options.quiet {
+            eprintln!("Processing sample: {}", file_path);
+        }
+        
+        trainer.add_sample_file(file_path)
+            .with_context(|| format!("Failed to add sample file: {}", file_path))?;
+    }
+    
+    // Train dictionary
+    if !options.quiet {
+        eprintln!("Analyzing patterns and training dictionary...");
+    }
+    
+    let dictionary = trainer.train_dictionary()
+        .context("Failed to train dictionary from sample data")?;
+    
+    if !options.quiet {
+        eprintln!("Dictionary trained successfully:");
+        eprintln!("  Dictionary ID: {}", dictionary.id);
+        eprintln!("  Dictionary size: {} bytes", dictionary.size());
+    }
+    
+    // Determine output file
+    let output_path = match &options.train_output {
+        Some(path) => path.clone(),
+        None => {
+            // Default output name based on first input file
+            let base_name = Path::new(&input_files[0])
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("dict");
+            format!("{}.dict", base_name)
+        }
+    };
+    
+    // Save dictionary to file
+    dictionary.save_to_file(&output_path)
+        .with_context(|| format!("Failed to save dictionary to: {}", output_path))?;
+    
+    if !options.quiet {
+        eprintln!("Dictionary saved to: {}", output_path);
+    } else {
+        println!("{}", output_path); // Print only output path in quiet mode
+    }
+    
+    Ok(())
 
 #[cfg(test)]
 mod tests {
