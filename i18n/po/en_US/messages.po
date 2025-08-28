@@ -4,3 +4,22 @@ msgstr "hello"
 msgid "goodbye"
 msgstr "goodbye"
 
+# Cat command FTP support messages
+msgid "cat-error-invalid-ftp-host"
+msgstr "Invalid FTP host in URL"
+
+msgid "cat-error-ftp-connect-failed"
+msgstr "Failed to connect to FTP server {$host}:{$port}"
+
+msgid "cat-error-ftp-login-failed"
+msgstr "Failed to login to FTP server as user '{$user}'"
+
+msgid "cat-error-ftp-binary-mode-failed"
+msgstr "Failed to set binary transfer mode"
+
+msgid "cat-error-ftp-retrieve-failed"
+msgstr "Failed to retrieve file from FTP path '{$path}'"
+
+msgid "cat-error-ftp-not-supported"
+msgstr "FTP support is not enabled. Rebuild with --features net-ftp to enable FTP URLs"
+

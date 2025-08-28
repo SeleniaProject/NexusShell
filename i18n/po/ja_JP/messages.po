@@ -4,3 +4,22 @@ msgstr "こんにちは"
 msgid "goodbye"
 msgstr "さようなら"
 
+# Cat command FTP support messages
+msgid "cat-error-invalid-ftp-host"
+msgstr "URLに無効なFTPホストが指定されました"
+
+msgid "cat-error-ftp-connect-failed"
+msgstr "FTPサーバー {$host}:{$port} への接続に失敗しました"
+
+msgid "cat-error-ftp-login-failed"
+msgstr "ユーザー '{$user}' としてFTPサーバーへのログインに失敗しました"
+
+msgid "cat-error-ftp-binary-mode-failed"
+msgstr "バイナリ転送モードの設定に失敗しました"
+
+msgid "cat-error-ftp-retrieve-failed"
+msgstr "FTPパス '{$path}' からのファイル取得に失敗しました"
+
+msgid "cat-error-ftp-not-supported"
+msgstr "FTPサポートが有効になっていません。--features net-ftp でリビルドしてFTP URLを有効にしてください"
+

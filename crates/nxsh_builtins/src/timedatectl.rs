@@ -206,16 +206,18 @@ pub enum TimeSyncEvent {
 impl TimedatectlManager {
     pub async fn new(config: TimedatectlConfig, i18n: std::sync::Arc<nxsh_core::i18n::I18nManager>) -> Result<Self> {
         // Create storage directories
-        async_fs::create_dir_all(&config.storage_path).await?;
-        async_fs::create_dir_all(&config.log_path).await?;
+        std::fs::create_dir_all(&config.storage_path)?;
+        std::fs::create_dir_all(&config.log_path)?;
 
-        let (event_sender, _) = broadcast::channel(1000);
+        #[cfg(feature = "async-runtime")]
+        let (event_sender, _) = tokio::sync::broadcast::channel(1000);
 
         Ok(Self {
             config,
             i18n,
             last_sync: None,
             sync_history: Vec::new(),
+            #[cfg(feature = "async-runtime")]
             event_sender,
             ntp_enabled: true,
             timezone_cache: HashMap::new(),
@@ -667,7 +669,8 @@ pub struct TimedatectlManager {
     i18n: std::sync::Arc<nxsh_core::i18n::I18nManager>,
     last_sync: Option<SyncResult>,
     sync_history: Vec<SyncResult>,
-    event_sender: broadcast::Sender<TimeSyncEvent>,
+    #[cfg(feature = "async-runtime")]
+    event_sender: tokio::sync::broadcast::Sender<TimeSyncEvent>,
     ntp_enabled: bool,
     timezone_cache: HashMap<String, bool>,
     statistics: SyncStatistics,

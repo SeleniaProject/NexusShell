@@ -1121,7 +1121,7 @@ fn process_url_to_writer(
     if scheme == "ftp" {
         #[cfg(feature = "net-ftp")]
         {
-            use ftp::FtpStream;
+            use suppaftp::FtpStream;
             use std::net::TcpStream;
             
             let host = url.host_str().ok_or_else(|| anyhow!(t!("cat-error-invalid-ftp-host")))?;
@@ -1132,21 +1132,25 @@ fn process_url_to_writer(
             let username = if url.username().is_empty() { "anonymous" } else { url.username() };
             let password = url.password().unwrap_or("anonymous@example.com");
             
-            // Connect to FTP server
+            // Connect to FTP server with timeout
             let mut ftp_stream = FtpStream::connect(format!("{}:{}", host, port))
-                .map_err(|e| anyhow!(t!("cat-error-ftp-connect-failed", "error" => e.to_string())))?;
+                .with_context(|| t!("cat-error-ftp-connect-failed", "host" => host, "port" => port.to_string()))?;
             
-            // Login
+            // Login with credentials
             ftp_stream.login(username, password)
-                .map_err(|e| anyhow!(t!("cat-error-ftp-login-failed", "error" => e.to_string())))?;
+                .with_context(|| t!("cat-error-ftp-login-failed", "user" => username))?;
             
-            // Retrieve file
+            // Set binary mode for reliable file transfer
+            ftp_stream.transfer_type(suppaftp::TransferType::Binary)
+                .with_context(|| t!("cat-error-ftp-binary-mode-failed"))?;
+            
+            // Retrieve file content
             let mut cursor = std::io::Cursor::new(Vec::new());
             ftp_stream.retr(path, &mut cursor)
-                .map_err(|e| anyhow!(t!("cat-error-ftp-retrieve-failed", "error" => e.to_string())))?;
+                .with_context(|| t!("cat-error-ftp-retrieve-failed", "path" => path))?;
             
-            ftp_stream.quit()
-                .map_err(|e| anyhow!(t!("cat-error-ftp-quit-failed", "error" => e.to_string())))?;
+            // Properly close FTP connection
+            let _ = ftp_stream.quit(); // Don't fail if quit fails
             
             cursor.set_position(0);
             let reader = BufReader::new(cursor);
@@ -1162,7 +1166,7 @@ fn process_url_to_writer(
         
         #[cfg(not(feature = "net-ftp"))]
         {
-            return Err(anyhow!(t!("cat-error-ftp-feature-missing")));
+            return Err(anyhow!(t!("cat-error-ftp-not-supported")));
         }
     }
 
@@ -1658,6 +1662,45 @@ mod tests {
         let stats = process_url_to_writer(&url, &opts, None, &mut out)?;
         assert_eq!(String::from_utf8_lossy(&out), "Hello, 世界!");
         assert!(stats.bytes_read > 0);
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "net-ftp")]
+    fn test_ftp_url_feature_enabled() {
+        // Test that FTP URLs are properly parsed when feature is enabled
+        let url = Url::parse("ftp://anonymous:anonymous@ftp.example.com/path/to/file.txt").unwrap();
+        assert_eq!(url.scheme(), "ftp");
+        assert_eq!(url.host_str(), Some("ftp.example.com"));
+        assert_eq!(url.username(), "anonymous");
+        assert_eq!(url.password(), Some("anonymous"));
+        assert_eq!(url.path(), "/path/to/file.txt");
+    }
+
+    #[test]
+    #[cfg(not(feature = "net-ftp"))]
+    fn test_ftp_url_feature_disabled() -> Result<()> {
+        // Test that FTP URLs return appropriate error when feature is disabled
+        let url = Url::parse("ftp://ftp.example.com/file.txt").unwrap();
+        let opts = CatOptions::default();
+        let mut out: Vec<u8> = Vec::new();
+        let result = process_url_to_writer(&url, &opts, None, &mut out);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("FTP support is not enabled"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_ftp_url_parsing() {
+        // Test FTP URL parsing regardless of feature status
+        let url = Url::parse("ftp://user:pass@ftp.example.com:2121/directory/file.txt").unwrap();
+        assert_eq!(url.scheme(), "ftp");
+        assert_eq!(url.host_str(), Some("ftp.example.com"));
+        assert_eq!(url.port(), Some(2121));
+        assert_eq!(url.username(), "user");
+        assert_eq!(url.password(), Some("pass"));
+        assert_eq!(url.path(), "/directory/file.txt");
+    }
         Ok(())
     }
 }

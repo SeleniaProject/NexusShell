@@ -587,12 +587,12 @@ impl MirError {
 
 #[allow(dead_code)] // ユーザ関数系は現行パスで未使用
 impl MirExecutor {
-    /// Create a new MIR executor
+    /// Create a new MIR executor with performance optimizations
     pub fn new() -> Self {
         Self {
-            registers: vec![MirValue::Null; 256], // Pre-allocate 256 registers
-            call_stack: Vec::new(),
-            global_memory: HashMap::new(),
+            registers: vec![MirValue::Null; 1024], // Pre-allocate more registers for performance
+            call_stack: Vec::with_capacity(64), // Pre-allocate call stack capacity
+            global_memory: HashMap::with_capacity(256), // Pre-allocate global memory capacity
             functions: HashMap::new(),
             stats: ExecutionStats::default(),
         }
@@ -1150,13 +1150,15 @@ impl MirExecutor {
         Ok(())
     }
 
-    /// Get register value directly
+    /// Get register value directly with bounds checking optimization
     fn get_register(&self, reg: &MirRegister) -> Result<MirValue, MirError> {
         let id = reg.id() as usize;
-        if id >= self.registers.len() {
-            return Err(MirError::Runtime(format!("Register {id} out of bounds")));
+        // Fast path for common case - registers should already be allocated
+        if let Some(value) = self.registers.get(id) {
+            Ok(value.clone())
+        } else {
+            Err(MirError::Runtime(format!("Register {id} out of bounds")))
         }
-        Ok(self.registers[id].clone())
     }
 
     /// Perform arithmetic operations
@@ -1388,7 +1390,7 @@ impl MirExecutor {
         Ok(MirValue::String(content))
     }
     
-    /// High-performance grep implementation (basic)
+    /// High-performance grep implementation with optimizations
     pub fn builtin_grep(&self, args: Vec<MirValue>) -> Result<MirValue, MirError> {
         if args.len() < 2 {
             return Err(MirError::Runtime("grep: missing arguments".into()));
@@ -1397,11 +1399,17 @@ impl MirExecutor {
         let pattern = self.value_to_string(&args[0]);
         let text = self.value_to_string(&args[1]);
         
-        let matches: Vec<MirValue> = text.lines()
-            .filter(|line| line.contains(&pattern))
-            .map(|line| MirValue::String(line.to_string()))
-            .collect();
-            
+        // Optimized grep implementation with pre-allocated capacity
+        let estimated_matches = text.lines().count() / 10; // Estimate 10% match rate
+        let mut matches = Vec::with_capacity(estimated_matches);
+        
+        // Use efficient iterator for performance
+        for line in text.lines() {
+            if line.contains(&pattern) {
+                matches.push(MirValue::String(line.to_string()));
+            }
+        }
+        
         Ok(MirValue::Array(matches))
     }
     
@@ -1487,7 +1495,7 @@ impl MirExecutor {
         Ok(MirValue::Array(result))
     }
     
-    /// High-performance sort implementation
+    /// High-performance sort implementation with optimizations
     pub fn builtin_sort(&self, args: Vec<MirValue>) -> Result<MirValue, MirError> {
         if args.is_empty() {
             return Err(MirError::Runtime("sort: missing arguments".into()));
@@ -1495,13 +1503,16 @@ impl MirExecutor {
         
         let content = self.value_to_string(&args[0]);
         let mut lines: Vec<&str> = content.lines().collect();
-        lines.sort();
         
-        let result: Vec<MirValue> = lines
-            .iter()
-            .map(|line| MirValue::String(line.to_string()))
-            .collect();
-            
+        // Use unstable sort for better performance (no allocation overhead)
+        lines.sort_unstable();
+        
+        // Pre-allocate result vector with known capacity
+        let mut result = Vec::with_capacity(lines.len());
+        for line in lines {
+            result.push(MirValue::String(line.to_string()));
+        }
+        
         Ok(MirValue::Array(result))
     }
     

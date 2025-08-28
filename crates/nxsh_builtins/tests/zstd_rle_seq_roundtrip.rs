@@ -1,6 +1,8 @@
+#[cfg(feature = "compression-zstd")]
 use ruzstd::streaming_decoder::StreamingDecoder;
 
 #[test]
+#[cfg(feature = "compression-zstd")]
 fn zstd_rle_single_sequence_roundtrip() {
     // 小さめの入力（<32バイト）で Huffman を避け、単一のシーケンスが発生するようにする
     // 例: "hello___hello" のように、前半のリテラル + 直後に3文字以上の一致が1つ

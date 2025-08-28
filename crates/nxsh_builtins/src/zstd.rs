@@ -422,32 +422,40 @@ fn decompress_stream<R: Read, W: Write>(
     writer: &mut W,
     options: &ZstdOptions,
 ) -> Result<()> {
-    let mut decoder = StreamingDecoder::new(reader)
-        .map_err(|e| anyhow::anyhow!("Failed to create zstd decoder: {}", e))?;
+    #[cfg(feature = "compression-zstd")]
+    {
+        use ruzstd::streaming_decoder::StreamingDecoder;
+        let mut decoder = StreamingDecoder::new(reader)
+            .map_err(|e| anyhow::anyhow!("Failed to create zstd decoder: {}", e))?;
 
-    // メモリ制限オプションは現状チE��ーダ API 未対応�Eため予紁E��Eo-op�E�E    
-    let mut buffer = vec![0u8; 64 * 1024]; // 64KB buffer
-    let mut total_output = 0u64;
+        // メモリ制限オプションは現状チェーダ API 未対応のため予約 no-op
+        let mut buffer = vec![0u8; 64 * 1024]; // 64KB buffer
+        let mut total_output = 0u64;
 
-    loop {
-        match decoder.read(&mut buffer) {
-            Ok(0) => break, // EOF
-            Ok(bytes_read) => {
-                writer.write_all(&buffer[..bytes_read])
-                    .context("Failed to write decompressed data")?;
-                total_output += bytes_read as u64;
-            }
-            Err(e) => {
-                return Err(anyhow::anyhow!("Decompression error: {}", e));
+        loop {
+            match decoder.read(&mut buffer) {
+                Ok(0) => break, // EOF
+                Ok(bytes_read) => {
+                    writer.write_all(&buffer[..bytes_read])
+                        .context("Failed to write decompressed data")?;
+                    total_output += bytes_read as u64;
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Decompression error: {}", e));
+                }
             }
         }
-    }
 
-    if !options.quiet && options.verbose {
-        println!("Decompressed {total_output} bytes");
-    }
+        if !options.quiet && options.verbose {
+            println!("Decompressed {total_output} bytes");
+        }
 
-    Ok(())
+        Ok(())
+    }
+    #[cfg(not(feature = "compression-zstd"))]
+    {
+        Err(anyhow::anyhow!("zstd compression support not compiled in"))
+    }
 }
 
 /// Compress data stream producing a valid Zstandard frame that contains a single RAW block.
@@ -1627,17 +1635,25 @@ mod tests {
     use std::io::Cursor;
 
     fn decode_all(mut data: &[u8]) -> Vec<u8> {
-        let mut dec = StreamingDecoder::new(&mut data).expect("decoder");
-        let mut out = Vec::new();
-        let mut buf = [0u8; 8192];
-        loop {
-            match dec.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => out.extend_from_slice(&buf[..n]),
-                Err(e) => panic!("decompress error: {e}"),
+        #[cfg(feature = "compression-zstd")]
+        {
+            use ruzstd::streaming_decoder::StreamingDecoder;
+            let mut dec = StreamingDecoder::new(&mut data).expect("decoder");
+            let mut out = Vec::new();
+            let mut buf = [0u8; 8192];
+            loop {
+                match dec.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => out.extend_from_slice(&buf[..n]),
+                    Err(e) => panic!("decompress error: {e}"),
+                }
             }
+            out
         }
-        out
+        #[cfg(not(feature = "compression-zstd"))]
+        {
+            panic!("zstd support not compiled in");
+        }
     }
 
     fn parse_block_type(frame: &[u8]) -> u8 {

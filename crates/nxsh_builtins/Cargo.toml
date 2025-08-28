@@ -6,7 +6,7 @@ license = "Apache-2.0 OR MIT"
 
 [features]
 # Full (desktop/server) build keeps legacy behavior. BusyBox/minimal build will disable default features via nxsh_cli.
-default = ["minimal", "compression-bzip2", "compression-lzma", "compression-zip"]
+default = ["minimal", "compression-bzip2", "compression-lzma", "compression-zip", "net-ftp"]
 linux = []  # Linux-specific features (procfs removed as it's C/C++ dependent)
 metrics = ["dep:metrics", "dep:metrics-exporter-prometheus"]  # Enable metrics + prometheus exporter
 # Advanced updater (HTTP + semantic versioning + signatures). All heavy HTTP/crypto deps made optional.
@@ -39,10 +39,8 @@ compression-all = [
 	"compression-zstd",
 	"compression-zip",
 ]
-# Tiered compression bundles for finer gating
-compression-core = ["compression-gzip"]                 # ubiquitous gzip/deflate only
-compression-extended = ["compression-core", "compression-tar", "compression-zip"]
-compression-heavy = ["compression-extended", "compression-bzip2", "compression-lzma", "compression-zstd"]
+# Date and time features
+date-time = ["dep:chrono-tz"]
 crypto = ["dep:chacha20poly1305"]
 
 	json-select = ["dep:jmespath"]            # select (JMESPath JSON クエリ)
@@ -67,7 +65,7 @@ full = [
 	"i18n",
 	"heavy-i18n",
 	"metrics",
-	"compression-heavy",
+	"compression-all",
 	"crypto",
 	"heavy-time",
 	"hardware",
@@ -80,6 +78,8 @@ full = [
 	"parallel",
 	"error-rich",
 	"async-runtime",
+	"net-ftp",
+	"net-http",
 ]
 
 # Minimal intentionally empty; used by nxsh_cli busybox-min to opt-out of heavy sets.
@@ -88,7 +88,7 @@ minimal = []
 super-min = ["dep:futures"] # ultra-minimal: include lightweight futures executor for async builtins dispatch
 
 # Minimal compression preset for busybox mode (only gzip) — opt-in via CLI if needed
-minimal-compression = ["compression-core"]
+minimal-compression = ["compression-gzip"]
 
 
 [dependencies]
@@ -104,6 +104,7 @@ dirs-next = "2"
 rand = { version = "0.8", default-features = false, features = ["std"] }
 base64 = "0.21" 
 tabled = "0.12"
+tokio = { version = "1.0", features = ["sync", "rt", "macros", "time", "process", "fs", "signal"], optional = true }  # for async time operations
 pulldown-cmark = { version = "0.10", optional = true }
 nu-ansi-term = "0.50"
 fancy-regex = { version = "0.11", optional = true }  # advanced-regex feature
@@ -216,14 +217,11 @@ chrono-tz = { version = "0.8", optional = true }
 # Cron expression parsing - Pure Rust
 cron = "0.12"
 
-# Async runtime - minimal features only
-tokio = { version = "1.0", features = ["rt", "macros", "time", "process", "fs", "signal"], optional = true }
-futures = { version = "0.3", optional = true }
-criterion = "0.5"  # Moved from [dependencies]
-encoding_rs_io = "0.1"
-
 # Async futures support (only when async-runtime feature enabled)
+futures = { version = "0.3", optional = true }
 tokio-stream = { version = "0.1", optional = true }
+criterion = "0.5"  # Benchmarking framework
+encoding_rs_io = "0.1"  # Character encoding detection
 
 # Version comparison
 semver = { version = "1.0", optional = true }
