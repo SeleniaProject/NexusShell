@@ -48,6 +48,165 @@ use crate::{nxsh_log_info, nxsh_log_debug};
 
 #[cfg(feature = "logging")]
 use std::io::Write as IoWrite;
+
+/// Enhanced multi-output writer supporting flexible subscriber composition
+#[cfg(feature = "logging")]
+pub struct MultiOutputWriter {
+    outputs: Vec<OutputTarget>,
+    stats: Option<Arc<LoggingStatistics>>,
+}
+
+#[cfg(feature = "logging")]
+enum OutputTarget {
+    Console(bool), // enabled flag
+    File(tracing_appender::non_blocking::NonBlocking),
+    Custom(Box<dyn IoWrite + Send + Sync>),
+}
+
+#[cfg(feature = "logging")]
+impl MultiOutputWriter {
+    pub fn new() -> Self {
+        Self {
+            outputs: Vec::new(),
+            stats: None,
+        }
+    }
+
+    pub fn with_console(mut self, enabled: bool) -> Self {
+        self.outputs.push(OutputTarget::Console(enabled));
+        self
+    }
+
+    pub fn with_file(mut self, file_writer: tracing_appender::non_blocking::NonBlocking) -> Self {
+        self.outputs.push(OutputTarget::File(file_writer));
+        self
+    }
+
+    pub fn with_custom<W: IoWrite + Send + Sync + 'static>(mut self, writer: W) -> Self {
+        self.outputs.push(OutputTarget::Custom(Box::new(writer)));
+        self
+    }
+
+    pub fn with_stats(mut self, stats: Arc<LoggingStatistics>) -> Self {
+        self.stats = Some(stats);
+        self
+    }
+
+    fn record_error(&self) {
+        if let Some(stats) = &self.stats {
+            stats.write_errors.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn record_bytes_written(&self, count: usize) {
+        if let Some(stats) = &self.stats {
+            stats.total_bytes_logged.fetch_add(count as u64, Ordering::Relaxed);
+        }
+    }
+}
+
+#[cfg(feature = "logging")]
+impl IoWrite for MultiOutputWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let mut errors = 0;
+        let mut success_count = 0;
+
+        for output in &mut self.outputs {
+            match output {
+                OutputTarget::Console(enabled) => {
+                    if *enabled {
+                        let mut stdout = std::io::stdout();
+                        if stdout.write_all(buf).is_err() {
+                            errors += 1;
+                        } else {
+                            success_count += 1;
+                        }
+                    }
+                }
+                OutputTarget::File(ref mut file_writer) => {
+                    if file_writer.write(buf).is_err() {
+                        errors += 1;
+                    } else {
+                        success_count += 1;
+                    }
+                }
+                OutputTarget::Custom(ref mut custom_writer) => {
+                    if custom_writer.write_all(buf).is_err() {
+                        errors += 1;
+                    } else {
+                        success_count += 1;
+                    }
+                }
+            }
+        }
+
+        if errors > 0 {
+            self.record_error();
+        }
+
+        // Record bytes written if at least one output succeeded
+        if success_count > 0 {
+            self.record_bytes_written(buf.len());
+        }
+
+        // Return success if at least one output succeeded
+        if success_count > 0 || self.outputs.is_empty() {
+            Ok(buf.len())
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "All output targets failed"
+            ))
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        let mut errors = 0;
+        let mut success_count = 0;
+
+        for output in &mut self.outputs {
+            match output {
+                OutputTarget::Console(enabled) => {
+                    if *enabled && std::io::stdout().flush().is_err() {
+                        errors += 1;
+                    } else if *enabled {
+                        success_count += 1;
+                    }
+                }
+                OutputTarget::File(ref mut file_writer) => {
+                    if file_writer.flush().is_err() {
+                        errors += 1;
+                    } else {
+                        success_count += 1;
+                    }
+                }
+                OutputTarget::Custom(ref mut custom_writer) => {
+                    if custom_writer.flush().is_err() {
+                        errors += 1;
+                    } else {
+                        success_count += 1;
+                    }
+                }
+            }
+        }
+
+        if errors > 0 {
+            self.record_error();
+        }
+
+        // Return success if at least one output succeeded or no outputs
+        if success_count > 0 || self.outputs.is_empty() {
+            Ok(())
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "All output targets failed during flush"
+            ))
+        }
+    }
+}
+
+// Legacy CombinedWriter maintained for backward compatibility
 #[cfg(feature = "logging")]
 struct CombinedWriter {
     console: bool,
