@@ -373,11 +373,15 @@ impl CUIPrompt {
     /// Detect Git repository status
     fn detect_git_status() -> Result<GitStatus> {
         // Check if we're in a git repository
-        let output = Command::new("git")
-            .args(&["rev-parse", "--is-inside-work-tree"])
-            .output();
-            
-        if output.is_err() || !output.unwrap().status.success() {
+        let in_repo = match Command::new("git")
+            .args(["rev-parse", "--is-inside-work-tree"]) // single execution
+            .output()
+        {
+            Ok(o) => o.status.success(),
+            Err(_) => false,
+        };
+
+        if !in_repo {
             return Err(anyhow::anyhow!("Not in git repository"));
         }
         
@@ -423,16 +427,13 @@ impl CUIPrompt {
     /// Parse ahead/behind information from git status --ahead-behind
     fn parse_ahead_behind_from_git() -> Result<(u32, u32)> {
         // Get ahead/behind count using git rev-list
-        let upstream_output = Command::new("git")
-            .args(&["rev-parse", "--abbrev-ref", "@{upstream}"])
-            .output();
-            
-        // If no upstream, return (0, 0)
-        if upstream_output.is_err() || !upstream_output.as_ref().unwrap().status.success() {
-            return Ok((0, 0));
-        }
-        
-        let upstream = String::from_utf8_lossy(&upstream_output.unwrap().stdout).trim().to_string();
+        let upstream = match Command::new("git")
+            .args(["rev-parse", "--abbrev-ref", "@{upstream}"])
+            .output()
+        {
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
+            _ => return Ok((0, 0)), // No upstream configured
+        };
         
         // Count commits ahead of upstream
         let ahead_output = Command::new("git")

@@ -13,7 +13,9 @@ fn main() -> anyhow::Result<()> {
                     println!("ok");
                 } else {
                     println!("fail");
-                    for e in result.errors { println!("  - {e}"); }
+                    for e in result.errors {
+                        println!("  - {e}");
+                    }
                 }
             }
             Err(e) => {
@@ -23,5 +25,3 @@ fn main() -> anyhow::Result<()> {
     }
     Ok(())
 }
-
-

@@ -1,5 +1,5 @@
 //! Enhanced Tab Completion Handler
-//! 
+//!
 //! This module provides advanced tab completion functionality with:
 //! - Beautiful visual completion panel
 //! - Tab navigation through candidates
@@ -9,12 +9,9 @@
 use anyhow::Result;
 use crossterm::{
     event::{KeyCode, KeyEvent, KeyModifiers},
-    terminal::{size},
+    terminal::size,
 };
-use std::{
-    collections::VecDeque,
-    time::Instant,
-};
+use std::{collections::VecDeque, time::Instant};
 
 use crate::{
     completion_engine::CompletionEngine,
@@ -36,8 +33,7 @@ pub struct TabCompletionHandler {
 }
 
 /// Current state of tab completion
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct CompletionState {
     /// Whether completion panel is visible
     pub is_visible: bool,
@@ -66,12 +62,11 @@ pub struct CompletionMetrics {
     pub last_update: Option<Instant>,
 }
 
-
 impl TabCompletionHandler {
     /// Create a new tab completion handler
     pub fn new() -> Result<Self> {
         let completion_engine = CompletionEngine::new();
-        
+
         Ok(Self {
             completion_engine,
             // completion_panel, // Temporarily disabled
@@ -88,13 +83,12 @@ impl TabCompletionHandler {
         cursor_pos: usize,
     ) -> Result<TabCompletionResult> {
         let start_time = Instant::now();
-        
+
         // Update completion state
         self.update_completion_state(input, cursor_pos);
 
         // Get completion suggestions
-        let completion_result = self.completion_engine
-            .get_completions(input);
+        let completion_result = self.completion_engine.get_completions(input);
 
         // Update performance metrics
         self.update_metrics(start_time);
@@ -138,32 +132,32 @@ impl TabCompletionHandler {
                 self.render_panel().await?;
                 Ok(Some(TabCompletionResult::NavigationUpdate))
             }
-            
+
             // Shift+Tab or Up arrow - previous candidate
             (KeyCode::BackTab, _) | (KeyCode::Up, _) => {
                 // self.completion_panel.select_previous()?;
                 self.render_panel().await?;
                 Ok(Some(TabCompletionResult::NavigationUpdate))
             }
-            
+
             // Enter - accept selected candidate
             (KeyCode::Enter, _) => {
                 let result = self.accept_selected_candidate().await?;
                 Ok(Some(result))
             }
-            
+
             // Escape - cancel completion
             (KeyCode::Esc, _) => {
                 self.hide_panel()?;
                 Ok(Some(TabCompletionResult::Cancelled))
             }
-            
+
             // Character input - update completion
             (KeyCode::Char(_ch), _) => {
                 // Let the caller handle character input
                 Ok(None)
             }
-            
+
             // Other keys - hide panel
             _ => {
                 self.hide_panel()?;
@@ -197,8 +191,9 @@ impl TabCompletionHandler {
         }
 
         // Show visual completion panel
-        self.show_panel_with_candidates(completion_result.items).await?;
-        
+        self.show_panel_with_candidates(completion_result.items)
+            .await?;
+
         Ok(TabCompletionResult::PanelShown {
             candidate_count: 0, // Temporarily hardcoded
         })
@@ -245,10 +240,10 @@ impl TabCompletionHandler {
 
         // Get current cursor position
         let (_cursor_x, _cursor_y) = self.get_cursor_position()?;
-        
+
         // Render panel
         // self.completion_panel.render(cursor_x, cursor_y)?;
-        
+
         Ok(())
     }
 
@@ -274,7 +269,7 @@ impl TabCompletionHandler {
         //     self.hide_panel()?;
         //     Ok(result)
         // } else {
-            Ok(TabCompletionResult::NoAction)
+        Ok(TabCompletionResult::NoAction)
         // }
     }
 
@@ -291,7 +286,8 @@ impl TabCompletionHandler {
         let mut common_len = first.len();
 
         for candidate in candidates.iter().skip(1) {
-            let common = first.chars()
+            let common = first
+                .chars()
                 .zip(candidate.text.chars())
                 .take_while(|(a, b)| a == b)
                 .count();
@@ -308,7 +304,7 @@ impl TabCompletionHandler {
     /// Update completion state
     fn update_completion_state(&mut self, input: &str, cursor_pos: usize) {
         let now = Instant::now();
-        
+
         // Check if this is a new completion sequence
         if let Some(last_time) = self.completion_state.last_request_time {
             if now.duration_since(last_time).as_millis() > 500 {
@@ -326,18 +322,18 @@ impl TabCompletionHandler {
     /// Update performance metrics
     fn update_metrics(&mut self, start_time: Instant) {
         let elapsed_ms = start_time.elapsed().as_nanos() as f64 / 1_000_000.0;
-        
+
         self.metrics.requests += 1;
-        
+
         // Update rolling average
         if self.metrics.requests == 1 {
             self.metrics.avg_response_time_ms = elapsed_ms;
         } else {
             let alpha = 0.1; // Smoothing factor
-            self.metrics.avg_response_time_ms = 
+            self.metrics.avg_response_time_ms =
                 alpha * elapsed_ms + (1.0 - alpha) * self.metrics.avg_response_time_ms;
         }
-        
+
         self.metrics.last_update = Some(Instant::now());
     }
 
@@ -400,9 +396,7 @@ pub enum TabCompletionResult {
         remaining_candidates: usize,
     },
     /// Visual panel shown with multiple candidates
-    PanelShown {
-        candidate_count: usize,
-    },
+    PanelShown { candidate_count: usize },
     /// Navigation within panel updated
     NavigationUpdate,
     /// Completion was accepted by user
@@ -482,7 +476,7 @@ mod tests {
                 metadata: std::collections::HashMap::new(),
             },
         ];
-        
+
         let prefix = handler.find_common_prefix(&candidates);
         assert_eq!(prefix, Some("test_file_".to_string()));
     }
@@ -493,11 +487,9 @@ mod tests {
             text: "example.txt".to_string(),
             description: Some("Example file".to_string()),
         };
-        
+
         assert!(result.completes_input());
         assert!(!result.requires_ui_update());
         assert_eq!(result.get_completion_text(), Some("example.txt"));
     }
 }
-
-

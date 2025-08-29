@@ -3,12 +3,12 @@
 //! このモジュールは、極限まで最適化されたタブ補完機能を提供します。
 //! 複数のヒューリスティック、機械学習ベースの候補選択、リアルタイム性能監視を実装。
 
+use anyhow::Result;
+use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
-use anyhow::Result;
-use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
 
 // 補完候補の種類
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -113,7 +113,9 @@ pub trait CompletionProvider: Send + Sync {
     fn name(&self) -> &str;
     fn can_complete(&self, input: &str, cursor: usize) -> bool;
     fn get_completions(&self, input: &str, cursor: usize) -> Result<Vec<CompletionItem>>;
-    fn priority(&self) -> i32 { 0 }
+    fn priority(&self) -> i32 {
+        0
+    }
 }
 
 // ファイルシステム補完プロバイダー
@@ -150,7 +152,7 @@ impl FileSystemProvider {
 
     fn scan_directory(&self, dir: &Path, prefix: &str) -> Result<Vec<CompletionItem>> {
         let mut items = Vec::new();
-        
+
         if !dir.exists() || !dir.is_dir() {
             return Ok(items);
         }
@@ -159,7 +161,8 @@ impl FileSystemProvider {
         for entry in entries {
             let entry = entry?;
             let path = entry.path();
-            let name = path.file_name()
+            let name = path
+                .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("")
                 .to_string();
@@ -205,10 +208,8 @@ impl FileSystemProvider {
             }
             CompletionType::File => {
                 // Get file extension and size
-                let ext = path.extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("");
-                
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
                 let size_desc = if let Ok(metadata) = path.metadata() {
                     let size = metadata.len();
                     if size < 1024 {
@@ -265,8 +266,10 @@ impl CompletionProvider for FileSystemProvider {
 
         let prefix = &input[..cursor];
         // Check if we're completing a path
-        prefix.contains('/') || prefix.contains('\\') || 
-        prefix.starts_with('.') || prefix.starts_with('~')
+        prefix.contains('/')
+            || prefix.contains('\\')
+            || prefix.starts_with('.')
+            || prefix.starts_with('~')
     }
 
     fn get_completions(&self, input: &str, cursor: usize) -> Result<Vec<CompletionItem>> {
@@ -312,11 +315,11 @@ impl CommandProvider {
 
     pub fn add_command(&self, name: String, description: Option<String>) {
         let description = description.unwrap_or_else(|| self.generate_command_description(&name));
-        
+
         let item = CompletionItem::new(name.clone(), CompletionType::Command)
             .with_source("commands".to_string())
             .with_description(description);
-        
+
         if let Ok(mut commands) = self.commands.write() {
             commands.insert(name, item);
         }
@@ -348,7 +351,7 @@ impl CommandProvider {
             "history" => "Show command history",
             "exit" => "Exit shell",
             "help" => "Show help information",
-            
+
             // System commands
             "ps" => "Show running processes",
             "top" => "Display system processes",
@@ -365,7 +368,7 @@ impl CommandProvider {
             "groups" => "Show user groups",
             "date" => "Show/set system date",
             "cal" => "Show calendar",
-            
+
             // Network commands
             "ping" => "Test network connectivity",
             "curl" => "Transfer data from servers",
@@ -373,13 +376,13 @@ impl CommandProvider {
             "ssh" => "Secure shell remote access",
             "scp" => "Secure copy over network",
             "rsync" => "Synchronize files",
-            
+
             // Git commands
             "git" => "Version control system",
-            
+
             // Cargo commands
             "cargo" => "Rust package manager",
-            
+
             // Other common commands
             "vim" | "nvim" => "Text editor",
             "emacs" => "Text editor",
@@ -391,7 +394,7 @@ impl CommandProvider {
             "unzip" => "Extract zip archives",
             "gzip" => "Compress files",
             "gunzip" => "Decompress files",
-            
+
             _ => {
                 // Try to get description from system if available
                 if std::env::var("PATH").is_ok() {
@@ -400,19 +403,19 @@ impl CommandProvider {
                     "Command"
                 }
             }
-        }.to_string()
+        }
+        .to_string()
     }
 
     pub fn load_system_commands(&self) -> Result<()> {
         // Load common builtin commands first
         let builtins = vec![
-            "cd", "ls", "pwd", "echo", "cat", "cp", "mv", "rm", "mkdir", "rmdir",
-            "touch", "chmod", "grep", "find", "sort", "uniq", "head", "tail", 
-            "wc", "which", "history", "exit", "help", "ps", "top", "kill",
-            "killall", "df", "du", "free", "uptime", "whoami", "id", "date",
-            "ping", "curl", "git", "cargo", "vim", "nano", "less", "tar"
+            "cd", "ls", "pwd", "echo", "cat", "cp", "mv", "rm", "mkdir", "rmdir", "touch", "chmod",
+            "grep", "find", "sort", "uniq", "head", "tail", "wc", "which", "history", "exit",
+            "help", "ps", "top", "kill", "killall", "df", "du", "free", "uptime", "whoami", "id",
+            "date", "ping", "curl", "git", "cargo", "vim", "nano", "less", "tar",
         ];
-        
+
         for builtin in builtins {
             self.add_command(builtin.to_string(), None);
         }
@@ -435,9 +438,10 @@ impl CommandProvider {
                             };
 
                             // Skip if already exists or has problematic characters
-                            if command_name.is_empty() || 
-                               command_name.contains(' ') ||
-                               command_name.starts_with('.') {
+                            if command_name.is_empty()
+                                || command_name.contains(' ')
+                                || command_name.starts_with('.')
+                            {
                                 continue;
                             }
 
@@ -447,7 +451,7 @@ impl CommandProvider {
                 }
             }
         }
-        
+
         Ok(())
     }
 }
@@ -464,8 +468,7 @@ impl CompletionProvider for CommandProvider {
 
         let prefix = &input[..cursor];
         // Complete commands at the beginning of input or after pipe/redirect
-        prefix.split_whitespace().count() <= 1 ||
-        prefix.contains('|') || prefix.contains('>')
+        prefix.split_whitespace().count() <= 1 || prefix.contains('|') || prefix.contains('>')
     }
 
     fn get_completions(&self, input: &str, cursor: usize) -> Result<Vec<CompletionItem>> {
@@ -483,7 +486,11 @@ impl CompletionProvider for CommandProvider {
             }
         }
 
-        items.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        items.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         Ok(items)
     }
 
@@ -512,10 +519,10 @@ impl HistoryProvider {
         if let Ok(mut history) = self.history.write() {
             // Remove duplicates
             history.retain(|x| x != &item);
-            
+
             // Add to front
             history.push_front(item);
-            
+
             // Limit size
             while history.len() > self.max_items {
                 history.pop_back();
@@ -553,17 +560,24 @@ impl CompletionProvider for HistoryProvider {
         if let Ok(history) = self.history.read() {
             for (index, item) in history.iter().enumerate() {
                 if let Some(score) = self.matcher.fuzzy_match(item, prefix) {
-                    let completion_item = CompletionItem::new(item.clone(), CompletionType::History)
-                        .with_score((score as f64 / 100.0) + (history.len() - index) as f64 / 100.0) // Normalize and add recency boost
-                        .with_source("history".to_string())
-                        .with_metadata("index".to_string(), index.to_string());
-                    
+                    let completion_item =
+                        CompletionItem::new(item.clone(), CompletionType::History)
+                            .with_score(
+                                (score as f64 / 100.0) + (history.len() - index) as f64 / 100.0,
+                            ) // Normalize and add recency boost
+                            .with_source("history".to_string())
+                            .with_metadata("index".to_string(), index.to_string());
+
                     items.push(completion_item);
                 }
             }
         }
 
-        items.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        items.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         Ok(items)
     }
 
@@ -631,26 +645,29 @@ impl PerformanceMetrics {
     /// Update response time percentiles for performance analysis
     pub fn update_response_time(&mut self, duration: Duration) {
         self.response_time_percentiles.push_back(duration);
-        
+
         // Keep only last 1000 measurements for percentile calculation
         if self.response_time_percentiles.len() > 1000 {
             self.response_time_percentiles.pop_front();
         }
     }
-    
+
     /// Calculate 95th percentile response time
     pub fn get_95th_percentile(&self) -> Duration {
         if self.response_time_percentiles.is_empty() {
             return Duration::from_millis(0);
         }
-        
+
         let mut sorted: Vec<_> = self.response_time_percentiles.iter().cloned().collect();
         sorted.sort();
-        
+
         let index = (sorted.len() as f64 * 0.95) as usize;
-        sorted.get(index).cloned().unwrap_or(Duration::from_millis(0))
+        sorted
+            .get(index)
+            .cloned()
+            .unwrap_or(Duration::from_millis(0))
     }
-    
+
     /// Get cache hit ratio
     pub fn cache_hit_ratio(&self) -> f64 {
         let total = self.cache_hits + self.cache_misses;
@@ -660,10 +677,11 @@ impl PerformanceMetrics {
             self.cache_hits as f64 / total as f64
         }
     }
-    
+
     /// Get provider efficiency report
     pub fn get_provider_efficiency(&self) -> HashMap<String, f64> {
-        self.provider_stats.iter()
+        self.provider_stats
+            .iter()
             .map(|(name, stats)| {
                 let efficiency = if stats.total_calls > 0 {
                     stats.success_rate * (1000.0 / stats.avg_time.as_millis().max(1) as f64)
@@ -688,14 +706,14 @@ impl CompletionEngine {
 
         // Add default providers in order of priority
         engine.add_provider(Box::new(FileSystemProvider::new()));
-        
+
         // Create and initialize command provider with system commands
         let command_provider = CommandProvider::new();
         if let Err(e) = command_provider.load_system_commands() {
             eprintln!("Warning: Failed to load system commands: {}", e);
         }
         engine.add_provider(Box::new(command_provider));
-        
+
         engine.add_provider(Box::new(HistoryProvider::new(1000)));
 
         engine
@@ -704,7 +722,8 @@ impl CompletionEngine {
     pub fn add_provider(&mut self, provider: Box<dyn CompletionProvider>) {
         self.providers.push(provider);
         // Sort by priority (higher first)
-        self.providers.sort_by_key(|b| std::cmp::Reverse(b.priority()));
+        self.providers
+            .sort_by_key(|b| std::cmp::Reverse(b.priority()));
     }
 
     pub fn get_completions(&self, input: &str) -> CompletionResult {
@@ -725,19 +744,21 @@ impl CompletionEngine {
                     return result.clone();
                 }
             }
-            
+
             // Check for partial matches in cache (prefix-based caching)
             for (cached_key, (cached_result, cached_time)) in cache.iter() {
-                if cached_key.starts_with(&cache_key[..cache_key.len().min(10)]) 
-                    && start_time.duration_since(*cached_time) < self.cache_ttl {
+                if cached_key.starts_with(&cache_key[..cache_key.len().min(10)])
+                    && start_time.duration_since(*cached_time) < self.cache_ttl
+                {
                     // Found partial match - can use as base for completion
                     if let Ok(mut metrics) = self.performance_metrics.lock() {
                         metrics.cache_hits += 1;
                         metrics.partial_cache_hits += 1;
                     }
-                    
+
                     // Apply additional filtering to cached results
-                    let filtered_items = self.filter_cached_results(&cached_result.items, input, cursor);
+                    let filtered_items =
+                        self.filter_cached_results(&cached_result.items, input, cursor);
                     if !filtered_items.is_empty() {
                         return CompletionResult::new(filtered_items, input[..cursor].to_string())
                             .with_timing(start_time.elapsed())
@@ -764,16 +785,16 @@ impl CompletionEngine {
 
         // Use context-aware provider selection
         let relevant_providers = self.select_relevant_providers(input, cursor);
-        
+
         for provider in relevant_providers {
             let provider_start = Instant::now();
-            
+
             if provider.can_complete(input, cursor) {
                 match provider.get_completions(input, cursor) {
                     Ok(items) => {
                         if !items.is_empty() {
                             sources_used.push(provider.name().to_string());
-                            
+
                             // Apply intelligent scoring and filtering
                             let scored_items = self.apply_intelligent_scoring(items, input, cursor);
                             all_items.extend(scored_items);
@@ -784,7 +805,7 @@ impl CompletionEngine {
                     }
                 }
             }
-            
+
             let provider_duration = provider_start.elapsed();
             execution_stats.insert(provider.name().to_string(), provider_duration);
         }
@@ -792,25 +813,32 @@ impl CompletionEngine {
         // Advanced sorting with multiple criteria
         all_items.sort_by(|a, b| {
             // Primary: Score (descending)
-            let score_cmp = b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal);
+            let score_cmp = b
+                .score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal);
             if score_cmp != std::cmp::Ordering::Equal {
                 return score_cmp;
             }
-            
+
             // Secondary: Type relevance based on context
-            let type_relevance_a = self.get_contextual_type_relevance(&a.completion_type, input, cursor);
-            let type_relevance_b = self.get_contextual_type_relevance(&b.completion_type, input, cursor);
-            let relevance_cmp = type_relevance_b.partial_cmp(&type_relevance_a).unwrap_or(std::cmp::Ordering::Equal);
+            let type_relevance_a =
+                self.get_contextual_type_relevance(&a.completion_type, input, cursor);
+            let type_relevance_b =
+                self.get_contextual_type_relevance(&b.completion_type, input, cursor);
+            let relevance_cmp = type_relevance_b
+                .partial_cmp(&type_relevance_a)
+                .unwrap_or(std::cmp::Ordering::Equal);
             if relevance_cmp != std::cmp::Ordering::Equal {
                 return relevance_cmp;
             }
-            
+
             // Tertiary: String length (shorter first for better UX)
             let len_cmp = a.text.len().cmp(&b.text.len());
             if len_cmp != std::cmp::Ordering::Equal {
                 return len_cmp;
             }
-            
+
             // Final: Alphabetical order
             a.text.cmp(&b.text)
         });
@@ -826,9 +854,10 @@ impl CompletionEngine {
         // Enhanced cache management
         if let Ok(mut cache) = self.cache.lock() {
             cache.insert(cache_key, (result.clone(), start_time));
-            
+
             // Adaptive cache cleanup based on usage patterns
-            if cache.len() > 200 { // Increased cache size for better performance
+            if cache.len() > 200 {
+                // Increased cache size for better performance
                 self.cleanup_cache_intelligently(&mut cache, start_time);
             }
         }
@@ -836,10 +865,11 @@ impl CompletionEngine {
         // Update performance metrics with detailed stats
         if let Ok(mut metrics) = self.performance_metrics.lock() {
             metrics.total_completions += 1;
-            metrics.average_completion_time = 
-                (metrics.average_completion_time * (metrics.total_completions - 1) as f64 
-                 + completion_time.as_millis() as f64) / metrics.total_completions as f64;
-            
+            metrics.average_completion_time = (metrics.average_completion_time
+                * (metrics.total_completions - 1) as f64
+                + completion_time.as_millis() as f64)
+                / metrics.total_completions as f64;
+
             for (provider_name, duration) in execution_stats {
                 let provider_stats = metrics.provider_stats.entry(provider_name).or_default();
                 provider_stats.total_calls += 1;
@@ -851,15 +881,20 @@ impl CompletionEngine {
     }
 
     /// Select relevant providers based on input context
-    fn select_relevant_providers(&self, input: &str, cursor: usize) -> Vec<&dyn CompletionProvider> {
+    fn select_relevant_providers(
+        &self,
+        input: &str,
+        cursor: usize,
+    ) -> Vec<&dyn CompletionProvider> {
         let mut relevant_providers = Vec::new();
         let prefix = &input[..cursor];
-        
+
         // Analyze context to determine which providers are most relevant
         let is_command_position = prefix.split_whitespace().count() <= 1;
-        let has_path_chars = prefix.contains('/') || prefix.contains('\\') || prefix.starts_with('.');
+        let has_path_chars =
+            prefix.contains('/') || prefix.contains('\\') || prefix.starts_with('.');
         let has_variable_chars = prefix.contains('$');
-        
+
         for provider in &self.providers {
             let relevance_score = match provider.name() {
                 "filesystem" if has_path_chars => 10,
@@ -869,12 +904,12 @@ impl CompletionEngine {
                 "variable" if has_variable_chars => 10,
                 _ => 3, // Default low relevance
             };
-            
+
             if relevance_score >= 3 {
                 relevant_providers.push(provider.as_ref());
             }
         }
-        
+
         // Sort by relevance and priority
         relevant_providers.sort_by_key(|p| {
             let base_priority = p.priority();
@@ -885,58 +920,73 @@ impl CompletionEngine {
             };
             std::cmp::Reverse(base_priority + context_bonus)
         });
-        
+
         relevant_providers
     }
 
     /// Apply intelligent scoring to completion items
-    fn apply_intelligent_scoring(&self, items: Vec<CompletionItem>, input: &str, cursor: usize) -> Vec<CompletionItem> {
+    fn apply_intelligent_scoring(
+        &self,
+        items: Vec<CompletionItem>,
+        input: &str,
+        cursor: usize,
+    ) -> Vec<CompletionItem> {
         let query = input[..cursor].trim_end();
         let query_lower = query.to_lowercase();
-        
-        items.into_iter().map(|mut item| {
-            let text_lower = item.text.to_lowercase();
-            let mut score = item.score;
-            
-            // Exact match bonus
-            if text_lower == query_lower {
-                score += 1000.0;
-            }
-            // Prefix match bonus
-            else if text_lower.starts_with(&query_lower) {
-                score += 500.0;
-            }
-            // Contains match bonus
-            else if text_lower.contains(&query_lower) {
-                score += 100.0;
-            }
-            
-            // Word boundary bonuses
-            if self.matches_word_boundaries(&text_lower, &query_lower) {
-                score += 200.0;
-            }
-            
-            // Length penalty for very long matches
-            if item.text.len() > 50 {
-                score -= (item.text.len() - 50) as f64 * 2.0;
-            }
-            
-            item.score = score;
-            item
-        }).collect()
+
+        items
+            .into_iter()
+            .map(|mut item| {
+                let text_lower = item.text.to_lowercase();
+                let mut score = item.score;
+
+                // Exact match bonus
+                if text_lower == query_lower {
+                    score += 1000.0;
+                }
+                // Prefix match bonus
+                else if text_lower.starts_with(&query_lower) {
+                    score += 500.0;
+                }
+                // Contains match bonus
+                else if text_lower.contains(&query_lower) {
+                    score += 100.0;
+                }
+
+                // Word boundary bonuses
+                if self.matches_word_boundaries(&text_lower, &query_lower) {
+                    score += 200.0;
+                }
+
+                // Length penalty for very long matches
+                if item.text.len() > 50 {
+                    score -= (item.text.len() - 50) as f64 * 2.0;
+                }
+
+                item.score = score;
+                item
+            })
+            .collect()
     }
 
     /// Check if query matches word boundaries in text
     fn matches_word_boundaries(&self, text: &str, query: &str) -> bool {
-        let words: Vec<&str> = text.split(|c: char| !c.is_alphanumeric() && c != '_').collect();
+        let words: Vec<&str> = text
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .collect();
         words.iter().any(|word| word.starts_with(query))
     }
 
     /// Get contextual relevance of completion types
-    fn get_contextual_type_relevance(&self, completion_type: &CompletionType, input: &str, cursor: usize) -> f64 {
+    fn get_contextual_type_relevance(
+        &self,
+        completion_type: &CompletionType,
+        input: &str,
+        cursor: usize,
+    ) -> f64 {
         let prefix = &input[..cursor];
         let is_first_word = prefix.split_whitespace().count() <= 1;
-        
+
         match completion_type {
             CompletionType::Command | CompletionType::Builtin if is_first_word => 1.0,
             CompletionType::File | CompletionType::Directory if !is_first_word => 0.9,
@@ -947,23 +997,28 @@ impl CompletionEngine {
     }
 
     /// Apply intelligent limiting while preserving diversity
-    fn apply_intelligent_limiting(&self, items: Vec<CompletionItem>, max_results: usize) -> Vec<CompletionItem> {
+    fn apply_intelligent_limiting(
+        &self,
+        items: Vec<CompletionItem>,
+        max_results: usize,
+    ) -> Vec<CompletionItem> {
         if items.len() <= max_results {
             return items;
         }
-        
+
         let mut result = Vec::new();
         let mut type_counts = HashMap::new();
-        
+
         // First pass: Include high-scoring items from each type
         for item in items.iter() {
             let type_count = type_counts.entry(&item.completion_type).or_insert(0);
-            if *type_count < 3 && result.len() < max_results { // Max 3 per type initially
+            if *type_count < 3 && result.len() < max_results {
+                // Max 3 per type initially
                 result.push(item.clone());
                 *type_count += 1;
             }
         }
-        
+
         // Second pass: Fill remaining slots with best items
         for item in items.iter() {
             if result.len() >= max_results {
@@ -973,43 +1028,51 @@ impl CompletionEngine {
                 result.push(item.clone());
             }
         }
-        
+
         result
     }
 
     /// Filter cached results for partial matches
-    fn filter_cached_results(&self, cached_items: &[CompletionItem], input: &str, cursor: usize) -> Vec<CompletionItem> {
+    fn filter_cached_results(
+        &self,
+        cached_items: &[CompletionItem],
+        input: &str,
+        cursor: usize,
+    ) -> Vec<CompletionItem> {
         let query = input[..cursor].to_lowercase();
-        
-        cached_items.iter()
+
+        cached_items
+            .iter()
             .filter(|item| item.text.to_lowercase().contains(&query))
             .cloned()
             .collect()
     }
 
     /// Intelligent cache cleanup based on usage patterns
-    fn cleanup_cache_intelligently(&self, cache: &mut HashMap<String, (CompletionResult, Instant)>, current_time: Instant) {
-        let entries: Vec<_> = cache.iter()
-            .map(|(k, v)| (k.clone(), v.1))
-            .collect();
-        
+    fn cleanup_cache_intelligently(
+        &self,
+        cache: &mut HashMap<String, (CompletionResult, Instant)>,
+        current_time: Instant,
+    ) {
+        let entries: Vec<_> = cache.iter().map(|(k, v)| (k.clone(), v.1)).collect();
+
         // Sort by access time and relevance
         let mut sorted_entries = entries;
         sorted_entries.sort_by(|a, b| {
             let time_diff_a = current_time.duration_since(a.1);
             let time_diff_b = current_time.duration_since(b.1);
-            
+
             // Prefer more recent entries
             time_diff_a.cmp(&time_diff_b)
         });
-        
+
         // Keep only the best 100 entries
         let keys_to_keep: std::collections::HashSet<_> = sorted_entries
             .iter()
             .take(100)
             .map(|(k, _)| k.clone())
             .collect();
-            
+
         cache.retain(|key, _| keys_to_keep.contains(key));
     }
 
@@ -1051,7 +1114,7 @@ mod tests {
         let item = CompletionItem::new("test".to_string(), CompletionType::Command)
             .with_description("Test command".to_string())
             .with_score(0.8);
-        
+
         assert_eq!(item.text, "test");
         assert_eq!(item.completion_type, CompletionType::Command);
         assert_eq!(item.description, Some("Test command".to_string()));
@@ -1062,7 +1125,7 @@ mod tests {
     fn test_filesystem_provider() {
         let provider = FileSystemProvider::new();
         assert_eq!(provider.name(), "filesystem");
-        
+
         // Test can_complete
         assert!(provider.can_complete("./test", 6));
         assert!(provider.can_complete("/usr/bin/", 9));
@@ -1074,7 +1137,7 @@ mod tests {
         let provider = CommandProvider::new();
         provider.add_command("ls".to_string(), Some("List files".to_string()));
         provider.add_command("cat".to_string(), None);
-        
+
         let completions = provider.get_completions("l", 1).unwrap();
         assert!(completions.iter().any(|item| item.text == "ls"));
     }
@@ -1084,7 +1147,7 @@ mod tests {
         let provider = HistoryProvider::new(10);
         provider.add_history_item("git status".to_string());
         provider.add_history_item("git commit -m 'test'".to_string());
-        
+
         let completions = provider.get_completions("git", 3).unwrap();
         assert_eq!(completions.len(), 2);
     }
@@ -1092,13 +1155,13 @@ mod tests {
     #[test]
     fn test_completion_engine() {
         let engine = CompletionEngine::new();
-        
+
         // Test basic functionality - engine should be created successfully
         let result = engine.get_completions("");
         // Since we load system commands automatically, empty result is not guaranteed
         // Just verify the engine works
         assert!(result.prefix.is_empty());
-        
+
         // Test with some input
         let result = engine.get_completions("l");
         // Results depend on system commands available
@@ -1109,17 +1172,17 @@ mod tests {
     #[test]
     fn test_completion_caching() {
         let engine = CompletionEngine::new();
-        
+
         // First call
         let start = Instant::now();
         let result1 = engine.get_completions("test");
         let time1 = start.elapsed();
-        
+
         // Second call (should be cached)
         let start = Instant::now();
         let result2 = engine.get_completions("test");
         let time2 = start.elapsed();
-        
+
         // Cache should make second call faster
         assert!(time2 < time1 || time2.as_millis() < 5);
         assert_eq!(result1.items.len(), result2.items.len());

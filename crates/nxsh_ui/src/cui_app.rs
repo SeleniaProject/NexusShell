@@ -16,6 +16,8 @@ use crossterm::{
 };
 use tokio::sync::mpsc;
 use unicode_width::UnicodeWidthStr;
+use once_cell::sync::Lazy;
+use regex::Regex;
 
 use crate::config::UiConfig;
 use crate::themes::{Theme, get_theme};
@@ -182,7 +184,10 @@ impl CuiApp {
     pub async fn run(&mut self) -> Result<()> {
         self.initialize().await?;
 
-        let mut event_receiver = self.event_receiver.take().unwrap();
+        let mut event_receiver = match self.event_receiver.take() {
+            Some(rx) => rx,
+            None => return Err(anyhow::anyhow!("event receiver not initialized")),
+        };
 
         loop {
             // Handle events
@@ -1282,10 +1287,8 @@ impl CuiApp {
 
     /// 📊 Calculate actual display width accounting for ANSI sequences
     fn calculate_display_width(&self, text: &str) -> usize {
-        // Simple ANSI sequence removal for width calculation
-        let clean_text = regex::Regex::new(r"\x1b\[[0-9;]*m")
-            .unwrap()
-            .replace_all(text, "");
+        static ANSI_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"\x1b\[[0-9;]*m").unwrap_or_else(|_| Regex::new("$").unwrap()));
+        let clean_text = ANSI_REGEX.replace_all(text, "");
         clean_text.width()
     }
 
@@ -1452,7 +1455,8 @@ impl CuiApp {
             print!("\x1b[90m{}\x1b[0m", line); // Gray for prompts
         } else if line.contains("http://") || line.contains("https://") {
             // URLs - blue and underlined
-            let url_regex = regex::Regex::new(r"(https?://[^\s]+)").unwrap();
+            static URL_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"(https?://[^\s]+)").unwrap_or_else(|_| Regex::new("^$").unwrap()));
+            let url_regex: &Regex = &URL_REGEX;
             let highlighted = url_regex.replace_all(line, "\x1b[94;4m$1\x1b[0m");
             print!("{}", highlighted);
         } else if line.contains("Error") || line.contains("error") || line.contains("ERROR") {

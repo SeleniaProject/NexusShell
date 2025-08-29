@@ -17,7 +17,10 @@ struct AnsiStyle {
 
 impl Default for AnsiStyle {
     fn default() -> Self {
-        Self { fg: Rgba([0xEE, 0xEE, 0xEE, 0xFF]), bold: false }
+        Self {
+            fg: Rgba([0xEE, 0xEE, 0xEE, 0xFF]),
+            bold: false,
+        }
     }
 }
 
@@ -60,15 +63,23 @@ fn parse_ansi_segments(line: &str) -> Vec<(AnsiStyle, String)> {
             }
             // parse until 'm'
             let mut j = i + 2;
-            while j < bytes.len() && bytes[j] != b'm' { j += 1; }
+            while j < bytes.len() && bytes[j] != b'm' {
+                j += 1;
+            }
             if j < bytes.len() && bytes[j] == b'm' {
                 let code_str = &line[i + 2..j];
                 for part in code_str.split(';') {
                     if let Ok(code) = part.parse::<i32>() {
                         match code {
-                            0 => { style = AnsiStyle::default(); }
-                            1 => { style.bold = true; }
-                            30..=37 | 90..=97 => { style.fg = color_from_code(code); }
+                            0 => {
+                                style = AnsiStyle::default();
+                            }
+                            1 => {
+                                style.bold = true;
+                            }
+                            30..=37 | 90..=97 => {
+                                style.fg = color_from_code(code);
+                            }
                             _ => {}
                         }
                     }
@@ -80,7 +91,9 @@ fn parse_ansi_segments(line: &str) -> Vec<(AnsiStyle, String)> {
         buf.push(bytes[i] as char);
         i += 1;
     }
-    if !buf.is_empty() { segments.push((style, buf)); }
+    if !buf.is_empty() {
+        segments.push((style, buf));
+    }
     segments
 }
 
@@ -122,7 +135,8 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    let font_path = font_path.unwrap_or_else(|| PathBuf::from("assets/fonts/JetBrainsMono-Regular.ttf"));
+    let font_path =
+        font_path.unwrap_or_else(|| PathBuf::from("assets/fonts/JetBrainsMono-Regular.ttf"));
     let input = input.expect("--in is required");
     let output = output.expect("--out is required");
 
@@ -134,10 +148,9 @@ fn main() -> anyhow::Result<()> {
     let lines: Vec<String> = reader.lines().collect::<Result<_, _>>()?;
 
     // Determine image dimensions. Assume monospace approx width per char ~ 0.6 * size.
-    let img = nxsh_ui::ansi_render::render_lines_to_image(&font, size, bg, cols, line_height, &lines);
+    let img =
+        nxsh_ui::ansi_render::render_lines_to_image(&font, size, bg, cols, line_height, &lines);
     img.save(&output)?;
     println!("Saved {}", output.display());
     Ok(())
 }
-
-

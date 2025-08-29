@@ -668,7 +668,7 @@ impl Default for OutputFormat {
 impl UniversalFormatter {
     /// Quick table formatting
     pub fn quick_table(headers: &[&str], rows: &[Vec<&str>]) -> String {
-        let formatter = Self::new().unwrap();
+    let formatter = match Self::new() { Ok(f) => f, Err(_) => return String::from("Error formatting table") };
         let headers: Vec<String> = headers.iter().map(|s| s.to_string()).collect();
         let rows: Vec<Vec<String>> = rows.iter()
             .map(|row| row.iter().map(|s| s.to_string()).collect())
@@ -679,17 +679,26 @@ impl UniversalFormatter {
     
     /// Quick success message
     pub fn quick_success(message: &str) -> String {
-        Self::new().unwrap().format_success(message, None)
+        match Self::new() {
+            Ok(f) => f.format_success(message, None),
+            Err(_) => format!("SUCCESS: {}", message),
+        }
     }
     
     /// Quick error message
     pub fn quick_error(message: &str) -> String {
-        Self::new().unwrap().format_error(message, None, None)
+        match Self::new() {
+            Ok(f) => f.format_error(message, None, None),
+            Err(_) => format!("ERROR: {}", message),
+        }
     }
     
     /// Quick info message
     pub fn quick_info(message: &str) -> String {
-        Self::new().unwrap().format_info(message, None)
+        match Self::new() {
+            Ok(f) => f.format_info(message, None),
+            Err(_) => format!("INFO: {}", message),
+        }
     }
 }
 

@@ -6,7 +6,8 @@ use serde::Deserialize;
 
 #[derive(Deserialize)]
 struct JobEntry {
-    #[serde(rename = "in")] in_path: String,
+    #[serde(rename = "in")]
+    in_path: String,
     out: String,
 }
 
@@ -16,7 +17,8 @@ struct BatchConfig {
     size: Option<f32>,
     bg: Option<String>,
     cols: Option<usize>,
-    #[serde(rename = "line_height")] line_height: Option<f32>,
+    #[serde(rename = "line_height")]
+    line_height: Option<f32>,
     inputs: Vec<JobEntry>,
 }
 
@@ -37,15 +39,25 @@ fn main() -> anyhow::Result<()> {
     let mut config_path: Option<PathBuf> = None;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
-        if a == "--config" { config_path = Some(PathBuf::from(args.next().expect("--config requires a path"))); }
+        if a == "--config" {
+            config_path = Some(PathBuf::from(
+                args.next().expect("--config requires a path"),
+            ));
+        }
     }
     let config_path = config_path.expect("--config is required");
     let data = fs::read_to_string(&config_path)?;
     let cfg: BatchConfig = serde_json::from_str(&data)?;
 
-    let font_path = PathBuf::from(cfg.font.unwrap_or_else(|| "assets/fonts/JetBrainsMono-Regular.ttf".to_string()));
+    let font_path = PathBuf::from(
+        cfg.font
+            .unwrap_or_else(|| "assets/fonts/JetBrainsMono-Regular.ttf".to_string()),
+    );
     let size = cfg.size.unwrap_or(18.0);
-    let bg = cfg.bg.map(|s| parse_hex_color(&s)).unwrap_or(Rgba([0x28, 0x28, 0x28, 0xFF]));
+    let bg = cfg
+        .bg
+        .map(|s| parse_hex_color(&s))
+        .unwrap_or(Rgba([0x28, 0x28, 0x28, 0xFF]));
     let cols = cfg.cols.unwrap_or(100);
     let line_height = cfg.line_height.unwrap_or(1.2);
 
@@ -53,11 +65,15 @@ fn main() -> anyhow::Result<()> {
         let input = PathBuf::from(job.in_path);
         let output = PathBuf::from(job.out);
         nxsh_ui::ansi_render::render_ansi_file_to_png(
-            &font_path, size, bg, cols, line_height, &input, &output,
+            &font_path,
+            size,
+            bg,
+            cols,
+            line_height,
+            &input,
+            &output,
         )?;
         println!("Saved {}", output.display());
     }
     Ok(())
 }
-
-

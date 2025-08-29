@@ -1,5 +1,5 @@
 //! Enhanced Line Editor with Beautiful Tab Completion
-//! 
+//!
 //! This module provides an advanced line editor that integrates:
 //! - Beautiful visual completion panel
 //! - Enhanced tab navigation
@@ -8,21 +8,18 @@
 
 use anyhow::Result;
 use crossterm::{
-    event::{Event, KeyCode, KeyEvent, KeyModifiers, read, poll},
-    terminal::{enable_raw_mode, disable_raw_mode},
     cursor::MoveTo,
-    style::ResetColor,
+    event::{poll, read, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
+    style::ResetColor,
+    terminal::{disable_raw_mode, enable_raw_mode},
 };
 use std::{
-    io::{self, Write, stdout},
+    io::{self, stdout, Write},
     time::{Duration, Instant},
-
 };
 
-use crate::{
-    tab_completion::{TabCompletionHandler, TabCompletionResult},
-};
+use crate::tab_completion::{TabCompletionHandler, TabCompletionResult};
 
 /// Enhanced line editor with visual completion
 pub struct EnhancedLineEditor {
@@ -79,7 +76,7 @@ impl EnhancedLineEditor {
     /// Create a new enhanced line editor
     pub fn new() -> Result<Self> {
         let completion_handler = TabCompletionHandler::new()?;
-        
+
         Ok(Self {
             input_buffer: String::new(),
             cursor_position: 0,
@@ -106,12 +103,12 @@ impl EnhancedLineEditor {
 
         // Enable raw mode for custom input handling
         enable_raw_mode()?;
-        
+
         let result = self.input_loop().await;
-        
+
         // Disable raw mode
         disable_raw_mode()?;
-        
+
         // Add successful input to history
         if let Ok(ref input) = result {
             if !input.trim().is_empty() {
@@ -126,7 +123,7 @@ impl EnhancedLineEditor {
     /// Main input handling loop
     async fn input_loop(&mut self) -> Result<String> {
         let mut last_key_time = Instant::now();
-        
+
         loop {
             // Update animations if enabled
             if self.config.enable_animations {
@@ -138,7 +135,7 @@ impl EnhancedLineEditor {
                 match read()? {
                     Event::Key(key_event) => {
                         let result = self.handle_key_event(key_event).await?;
-                        
+
                         match result {
                             InputResult::Continue => {
                                 self.refresh_display()?;
@@ -155,7 +152,7 @@ impl EnhancedLineEditor {
                                 // Panel was updated, no need to refresh
                             }
                         }
-                        
+
                         last_key_time = Instant::now();
                     }
                     Event::Resize(_, _) => {
@@ -170,12 +167,15 @@ impl EnhancedLineEditor {
             if self.config.enable_visual_completion {
                 let elapsed = last_key_time.elapsed();
                 if elapsed.as_millis() >= self.config.completion_delay_ms as u128
-                    && !self.completion_handler.is_panel_visible() && !self.input_buffer.is_empty() {
-                        // Auto-show completion suggestions
-                        let _ = self.completion_handler
-                            .handle_tab_key(&self.input_buffer, self.cursor_position)
-                            .await;
-                    }
+                    && !self.completion_handler.is_panel_visible()
+                    && !self.input_buffer.is_empty()
+                {
+                    // Auto-show completion suggestions
+                    let _ = self
+                        .completion_handler
+                        .handle_tab_key(&self.input_buffer, self.cursor_position)
+                        .await;
+                }
             }
         }
     }
@@ -183,9 +183,10 @@ impl EnhancedLineEditor {
     /// Handle individual key events
     async fn handle_key_event(&mut self, key_event: KeyEvent) -> Result<InputResult> {
         // Check if completion panel is handling the key
-        if let Some(completion_result) = self.completion_handler
+        if let Some(completion_result) = self
+            .completion_handler
             .handle_key_during_completion(key_event)
-            .await? 
+            .await?
         {
             return self.handle_completion_result(completion_result).await;
         }
@@ -204,7 +205,8 @@ impl EnhancedLineEditor {
 
             // Tab completion
             (KeyCode::Tab, KeyModifiers::NONE) => {
-                let result = self.completion_handler
+                let result = self
+                    .completion_handler
                     .handle_tab_key(&self.input_buffer, self.cursor_position)
                     .await?;
                 self.handle_completion_result(result).await
@@ -297,7 +299,10 @@ impl EnhancedLineEditor {
     }
 
     /// Handle completion results
-    async fn handle_completion_result(&mut self, result: TabCompletionResult) -> Result<InputResult> {
+    async fn handle_completion_result(
+        &mut self,
+        result: TabCompletionResult,
+    ) -> Result<InputResult> {
         match result {
             TabCompletionResult::SingleCompletion { text, .. } => {
                 self.apply_completion(&text);
@@ -311,15 +316,9 @@ impl EnhancedLineEditor {
                 self.apply_completion(&text);
                 Ok(InputResult::Continue)
             }
-            TabCompletionResult::PanelShown { .. } => {
-                Ok(InputResult::CompletionUpdate)
-            }
-            TabCompletionResult::NavigationUpdate => {
-                Ok(InputResult::CompletionUpdate)
-            }
-            TabCompletionResult::Cancelled => {
-                Ok(InputResult::Continue)
-            }
+            TabCompletionResult::PanelShown { .. } => Ok(InputResult::CompletionUpdate),
+            TabCompletionResult::NavigationUpdate => Ok(InputResult::CompletionUpdate),
+            TabCompletionResult::Cancelled => Ok(InputResult::Continue),
             _ => Ok(InputResult::Continue),
         }
     }
@@ -328,7 +327,7 @@ impl EnhancedLineEditor {
     fn apply_completion(&mut self, completion_text: &str) {
         // Find the word boundary to replace
         let word_start = self.find_word_start();
-        
+
         // Replace the current word with completion
         self.input_buffer.drain(word_start..self.cursor_position);
         self.input_buffer.insert_str(word_start, completion_text);
@@ -338,7 +337,7 @@ impl EnhancedLineEditor {
     /// Find the start of the current word
     fn find_word_start(&self) -> usize {
         let mut pos = self.cursor_position;
-        
+
         while pos > 0 {
             let ch = self.input_buffer.chars().nth(pos - 1).unwrap_or(' ');
             if ch.is_whitespace() {
@@ -346,7 +345,7 @@ impl EnhancedLineEditor {
             }
             pos -= 1;
         }
-        
+
         pos
     }
 
@@ -393,7 +392,11 @@ impl EnhancedLineEditor {
     fn move_cursor_word_left(&mut self) {
         while self.cursor_position > 0 {
             self.cursor_position -= 1;
-            let ch = self.input_buffer.chars().nth(self.cursor_position).unwrap_or(' ');
+            let ch = self
+                .input_buffer
+                .chars()
+                .nth(self.cursor_position)
+                .unwrap_or(' ');
             if ch.is_whitespace() {
                 break;
             }
@@ -402,7 +405,11 @@ impl EnhancedLineEditor {
 
     fn move_cursor_word_right(&mut self) {
         while self.cursor_position < self.input_buffer.len() {
-            let ch = self.input_buffer.chars().nth(self.cursor_position).unwrap_or(' ');
+            let ch = self
+                .input_buffer
+                .chars()
+                .nth(self.cursor_position)
+                .unwrap_or(' ');
             self.cursor_position += 1;
             if ch.is_whitespace() {
                 break;
@@ -454,15 +461,15 @@ impl EnhancedLineEditor {
         if !input.trim().is_empty() {
             // Remove duplicate if exists
             self.history.retain(|entry| entry != &input);
-            
+
             // Add to end
             self.history.push(input);
-            
+
             // Maintain max size
             if self.history.len() > self.config.max_history_size {
                 self.history.remove(0);
             }
-            
+
             // Reset history index
             self.history_index = self.history.len();
         }
@@ -479,21 +486,24 @@ impl EnhancedLineEditor {
         // Move to beginning of input line
         let (_, y) = crossterm::cursor::position()?;
         execute!(stdout(), MoveTo(0, y))?;
-        
+
         // Clear line and redraw
-        execute!(stdout(), crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine))?;
-        
+        execute!(
+            stdout(),
+            crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine)
+        )?;
+
         // Display input with syntax highlighting if enabled
         if self.config.enable_syntax_highlighting {
             self.display_highlighted_input()?;
         } else {
             print!("{}", self.input_buffer);
         }
-        
+
         // Position cursor
         let cursor_x = self.cursor_position as u16;
         execute!(stdout(), MoveTo(cursor_x, y))?;
-        
+
         io::stdout().flush()?;
         Ok(())
     }
@@ -502,13 +512,16 @@ impl EnhancedLineEditor {
         // Basic syntax highlighting implementation
         let mut in_string = false;
         let mut in_command = true;
-        
+
         for (i, ch) in self.input_buffer.chars().enumerate() {
             match ch {
                 '"' | '\'' => {
                     in_string = !in_string;
                     if in_string {
-                        execute!(stdout(), crossterm::style::SetForegroundColor(crossterm::style::Color::Green))?;
+                        execute!(
+                            stdout(),
+                            crossterm::style::SetForegroundColor(crossterm::style::Color::Green)
+                        )?;
                     } else {
                         execute!(stdout(), ResetColor)?;
                     }
@@ -523,13 +536,16 @@ impl EnhancedLineEditor {
                 }
                 _ => {
                     if in_command && !in_string && i == 0 {
-                        execute!(stdout(), crossterm::style::SetForegroundColor(crossterm::style::Color::Blue))?;
+                        execute!(
+                            stdout(),
+                            crossterm::style::SetForegroundColor(crossterm::style::Color::Blue)
+                        )?;
                     }
                     print!("{}", ch);
                 }
             }
         }
-        
+
         execute!(stdout(), ResetColor)?;
         Ok(())
     }
@@ -538,14 +554,20 @@ impl EnhancedLineEditor {
         // Clear current line and redraw
         let (_, y) = crossterm::cursor::position()?;
         execute!(stdout(), MoveTo(0, y))?;
-        execute!(stdout(), crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine))?;
-        
+        execute!(
+            stdout(),
+            crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine)
+        )?;
+
         self.display_input()?;
         Ok(())
     }
 
     fn clear_screen(&self) -> Result<()> {
-        execute!(stdout(), crossterm::terminal::Clear(crossterm::terminal::ClearType::All))?;
+        execute!(
+            stdout(),
+            crossterm::terminal::Clear(crossterm::terminal::ClearType::All)
+        )?;
         execute!(stdout(), MoveTo(0, 0))?;
         Ok(())
     }
@@ -612,14 +634,14 @@ mod tests {
         editor.insert_character('l');
         editor.insert_character('l');
         editor.insert_character('o');
-        
+
         editor.move_cursor_left();
         editor.move_cursor_left();
         assert_eq!(editor.cursor_position(), 3);
-        
+
         editor.move_cursor_home();
         assert_eq!(editor.cursor_position(), 0);
-        
+
         editor.move_cursor_end();
         assert_eq!(editor.cursor_position(), 5);
     }
@@ -627,16 +649,16 @@ mod tests {
     #[test]
     fn test_history_management() {
         let mut editor = EnhancedLineEditor::new().unwrap();
-        
+
         editor.add_to_history("command1".to_string());
         editor.add_to_history("command2".to_string());
-        
+
         assert_eq!(editor.history.len(), 2);
         assert_eq!(editor.history_index, 2);
-        
+
         editor.history_previous();
         assert_eq!(editor.history_index, 1);
-        
+
         editor.history_previous();
         assert_eq!(editor.history_index, 0);
     }
@@ -646,9 +668,8 @@ mod tests {
         let mut editor = EnhancedLineEditor::new().unwrap();
         editor.input_buffer = "git commit -m".to_string();
         editor.cursor_position = 13; // End of string
-        
+
         let word_start = editor.find_word_start();
         assert_eq!(word_start, 11); // Start of "-m"
     }
 }
-

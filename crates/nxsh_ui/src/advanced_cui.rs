@@ -221,7 +221,7 @@ pub enum ProgressStyle {
     /// Block characters: █████░░░░░
     Blocks,
     
-    /// Bar characters: ━━━━━┅━E��━E��
+    /// Bar characters: ━━━━━┅━E��━E��
     Bars,
     
     /// ASCII characters: ####......
@@ -267,8 +267,8 @@ impl IconSet {
         Self {
             success: "✁E,
             error: "❁E,
-            warning: "⚠�E�E,
-            info: "ℹ�E�E,
+            warning: "⚠�E�E,
+            info: "ℹ�E�E,
             file: "📄",
             directory: "📁",
             loading: "⏳",
@@ -749,27 +749,44 @@ impl AdvancedCUI {
 impl AdvancedCUI {
     /// Quick success message
     pub fn success(message: &str) -> String {
-        Self::new().unwrap().format_success_message(message)
+        match Self::new() {
+            Ok(cui) => cui.format_success_message(message),
+            Err(_) => format!("SUCCESS: {}", message),
+        }
     }
     
     /// Quick error message
     pub fn error(message: &str) -> String {
-        Self::new().unwrap().format_error_message(message)
+        match Self::new() {
+            Ok(cui) => cui.format_error_message(message),
+            Err(_) => format!("ERROR: {}", message),
+        }
     }
     
     /// Quick warning message
     pub fn warning(message: &str) -> String {
-        Self::new().unwrap().format_warning_message(message)
+        match Self::new() {
+            Ok(cui) => cui.format_warning_message(message),
+            Err(_) => format!("WARNING: {}", message),
+        }
     }
     
     /// Quick info message
     pub fn info(message: &str) -> String {
-        Self::new().unwrap().format_info_message(message)
+        match Self::new() {
+            Ok(cui) => cui.format_info_message(message),
+            Err(_) => format!("INFO: {}", message),
+        }
     }
     
     /// Quick table formatting
     pub fn table(headers: &[String], rows: &[Vec<String>]) -> String {
-        Self::new().unwrap().format_table(headers, rows).unwrap_or_else(|_| "Error formatting table".to_string())
+        match Self::new() {
+            Ok(cui) => cui
+                .format_table(headers, rows)
+                .unwrap_or_else(|_| "Error formatting table".to_string()),
+            Err(_) => "Error formatting table".to_string(),
+        }
     }
 }
 

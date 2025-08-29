@@ -245,7 +245,11 @@ impl NexusLineEditor {
 
 impl Default for NexusLineEditor {
     fn default() -> Self {
-        Self::new().unwrap()
+        Self::new().unwrap_or_else(|_| Self::new_minimal().unwrap_or_else(|_| {
+            // Last-resort minimal editor with default Config
+            let editor: rustyline::Editor<RustyHelper, DefaultHistory> = rustyline::Editor::new().unwrap();
+            Self { editor, history_file: None, config: LineEditorConfig::default() }
+        }))
     }
 }
 

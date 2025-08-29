@@ -2,10 +2,10 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-use ab_glyph::{point, FontRef, PxScale, Font, ScaleFont};
-use image::{ImageBuffer, Rgba};
-use anyhow::Result;
 use crate::Theme;
+use ab_glyph::{point, Font, FontRef, PxScale, ScaleFont};
+use anyhow::Result;
+use image::{ImageBuffer, Rgba};
 
 /// Represents a minimal ANSI style for foreground color and bold attribute.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -16,7 +16,10 @@ pub struct AnsiStyle {
 
 impl Default for AnsiStyle {
     fn default() -> Self {
-        Self { fg: Rgba([0xEE, 0xEE, 0xEE, 0xFF]), bold: false }
+        Self {
+            fg: Rgba([0xEE, 0xEE, 0xEE, 0xFF]),
+            bold: false,
+        }
     }
 }
 
@@ -58,15 +61,23 @@ pub fn parse_ansi_segments(line: &str) -> Vec<(AnsiStyle, String)> {
                 buf.clear();
             }
             let mut j = i + 2;
-            while j < bytes.len() && bytes[j] != b'm' { j += 1; }
+            while j < bytes.len() && bytes[j] != b'm' {
+                j += 1;
+            }
             if j < bytes.len() && bytes[j] == b'm' {
                 let code_str = &line[i + 2..j];
                 for part in code_str.split(';') {
                     if let Ok(code) = part.parse::<i32>() {
                         match code {
-                            0 => { style = AnsiStyle::default(); }
-                            1 => { style.bold = true; }
-                            30..=37 | 90..=97 => { style.fg = color_from_code(code); }
+                            0 => {
+                                style = AnsiStyle::default();
+                            }
+                            1 => {
+                                style.bold = true;
+                            }
+                            30..=37 | 90..=97 => {
+                                style.fg = color_from_code(code);
+                            }
                             _ => {}
                         }
                     }
@@ -78,7 +89,9 @@ pub fn parse_ansi_segments(line: &str) -> Vec<(AnsiStyle, String)> {
         buf.push(bytes[i] as char);
         i += 1;
     }
-    if !buf.is_empty() { segments.push((style, buf)); }
+    if !buf.is_empty() {
+        segments.push((style, buf));
+    }
     segments
 }
 
@@ -117,35 +130,39 @@ fn render_segment(
     let img_height = img.height() as i32;
 
     for ch in text.chars() {
-        if ch == '\r' { continue; }
-        if ch == '\n' { break; }
-        
+        if ch == '\r' {
+            continue;
+        }
+        if ch == '\n' {
+            break;
+        }
+
         // Early exit if we've gone beyond the right edge
         if x >= img_width - 16 {
             break;
         }
-        
+
         let gid = font.glyph_id(ch);
         let mut glyph = gid.with_scale(scale);
         glyph.position = point(x as f32, draw_baseline);
-        
+
         if let Some(outlined) = font.outline_glyph(glyph) {
             outlined.draw(|px, py, coverage| {
                 let xi = px as i32;
                 let yi = py as i32;
-                
+
                 // Enhanced bounds checking with safety margins
-                if xi >= 0 && yi >= 0 && 
-                   xi < img_width && yi < img_height &&
-                   coverage > 1e-6 { // More robust coverage threshold
-                    
+                if xi >= 0 && yi >= 0 && xi < img_width && yi < img_height && coverage > 1e-6 {
+                    // More robust coverage threshold
+
                     // Safe pixel access
                     if let Some(dst) = img.get_pixel_mut_checked(xi as u32, yi as u32) {
                         let sa = coverage.clamp(0.0, 1.0);
                         let da = dst[3] as f32 / 255.0;
                         let out_a = sa + da * (1.0 - sa);
-                        
-                        if out_a > 1e-6 { // Avoid division by very small numbers
+
+                        if out_a > 1e-6 {
+                            // Avoid division by very small numbers
                             for c in 0..3 {
                                 let sc = color[c] as f32 / 255.0;
                                 let dc = dst[c] as f32 / 255.0;
@@ -158,10 +175,10 @@ fn render_segment(
                 }
             });
         }
-        
+
         let advance = sf.h_advance(gid);
         x += advance.ceil() as i32;
-        
+
         // Safety check to prevent infinite loops
         if x >= img_width {
             break;
@@ -183,40 +200,41 @@ pub fn render_lines_to_image(
     let sf = font.as_scaled(scale);
     let line_height_px = ((sf.ascent() - sf.descent() + sf.line_gap()) * line_height).ceil() as i32;
     let char_w = (size * 0.6).ceil() as i32; // rough per-char width estimate
-    
+
     // Ensure minimum sensible dimensions with safety margins
     let min_width = 640u32;
     let max_width = 8192u32;
     let min_height = 360u32;
     let max_height = 8192u32;
-    
+
     let width = ((cols as i32 * char_w + 32).max(min_width as i32) as u32).min(max_width);
-    let calculated_height = ((lines.len() as i32 * line_height_px) + (size as i32) + 24).max(min_height as i32) as u32;
+    let calculated_height =
+        ((lines.len() as i32 * line_height_px) + (size as i32) + 24).max(min_height as i32) as u32;
     let height = calculated_height.min(max_height);
-    
+
     let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_pixel(width, height, bg);
 
     let mut y = (size as i32) + 12; // top padding
     let bottom_margin = 12; // bottom padding
-    
+
     for line in lines {
         // Enhanced bounds checking - ensure we have enough space for the line
         if y + line_height_px + bottom_margin >= height as i32 {
             break;
         }
-        
+
         let segments = parse_ansi_segments(line);
         let mut x = 16i32; // left padding
         let right_margin = 16i32; // right padding
-        
+
         for (style, text) in segments {
             // Check if we have space before rendering
             if x >= (width as i32) - right_margin {
                 break;
             }
-            
+
             x = render_segment(&mut img, font, x, y, scale, style, &text);
-            
+
             // Stop if we've gone beyond the safe rendering area
             if x >= (width as i32) - right_margin {
                 break;
@@ -255,36 +273,38 @@ pub struct AnsiRenderer;
 
 impl AnsiRenderer {
     /// Create a new renderer instance.
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 
     /// Render a single line of text for terminal output.
     /// Applies theme-aware filtering and sanitization of ANSI sequences.
     pub fn render(&self, line: &str, theme: &Theme) -> Result<String> {
         // Basic sanitization - remove potentially harmful sequences
         let sanitized = self.sanitize_ansi(line)?;
-        
+
         // Apply theme transformations if needed
         let themed = self.apply_theme_filters(&sanitized, theme)?;
-        
+
         Ok(themed)
     }
-    
+
     /// Sanitize ANSI escape sequences to prevent terminal corruption
     fn sanitize_ansi(&self, input: &str) -> Result<String> {
         let mut result = String::with_capacity(input.len());
         let bytes = input.as_bytes();
         let mut i = 0;
-        
+
         while i < bytes.len() {
             if bytes[i] == 0x1B && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
                 // Find the end of the escape sequence
                 let mut j = i + 2;
                 let mut valid_sequence = true;
-                
+
                 // Limit sequence length to prevent buffer overflow attacks
                 let max_sequence_length = 32;
                 let start_j = j;
-                
+
                 while j < bytes.len() && (j - start_j) < max_sequence_length {
                     let ch = bytes[j];
                     if ch.is_ascii_alphabetic() {
@@ -297,7 +317,7 @@ impl AnsiRenderer {
                         break;
                     }
                 }
-                
+
                 if valid_sequence && j <= bytes.len() {
                     // Copy the valid escape sequence
                     result.push_str(&input[i..j]);
@@ -313,10 +333,10 @@ impl AnsiRenderer {
                 i += 1;
             }
         }
-        
+
         Ok(result)
     }
-    
+
     /// Apply theme-specific filters to the rendered line
     fn apply_theme_filters(&self, input: &str, _theme: &Theme) -> Result<String> {
         // For now, just return the input unchanged
@@ -325,5 +345,3 @@ impl AnsiRenderer {
         Ok(input.to_string())
     }
 }
-
-

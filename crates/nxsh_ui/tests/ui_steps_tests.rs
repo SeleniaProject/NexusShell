@@ -8,5 +8,3 @@ fn interactive_steps_for_common_commands() {
     let cp_steps = ui.get_command_steps("cp").unwrap();
     assert!(!cp_steps.is_empty());
 }
-
-

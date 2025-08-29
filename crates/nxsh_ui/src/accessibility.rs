@@ -81,9 +81,19 @@ impl AccessibilityManager {
     #[cfg(feature = "async")]
     async fn rw_read<T>(lock: &Arc<RwLock<T>>) -> tokio::sync::RwLockReadGuard<'_, T> { lock.read().await }
     #[cfg(not(feature = "async"))]
-    fn rw_write<T>(lock: &Arc<RwLock<T>>) -> std::sync::RwLockWriteGuard<'_, T> { lock.write().unwrap() }
+    fn rw_write<T>(lock: &Arc<RwLock<T>>) -> std::sync::RwLockWriteGuard<'_, T> {
+        match lock.write() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
     #[cfg(not(feature = "async"))]
-    fn rw_read<T>(lock: &Arc<RwLock<T>>) -> std::sync::RwLockReadGuard<'_, T> { lock.read().unwrap() }
+    fn rw_read<T>(lock: &Arc<RwLock<T>>) -> std::sync::RwLockReadGuard<'_, T> {
+        match lock.read() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
     
     /// Set color vision profile for color diversity support
     pub async fn set_color_vision_profile(&self, profile: ColorVisionProfile) -> Result<()> {

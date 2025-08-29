@@ -1,9 +1,9 @@
 //! Configuration management for NexusShell UI
-//! 
+//!
 //! This module provides comprehensive configuration management with support for
 //! editor settings, theme preferences, keybindings, and runtime configuration.
 
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -12,41 +12,39 @@ use std::{
 };
 
 /// CUI-specific configuration structure for simplified shell interface
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CUIConfig {
     /// Theme name to apply (e.g., "dark", "light", "monokai")
     pub theme: Option<String>,
-    
+
     /// Prompt format configuration
     pub prompt_format: Option<PromptFormatConfig>,
-    
+
     /// Editor configuration
     pub editor: Option<EditorConfig>,
-    
+
     /// Completion configuration  
     pub completion: Option<CompletionConfig>,
-    
+
     /// History configuration
     pub history: Option<HistoryConfig>,
-    
+
     /// Performance tuning options
     pub performance: Option<PerformanceConfig>,
 }
-
 
 /// Prompt format configuration for CUI mode
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptFormatConfig {
     /// Left prompt template (e.g., "λ {user}@{host} {cwd}")
     pub left_template: String,
-    
+
     /// Right prompt template (optional, e.g., "{git} {time}")
     pub right_template: Option<String>,
-    
+
     /// Show system information in prompt
     pub show_system_info: bool,
-    
+
     /// Show git status in prompt
     pub show_git_status: bool,
 }
@@ -67,13 +65,13 @@ impl Default for PromptFormatConfig {
 pub struct PerformanceConfig {
     /// Maximum startup time in milliseconds (target: 5ms)
     pub max_startup_time_ms: u64,
-    
+
     /// Maximum memory usage in MiB (target: 15MiB)
     pub max_memory_usage_mib: u64,
-    
+
     /// History refresh interval in milliseconds
     pub history_refresh_interval_ms: u64,
-    
+
     /// Git status refresh interval in milliseconds
     pub git_refresh_interval_ms: u64,
 }
@@ -90,8 +88,7 @@ impl Default for PerformanceConfig {
 }
 
 /// Main configuration for NexusShell UI
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NexusConfig {
     pub editor: EditorConfig,
     pub theme: ThemeConfig,
@@ -101,7 +98,6 @@ pub struct NexusConfig {
     pub history: HistoryConfig,
 }
 
-
 impl NexusConfig {
     /// Load configuration from file
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
@@ -109,31 +105,31 @@ impl NexusConfig {
         let content = fs::read_to_string(path)
             .context(format!("Failed to read config file: {}", path.display()))?;
 
-        if path.extension().and_then(|s| s.to_str()) == Some("yaml") || 
-           path.extension().and_then(|s| s.to_str()) == Some("yml") {
-            serde_yaml::from_str(&content)
-                .context("Failed to parse YAML config file")
+        if path.extension().and_then(|s| s.to_str()) == Some("yaml")
+            || path.extension().and_then(|s| s.to_str()) == Some("yml")
+        {
+            serde_yaml::from_str(&content).context("Failed to parse YAML config file")
         } else {
-            serde_json::from_str(&content)
-                .context("Failed to parse JSON config file")
+            serde_json::from_str(&content).context("Failed to parse JSON config file")
         }
     }
 
     /// Save configuration to file
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P, format: ConfigFormat) -> Result<()> {
         let path = path.as_ref();
-        
+
         // Create parent directories if they don't exist
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .context("Failed to create config directory")?;
+            fs::create_dir_all(parent).context("Failed to create config directory")?;
         }
-        
+
         let content = match format {
-            ConfigFormat::Json => serde_json::to_string_pretty(self)
-                .context("Failed to serialize config to JSON")?,
-            ConfigFormat::Yaml => serde_yaml::to_string(self)
-                .context("Failed to serialize config to YAML")?,
+            ConfigFormat::Json => {
+                serde_json::to_string_pretty(self).context("Failed to serialize config to JSON")?
+            }
+            ConfigFormat::Yaml => {
+                serde_yaml::to_string(self).context("Failed to serialize config to YAML")?
+            }
         };
 
         fs::write(path, content)
@@ -300,7 +296,10 @@ impl Default for KeybindingConfig {
         emacs_mode.insert("Alt+B".to_string(), "backward-word".to_string());
         emacs_mode.insert("Alt+F".to_string(), "forward-word".to_string());
         emacs_mode.insert("Alt+D".to_string(), "kill-word".to_string());
-        emacs_mode.insert("Alt+Backspace".to_string(), "backward-kill-word".to_string());
+        emacs_mode.insert(
+            "Alt+Backspace".to_string(),
+            "backward-kill-word".to_string(),
+        );
         emacs_mode.insert("Tab".to_string(), "complete".to_string());
         emacs_mode.insert("Shift+Tab".to_string(), "complete-backward".to_string());
 
@@ -428,10 +427,10 @@ impl ConfigManager {
         // FULL configuration loading - complete file I/O as specified
         let config = NexusConfig::load_default()?;
         let config_path = NexusConfig::default_config_path();
-        
+
         Ok(Self {
             config,
-            config_path,  // Full path resolution as required
+            config_path, // Full path resolution as required
             watchers: Vec::new(),
         })
     }
@@ -440,7 +439,7 @@ impl ConfigManager {
     pub fn new() -> Result<Self> {
         let config = NexusConfig::load_default()?;
         let config_path = NexusConfig::default_config_path();
-        
+
         Ok(Self {
             config,
             config_path,
@@ -526,9 +525,9 @@ impl ConfigManager {
         self.notify_watchers()?;
         Ok(())
     }
-    
+
     /// Apply CUI-specific configuration
-    /// 
+    ///
     /// This method takes a CUIConfig structure and applies its settings to the main
     /// NexusConfig, allowing for streamlined configuration of CUI-specific options.
     pub fn apply_cui_config(&mut self, cui_config: CUIConfig) -> Result<()> {
@@ -536,29 +535,29 @@ impl ConfigManager {
         if let Some(theme_name) = cui_config.theme {
             self.config.theme.current_theme = theme_name;
         }
-        
-        // Apply prompt format configuration if provided  
+
+        // Apply prompt format configuration if provided
         if let Some(prompt_config) = cui_config.prompt_format {
             // Convert prompt format config to UI config settings
             // This could be extended to have more granular prompt configuration
             self.config.ui.show_status_bar = prompt_config.show_system_info;
         }
-        
+
         // Apply editor configuration if provided
         if let Some(editor_config) = cui_config.editor {
             self.config.editor = editor_config;
         }
-        
+
         // Apply completion configuration if provided
         if let Some(completion_config) = cui_config.completion {
             self.config.completion = completion_config;
         }
-        
+
         // Apply history configuration if provided
         if let Some(history_config) = cui_config.history {
             self.config.history = history_config;
         }
-        
+
         // Apply performance configuration (if provided) to various subsystems
         if let Some(perf_config) = cui_config.performance {
             // Update UI responsiveness based on performance targets
@@ -567,18 +566,19 @@ impl ConfigManager {
                 self.config.ui.animation_speed = 0.5; // Faster animations
                 self.config.ui.show_tooltips = false; // Reduce UI overhead
             }
-            
+
             // Update history settings for performance
             if perf_config.max_memory_usage_mib <= 15 {
                 // Optimize for low memory usage
                 self.config.history.max_size = std::cmp::min(self.config.history.max_size, 5000);
-                self.config.completion.max_candidates = std::cmp::min(self.config.completion.max_candidates, 25);
+                self.config.completion.max_candidates =
+                    std::cmp::min(self.config.completion.max_candidates, 25);
             }
         }
-        
+
         // Notify watchers of configuration changes
         self.notify_watchers()?;
-        
+
         Ok(())
     }
 
@@ -713,15 +713,17 @@ mod tests {
     #[test]
     fn test_config_serialization() {
         let config = NexusConfig::default();
-        
+
         // Test JSON serialization
         let json = serde_json::to_string(&config).expect("JSON serialization should succeed");
-        let deserialized: NexusConfig = serde_json::from_str(&json).expect("JSON deserialization should succeed");
+        let deserialized: NexusConfig =
+            serde_json::from_str(&json).expect("JSON deserialization should succeed");
         assert_eq!(config.editor.vi_mode, deserialized.editor.vi_mode);
-        
+
         // Test YAML serialization
         let yaml = serde_yaml::to_string(&config).expect("YAML serialization should succeed");
-        let deserialized: NexusConfig = serde_yaml::from_str(&yaml).expect("YAML deserialization should succeed");
+        let deserialized: NexusConfig =
+            serde_yaml::from_str(&yaml).expect("YAML deserialization should succeed");
         assert_eq!(config.editor.vi_mode, deserialized.editor.vi_mode);
     }
 
@@ -729,10 +731,10 @@ mod tests {
     fn test_config_validation() {
         let mut config = NexusConfig::default();
         config.editor.tab_width = 0; // Invalid
-        
+
         let errors = ConfigValidator::validate(&config).expect("config validation should succeed");
         assert!(!errors.is_empty());
-        
+
         ConfigValidator::fix_config(&mut config);
         assert_eq!(config.editor.tab_width, 4);
     }
@@ -741,8 +743,8 @@ mod tests {
     fn test_config_manager() {
         let manager = ConfigManager::new();
         assert!(manager.is_ok());
-        
+
         let manager = manager.expect("config manager creation should succeed");
         assert!(!manager.config().editor.vi_mode);
     }
-} 
+}

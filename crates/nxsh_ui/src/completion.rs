@@ -1,16 +1,15 @@
 //! Intelligent tab completion system for NexusShell
-//! 
+//!
 //! This module provides context-aware completion for commands, files, variables,
 //! and more, with fuzzy matching and smart filtering capabilities.
 //! Pure cross-platform implementation using only crossterm and standard library.
 
+use std::process::Command;
 use std::{
     collections::{HashMap, HashSet},
-    env,
-    fs,
+    env, fs,
     path::{Path, PathBuf},
 };
-use std::process::Command;
 /// Completion types
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompletionType {
@@ -70,8 +69,8 @@ pub struct NexusCompleter {
 #[derive(Debug, Clone)]
 struct CommandSpec {
     name: String,
-    subcommands: Vec<(&'static str, &'static str)>,   // (name, desc)
-    flags: Vec<(&'static str, &'static str)>,         // (flag, desc), includes short/long
+    subcommands: Vec<(&'static str, &'static str)>, // (name, desc)
+    flags: Vec<(&'static str, &'static str)>,       // (flag, desc), includes short/long
     // Hint for default argument completion type when not a flag
     default_arg: ArgKind,
     // Map flag -> expected value kind (e.g., --file <path>)
@@ -79,7 +78,14 @@ struct CommandSpec {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ArgKind { Any, Path, File, Dir, Env, None }
+enum ArgKind {
+    Any,
+    Path,
+    File,
+    Dir,
+    Env,
+    None,
+}
 
 impl NexusCompleter {
     /// Create a new completer
@@ -93,15 +99,15 @@ impl NexusCompleter {
             system_scanned: false,
             command_specs: HashMap::new(),
         };
-        
+
         // Initialize with basic builtins
         completer.init_builtins();
         completer.init_command_specs();
         completer.refresh_env_cache();
-        
+
         completer
     }
-    
+
     /// Initialize builtin commands
     fn init_builtins(&mut self) {
         let builtins = [
@@ -124,7 +130,7 @@ impl NexusCompleter {
             ("exit", "Exit shell"),
             ("clear", "Clear screen"),
         ];
-        
+
         for (cmd, desc) in &builtins {
             self.builtin_cache.insert(cmd.to_string(), desc.to_string());
         }
@@ -147,7 +153,13 @@ impl NexusCompleter {
         add(CommandSpec {
             name: "ls".into(),
             subcommands: vec![],
-            flags: vec![("-a", "show all"), ("-l", "long format"), ("-h", "human readable"), ("--all", "show all"), ("--long", "long format")],
+            flags: vec![
+                ("-a", "show all"),
+                ("-l", "long format"),
+                ("-h", "human readable"),
+                ("--all", "show all"),
+                ("--long", "long format"),
+            ],
             default_arg: Path,
             flag_value_kind: HashMap::new(),
         });
@@ -181,7 +193,12 @@ impl NexusCompleter {
                 ("clone", "Clone a repository into a new directory"),
                 ("merge", "Join two or more development histories"),
             ],
-            flags: vec![("-h", "help"), ("--help", "help"), ("-v", "verbose"), ("--verbose", "verbose")],
+            flags: vec![
+                ("-h", "help"),
+                ("--help", "help"),
+                ("-v", "verbose"),
+                ("--verbose", "verbose"),
+            ],
             default_arg: Path,
             flag_value_kind: HashMap::new(),
         });
@@ -196,20 +213,24 @@ impl NexusCompleter {
                 ("doc", "Build documentation"),
                 ("clean", "Remove generated artifacts"),
             ],
-            flags: vec![("-q", "quiet"), ("--release", "optimized build"), ("--bin", "select binary (value)"), ("--example", "select example (value)")],
+            flags: vec![
+                ("-q", "quiet"),
+                ("--release", "optimized build"),
+                ("--bin", "select binary (value)"),
+                ("--example", "select example (value)"),
+            ],
             default_arg: Any,
-            flag_value_kind: HashMap::from_iter([
-                ("--bin", Any),
-                ("--example", Any),
-            ]),
+            flag_value_kind: HashMap::from_iter([("--bin", Any), ("--example", Any)]),
         });
     }
 
     fn refresh_env_cache(&mut self) {
         self.variable_cache.clear();
-        for (k, _v) in env::vars() { self.variable_cache.insert(k); }
+        for (k, _v) in env::vars() {
+            self.variable_cache.insert(k);
+        }
     }
-    
+
     /// Scan system commands from PATH
     fn scan_system_commands(&mut self) {
         if let Ok(path_var) = env::var("PATH") {
@@ -219,12 +240,15 @@ impl NexusCompleter {
                         if let Some(name) = entry.file_name().to_str() {
                             // Windows: respect PATHEXT and case-insensitive extensions
                             if cfg!(windows) {
-                                let pathext = env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
+                                let pathext = env::var("PATHEXT")
+                                    .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
                                 let exts: Vec<String> = pathext
                                     .split(';')
                                     .filter_map(|s| {
                                         let s = s.trim();
-                                        if s.is_empty() { return None; }
+                                        if s.is_empty() {
+                                            return None;
+                                        }
                                         Some(s.trim_start_matches('.').to_ascii_lowercase())
                                     })
                                     .collect();
@@ -248,19 +272,23 @@ impl NexusCompleter {
                             } else {
                                 // Unix-like: include only executables
                                 let path = entry.path();
-                if let Ok(metadata) = fs::metadata(&path) {
+                                if let Ok(metadata) = fs::metadata(&path) {
                                     #[cfg(unix)]
                                     {
                                         use std::os::unix::fs::PermissionsExt;
-                    if metadata.permissions().mode() & 0o111 != 0 {
-                                            self.command_cache.insert(name.to_string(), "System command".to_string());
+                                        if metadata.permissions().mode() & 0o111 != 0 {
+                                            self.command_cache.insert(
+                                                name.to_string(),
+                                                "System command".to_string(),
+                                            );
                                         }
                                     }
                                     #[cfg(not(unix))]
                                     {
-                    // Ensure `metadata` is considered used to avoid warnings when compiling this branch
-                    let _ = &metadata;
-                                        self.command_cache.insert(name.to_string(), "System command".to_string());
+                                        // Ensure `metadata` is considered used to avoid warnings when compiling this branch
+                                        let _ = &metadata;
+                                        self.command_cache
+                                            .insert(name.to_string(), "System command".to_string());
                                     }
                                 }
                             }
@@ -278,13 +306,17 @@ impl NexusCompleter {
             self.system_scanned = true;
         }
     }
-    
+
     /// Complete input with suggestions
     pub fn complete(&mut self, input: &str, pos: usize) -> Vec<CompletionResult> {
         let text = &input[..pos];
         let ends_with_space = text.ends_with(' ');
         let parts: Vec<&str> = text.split_whitespace().collect();
-        let current = if ends_with_space { "" } else { parts.last().copied().unwrap_or("") };
+        let current = if ends_with_space {
+            ""
+        } else {
+            parts.last().copied().unwrap_or("")
+        };
 
         // 0) First token -> command補完
         if parts.is_empty() || (parts.len() == 1 && !ends_with_space) {
@@ -303,7 +335,11 @@ impl NexusCompleter {
         // 1-b) フラグ（-で始まる）
         if current.starts_with('-') {
             // used_flags 抽出のため、command+これまでの引数を連結した部分を渡す
-            let before_current = if ends_with_space { text } else { &text[..text.len().saturating_sub(current.len())] };
+            let before_current = if ends_with_space {
+                text
+            } else {
+                &text[..text.len().saturating_sub(current.len())]
+            };
             return self.complete_flags(before_current, current, spec_owned.as_ref());
         }
 
@@ -317,7 +353,7 @@ impl NexusCompleter {
         }
 
         // 1-d) 引数の種類から補完
-    if let Some(spec) = spec_owned.as_ref() {
+        if let Some(spec) = spec_owned.as_ref() {
             // 直前が値受け取りフラグならその種類
             if let Some(prev) = parts.get(parts.len().saturating_sub(2)).copied() {
                 if let Some(kind) = spec.flag_value_kind.get(prev) {
@@ -330,13 +366,13 @@ impl NexusCompleter {
         // それ以外はファイル/ディレクトリ
         self.complete_file(current)
     }
-    
+
     /// Complete command names
     fn complete_command(&mut self, input: &str) -> Vec<CompletionResult> {
         // Lazily populate system command cache
         self.ensure_system_commands();
         let mut results = Vec::new();
-        
+
         // Search builtins
         for (cmd, desc) in &self.builtin_cache {
             if cmd.starts_with(input) {
@@ -348,7 +384,7 @@ impl NexusCompleter {
                 });
             }
         }
-        
+
         // Search system commands
         for (cmd, desc) in &self.command_cache {
             if cmd.starts_with(input) {
@@ -360,32 +396,36 @@ impl NexusCompleter {
                 });
             }
         }
-        
+
         // Sort by score (higher is better)
         results.sort_by(|a, b| b.score.cmp(&a.score));
         results.truncate(self.completion_config.max_suggestions);
-        
+
         results
     }
-    
+
     /// Complete file and directory names
     fn complete_file(&self, input: &str) -> Vec<CompletionResult> {
         let mut results = Vec::new();
-        
+
         let path = if input.is_empty() {
             PathBuf::from(".")
         } else {
             PathBuf::from(input)
         };
-        
+
         let (dir, prefix) = if path.is_dir() && input.ends_with('/') {
             (path, String::new())
         } else {
             let dir = path.parent().unwrap_or(Path::new("."));
-            let prefix = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let prefix = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
             (dir.to_path_buf(), prefix)
         };
-        
+
         if let Ok(entries) = fs::read_dir(&dir) {
             for entry in entries.flatten() {
                 if let Some(name) = entry.file_name().to_str() {
@@ -394,50 +434,52 @@ impl NexusCompleter {
                         if !self.completion_config.complete_hidden_files && name.starts_with('.') {
                             continue;
                         }
-                        
+
                         let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
-                        let completion_type = if is_dir { CompletionType::Directory } else { CompletionType::File };
-                        
+                        let completion_type = if is_dir {
+                            CompletionType::Directory
+                        } else {
+                            CompletionType::File
+                        };
+
                         let full_path = dir.join(name);
                         let mut completion = full_path.to_string_lossy().to_string();
                         if is_dir && !completion.ends_with('/') && !completion.ends_with('\\') {
                             completion.push(std::path::MAIN_SEPARATOR);
                         }
-                        
+
                         // Create properly formatted display with consistent spacing
-                        let display_name = if is_dir { 
-                            format!("{}/", name) 
-                        } else { 
-                            name.to_string() 
+                        let display_name = if is_dir {
+                            format!("{}/", name)
+                        } else {
+                            name.to_string()
                         };
-                        
+
                         let display = if self.completion_config.show_descriptions {
                             let file_type = if is_dir { "dir" } else { "file" };
                             format!("{:<20} {}", display_name, file_type)
                         } else {
                             display_name
                         };
-                            
+
                         results.push(CompletionResult {
                             completion,
                             display: Some(display),
                             completion_type,
                             score: self.calculate_score(&prefix, name),
                         });
-                        }
                     }
+                }
             }
         }
-        
+
         // Sort by score and type (directories first)
-        results.sort_by(|a, b| {
-            match (&a.completion_type, &b.completion_type) {
-                (CompletionType::Directory, CompletionType::File) => std::cmp::Ordering::Less,
-                (CompletionType::File, CompletionType::Directory) => std::cmp::Ordering::Greater,
-                _ => b.score.cmp(&a.score),
-            }
+        results.sort_by(|a, b| match (&a.completion_type, &b.completion_type) {
+            (CompletionType::Directory, CompletionType::File) => std::cmp::Ordering::Less,
+            (CompletionType::File, CompletionType::Directory) => std::cmp::Ordering::Greater,
+            _ => b.score.cmp(&a.score),
         });
-        
+
         results.truncate(self.completion_config.max_suggestions);
         results
     }
@@ -459,7 +501,12 @@ impl NexusCompleter {
         out
     }
 
-    fn complete_flags(&self, command: &str, current: &str, spec: Option<&CommandSpec>) -> Vec<CompletionResult> {
+    fn complete_flags(
+        &self,
+        command: &str,
+        current: &str,
+        spec: Option<&CommandSpec>,
+    ) -> Vec<CompletionResult> {
         let mut out = Vec::new();
 
         // 既に入力済みのフラグを除外
@@ -469,8 +516,10 @@ impl NexusCompleter {
             .filter(|t| t.starts_with('-'))
             .collect();
 
-    let push_flag = |flag: &str, desc: &str, list: &mut Vec<CompletionResult>| {
-            if used_flags.contains(flag) { return; }
+        let push_flag = |flag: &str, desc: &str, list: &mut Vec<CompletionResult>| {
+            if used_flags.contains(flag) {
+                return;
+            }
             if flag.starts_with(current) {
                 list.push(CompletionResult {
                     completion: flag.to_string(),
@@ -481,12 +530,19 @@ impl NexusCompleter {
             }
         };
 
-    if let Some(spec) = spec {
+        if let Some(spec) = spec {
             for (flag, desc) in &spec.flags {
                 push_flag(flag, desc, &mut out);
             }
         }
-    for &(flag, desc) in [("-h", "help"), ("--help", "help"), ("-v", "verbose"), ("--verbose", "verbose")].iter() {
+        for &(flag, desc) in [
+            ("-h", "help"),
+            ("--help", "help"),
+            ("-v", "verbose"),
+            ("--verbose", "verbose"),
+        ]
+        .iter()
+        {
             push_flag(flag, desc, &mut out);
         }
 
@@ -496,7 +552,9 @@ impl NexusCompleter {
     }
 
     fn get_or_discover_spec_owned(&mut self, command: &str) -> Option<CommandSpec> {
-        if command.is_empty() { return None; }
+        if command.is_empty() {
+            return None;
+        }
         if let Some(spec) = self.command_specs.get(command) {
             return Some(spec.clone());
         }
@@ -535,7 +593,9 @@ impl NexusCompleter {
                 Err(_) => continue,
             }
         }
-        if output.trim().is_empty() { return None; }
+        if output.trim().is_empty() {
+            return None;
+        }
 
         // Parse sections: OPTIONS/FLAGS and SUBCOMMANDS/COMMANDS
         let mut flags: Vec<(&'static str, &'static str)> = Vec::new();
@@ -559,9 +619,13 @@ impl NexusCompleter {
             if upper.contains("USAGE") || upper.starts_with("USAGE:") {
                 section = "USAGE".into();
                 // try infer default arg kind from typical placeholders
-                if l.contains("FILE") || l.contains("FILES") { default_arg = ArgKind::File; }
-                else if l.contains("DIR") || l.contains("DIRECTORY") || l.contains("FOLDER") { default_arg = ArgKind::Dir; }
-                else if l.contains("PATH") { default_arg = ArgKind::Path; }
+                if l.contains("FILE") || l.contains("FILES") {
+                    default_arg = ArgKind::File;
+                } else if l.contains("DIR") || l.contains("DIRECTORY") || l.contains("FOLDER") {
+                    default_arg = ArgKind::Dir;
+                } else if l.contains("PATH") {
+                    default_arg = ArgKind::Path;
+                }
                 continue;
             }
 
@@ -572,31 +636,47 @@ impl NexusCompleter {
                         let mut parts = ltrim.split_whitespace();
                         let first = parts.next().unwrap_or("");
                         let mut candidates: Vec<String> = Vec::new();
-                        if first.starts_with("-") { candidates.push(first.to_string()); }
+                        if first.starts_with("-") {
+                            candidates.push(first.to_string());
+                        }
                         // maybe "," separated long form next
                         if let Some(rest) = ltrim.split_once(',').map(|(_a, b)| b.trim()) {
                             if rest.starts_with("--") {
                                 let tok = rest.split_whitespace().next().unwrap_or("");
-                                if !tok.is_empty() { candidates.push(tok.to_string()); }
+                                if !tok.is_empty() {
+                                    candidates.push(tok.to_string());
+                                }
                             }
                         } else {
                             // take second token if it's a flag
-                            if let Some(tok2) = parts.next() { if tok2.starts_with('-') { candidates.push(tok2.to_string()); } }
+                            if let Some(tok2) = parts.next() {
+                                if tok2.starts_with('-') {
+                                    candidates.push(tok2.to_string());
+                                }
+                            }
                         }
                         // description is whatever remains
                         let desc = ltrim.split_once("  ").map(|x| x.1).unwrap_or("").trim();
                         for c in candidates {
                             // detect value kind by placeholder following flag
-                            let kind = if ltrim.contains("<FILE>") || ltrim.contains("FILE") { ArgKind::File }
-                                else if ltrim.contains("<PATH>") || ltrim.contains("PATH") { ArgKind::Path }
-                                else if ltrim.contains("<DIR>") || ltrim.contains("DIRECTORY") { ArgKind::Dir }
-                                else if ltrim.contains("<ENV>") || ltrim.contains("ENV") { ArgKind::Env }
-                                else { ArgKind::Any };
+                            let kind = if ltrim.contains("<FILE>") || ltrim.contains("FILE") {
+                                ArgKind::File
+                            } else if ltrim.contains("<PATH>") || ltrim.contains("PATH") {
+                                ArgKind::Path
+                            } else if ltrim.contains("<DIR>") || ltrim.contains("DIRECTORY") {
+                                ArgKind::Dir
+                            } else if ltrim.contains("<ENV>") || ltrim.contains("ENV") {
+                                ArgKind::Env
+                            } else {
+                                ArgKind::Any
+                            };
                             // store as 'static via leak (safe here: small, process-lifetime cache)
                             let f: &'static str = Box::leak(c.into_boxed_str());
                             let d: &'static str = Box::leak(desc.to_string().into_boxed_str());
                             flags.push((f, d));
-                            if kind != ArgKind::Any { flag_value_kind.insert(f, kind); }
+                            if kind != ArgKind::Any {
+                                flag_value_kind.insert(f, kind);
+                            }
                         }
                     }
                 }
@@ -612,7 +692,8 @@ impl NexusCompleter {
                             let nm = name.split_whitespace().next().unwrap_or("");
                             if !nm.is_empty() && !nm.starts_with('-') {
                                 let s: &'static str = Box::leak(nm.to_string().into_boxed_str());
-                                let d: &'static str = Box::leak(desc.trim().to_string().into_boxed_str());
+                                let d: &'static str =
+                                    Box::leak(desc.trim().to_string().into_boxed_str());
                                 subs.push((s, d));
                             }
                         }
@@ -650,12 +731,14 @@ impl NexusCompleter {
 
     fn complete_by_kind(&self, kind: ArgKind, current: &str) -> Vec<CompletionResult> {
         match kind {
-            ArgKind::Path | ArgKind::File | ArgKind::Dir | ArgKind::Any => self.complete_file(current),
+            ArgKind::Path | ArgKind::File | ArgKind::Dir | ArgKind::Any => {
+                self.complete_file(current)
+            }
             ArgKind::Env => self.complete_env(current),
             ArgKind::None => Vec::new(),
         }
     }
-    
+
     /// Calculate completion score
     fn calculate_score(&self, input: &str, candidate: &str) -> i64 {
         if candidate.starts_with(input) {
@@ -668,26 +751,26 @@ impl NexusCompleter {
             0
         }
     }
-    
+
     /// Simple fuzzy matching score
     fn fuzzy_score(&self, input: &str, candidate: &str) -> i64 {
         let input_chars: Vec<char> = input.to_lowercase().chars().collect();
         let candidate_chars: Vec<char> = candidate.to_lowercase().chars().collect();
         let mut score = 0i64;
         let mut input_idx = 0;
-        
+
         for &ch in &candidate_chars {
             if input_idx < input_chars.len() && ch == input_chars[input_idx] {
                 score += 10;
                 input_idx += 1;
             }
         }
-        
+
         // Bonus for matching all characters
         if input_idx == input_chars.len() {
             score += 50;
         }
-        
+
         score
     }
 }
@@ -704,14 +787,14 @@ mod tests {
 
     #[test]
     fn test_completer_creation() {
-    let mut completer = NexusCompleter::new();
-    // Builtins are initialized eagerly
-    assert!(!completer.builtin_cache.is_empty());
-    // System commands are loaded lazily; trigger scan and verify flag toggles
-    let results = completer.complete_command("");
-    assert!(completer.system_scanned);
-    // Even if PATH had no executables, builtins should produce results
-    assert!(!results.is_empty());
+        let mut completer = NexusCompleter::new();
+        // Builtins are initialized eagerly
+        assert!(!completer.builtin_cache.is_empty());
+        // System commands are loaded lazily; trigger scan and verify flag toggles
+        let results = completer.complete_command("");
+        assert!(completer.system_scanned);
+        // Even if PATH had no executables, builtins should produce results
+        assert!(!results.is_empty());
     }
 
     #[test]

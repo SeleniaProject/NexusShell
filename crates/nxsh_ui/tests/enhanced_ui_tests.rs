@@ -1,4 +1,4 @@
-use nxsh_ui::ui_ux::{UIUXSystem, PromptContext, ValidationResult};
+use nxsh_ui::ui_ux::{PromptContext, UIUXSystem, ValidationResult};
 
 #[test]
 fn prompt_includes_user_host_and_path() {
@@ -20,5 +20,8 @@ fn prompt_includes_user_host_and_path() {
 fn validation_empty_and_known_command() {
     let ui = UIUXSystem::new();
     assert!(matches!(ui.validate_command(""), ValidationResult::Empty));
-    assert!(matches!(ui.validate_command("echo hi"), ValidationResult::Valid));
+    assert!(matches!(
+        ui.validate_command("echo hi"),
+        ValidationResult::Valid
+    ));
 }

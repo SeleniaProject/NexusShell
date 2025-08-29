@@ -1,4 +1,3 @@
-
 #[test]
 fn parse_basic_segments() {
     let line = "\x1b[31mRED\x1b[0m normal \x1b[1;32mBOLDGREEN\x1b[0m";
@@ -15,5 +14,3 @@ fn color_code_map() {
     let unknown = nxsh_ui::ansi_render::color_from_code(12345);
     assert_eq!(unknown[3], 0xFF);
 }
-
-

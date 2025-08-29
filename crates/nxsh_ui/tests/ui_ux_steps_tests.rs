@@ -27,5 +27,3 @@ fn interactive_unknown_param() {
     let err = sess.set_param("nonexist", "x").unwrap_err();
     assert!(format!("{err}").contains("Unknown parameter"));
 }
-
-

@@ -1,11 +1,7 @@
 use anyhow::Result;
 use chrono;
 use dirs;
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    fmt,
-};
+use std::{collections::HashMap, fmt, sync::Arc};
 
 // 複雑なクロージャ型を簡潔に表現し clippy::type_complexity を解消するための型エイリアス
 pub type CompletionHandler = Arc<dyn Fn(&HashMap<String, String>) -> Result<String> + Send + Sync>;
@@ -39,7 +35,7 @@ impl UIUXSystem {
             customization: CustomizationSettings::default(),
             animations: AnimationSystem::new(),
         };
-        
+
         system.register_default_themes();
         system
     }
@@ -74,72 +70,69 @@ impl UIUXSystem {
         let default_theme = Theme::default();
         let theme = self.get_current_theme().unwrap_or(&default_theme);
         let mut prompt = String::new();
-        
+
         // Apply theme colors and styling
         for component in &theme.prompt_components {
             match component {
                 PromptComponent::User => {
-                    prompt.push_str(&format!("{}{}{}",
-                        theme.colors.user_prefix,
-                        context.username,
-                        theme.colors.reset
+                    prompt.push_str(&format!(
+                        "{}{}{}",
+                        theme.colors.user_prefix, context.username, theme.colors.reset
                     ));
-                },
+                }
                 PromptComponent::Host => {
-                    prompt.push_str(&format!("{}{}{}",
-                        theme.colors.host_prefix,
-                        context.hostname,
-                        theme.colors.reset
+                    prompt.push_str(&format!(
+                        "{}{}{}",
+                        theme.colors.host_prefix, context.hostname, theme.colors.reset
                     ));
-                },
+                }
                 PromptComponent::Path => {
                     let display_path = self.format_path(&context.current_path);
-                    prompt.push_str(&format!("{}{}{}",
-                        theme.colors.path_prefix,
-                        display_path,
-                        theme.colors.reset
+                    prompt.push_str(&format!(
+                        "{}{}{}",
+                        theme.colors.path_prefix, display_path, theme.colors.reset
                     ));
-                },
+                }
                 PromptComponent::GitBranch => {
                     if let Some(branch) = &context.git_branch {
-                        prompt.push_str(&format!(" {}({}){}",
-                            theme.colors.git_prefix,
-                            branch,
-                            theme.colors.reset
+                        prompt.push_str(&format!(
+                            " {}({}){}",
+                            theme.colors.git_prefix, branch, theme.colors.reset
                         ));
                     }
-                },
+                }
                 PromptComponent::Time => {
                     let time = chrono::Local::now().format(&theme.time_format);
-                    prompt.push_str(&format!("{}[{}]{}",
-                        theme.colors.time_prefix,
-                        time,
-                        theme.colors.reset
+                    prompt.push_str(&format!(
+                        "{}[{}]{}",
+                        theme.colors.time_prefix, time, theme.colors.reset
                     ));
-                },
+                }
                 PromptComponent::ExitCode => {
                     if context.last_exit_code != 0 {
-                        prompt.push_str(&format!(" {}[{}]{}",
-                            theme.colors.error_prefix,
-                            context.last_exit_code,
-                            theme.colors.reset
+                        prompt.push_str(&format!(
+                            " {}[{}]{}",
+                            theme.colors.error_prefix, context.last_exit_code, theme.colors.reset
                         ));
                     }
-                },
+                }
                 PromptComponent::Symbol => {
-                    let symbol = if context.is_admin { &theme.admin_symbol } else { &theme.user_symbol };
-                    prompt.push_str(&format!("{}{}{} ",
-                        theme.colors.symbol_prefix,
-                        symbol,
-                        theme.colors.reset
+                    let symbol = if context.is_admin {
+                        &theme.admin_symbol
+                    } else {
+                        &theme.user_symbol
+                    };
+                    prompt.push_str(&format!(
+                        "{}{}{} ",
+                        theme.colors.symbol_prefix, symbol, theme.colors.reset
                     ));
-                },
+                }
                 PromptComponent::Custom(text) => {
                     prompt.push_str(text);
-                },
+                }
             }
         }
-        
+
         prompt
     }
 
@@ -149,13 +142,13 @@ impl UIUXSystem {
         if let Some(stripped) = input.strip_suffix('\t') {
             return Ok(InputResult::AutoComplete(self.get_completions(stripped)?));
         }
-        
+
         // Syntax highlighting
         let highlighted = self.apply_syntax_highlighting(input);
-        
+
         // Command validation
         let validation = self.validate_command(input);
-        
+
         Ok(InputResult::Processed {
             original: input.to_string(),
             highlighted,
@@ -169,7 +162,7 @@ impl UIUXSystem {
         let theme = self.get_current_theme().unwrap_or(&default_theme);
         let mut highlighted = String::new();
         let tokens = self.tokenize_command(text);
-        
+
         for token in tokens {
             let color = match token.token_type {
                 TokenType::Command => &theme.syntax_colors.command,
@@ -181,17 +174,17 @@ impl UIUXSystem {
                 TokenType::Comment => &theme.syntax_colors.comment,
                 TokenType::Keyword => &theme.syntax_colors.keyword,
             };
-            
+
             highlighted.push_str(&format!("{}{}{}", color, token.text, theme.colors.reset));
         }
-        
+
         highlighted
     }
 
     /// Get auto-completion suggestions
     pub fn get_completions(&self, partial: &str) -> Result<Vec<Completion>> {
         let mut completions = Vec::new();
-        
+
         // Command completions
         if !partial.contains(' ') {
             completions.extend(self.get_command_completions(partial));
@@ -202,13 +195,17 @@ impl UIUXSystem {
                 completions.extend(self.get_argument_completions(command, &parts[1..]));
             }
         }
-        
+
         // File path completions
         completions.extend(self.get_path_completions(partial)?);
-        
+
         // Sort by relevance
-        completions.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
-        
+        completions.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         Ok(completions)
     }
 
@@ -221,10 +218,8 @@ impl UIUXSystem {
                 } else {
                     Err(anyhow::anyhow!("Help not found for command: {}", cmd))
                 }
-            },
-            None => {
-                Ok(self.format_general_help())
             }
+            None => Ok(self.format_general_help()),
         }
     }
 
@@ -238,10 +233,12 @@ impl UIUXSystem {
             steps: self.get_command_steps(command)?,
             completion_handler: Arc::new(move |params| {
                 // Command completion logic
-                Ok(format!("Executing: {command_owned} with parameters: {params:?}"))
+                Ok(format!(
+                    "Executing: {command_owned} with parameters: {params:?}"
+                ))
             }),
         };
-        
+
         Ok(session)
     }
 
@@ -305,7 +302,7 @@ impl UIUXSystem {
             admin_symbol: "#".to_string(),
             time_format: "%H:%M:%S".to_string(),
         };
-        
+
         // Light theme
         let light_theme = Theme {
             name: "light".to_string(),
@@ -347,7 +344,7 @@ impl UIUXSystem {
             admin_symbol: "⚡".to_string(),
             time_format: "%H:%M".to_string(),
         };
-        
+
         self.themes.insert("dark".to_string(), dark_theme);
         self.themes.insert("light".to_string(), light_theme);
     }
@@ -356,7 +353,7 @@ impl UIUXSystem {
         // Shorten long paths, handle home directory substitution, etc.
         let home = dirs::home_dir().unwrap_or_default();
         let home_str = home.to_string_lossy();
-        
+
         if path.starts_with(&*home_str) {
             format!("~{}", &path[home_str.len()..])
         } else {
@@ -368,7 +365,7 @@ impl UIUXSystem {
         // Simple tokenizer - would need proper lexical analysis for production
         let mut tokens = Vec::new();
         let words: Vec<&str> = text.split_whitespace().collect();
-        
+
         for (i, word) in words.iter().enumerate() {
             let token_type = if i == 0 {
                 TokenType::Command
@@ -385,24 +382,25 @@ impl UIUXSystem {
             } else {
                 TokenType::Argument
             };
-            
+
             tokens.push(Token {
                 text: word.to_string(),
                 token_type,
             });
         }
-        
+
         tokens
     }
 
     fn get_command_completions(&self, partial: &str) -> Vec<Completion> {
         let commands = [
             "ls", "cd", "pwd", "echo", "cat", "grep", "find", "ps", "kill", "cp", "mv", "rm",
-            "mkdir", "rmdir", "touch", "chmod", "chown", "df", "du", "free", "top", "htop",
-            "git", "cargo", "npm", "python", "node", "curl", "wget", "ssh", "scp", "tar",
+            "mkdir", "rmdir", "touch", "chmod", "chown", "df", "du", "free", "top", "htop", "git",
+            "cargo", "npm", "python", "node", "curl", "wget", "ssh", "scp", "tar",
         ];
-        
-        commands.iter()
+
+        commands
+            .iter()
             .filter(|cmd| cmd.starts_with(partial))
             .map(|cmd| Completion {
                 text: cmd.to_string(),
@@ -426,14 +424,18 @@ impl UIUXSystem {
     fn get_git_completions(&self, args: &[&str]) -> Vec<Completion> {
         if args.is_empty() {
             vec![
-                "add", "commit", "push", "pull", "clone", "checkout", "branch", "merge", "status", "log"
-            ].into_iter().map(|cmd| Completion {
+                "add", "commit", "push", "pull", "clone", "checkout", "branch", "merge", "status",
+                "log",
+            ]
+            .into_iter()
+            .map(|cmd| Completion {
                 text: cmd.to_string(),
                 display: cmd.to_string(),
                 description: format!("Git subcommand: {cmd}"),
                 completion_type: CompletionType::Subcommand,
                 score: 1.0,
-            }).collect()
+            })
+            .collect()
         } else {
             Vec::new()
         }
@@ -442,14 +444,17 @@ impl UIUXSystem {
     fn get_cargo_completions(&self, args: &[&str]) -> Vec<Completion> {
         if args.is_empty() {
             vec![
-                "build", "run", "test", "check", "clean", "doc", "publish", "install", "update"
-            ].into_iter().map(|cmd| Completion {
+                "build", "run", "test", "check", "clean", "doc", "publish", "install", "update",
+            ]
+            .into_iter()
+            .map(|cmd| Completion {
                 text: cmd.to_string(),
                 display: cmd.to_string(),
                 description: format!("Cargo subcommand: {cmd}"),
                 completion_type: CompletionType::Subcommand,
                 score: 1.0,
-            }).collect()
+            })
+            .collect()
         } else {
             Vec::new()
         }
@@ -457,20 +462,23 @@ impl UIUXSystem {
 
     fn get_path_completions(&self, partial: &str) -> Result<Vec<Completion>> {
         let mut completions = Vec::new();
-        
+
         // Extract directory path and filename prefix
         let path = std::path::Path::new(partial);
         let filename_prefix = if partial.ends_with('/') {
             String::new()
         } else {
-            path.file_name().unwrap_or_default().to_string_lossy().to_string()
+            path.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string()
         };
         let dir_path = if partial.ends_with('/') {
             path
         } else {
             path.parent().unwrap_or(path)
         };
-        
+
         if let Ok(entries) = std::fs::read_dir(dir_path) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
@@ -478,15 +486,27 @@ impl UIUXSystem {
                     let is_dir = entry.metadata().map(|m| m.is_dir()).unwrap_or(false);
                     completions.push(Completion {
                         text: name.clone(),
-                        display: if is_dir { format!("{name}/") } else { name.clone() },
-                        description: if is_dir { "Directory".to_string() } else { "File".to_string() },
-                        completion_type: if is_dir { CompletionType::Directory } else { CompletionType::File },
+                        display: if is_dir {
+                            format!("{name}/")
+                        } else {
+                            name.clone()
+                        },
+                        description: if is_dir {
+                            "Directory".to_string()
+                        } else {
+                            "File".to_string()
+                        },
+                        completion_type: if is_dir {
+                            CompletionType::Directory
+                        } else {
+                            CompletionType::File
+                        },
                         score: 0.8,
                     });
                 }
             }
         }
-        
+
         Ok(completions)
     }
 
@@ -495,10 +515,10 @@ impl UIUXSystem {
         if command.trim().is_empty() {
             return ValidationResult::Empty;
         }
-        
+
         let parts: Vec<&str> = command.split_whitespace().collect();
         let cmd = parts[0];
-        
+
         // Check if command exists
         if self.command_exists(cmd) {
             ValidationResult::Valid
@@ -509,21 +529,32 @@ impl UIUXSystem {
 
     fn command_exists(&self, command: &str) -> bool {
         // Builtin commands (keep in sync with completion module)
-        const BUILTINS: &[&str] = &["cd", "ls", "pwd", "echo", "cat", "exit", "help", "history", "alias", "unalias", "bzip2", "bunzip2", "id"];
-        if BUILTINS.contains(&command) { return true; }
+        const BUILTINS: &[&str] = &[
+            "cd", "ls", "pwd", "echo", "cat", "exit", "help", "history", "alias", "unalias",
+            "bzip2", "bunzip2", "id",
+        ];
+        if BUILTINS.contains(&command) {
+            return true;
+        }
 
         if let Ok(path_var) = std::env::var("PATH") {
             for dir in std::env::split_paths(&path_var) {
                 let candidate = dir.join(command);
-                if candidate.is_file() { return true; }
+                if candidate.is_file() {
+                    return true;
+                }
                 #[cfg(windows)]
                 {
                     if let Ok(pathext) = std::env::var("PATHEXT") {
                         for ext in pathext.split(';') {
-                            if ext.is_empty() { continue; }
+                            if ext.is_empty() {
+                                continue;
+                            }
                             let trimmed = ext.trim_start_matches('.');
                             let with_ext = dir.join(format!("{command}.{}", trimmed));
-                            if with_ext.is_file() { return true; }
+                            if with_ext.is_file() {
+                                return true;
+                            }
                         }
                     }
                 }
@@ -538,16 +569,12 @@ impl UIUXSystem {
             command: command.to_string(),
             description: format!("Help for command: {command}"),
             usage: format!("{command} [OPTIONS] [ARGS]"),
-            options: vec![
-                OptionHelp {
-                    short: Some("-h".to_string()),
-                    long: Some("--help".to_string()),
-                    description: "Show help information".to_string(),
-                },
-            ],
-            examples: vec![
-                format!("{} --help", command),
-            ],
+            options: vec![OptionHelp {
+                short: Some("-h".to_string()),
+                long: Some("--help".to_string()),
+                description: "Show help information".to_string(),
+            }],
+            examples: vec![format!("{} --help", command)],
         })
     }
 
@@ -555,38 +582,53 @@ impl UIUXSystem {
         let default_theme = Theme::default();
         let theme = self.get_current_theme().unwrap_or(&default_theme);
         let mut formatted = String::new();
-        
-        formatted.push_str(&format!("{}{}{}{}:\n", 
-            theme.colors.user_prefix, help.command, theme.colors.reset, 
-            help.description));
-        
-        formatted.push_str(&format!("\n{}Usage:{} {}\n", 
-            theme.syntax_colors.keyword, theme.colors.reset, help.usage));
-        
+
+        formatted.push_str(&format!(
+            "{}{}{}{}:\n",
+            theme.colors.user_prefix, help.command, theme.colors.reset, help.description
+        ));
+
+        formatted.push_str(&format!(
+            "\n{}Usage:{} {}\n",
+            theme.syntax_colors.keyword, theme.colors.reset, help.usage
+        ));
+
         if !help.options.is_empty() {
-            formatted.push_str(&format!("\n{}Options:{}\n", 
-                theme.syntax_colors.keyword, theme.colors.reset));
-            
+            formatted.push_str(&format!(
+                "\n{}Options:{}\n",
+                theme.syntax_colors.keyword, theme.colors.reset
+            ));
+
             for option in &help.options {
                 let short = option.short.as_deref().unwrap_or("");
                 let long = option.long.as_deref().unwrap_or("");
-                formatted.push_str(&format!("  {}{}{}, {}{}{}\t{}\n",
-                    theme.syntax_colors.flag, short, theme.colors.reset,
-                    theme.syntax_colors.flag, long, theme.colors.reset,
-                    option.description));
+                formatted.push_str(&format!(
+                    "  {}{}{}, {}{}{}\t{}\n",
+                    theme.syntax_colors.flag,
+                    short,
+                    theme.colors.reset,
+                    theme.syntax_colors.flag,
+                    long,
+                    theme.colors.reset,
+                    option.description
+                ));
             }
         }
-        
+
         if !help.examples.is_empty() {
-            formatted.push_str(&format!("\n{}Examples:{}\n", 
-                theme.syntax_colors.keyword, theme.colors.reset));
-            
+            formatted.push_str(&format!(
+                "\n{}Examples:{}\n",
+                theme.syntax_colors.keyword, theme.colors.reset
+            ));
+
             for example in &help.examples {
-                formatted.push_str(&format!("  {}{}{}\n",
-                    theme.syntax_colors.string, example, theme.colors.reset));
+                formatted.push_str(&format!(
+                    "  {}{}{}\n",
+                    theme.syntax_colors.string, example, theme.colors.reset
+                ));
             }
         }
-        
+
         formatted
     }
 
@@ -598,23 +640,51 @@ impl UIUXSystem {
         // Provide different placeholder steps depending on command to activate code paths
         let steps = match command {
             "grep" => vec![
-                InteractiveStep { name: "pattern".into(), description: "Pattern to search".into(), parameter_type: ParameterType::String, required: true, default_value: None },
-                InteractiveStep { name: "file".into(), description: "File to search".into(), parameter_type: ParameterType::String, required: true, default_value: None },
+                InteractiveStep {
+                    name: "pattern".into(),
+                    description: "Pattern to search".into(),
+                    parameter_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                },
+                InteractiveStep {
+                    name: "file".into(),
+                    description: "File to search".into(),
+                    parameter_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                },
             ],
             "cp" => vec![
-                InteractiveStep { name: "source".into(), description: "Source path".into(), parameter_type: ParameterType::String, required: true, default_value: None },
-                InteractiveStep { name: "destination".into(), description: "Destination path".into(), parameter_type: ParameterType::String, required: true, default_value: None },
+                InteractiveStep {
+                    name: "source".into(),
+                    description: "Source path".into(),
+                    parameter_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                },
+                InteractiveStep {
+                    name: "destination".into(),
+                    description: "Destination path".into(),
+                    parameter_type: ParameterType::String,
+                    required: true,
+                    default_value: None,
+                },
             ],
-            _ => vec![
-                InteractiveStep { name: "target".into(), description: "Primary argument".into(), parameter_type: ParameterType::String, required: true, default_value: None }
-            ]
+            _ => vec![InteractiveStep {
+                name: "target".into(),
+                description: "Primary argument".into(),
+                parameter_type: ParameterType::String,
+                required: true,
+                default_value: None,
+            }],
         };
         Ok(steps)
     }
 
     fn update_theme_with_customization(&mut self) {
         // Apply user customizations to current theme
-    if let Some(_theme) = self.themes.get_mut(&self.current_theme) {
+        if let Some(_theme) = self.themes.get_mut(&self.current_theme) {
             // Apply font settings, colors, etc. from customization
         }
     }
@@ -747,12 +817,12 @@ impl LayoutManager {
             regions: Vec::new(),
         }
     }
-    
+
     fn update_dimensions(&mut self, width: usize, height: usize) {
         self.width = width;
         self.height = height;
     }
-    
+
     fn recalculate_layout(&mut self) -> Result<()> {
         // Layout calculation logic
         Ok(())
@@ -789,13 +859,17 @@ impl InteractionHandler {
         handler.register_default_bindings();
         handler
     }
-    
+
     fn register_default_bindings(&mut self) {
-        self.key_bindings.insert("Ctrl+C".to_string(), Action::Cancel);
+        self.key_bindings
+            .insert("Ctrl+C".to_string(), Action::Cancel);
         self.key_bindings.insert("Ctrl+D".to_string(), Action::Exit);
-        self.key_bindings.insert("Tab".to_string(), Action::AutoComplete);
-        self.key_bindings.insert("Up".to_string(), Action::HistoryPrevious);
-        self.key_bindings.insert("Down".to_string(), Action::HistoryNext);
+        self.key_bindings
+            .insert("Tab".to_string(), Action::AutoComplete);
+        self.key_bindings
+            .insert("Up".to_string(), Action::HistoryPrevious);
+        self.key_bindings
+            .insert("Down".to_string(), Action::HistoryNext);
     }
 }
 
@@ -961,7 +1035,9 @@ impl InteractiveSession {
     /// Advance to next step if possible.
     pub fn advance(&mut self) -> Result<()> {
         if !self.can_advance() {
-            return Err(anyhow::anyhow!("Cannot advance: missing required parameter(s)"));
+            return Err(anyhow::anyhow!(
+                "Cannot advance: missing required parameter(s)"
+            ));
         }
         if self.current_step + 1 < self.steps.len() {
             self.current_step += 1;
@@ -979,7 +1055,9 @@ impl InteractiveSession {
     /// Complete the interactive session by invoking the completion handler.
     pub fn try_complete(&self) -> Result<String> {
         if !self.is_complete() {
-            return Err(anyhow::anyhow!("Cannot complete: missing required parameter(s)"));
+            return Err(anyhow::anyhow!(
+                "Cannot complete: missing required parameter(s)"
+            ));
         }
         (self.completion_handler)(&self.parameters)
     }
@@ -1027,12 +1105,12 @@ mod tests {
     #[test]
     fn test_theme_registration() {
         let mut ui_system = UIUXSystem::new();
-        
+
         let custom_theme = Theme {
             name: "custom".to_string(),
             ..Default::default()
         };
-        
+
         ui_system.register_theme("custom".to_string(), custom_theme);
         assert!(ui_system.themes.contains_key("custom"));
     }
@@ -1040,7 +1118,7 @@ mod tests {
     #[test]
     fn test_prompt_rendering() {
         let ui_system = UIUXSystem::new();
-        
+
         let context = PromptContext {
             username: "user".to_string(),
             hostname: "localhost".to_string(),
@@ -1049,7 +1127,7 @@ mod tests {
             last_exit_code: 0,
             is_admin: false,
         };
-        
+
         let prompt = ui_system.render_prompt(&context);
         assert!(!prompt.is_empty());
         assert!(prompt.contains("user"));
@@ -1059,7 +1137,7 @@ mod tests {
     #[test]
     fn test_syntax_highlighting() {
         let ui_system = UIUXSystem::new();
-        
+
         let highlighted = ui_system.apply_syntax_highlighting("git commit -m \"test\"");
         assert!(!highlighted.is_empty());
         // Would test actual ANSI color codes in real implementation
@@ -1068,10 +1146,10 @@ mod tests {
     #[test]
     fn test_command_validation() {
         let ui_system = UIUXSystem::new();
-        
+
         let result = ui_system.validate_command("echo hello");
         assert!(matches!(result, ValidationResult::Valid));
-        
+
         let result = ui_system.validate_command("");
         assert!(matches!(result, ValidationResult::Empty));
     }
@@ -1079,7 +1157,7 @@ mod tests {
     #[test]
     fn test_completions() {
         let ui_system = UIUXSystem::new();
-        
+
         let completions = ui_system.get_completions("gi").unwrap();
         assert!(completions.iter().any(|c| c.text.starts_with("gi")));
     }

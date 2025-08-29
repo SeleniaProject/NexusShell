@@ -1,5 +1,5 @@
 //! Theme System Test Suite
-//! 
+//!
 //! Comprehensive testing suite for NexusShell's advanced theming system.
 //! Tests theme loading, switching, customization, and syntax highlighting integration.
 
@@ -14,7 +14,10 @@ fn main() -> Result<()> {
     let theme = NexusTheme::default();
     assert_eq!(theme.name, "Dark");
     assert!(!theme.description.is_empty());
-    assert!(theme.get_style("prompt").is_some(), "default theme should provide 'prompt' style");
+    assert!(
+        theme.get_style("prompt").is_some(),
+        "default theme should provide 'prompt' style"
+    );
 
     // 2) JSON/TOML での保存・読込の往復
     let tmp = TempDir::new()?;

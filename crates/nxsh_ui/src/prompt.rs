@@ -1,21 +1,16 @@
 //! Simple prompt display system for NexusShell CUI
-//! 
+//!
 //! This module provides PS1-based prompt functionality with optional Git information
 //! and system status display, designed for CUI mode efficiency.
 
 use anyhow::Result;
 use crossterm::{
-    ExecutableCommand,
     style::{Color, ResetColor, SetForegroundColor},
+    ExecutableCommand,
 };
-use std::{
-    env,
-    io::stdout,
-    path::Path,
-    process::Command,
-};
-use whoami;
 use hostname;
+use std::{env, io::stdout, path::Path, process::Command};
+use whoami;
 
 /// Prompt configuration for CUI mode  
 #[derive(Debug, Clone)]
@@ -83,7 +78,7 @@ impl PromptRenderer {
     pub fn new(config: PromptConfig) -> Self {
         Self { config }
     }
-    
+
     pub fn render(&self) -> String {
         "$ ".to_string() // Simple prompt for now
     }
@@ -135,11 +130,11 @@ impl PromptFormatter {
     pub fn new_minimal() -> Self {
         Self {
             config: PromptConfig {
-                show_user: true,       // Full user information as required
-                show_hostname: true,   // Complete hostname display
-                show_git_info: true,   // Full git status integration
-                show_cwd: true,        // Complete directory information
-                show_exit_code: true,  // Complete exit code tracking
+                show_user: true,      // Full user information as required
+                show_hostname: true,  // Complete hostname display
+                show_git_info: true,  // Full git status integration
+                show_cwd: true,       // Complete directory information
+                show_exit_code: true, // Complete exit code tracking
                 show_time: false,
                 show_jobs: false,
                 show_performance: false,
@@ -164,21 +159,21 @@ impl PromptFormatter {
             last_git_status: None,
         }
     }
-    
+
     /// Create a new prompt formatter with custom configuration
     pub fn with_config(config: PromptConfig) -> Self {
-        Self { 
+        Self {
             config,
             cached_prompt: None,
             last_cwd: None,
             last_git_status: None,
         }
     }
-    
+
     /// Generate and display the shell prompt
     pub fn display_prompt(&self, exit_code: Option<i32>) -> Result<()> {
         let _stdout = stdout(); // currently unused, retained for future direct write optimizations
-        
+
         // Use PS1 environment variable if available and no custom format is set
         if let Ok(ps1) = env::var("PS1") {
             if self.config.ps1_format.is_none() {
@@ -186,19 +181,23 @@ impl PromptFormatter {
                 return Ok(());
             }
         }
-        
+
         // Use custom format or default format
-        let format = self.config.ps1_format.as_deref().unwrap_or("\\u@\\h:\\w\\$ ");
+        let format = self
+            .config
+            .ps1_format
+            .as_deref()
+            .unwrap_or("\\u@\\h:\\w\\$ ");
         self.display_custom_prompt(format, exit_code)?;
-        
+
         Ok(())
     }
-    
+
     /// Display PS1-based prompt with basic variable substitution
     fn display_ps1_prompt(&self, ps1: &str, exit_code: Option<i32>) -> Result<()> {
         let mut stdout = stdout();
         let mut chars = ps1.chars().peekable();
-        
+
         while let Some(ch) = chars.next() {
             if ch == '\\' {
                 if let Some(&next_ch) = chars.peek() {
@@ -216,7 +215,14 @@ impl PromptFormatter {
                             // Hostname
                             if self.config.show_hostname {
                                 stdout.execute(SetForegroundColor(Color::Blue))?;
-                                print!("{}", hostname::get()?.to_string_lossy().split('.').next().unwrap_or("unknown"));
+                                print!(
+                                    "{}",
+                                    hostname::get()?
+                                        .to_string_lossy()
+                                        .split('.')
+                                        .next()
+                                        .unwrap_or("unknown")
+                                );
                                 stdout.execute(ResetColor)?;
                             }
                         }
@@ -239,14 +245,24 @@ impl PromptFormatter {
                             if self.config.show_cwd {
                                 if let Ok(cwd) = env::current_dir() {
                                     stdout.execute(SetForegroundColor(Color::Yellow))?;
-                                    print!("{}", cwd.file_name().unwrap_or_default().to_string_lossy());
+                                    print!(
+                                        "{}",
+                                        cwd.file_name().unwrap_or_default().to_string_lossy()
+                                    );
                                     stdout.execute(ResetColor)?;
                                 }
                             }
                         }
                         '$' => {
                             // $ for user, # for root
-                            print!("{}", if whoami::username() == "root" { "#" } else { "$" });
+                            print!(
+                                "{}",
+                                if whoami::username() == "root" {
+                                    "#"
+                                } else {
+                                    "$"
+                                }
+                            );
                         }
                         '#' => {
                             // Command number (simplified as $)
@@ -277,7 +293,7 @@ impl PromptFormatter {
                 print!("{ch}");
             }
         }
-        
+
         // Show exit code if configured and available
         if self.config.show_exit_code {
             if let Some(code) = exit_code {
@@ -288,26 +304,26 @@ impl PromptFormatter {
                 }
             }
         }
-        
+
         // Show Git information if enabled
         if self.config.show_git_info {
             self.display_git_info()?;
         }
-        
+
         print!(" ");
-        
+
         Ok(())
     }
-    
+
     /// Display custom formatted prompt
     fn display_custom_prompt(&self, format: &str, exit_code: Option<i32>) -> Result<()> {
         self.display_ps1_prompt(format, exit_code)
     }
-    
+
     /// Display working directory with home directory substitution
     fn display_working_directory(&self) -> Result<()> {
         let mut stdout = stdout();
-        
+
         if let Ok(cwd) = env::current_dir() {
             if let Ok(home) = env::var("HOME") {
                 let home_path = Path::new(&home);
@@ -318,15 +334,15 @@ impl PromptFormatter {
                     return Ok(());
                 }
             }
-            
+
             stdout.execute(SetForegroundColor(Color::Yellow))?;
             print!("{}", cwd.display());
             stdout.execute(ResetColor)?;
         }
-        
+
         Ok(())
     }
-    
+
     /// Display simplified Git information
     fn display_git_info(&self) -> Result<()> {
         if self.config.git_simplified {
@@ -335,11 +351,11 @@ impl PromptFormatter {
             self.display_detailed_git_info()
         }
     }
-    
+
     /// Display simple Git branch information
     fn display_simple_git_info(&self) -> Result<()> {
         let mut stdout = stdout();
-        
+
         // Check if we're in a Git repository
         if let Ok(output) = Command::new("git")
             .args(["branch", "--show-current"])
@@ -355,14 +371,14 @@ impl PromptFormatter {
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Display detailed Git status information
     fn display_detailed_git_info(&self) -> Result<()> {
         let mut stdout = stdout();
-        
+
         // Get current branch
         if let Ok(output) = Command::new("git")
             .args(["branch", "--show-current"])
@@ -374,11 +390,10 @@ impl PromptFormatter {
                 if !branch.is_empty() {
                     stdout.execute(SetForegroundColor(Color::Magenta))?;
                     print!(" ({branch})");
-                    
+
                     // Check for uncommitted changes
-                    if let Ok(status_output) = Command::new("git")
-                        .args(["status", "--porcelain"])
-                        .output()
+                    if let Ok(status_output) =
+                        Command::new("git").args(["status", "--porcelain"]).output()
                     {
                         if status_output.status.success() {
                             let status = String::from_utf8_lossy(&status_output.stdout);
@@ -388,76 +403,85 @@ impl PromptFormatter {
                             }
                         }
                     }
-                    
+
                     stdout.execute(ResetColor)?;
                 }
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Generate prompt string without displaying it
-    /// 
+    ///
     /// This method creates the formatted prompt string for use by
     /// the application's input handling system.
     #[cfg(feature = "async")]
     pub async fn generate_prompt(&self) -> Result<String> {
         let mut prompt = String::new();
-        
+
         // Start with PS1 format if available
         if let Ok(ps1) = env::var("PS1") {
             return self.process_ps1_format(&ps1);
         }
-        
+
         // Use default NexusShell format: user@host:~/path $
         if self.config.show_user {
             prompt.push_str(&format!("\x1b[32m{}\x1b[0m", whoami::username()));
         }
-        
+
         if self.config.show_hostname {
             if self.config.show_user {
                 prompt.push('@');
             }
-            prompt.push_str(&format!("\x1b[32m{}\x1b[0m", hostname::get().unwrap_or_default().to_string_lossy()));
+            let host = hostname::get()
+                .ok()
+                .and_then(|h| h.into_string().ok())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "unknown-host".to_string());
+            prompt.push_str(&format!("\x1b[32m{}\x1b[0m", host));
         }
-        
+
         if self.config.show_cwd {
             if self.config.show_user || self.config.show_hostname {
                 prompt.push(':');
             }
-            
+
             let cwd = env::current_dir()?;
             let home = env::var("HOME").or_else(|_| env::var("USERPROFILE"));
-            
-            let display_path = if let Ok(home_path) = home {
-                let home_path = Path::new(&home_path);
-                if cwd.starts_with(home_path) {
-                    format!("~{}", cwd.strip_prefix(home_path).unwrap().display())
-                } else {
-                    cwd.display().to_string()
+
+            let display_path = match home {
+                Ok(home_path) => {
+                    let home_path = Path::new(&home_path);
+                    if cwd.starts_with(home_path) {
+                        match cwd.strip_prefix(home_path) {
+                            Ok(rel) => format!("~{}", rel.display()),
+                            Err(_) => cwd.display().to_string(),
+                        }
+                    } else {
+                        cwd.display().to_string()
+                    }
                 }
-            } else {
-                cwd.display().to_string()
+                Err(_) => cwd.display().to_string(),
             };
-            
+
             prompt.push_str(&format!("\x1b[34m{display_path}\x1b[0m"));
         }
-        
+
         // Add Git information if enabled
-            if self.config.show_git_info {
-                #[cfg(feature = "async")]
-                let git_info = self.get_git_info().await.unwrap_or_default();
-                #[cfg(not(feature = "async"))]
-                let git_info = self.get_git_info_blocking().unwrap_or_default();
-                if !git_info.is_empty() {
-                    prompt.push_str(&git_info);
-                }
+        if self.config.show_git_info {
+            #[cfg(feature = "async")]
+            let git_info = self.get_git_info().await.unwrap_or_default();
+            #[cfg(not(feature = "async"))]
+            let git_info = self.get_git_info_blocking().unwrap_or_default();
+            if !git_info.is_empty() {
+                prompt.push_str(&git_info);
+            }
         }
-        
+
         // Add final prompt character
         prompt.push_str("$ ");
-        
+
         Ok(prompt)
     }
 
@@ -466,7 +490,7 @@ impl PromptFormatter {
         // Check if we can use cached prompt
         let current_cwd = env::current_dir().ok();
         let should_regenerate = self.should_regenerate_prompt(&current_cwd);
-        
+
         if !should_regenerate {
             if let Some(ref cached) = self.cached_prompt {
                 return Ok(cached.clone());
@@ -492,8 +516,8 @@ impl PromptFormatter {
         }
 
         if self.config.show_hostname {
-            if self.config.show_user && !prompt.is_empty() { 
-                prompt.push('@'); 
+            if self.config.show_user && !prompt.is_empty() {
+                prompt.push('@');
             }
             if let Ok(hostname) = hostname::get() {
                 let hostname_str = hostname.to_string_lossy();
@@ -504,10 +528,10 @@ impl PromptFormatter {
         }
 
         if self.config.show_cwd {
-            if (self.config.show_user || self.config.show_hostname) && !prompt.is_empty() { 
-                prompt.push(':'); 
+            if (self.config.show_user || self.config.show_hostname) && !prompt.is_empty() {
+                prompt.push(':');
             }
-            
+
             if let Ok(cwd) = env::current_dir() {
                 let home = env::var("HOME").or_else(|_| env::var("USERPROFILE"));
                 let display_path = if let Ok(home_path) = home {
@@ -522,11 +546,11 @@ impl PromptFormatter {
                         } else {
                             cwd.display().to_string()
                         }
-                    } else { 
-                        cwd.display().to_string() 
+                    } else {
+                        cwd.display().to_string()
                     }
-                } else { 
-                    cwd.display().to_string() 
+                } else {
+                    cwd.display().to_string()
                 };
                 prompt.push_str(&format!("\x1b[34m{}\x1b[0m", display_path));
             }
@@ -537,7 +561,7 @@ impl PromptFormatter {
                 Ok(git_info) if !git_info.is_empty() => {
                     prompt.push_str(&git_info);
                     self.last_git_status = Some(git_info);
-                },
+                }
                 _ => {
                     self.last_git_status = None;
                 }
@@ -545,39 +569,39 @@ impl PromptFormatter {
         }
 
         prompt.push_str("$ ");
-        
+
         // Cache the generated prompt
         self.cached_prompt = Some(prompt.clone());
         self.last_cwd = current_cwd;
-        
+
         Ok(prompt)
     }
-    
+
     /// Determine if prompt needs to be regenerated
     fn should_regenerate_prompt(&self, current_cwd: &Option<std::path::PathBuf>) -> bool {
         // Always regenerate if no cache
         if self.cached_prompt.is_none() {
             return true;
         }
-        
+
         // Regenerate if directory changed
         if &self.last_cwd != current_cwd {
             return true;
         }
-        
+
         // Regenerate if git info is enabled (git status might have changed)
         if self.config.show_git_info {
             return true;
         }
-        
+
         false
     }
-    
+
     /// Process PS1 format string with variable substitution
     fn process_ps1_format(&self, ps1: &str) -> Result<String> {
         let mut result = String::new();
         let mut chars = ps1.chars().peekable();
-        
+
         while let Some(ch) = chars.next() {
             if ch == '\\' {
                 if let Some(&next_ch) = chars.peek() {
@@ -588,27 +612,30 @@ impl PromptFormatter {
                             if let Ok(hostname) = hostname::get() {
                                 result.push_str(&hostname.to_string_lossy());
                             }
-                        },
+                        }
                         'w' => {
                             let cwd = env::current_dir().unwrap_or_default();
                             result.push_str(&cwd.display().to_string());
-                        },
+                        }
                         'W' => {
                             let cwd = env::current_dir().unwrap_or_default();
                             if let Some(name) = cwd.file_name() {
                                 result.push_str(&name.to_string_lossy());
                             }
-                        },
+                        }
                         '$' => result.push('$'),
                         'n' => result.push('\n'),
                         't' => {
-                            // Current time (simplified)
+                            // Current time (simplified) with panic-free handling
                             use std::time::{SystemTime, UNIX_EPOCH};
-                            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-                            let hours = (now / 3600) % 24;
-                            let minutes = (now / 60) % 60;
+                            let now_secs = match SystemTime::now().duration_since(UNIX_EPOCH) {
+                                Ok(d) => d.as_secs(),
+                                Err(_) => 0, // fallback to 00:00 on clock error
+                            };
+                            let hours = (now_secs / 3600) % 24;
+                            let minutes = (now_secs / 60) % 60;
                             result.push_str(&format!("{hours:02}:{minutes:02}"));
-                        },
+                        }
                         _ => {
                             // Unknown escape sequence, keep as-is
                             result.push('\\');
@@ -622,40 +649,40 @@ impl PromptFormatter {
                 result.push(ch);
             }
         }
-        
+
         Ok(result)
     }
-    
+
     /// Get Git information for prompt display
     #[cfg(feature = "async")]
     async fn get_git_info(&self) -> Result<String> {
         if !self.config.git_simplified {
             return Ok(String::new());
         }
-        
+
         // Check if we're in a Git repository
-    let output = tokio::process::Command::new("git")
+        let output = tokio::process::Command::new("git")
             .args(["branch", "--show-current"])
             .output()
             .await?;
-            
+
         if !output.status.success() {
             return Ok(String::new()); // Not a Git repository
         }
-        
+
         let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if branch.is_empty() {
             return Ok(String::new());
         }
-        
+
         let mut git_info = format!(" \x1b[35m({branch})\x1b[0m");
-        
+
         // Check for uncommitted changes
-    let status_output = tokio::process::Command::new("git")
+        let status_output = tokio::process::Command::new("git")
             .args(["status", "--porcelain"])
             .output()
             .await;
-            
+
         if let Ok(status) = status_output {
             if status.status.success() {
                 let status_text = String::from_utf8_lossy(&status.stdout);
@@ -664,47 +691,57 @@ impl PromptFormatter {
                 }
             }
         }
-        
+
         Ok(git_info)
     }
 
     #[cfg(not(feature = "async"))]
     fn get_git_info_blocking(&self) -> Result<String> {
-        if !self.config.git_simplified { return Ok(String::new()); }
+        if !self.config.git_simplified {
+            return Ok(String::new());
+        }
         use std::process::Command;
-        let output = Command::new("git").args(["branch", "--show-current"]).output()?;
-        if !output.status.success() { return Ok(String::new()); }
+        let output = Command::new("git")
+            .args(["branch", "--show-current"])
+            .output()?;
+        if !output.status.success() {
+            return Ok(String::new());
+        }
         let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if branch.is_empty() { return Ok(String::new()); }
+        if branch.is_empty() {
+            return Ok(String::new());
+        }
         let mut git_info = format!(" \x1b[35m({branch})\x1b[0m");
         if let Ok(status) = Command::new("git").args(["status", "--porcelain"]).output() {
             if status.status.success() {
                 let status_text = String::from_utf8_lossy(&status.stdout);
-                if !status_text.trim().is_empty() { git_info.push_str("\x1b[31m*\x1b[0m"); }
+                if !status_text.trim().is_empty() {
+                    git_info.push_str("\x1b[31m*\x1b[0m");
+                }
             }
         }
         Ok(git_info)
     }
-    
+
     /// Update prompt configuration
     pub fn update_config(&mut self, config: PromptConfig) {
         self.config = config;
         // Clear cache when configuration changes
         self.clear_cache();
     }
-    
+
     /// Get current configuration
     pub fn config(&self) -> &PromptConfig {
         &self.config
     }
-    
+
     /// Clear cached prompt data
     pub fn clear_cache(&mut self) {
         self.cached_prompt = None;
         self.last_cwd = None;
         self.last_git_status = None;
     }
-    
+
     /// Force prompt regeneration on next call
     pub fn invalidate_cache(&mut self) {
         self.cached_prompt = None;
@@ -714,14 +751,14 @@ impl PromptFormatter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_prompt_formatter_creation() {
         let formatter = PromptFormatter::new();
         assert!(formatter.config.show_user);
         assert!(formatter.config.show_cwd);
     }
-    
+
     #[test]
     fn test_custom_config() {
         let config = PromptConfig {
@@ -729,7 +766,7 @@ mod tests {
             git_simplified: false,
             ..Default::default()
         };
-        
+
         let formatter = PromptFormatter::with_config(config);
         assert!(formatter.config.show_hostname);
         assert!(!formatter.config.git_simplified);

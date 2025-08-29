@@ -10,36 +10,36 @@
 #![allow(clippy::blocks_in_conditions)]
 
 // Re-export commonly used types and functions
+pub use completion::{CompletionResult, CompletionType, NexusCompleter};
 pub use config::UiConfig;
-pub use themes::{NexusTheme as Theme, get_theme_by_name as get_theme};
-pub use completion::{CompletionType, CompletionResult, NexusCompleter};
-pub use prompt::{PromptRenderer, PromptStyle, PromptConfig};
-pub use input_handler::{InputHandler, KeyEvent, InputAction, InputMode};
+pub use input_handler::{InputAction, InputHandler, InputMode, KeyEvent};
+pub use prompt::{PromptConfig, PromptRenderer, PromptStyle};
+pub use themes::{get_theme_by_name as get_theme, NexusTheme as Theme};
 
-use std::io::{self, Write};
 use crossterm::{
-    terminal::{self, ClearType},
     cursor,
-    style::{Color, Print, ResetColor, SetForegroundColor},
-    execute,
     event::{self, Event, KeyCode, KeyModifiers},
+    execute,
+    style::{Color, Print, ResetColor, SetForegroundColor},
+    terminal::{self, ClearType},
 };
+use std::io::{self, Write};
 
 // Core modules for binary dependencies
-pub mod config;
-pub mod themes;
-pub mod theme_validator;
 pub mod ansi_render;
 pub mod completion;
-pub mod readline;
-pub mod history;
-pub mod prompt;
-pub mod input_handler;
-pub mod ui_ux;
-pub mod enhanced_line_editor;
-pub mod tab_completion;
-pub mod completion_panel;
 pub mod completion_engine;
+pub mod completion_panel;
+pub mod config;
+pub mod enhanced_line_editor;
+pub mod history;
+pub mod input_handler;
+pub mod prompt;
+pub mod readline;
+pub mod tab_completion;
+pub mod theme_validator;
+pub mod themes;
+pub mod ui_ux;
 
 /// Animation manager for UI elements
 pub struct Animation {
@@ -62,7 +62,12 @@ impl Animation {
     pub fn spinner() -> Self {
         Self::new(
             "spinner".to_string(),
-            vec!["|".to_string(), "/".to_string(), "-".to_string(), "\\".to_string()],
+            vec![
+                "|".to_string(),
+                "/".to_string(),
+                "-".to_string(),
+                "\\".to_string(),
+            ],
         )
     }
 
@@ -242,7 +247,7 @@ impl AdvancedCuiController {
     pub fn new() -> anyhow::Result<Self> {
         let theme = get_theme("nxsh-dark-default")?;
         let prompt = PromptRenderer::new(PromptConfig::default());
-        
+
         Ok(Self {
             theme,
             prompt,
@@ -250,20 +255,20 @@ impl AdvancedCuiController {
             history: Vec::new(),
         })
     }
-    
+
     /// Start the interactive CUI session
     pub fn run_interactive(&mut self) -> anyhow::Result<()> {
         self.is_running = true;
-        
+
         // Enable raw mode for advanced input handling
         terminal::enable_raw_mode()?;
-        
+
         while self.is_running {
             // Render prompt
             let prompt_text = self.prompt.render();
             print!("{}", prompt_text);
             io::stdout().flush()?;
-            
+
             // Read events
             if event::poll(std::time::Duration::from_millis(500))? {
                 if let Event::Key(key_event) = event::read()? {
@@ -296,12 +301,12 @@ impl AdvancedCuiController {
                 }
             }
         }
-        
+
         // Disable raw mode
         terminal::disable_raw_mode()?;
         Ok(())
     }
-    
+
     /// Execute a command
     fn execute_command(&mut self, command: &str) -> anyhow::Result<()> {
         match command.trim() {
@@ -321,13 +326,13 @@ impl AdvancedCuiController {
         }
         Ok(())
     }
-    
+
     /// Show help information
     fn show_help(&self) -> anyhow::Result<()> {
         execute!(io::stdout(), SetForegroundColor(Color::Green))?;
         println!("NexusShell Advanced CUI - Available Commands:");
         execute!(io::stdout(), ResetColor)?;
-        
+
         let help_items = [
             ("Tab", "Auto-completion"),
             ("Ctrl+R", "Reverse history search"),
@@ -339,7 +344,7 @@ impl AdvancedCuiController {
             ("help", "Show this help"),
             ("exit/quit", "Exit NexusShell"),
         ];
-        
+
         for (key, desc) in &help_items {
             execute!(io::stdout(), SetForegroundColor(Color::Yellow))?;
             print!("  {:12}", key);
@@ -347,94 +352,101 @@ impl AdvancedCuiController {
             println!(" - {}", desc);
             execute!(io::stdout(), ResetColor)?;
         }
-        
+
         Ok(())
     }
-    
+
     /// Get the current theme
     pub fn theme(&self) -> &Theme {
         &self.theme
     }
-    
+
     /// Set a new theme
     pub fn set_theme(&mut self, theme_name: &str) -> anyhow::Result<()> {
         self.theme = get_theme(theme_name)?;
         Ok(())
     }
-    
+
     /// Get completion suggestions for input (simplified version)
     pub fn get_completions(&self, input: &str, _pos: usize) -> Vec<String> {
         // Simple completion example
         let commands = vec![
-            "ls", "cd", "pwd", "mkdir", "rmdir", "cp", "mv", "rm",
-            "cat", "grep", "find", "git", "cargo", "help", "exit", "clear"
+            "ls", "cd", "pwd", "mkdir", "rmdir", "cp", "mv", "rm", "cat", "grep", "find", "git",
+            "cargo", "help", "exit", "clear",
         ];
-        
-        commands.into_iter()
+
+        commands
+            .into_iter()
             .filter(|cmd| cmd.starts_with(input))
             .map(|cmd| cmd.to_string())
             .collect()
     }
-    
+
     /// Add command to history with deduplication and size management
     pub fn add_to_history(&mut self, command: String) {
         // Skip empty commands and duplicates of the last command
         if command.trim().is_empty() {
             return;
         }
-        
+
         if let Some(last) = self.history.last() {
             if last == &command {
                 return; // Don't add duplicate consecutive commands
             }
         }
-        
+
         // Add the command
         self.history.push(command);
-        
+
         // Maintain history size limit (default 10000)
         const MAX_HISTORY_SIZE: usize = 10000;
         if self.history.len() > MAX_HISTORY_SIZE {
             self.history.drain(0..self.history.len() - MAX_HISTORY_SIZE);
         }
     }
-    
+
     /// Search history with fuzzy matching and relevance scoring
     pub fn search_history(&self, query: &str) -> Vec<&str> {
         if query.is_empty() {
-            return self.history.iter().rev().take(20).map(|s| s.as_str()).collect();
+            return self
+                .history
+                .iter()
+                .rev()
+                .take(20)
+                .map(|s| s.as_str())
+                .collect();
         }
-        
+
         let query_lower = query.to_lowercase();
         let mut matches: Vec<(usize, &str)> = Vec::new();
-        
+
         for (index, cmd) in self.history.iter().enumerate().rev() {
             let cmd_lower = cmd.to_lowercase();
-            
+
             // Calculate relevance score
             let score = if cmd_lower.starts_with(&query_lower) {
                 1000 + index // Exact prefix match gets highest score
             } else if cmd_lower.contains(&query_lower) {
-                500 + index // Substring match gets medium score  
+                500 + index // Substring match gets medium score
             } else if self.fuzzy_match(&cmd_lower, &query_lower) {
                 100 + index // Fuzzy match gets low score
             } else {
                 continue;
             };
-            
+
             matches.push((score, cmd.as_str()));
         }
-        
+
         // Sort by score descending and take top 20 results
         matches.sort_by(|a, b| b.0.cmp(&a.0));
         matches.into_iter().take(20).map(|(_, cmd)| cmd).collect()
     }
-    
+
     /// Simple fuzzy matching algorithm
     fn fuzzy_match(&self, text: &str, pattern: &str) -> bool {
         let mut text_chars = text.chars();
         let pattern_chars = pattern.chars();
-        
+
         for pattern_char in pattern_chars {
             let mut found = false;
             for text_char in text_chars.by_ref() {
@@ -471,6 +483,10 @@ impl SimpleUiController {
 
 impl Default for SimpleUiController {
     fn default() -> Self {
-        Self::new().expect("Failed to create simple UI controller")
+        Self::new().unwrap_or_else(|_| {
+            // Fallback: construct with a simple default theme if theme loading fails
+            let theme = Theme::default();
+            Self { theme }
+        })
     }
 }
