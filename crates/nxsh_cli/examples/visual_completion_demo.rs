@@ -1,5 +1,5 @@
 //! Visual Tab Completion Demo
-//! 
+//!
 //! This example demonstrates the visual tab completion features of NexusShell.
 
 use anyhow::Result;
@@ -7,9 +7,9 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 use nxsh_ui::{
-    enhanced_line_editor::{EnhancedLineEditor, EditorConfig},
-    tab_completion::TabCompletionHandler,
     completion_engine::{CompletionEngine, CompletionItem, CompletionType},
+    enhanced_line_editor::{EditorConfig, EnhancedLineEditor},
+    tab_completion::TabCompletionHandler,
 };
 
 #[tokio::main]
@@ -19,13 +19,13 @@ async fn main() -> Result<()> {
 
     // Demo 1: Completion Engine Performance
     demo_completion_engine().await?;
-    
+
     // Demo 2: Basic Tab Completion
     demo_basic_completion().await?;
-    
+
     // Demo 3: Performance Metrics
     demo_performance_metrics().await?;
-    
+
     println!("\n✅ All demos completed successfully!");
     Ok(())
 }
@@ -34,16 +34,16 @@ async fn main() -> Result<()> {
 async fn demo_completion_engine() -> Result<()> {
     println!("📚 Demo 1: Completion Engine Core");
     println!("==================================");
-    
+
     let _engine = CompletionEngine::new();
     let candidates = create_demo_candidates();
     println!("Created {} demo candidates", candidates.len());
-    
+
     for (i, candidate) in candidates.iter().enumerate() {
         let desc = candidate.description.as_deref().unwrap_or("No description");
         println!("  {}. {} - {}", i + 1, candidate.text, desc);
     }
-    
+
     sleep(Duration::from_millis(1000)).await;
     Ok(())
 }
@@ -52,11 +52,11 @@ async fn demo_completion_engine() -> Result<()> {
 async fn demo_basic_completion() -> Result<()> {
     println!("\n⌨️  Demo 2: Basic Tab Completion");
     println!("=================================");
-    
+
     let _config = EditorConfig::default();
     let mut _editor = EnhancedLineEditor::new()?;
     let mut _tab_handler = TabCompletionHandler::new();
-    
+
     println!("Tab completion handler initialized");
     sleep(Duration::from_millis(500)).await;
     Ok(())
@@ -66,7 +66,7 @@ async fn demo_basic_completion() -> Result<()> {
 async fn demo_performance_metrics() -> Result<()> {
     println!("\n📊 Demo 3: Performance Metrics");
     println!("===============================");
-    
+
     let _engine = CompletionEngine::new();
     println!("Completion engine performance optimized!");
     Ok(())

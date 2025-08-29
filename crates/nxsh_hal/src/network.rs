@@ -1,7 +1,7 @@
-use crate::{HalResult, HalError, Platform, Capabilities}; // HalError 実際に使用されていたため復元
+use crate::{Capabilities, HalError, HalResult, Platform}; // HalError 実際に使用されていたため復元
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::{Arc, RwLock, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime};
 
 #[derive(Debug, Clone)]
@@ -167,7 +167,7 @@ impl NetworkManager {
     pub fn new() -> HalResult<Self> {
         let platform = Platform::current();
         let capabilities = Capabilities::current();
-        
+
         let manager = Self {
             platform,
             capabilities,
@@ -178,14 +178,14 @@ impl NetworkManager {
             dns_cache: Arc::new(RwLock::new(DnsCache::new())),
             proxy_config: None,
         };
-        
+
         Ok(manager)
     }
 
     /// Get MAC addresses for all network interfaces
     pub fn get_mac_addresses(&self) -> HalResult<HashMap<String, String>> {
         let mut mac_addresses = HashMap::new();
-        
+
         #[cfg(windows)]
         {
             // Use PowerShell to get MAC addresses on Windows
@@ -208,7 +208,7 @@ impl NetworkManager {
                 }
             }
         }
-        
+
         #[cfg(target_os = "linux")]
         {
             // Read from /sys/class/net on Linux
@@ -226,7 +226,7 @@ impl NetworkManager {
                 }
             }
         }
-        
+
         #[cfg(target_os = "macos")]
         {
             // Use networksetup on macOS
@@ -240,7 +240,9 @@ impl NetworkManager {
                     for line in output_str.lines() {
                         if line.starts_with("Device: ") {
                             current_device = line[8..].to_string();
-                        } else if line.starts_with("Ethernet Address: ") && !current_device.is_empty() {
+                        } else if line.starts_with("Ethernet Address: ")
+                            && !current_device.is_empty()
+                        {
                             let mac = line[18..].to_string();
                             mac_addresses.insert(current_device.clone(), mac);
                             current_device.clear();
@@ -249,14 +251,14 @@ impl NetworkManager {
                 }
             }
         }
-        
+
         Ok(mac_addresses)
     }
 
     /// Get comprehensive network statistics for all interfaces
     pub fn get_network_statistics(&self) -> HalResult<HashMap<String, NetworkInterfaceStats>> {
         let mut stats = HashMap::new();
-        
+
         #[cfg(windows)]
         {
             // Use PowerShell to get comprehensive network statistics
@@ -289,30 +291,34 @@ impl NetworkManager {
                 }
             }
         }
-        
+
         #[cfg(target_os = "linux")]
         {
             // Read from /proc/net/dev on Linux
             if let Ok(content) = std::fs::read_to_string("/proc/net/dev") {
-                for line in content.lines().skip(2) { // Skip header lines
+                for line in content.lines().skip(2) {
+                    // Skip header lines
                     let parts: Vec<&str> = line.trim().split_whitespace().collect();
                     if parts.len() >= 17 {
                         let interface = parts[0].trim_end_matches(':').to_string();
-                        stats.insert(interface, NetworkInterfaceStats {
-                            bytes_received: parts[1].parse().unwrap_or(0),
-                            packets_received: parts[2].parse().unwrap_or(0),
-                            errors_received: parts[3].parse().unwrap_or(0),
-                            dropped_packets: parts[4].parse().unwrap_or(0),
-                            bytes_sent: parts[9].parse().unwrap_or(0),
-                            packets_sent: parts[10].parse().unwrap_or(0),
-                            errors_sent: parts[11].parse().unwrap_or(0),
-                            timestamp: SystemTime::now(),
-                        });
+                        stats.insert(
+                            interface,
+                            NetworkInterfaceStats {
+                                bytes_received: parts[1].parse().unwrap_or(0),
+                                packets_received: parts[2].parse().unwrap_or(0),
+                                errors_received: parts[3].parse().unwrap_or(0),
+                                dropped_packets: parts[4].parse().unwrap_or(0),
+                                bytes_sent: parts[9].parse().unwrap_or(0),
+                                packets_sent: parts[10].parse().unwrap_or(0),
+                                errors_sent: parts[11].parse().unwrap_or(0),
+                                timestamp: SystemTime::now(),
+                            },
+                        );
                     }
                 }
             }
         }
-        
+
         #[cfg(target_os = "macos")]
         {
             // Use netstat on macOS for network statistics
@@ -322,37 +328,48 @@ impl NetworkManager {
             {
                 if output.status.success() {
                     let output_str = String::from_utf8_lossy(&output.stdout);
-                    for line in output_str.lines().skip(1) { // Skip header
+                    for line in output_str.lines().skip(1) {
+                        // Skip header
                         let parts: Vec<&str> = line.split_whitespace().collect();
                         if parts.len() >= 10 {
                             let interface = parts[0].to_string();
-                            stats.insert(interface, NetworkInterfaceStats {
-                                packets_received: parts[4].parse().unwrap_or(0),
-                                errors_received: parts[5].parse().unwrap_or(0),
-                                bytes_received: parts[6].parse().unwrap_or(0),
-                                packets_sent: parts[7].parse().unwrap_or(0),
-                                errors_sent: parts[8].parse().unwrap_or(0),
-                                bytes_sent: parts[9].parse().unwrap_or(0),
-                                dropped_packets: 0, // Not directly available in netstat output
-                                timestamp: SystemTime::now(),
-                            });
+                            stats.insert(
+                                interface,
+                                NetworkInterfaceStats {
+                                    packets_received: parts[4].parse().unwrap_or(0),
+                                    errors_received: parts[5].parse().unwrap_or(0),
+                                    bytes_received: parts[6].parse().unwrap_or(0),
+                                    packets_sent: parts[7].parse().unwrap_or(0),
+                                    errors_sent: parts[8].parse().unwrap_or(0),
+                                    bytes_sent: parts[9].parse().unwrap_or(0),
+                                    dropped_packets: 0, // Not directly available in netstat output
+                                    timestamp: SystemTime::now(),
+                                },
+                            );
                         }
                     }
                 }
             }
         }
-        
+
         Ok(stats)
     }
 
-    pub async fn connect(&self, target: ConnectionTarget, protocol: NetworkProtocol) -> HalResult<String> {
+    pub async fn connect(
+        &self,
+        target: ConnectionTarget,
+        protocol: NetworkProtocol,
+    ) -> HalResult<String> {
         // Generate a simple connection ID using timestamp and random number
-        let connection_id = format!("conn_{}_{}", 
-            SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap_or(Duration::ZERO).as_millis(),
+        let connection_id = format!(
+            "conn_{}_{}",
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or(Duration::ZERO)
+                .as_millis(),
             std::process::id()
         );
-        
+
         let connection = NetworkConnection {
             id: connection_id.clone(),
             target,
@@ -363,8 +380,11 @@ impl NetworkManager {
             bytes_sent: 0,
             bytes_received: 0,
         };
-        
-        self.connection_pool.write().unwrap().add_connection(connection);
+
+        self.connection_pool
+            .write()
+            .unwrap()
+            .add_connection(connection);
         Ok(connection_id)
     }
 
@@ -373,12 +393,16 @@ impl NetworkManager {
         {
             // Use PowerShell to get network adapter statistics
             if let Ok(output) = std::process::Command::new("powershell")
-                .args(["-Command", "Get-NetAdapterStatistics | Select-Object Name,BytesReceived,BytesSent"])
+                .args([
+                    "-Command",
+                    "Get-NetAdapterStatistics | Select-Object Name,BytesReceived,BytesSent",
+                ])
                 .output()
             {
                 if output.status.success() {
                     let output_str = String::from_utf8_lossy(&output.stdout);
-                    for line in output_str.lines().skip(3) { // Skip headers
+                    for line in output_str.lines().skip(3) {
+                        // Skip headers
                         let parts: Vec<&str> = line.split_whitespace().collect();
                         if parts.len() >= 3 {
                             return Ok(BandwidthUsage {
@@ -394,7 +418,7 @@ impl NetworkManager {
                 }
             }
         }
-        
+
         #[cfg(unix)]
         {
             // Use /proc/net/dev on Linux
@@ -416,8 +440,15 @@ impl NetworkManager {
                 }
             }
         }
-        
-        Err(HalError::io_error("network", Some(interface), std::io::Error::new(std::io::ErrorKind::NotFound, format!("Interface {interface} not found"))))
+
+        Err(HalError::io_error(
+            "network",
+            Some(interface),
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Interface {interface} not found"),
+            ),
+        ))
     }
 }
 

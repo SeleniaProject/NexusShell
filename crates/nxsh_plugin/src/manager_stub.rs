@@ -6,8 +6,10 @@ use anyhow::Result;
 pub struct PluginManager {}
 
 impl PluginManager {
-    pub fn new() -> Self { Self {} }
+    pub fn new() -> Self {
+        Self {}
+    }
 }
 
 // Lightweight fallbacks mirroring a tiny surface if needed in callers later.
-pub type PluginEventHandler = (); 
+pub type PluginEventHandler = ();

@@ -3,25 +3,25 @@
 //! This module provides a comprehensive WASI-like runtime for WebAssembly plugins
 //! using Pure Rust components without wasmtime dependencies.
 
-use anyhow::{Result, Context, anyhow};
+use anyhow::{anyhow, Context, Result};
+use log::{debug, info};
 use std::{
     collections::HashMap,
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-    path::{Path, PathBuf},
     fs,
     io::{self, Write},
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::sync::{RwLock, Semaphore, Mutex};
+use tokio::sync::{Mutex, RwLock, Semaphore};
 #[cfg(feature = "wasi-runtime")]
-use wasmi::{Engine, Store, Module, Instance, Linker, Caller, Val};
-use log::{info, debug};
+use wasmi::{Caller, Engine, Instance, Linker, Module, Store, Val};
 
 use crate::{
-    security::SecurityContext,
-    permissions::PluginPermissions,
     component::{ComponentRegistry, ComponentValue},
+    permissions::PluginPermissions,
     registrar::PluginRegistrar,
+    security::SecurityContext,
 };
 
 /// Runtime configuration
@@ -42,7 +42,7 @@ pub struct RuntimeConfig {
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
-            execution_timeout_ms: 30000, // 30 seconds
+            execution_timeout_ms: 30000,         // 30 seconds
             max_memory_bytes: 128 * 1024 * 1024, // 128MB
             max_concurrent_executions: Some(10),
             debug_mode: false,
@@ -84,12 +84,12 @@ impl Default for RuntimeContext {
 impl RuntimeContext {
     pub fn new() -> Self {
         let mut file_descriptors = HashMap::new();
-        
+
         // Add standard file descriptors
         file_descriptors.insert(0, FileDescriptor::stdin());
         file_descriptors.insert(1, FileDescriptor::stdout());
         file_descriptors.insert(2, FileDescriptor::stderr());
-        
+
         Self {
             security_context: SecurityContext::new_restricted(),
             permissions: PluginPermissions::default(),
@@ -119,11 +119,11 @@ impl FileDescriptor {
     pub fn stdin() -> Self {
         Self::Stdin
     }
-    
+
     pub fn stdout() -> Self {
         Self::Stdout
     }
-    
+
     pub fn stderr() -> Self {
         Self::Stderr
     }
@@ -164,21 +164,21 @@ impl WasiPluginRuntime {
         let config = RuntimeConfig::default();
         Self::with_config(config)
     }
-    
+
     /// Create a new WASI plugin runtime with custom configuration
     pub fn with_config(config: RuntimeConfig) -> Result<Self> {
         let engine = Engine::default();
         let linker = Linker::new(&engine);
-        
+
         // Initialize capability manager
         let capability_manager = CapabilityManager::new(SecurityContext::new_restricted())?;
-        
+
         // Initialize component registry
         let component_registry = ComponentRegistry::new()?;
-        
+
         let max_concurrent_executions = config.max_concurrent_executions.unwrap_or(10);
         let execution_semaphore = Arc::new(Semaphore::new(max_concurrent_executions));
-        
+
         let runtime = Self {
             engine,
             linker: Arc::new(RwLock::new(linker)),
@@ -188,179 +188,249 @@ impl WasiPluginRuntime {
             config,
             execution_semaphore,
         };
-        
+
         Ok(runtime)
     }
-    
+
     /// Initialize the runtime with host functions and capabilities
     pub async fn initialize(&mut self) -> Result<()> {
         info!("Initializing WASI plugin runtime");
-        
+
         // Initialize capability manager
-        self.capability_manager.initialize().await
+        self.capability_manager
+            .initialize()
+            .await
             .context("Failed to initialize capability manager")?;
-        
+
         // Setup host functions
-        self.setup_host_functions().await
+        self.setup_host_functions()
+            .await
             .context("Failed to setup host functions")?;
-        
+
         info!("WASI plugin runtime initialized successfully");
         Ok(())
     }
-    
+
     /// Setup WASI host functions
     async fn setup_host_functions(&mut self) -> Result<()> {
         let mut linker = self.linker.write().await;
-        
+
         // WASI core functions
-        linker.func_wrap("wasi_snapshot_preview1", "proc_exit", |_: Caller<'_, RuntimeContext>, exit_code: i32| {
-            debug!("proc_exit called with code: {exit_code}");
-            // In a real implementation, this would exit the plugin
-        })?;
-        
-        linker.func_wrap("wasi_snapshot_preview1", "fd_write", |mut caller: Caller<'_, RuntimeContext>, fd: i32, iovs: i32, iovs_len: i32, nwritten: i32| -> Result<i32, wasmi::Error> {
-            let memory = match caller.get_export("memory") {
-                Some(wasmi::Extern::Memory(mem)) => mem,
-                _ => return Ok(8), // EBADF
-            };
-            
-            let mut total_written = 0u32;
-            
-            for i in 0..iovs_len {
-                let iov_base = iovs + i * 8;
-                
-                // Read iovec structure
-                let mut buf = [0u8; 8];
-                memory.read(&caller, iov_base as usize, &mut buf).map_err(|_e| wasmi::Error::new("Memory read failed"))?;
-                
-                let ptr = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
-                let len = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
-                
-                // Read data
-                let mut data = vec![0u8; len as usize];
-                memory.read(&caller, ptr as usize, &mut data).map_err(|_e| wasmi::Error::new("Memory read failed"))?;
-                
-                // Write to appropriate file descriptor
-                match fd {
-                    1 => {
-                        // stdout
-                        print!("{}", String::from_utf8_lossy(&data));
-                        io::stdout().flush().ok();
-                        total_written += len;
-                    },
-                    2 => {
-                        // stderr
-                        eprint!("{}", String::from_utf8_lossy(&data));
-                        io::stderr().flush().ok();
-                        total_written += len;
-                    },
-                    _ => {
-                        // Other file descriptors (simplified)
-                        total_written += len;
+        linker.func_wrap(
+            "wasi_snapshot_preview1",
+            "proc_exit",
+            |_: Caller<'_, RuntimeContext>, exit_code: i32| {
+                debug!("proc_exit called with code: {exit_code}");
+                // In a real implementation, this would exit the plugin
+            },
+        )?;
+
+        linker.func_wrap(
+            "wasi_snapshot_preview1",
+            "fd_write",
+            |mut caller: Caller<'_, RuntimeContext>,
+             fd: i32,
+             iovs: i32,
+             iovs_len: i32,
+             nwritten: i32|
+             -> Result<i32, wasmi::Error> {
+                let memory = match caller.get_export("memory") {
+                    Some(wasmi::Extern::Memory(mem)) => mem,
+                    _ => return Ok(8), // EBADF
+                };
+
+                let mut total_written = 0u32;
+
+                for i in 0..iovs_len {
+                    let iov_base = iovs + i * 8;
+
+                    // Read iovec structure
+                    let mut buf = [0u8; 8];
+                    memory
+                        .read(&caller, iov_base as usize, &mut buf)
+                        .map_err(|_e| wasmi::Error::new("Memory read failed"))?;
+
+                    let ptr = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
+                    let len = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+
+                    // Read data
+                    let mut data = vec![0u8; len as usize];
+                    memory
+                        .read(&caller, ptr as usize, &mut data)
+                        .map_err(|_e| wasmi::Error::new("Memory read failed"))?;
+
+                    // Write to appropriate file descriptor
+                    match fd {
+                        1 => {
+                            // stdout
+                            print!("{}", String::from_utf8_lossy(&data));
+                            io::stdout().flush().ok();
+                            total_written += len;
+                        }
+                        2 => {
+                            // stderr
+                            eprint!("{}", String::from_utf8_lossy(&data));
+                            io::stderr().flush().ok();
+                            total_written += len;
+                        }
+                        _ => {
+                            // Other file descriptors (simplified)
+                            total_written += len;
+                        }
                     }
                 }
-            }
-            
-            // Write total bytes written
-            let written_bytes = total_written.to_le_bytes();
-            memory.write(&mut caller, nwritten as usize, &written_bytes).map_err(|_e| wasmi::Error::new("Memory write failed"))?;
-            
-            Ok(0) // Success
-        })?;
-        
-        linker.func_wrap("wasi_snapshot_preview1", "environ_sizes_get", |mut caller: Caller<'_, RuntimeContext>, environc: i32, environ_buf_size: i32| -> Result<i32, wasmi::Error> {
-            let memory = match caller.get_export("memory") {
-                Some(wasmi::Extern::Memory(mem)) => mem,
-                _ => return Ok(8), // EBADF
-            };
-            
-            let context = caller.data();
-            let env_count = context.environment.len() as u32;
-            let mut buf_size = 0u32;
-            
-            for (key, value) in &context.environment {
-                buf_size += (key.len() + value.len() + 2) as u32; // key=value\0
-            }
-            
-            // Write environment count
-            memory.write(&mut caller, environc as usize, &env_count.to_le_bytes()).map_err(|_e| wasmi::Error::new("Memory write failed"))?;
-            
-            // Write buffer size
-            memory.write(&mut caller, environ_buf_size as usize, &buf_size.to_le_bytes()).map_err(|_e| wasmi::Error::new("Memory write failed"))?;
-            
-            Ok(0) // Success
-        })?;
-        
-        linker.func_wrap("wasi_snapshot_preview1", "environ_get", |mut caller: Caller<'_, RuntimeContext>, environ: i32, environ_buf: i32| -> Result<i32, wasmi::Error> {
-            let memory = match caller.get_export("memory") {
-                Some(wasmi::Extern::Memory(mem)) => mem,
-                _ => return Ok(8), // EBADF
-            };
-            
-            let environment = caller.data().environment.clone();
-            let mut buf_offset = environ_buf as usize;
-            let mut ptr_offset = environ as usize;
-            
-            for (key, value) in &environment {
-                let env_string = format!("{key}={value}\0");
-                let env_bytes = env_string.as_bytes();
-                
-                // Write pointer to string
-                memory.write(&mut caller, ptr_offset, &(buf_offset as u32).to_le_bytes()).map_err(|_e| wasmi::Error::new("Memory write failed"))?;
-                ptr_offset += 4;
-                
-                // Write string
-                memory.write(&mut caller, buf_offset, env_bytes).map_err(|_e| wasmi::Error::new("Memory write failed"))?;
-                buf_offset += env_bytes.len();
-            }
-            
-            Ok(0) // Success
-        })?;
-        
-        linker.func_wrap("wasi_snapshot_preview1", "args_sizes_get", |mut caller: Caller<'_, RuntimeContext>, argc: i32, argv_buf_size: i32| -> Result<i32, wasmi::Error> {
-            let memory = match caller.get_export("memory") {
-                Some(wasmi::Extern::Memory(mem)) => mem,
-                _ => return Ok(8), // EBADF
-            };
-            
-            let args = caller.data().args.clone();
-            let arg_count = args.len() as u32;
-            let mut buf_size = 0u32;
-            
-            for arg in &args {
-                buf_size += (arg.len() + 1) as u32; // arg\0
-            }
-            
-            // Write argument count
-            memory.write(&mut caller, argc as usize, &arg_count.to_le_bytes()).map_err(|_e| wasmi::Error::new("Memory write failed"))?;
-            
-            // Write buffer size
-            memory.write(&mut caller, argv_buf_size as usize, &buf_size.to_le_bytes()).map_err(|_e| wasmi::Error::new("Memory write failed"))?;
-            
-            Ok(0) // Success
-        })?;
-        
-        linker.func_wrap("wasi_snapshot_preview1", "clock_time_get", |mut caller: Caller<'_, RuntimeContext>, _id: i32, _precision: i64, time: i32| -> Result<i32, wasmi::Error> {
-            let memory = match caller.get_export("memory") {
-                Some(wasmi::Extern::Memory(mem)) => mem,
-                _ => return Ok(8), // EBADF
-            };
-            
-            let now = SystemTime::now();
-            let timestamp = now.duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos() as u64;
-            
-            // Write timestamp
-            memory.write(&mut caller, time as usize, &timestamp.to_le_bytes()).map_err(|_e| wasmi::Error::new("Memory write failed"))?;
-            
-            Ok(0) // Success
-        })?;
-        
+
+                // Write total bytes written
+                let written_bytes = total_written.to_le_bytes();
+                memory
+                    .write(&mut caller, nwritten as usize, &written_bytes)
+                    .map_err(|_e| wasmi::Error::new("Memory write failed"))?;
+
+                Ok(0) // Success
+            },
+        )?;
+
+        linker.func_wrap(
+            "wasi_snapshot_preview1",
+            "environ_sizes_get",
+            |mut caller: Caller<'_, RuntimeContext>,
+             environc: i32,
+             environ_buf_size: i32|
+             -> Result<i32, wasmi::Error> {
+                let memory = match caller.get_export("memory") {
+                    Some(wasmi::Extern::Memory(mem)) => mem,
+                    _ => return Ok(8), // EBADF
+                };
+
+                let context = caller.data();
+                let env_count = context.environment.len() as u32;
+                let mut buf_size = 0u32;
+
+                for (key, value) in &context.environment {
+                    buf_size += (key.len() + value.len() + 2) as u32; // key=value\0
+                }
+
+                // Write environment count
+                memory
+                    .write(&mut caller, environc as usize, &env_count.to_le_bytes())
+                    .map_err(|_e| wasmi::Error::new("Memory write failed"))?;
+
+                // Write buffer size
+                memory
+                    .write(
+                        &mut caller,
+                        environ_buf_size as usize,
+                        &buf_size.to_le_bytes(),
+                    )
+                    .map_err(|_e| wasmi::Error::new("Memory write failed"))?;
+
+                Ok(0) // Success
+            },
+        )?;
+
+        linker.func_wrap(
+            "wasi_snapshot_preview1",
+            "environ_get",
+            |mut caller: Caller<'_, RuntimeContext>,
+             environ: i32,
+             environ_buf: i32|
+             -> Result<i32, wasmi::Error> {
+                let memory = match caller.get_export("memory") {
+                    Some(wasmi::Extern::Memory(mem)) => mem,
+                    _ => return Ok(8), // EBADF
+                };
+
+                let environment = caller.data().environment.clone();
+                let mut buf_offset = environ_buf as usize;
+                let mut ptr_offset = environ as usize;
+
+                for (key, value) in &environment {
+                    let env_string = format!("{key}={value}\0");
+                    let env_bytes = env_string.as_bytes();
+
+                    // Write pointer to string
+                    memory
+                        .write(&mut caller, ptr_offset, &(buf_offset as u32).to_le_bytes())
+                        .map_err(|_e| wasmi::Error::new("Memory write failed"))?;
+                    ptr_offset += 4;
+
+                    // Write string
+                    memory
+                        .write(&mut caller, buf_offset, env_bytes)
+                        .map_err(|_e| wasmi::Error::new("Memory write failed"))?;
+                    buf_offset += env_bytes.len();
+                }
+
+                Ok(0) // Success
+            },
+        )?;
+
+        linker.func_wrap(
+            "wasi_snapshot_preview1",
+            "args_sizes_get",
+            |mut caller: Caller<'_, RuntimeContext>,
+             argc: i32,
+             argv_buf_size: i32|
+             -> Result<i32, wasmi::Error> {
+                let memory = match caller.get_export("memory") {
+                    Some(wasmi::Extern::Memory(mem)) => mem,
+                    _ => return Ok(8), // EBADF
+                };
+
+                let args = caller.data().args.clone();
+                let arg_count = args.len() as u32;
+                let mut buf_size = 0u32;
+
+                for arg in &args {
+                    buf_size += (arg.len() + 1) as u32; // arg\0
+                }
+
+                // Write argument count
+                memory
+                    .write(&mut caller, argc as usize, &arg_count.to_le_bytes())
+                    .map_err(|_e| wasmi::Error::new("Memory write failed"))?;
+
+                // Write buffer size
+                memory
+                    .write(&mut caller, argv_buf_size as usize, &buf_size.to_le_bytes())
+                    .map_err(|_e| wasmi::Error::new("Memory write failed"))?;
+
+                Ok(0) // Success
+            },
+        )?;
+
+        linker.func_wrap(
+            "wasi_snapshot_preview1",
+            "clock_time_get",
+            |mut caller: Caller<'_, RuntimeContext>,
+             _id: i32,
+             _precision: i64,
+             time: i32|
+             -> Result<i32, wasmi::Error> {
+                let memory = match caller.get_export("memory") {
+                    Some(wasmi::Extern::Memory(mem)) => mem,
+                    _ => return Ok(8), // EBADF
+                };
+
+                let now = SystemTime::now();
+                let timestamp = now
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos() as u64;
+
+                // Write timestamp
+                memory
+                    .write(&mut caller, time as usize, &timestamp.to_le_bytes())
+                    .map_err(|_e| wasmi::Error::new("Memory write failed"))?;
+
+                Ok(0) // Success
+            },
+        )?;
+
         debug!("WASI host functions setup completed");
         Ok(())
     }
-    
+
     /// Load a plugin from WebAssembly bytes
     pub async fn load_plugin_from_bytes(
         &self,
@@ -370,21 +440,21 @@ impl WasiPluginRuntime {
     ) -> Result<()> {
         let module = Module::new(&self.engine, wasm_bytes)
             .context("Failed to compile WebAssembly module")?;
-        
+
         let plugin = LoadedPlugin {
             id: plugin_id.clone(),
             module: Arc::new(module),
             metadata,
             load_time: SystemTime::now(),
         };
-        
+
         let mut plugins = self.plugins.write().await;
         plugins.insert(plugin_id.clone(), plugin);
-        
+
         info!("Plugin '{plugin_id}' loaded successfully");
         Ok(())
     }
-    
+
     /// Load a plugin from file
     pub async fn load_plugin_from_file<P: AsRef<Path>>(
         &self,
@@ -395,10 +465,11 @@ impl WasiPluginRuntime {
         let path = path.as_ref();
         let wasm_bytes = fs::read(path)
             .with_context(|| format!("Failed to read plugin file: {}", path.display()))?;
-        
-        self.load_plugin_from_bytes(plugin_id, &wasm_bytes, metadata).await
+
+        self.load_plugin_from_bytes(plugin_id, &wasm_bytes, metadata)
+            .await
     }
-    
+
     /// Execute a function in a loaded plugin
     pub async fn execute_plugin_function(
         &self,
@@ -407,31 +478,36 @@ impl WasiPluginRuntime {
         args: &[ComponentValue],
     ) -> Result<Vec<ComponentValue>> {
         let _permit = self.execution_semaphore.acquire().await?;
-        
+
         // Get plugin module reference (plugins map needs to be locked for the entire operation)
         let plugins = self.plugins.read().await;
-        let plugin = plugins.get(plugin_id)
+        let plugin = plugins
+            .get(plugin_id)
             .ok_or_else(|| anyhow!("Plugin '{}' not found", plugin_id))?;
         let plugin_module = Arc::clone(&plugin.module);
         drop(plugins); // Release the lock early
-        
+
         let context = RuntimeContext::new();
         let mut store = Store::new(&self.engine, context);
-        
+
         let linker = self.linker.read().await;
-        let pre_instance = linker.instantiate(&mut store, &plugin_module)
+        let pre_instance = linker
+            .instantiate(&mut store, &plugin_module)
             .context("Failed to instantiate plugin")?;
-        let instance = pre_instance.start(&mut store)
+        let instance = pre_instance
+            .start(&mut store)
             .context("Failed to start plugin instance")?;
-        
-    let _execution_timeout = Duration::from_millis(self.config.execution_timeout_ms);
-        
+
+        let _execution_timeout = Duration::from_millis(self.config.execution_timeout_ms);
+
         // Execute synchronously to avoid lifetime issues
-        let result = self.execute_function(&mut store, &instance, function_name, args).await?;
-        
+        let result = self
+            .execute_function(&mut store, &instance, function_name, args)
+            .await?;
+
         Ok(result)
     }
-    
+
     /// Execute function in instance
     async fn execute_function(
         &self,
@@ -443,9 +519,10 @@ impl WasiPluginRuntime {
         let func = instance
             .get_func(&*store, function_name)
             .ok_or_else(|| anyhow!("Function '{}' not found", function_name))?;
-        
+
         // Convert arguments (simplified)
-        let wasm_args: Vec<Val> = args.iter()
+        let wasm_args: Vec<Val> = args
+            .iter()
             .map(|arg| match arg {
                 ComponentValue::S32(i) => Val::I32(*i),
                 ComponentValue::S64(i) => Val::I64(*i),
@@ -454,15 +531,16 @@ impl WasiPluginRuntime {
                 _ => Val::I32(0), // Simplified conversion
             })
             .collect();
-        
+
         let func_ty = func.ty(&store);
         let mut results = vec![Val::I32(0); func_ty.results().len()];
-        
+
         func.call(store, &wasm_args, &mut results)
             .context("Function execution failed")?;
-        
+
         // Convert results back (simplified)
-        let component_results: Vec<ComponentValue> = results.iter()
+        let component_results: Vec<ComponentValue> = results
+            .iter()
             .map(|val| match val {
                 Val::I32(i) => ComponentValue::S32(*i),
                 Val::I64(i) => ComponentValue::S64(*i),
@@ -473,43 +551,45 @@ impl WasiPluginRuntime {
                     // Log warning and return null representation
                     log::warn!("Function reference encountered in result - converting to null");
                     ComponentValue::S32(-1) // Use -1 as null function reference indicator
-                },
+                }
                 Val::ExternRef(_) => {
                     // External references need special handling in component context
                     // For now, convert to resource handle representation
-                    log::warn!("External reference encountered in result - converting to resource handle");
+                    log::warn!(
+                        "External reference encountered in result - converting to resource handle"
+                    );
                     ComponentValue::S32(0) // Use 0 as null external reference
-                },
+                }
             })
             .collect();
-        
+
         Ok(component_results)
     }
-    
+
     /// Unload a plugin
     pub async fn unload_plugin(&self, plugin_id: &str) -> Result<bool> {
         let mut plugins = self.plugins.write().await;
         let removed = plugins.remove(plugin_id).is_some();
-        
+
         if removed {
             info!("Plugin '{plugin_id}' unloaded successfully");
         }
-        
+
         Ok(removed)
     }
-    
+
     /// List all loaded plugins
     pub async fn list_plugins(&self) -> Vec<String> {
         let plugins = self.plugins.read().await;
         plugins.keys().cloned().collect()
     }
-    
+
     /// Get plugin metadata
     pub async fn get_plugin_metadata(&self, plugin_id: &str) -> Option<PluginMetadata> {
         let plugins = self.plugins.read().await;
         plugins.get(plugin_id).map(|p| p.metadata.clone())
     }
-    
+
     /// Get runtime configuration
     pub fn config(&self) -> &RuntimeConfig {
         &self.config
@@ -531,25 +611,27 @@ impl CapabilityManager {
             granted_capabilities: Arc::new(Mutex::new(HashMap::new())),
         })
     }
-    
+
     pub async fn initialize(&self) -> Result<()> {
         info!("Capability manager initialized");
         Ok(())
     }
-    
+
     pub async fn grant_capability(&self, plugin_id: &str, capability: &str) -> Result<()> {
         let mut capabilities = self.granted_capabilities.lock().await;
-        capabilities.entry(plugin_id.to_string())
+        capabilities
+            .entry(plugin_id.to_string())
             .or_insert_with(Vec::new)
             .push(capability.to_string());
-        
+
         debug!("Granted capability '{capability}' to plugin '{plugin_id}'");
         Ok(())
     }
-    
+
     pub async fn check_capability(&self, plugin_id: &str, capability: &str) -> bool {
         let capabilities = self.granted_capabilities.lock().await;
-        capabilities.get(plugin_id)
+        capabilities
+            .get(plugin_id)
             .map(|caps| caps.contains(&capability.to_string()))
             .unwrap_or(false)
     }
@@ -558,24 +640,24 @@ impl CapabilityManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_runtime_creation() {
         let runtime = WasiPluginRuntime::new().unwrap();
         assert_eq!(runtime.list_plugins().await.len(), 0);
     }
-    
+
     #[tokio::test]
     async fn test_runtime_initialization() {
         let mut runtime = WasiPluginRuntime::new().unwrap();
         runtime.initialize().await.unwrap();
         assert_eq!(runtime.list_plugins().await.len(), 0);
     }
-    
+
     #[test]
     fn test_plugin_config() {
         let config = RuntimeConfig::default();
         let runtime = WasiPluginRuntime::with_config(config).unwrap();
         assert!(runtime.config().execution_timeout_ms > 0);
     }
-} 
+}

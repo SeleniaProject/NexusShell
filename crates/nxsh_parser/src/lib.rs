@@ -1,7 +1,7 @@
 #![doc = "Command-line parser turning raw input into an AST."]
 
-pub mod lexer;
 pub mod ast;
+pub mod lexer;
 
 #[cfg(test)]
 mod tests;
@@ -9,11 +9,11 @@ mod tests;
 // Re-export the Parser for external use
 pub use ShellCommandParser as Parser;
 
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 
-use pest::Parser as PestParser;
 use pest::error::{Error as PestError, LineColLocation};
 use pest::iterators::{Pair, Pairs};
+use pest::Parser as PestParser;
 use pest_derive::Parser;
 
 #[derive(Parser)]
@@ -89,15 +89,19 @@ impl ShellCommandParser {
     pub fn parse(&self, input: &str) -> Result<ast::AstNode<'static>> {
         let pairs = ShellParser::parse(Rule::program, input)
             .with_context(|| format!("Failed to parse input: {input}"))?;
-        
+
         let ast = self.build_ast_from_pairs(pairs, input)?;
         Ok(ast)
     }
 
     /// Build AST from parsed PEST pairs
-    fn build_ast_from_pairs(&self, pairs: Pairs<Rule>, input: &str) -> Result<ast::AstNode<'static>> {
+    fn build_ast_from_pairs(
+        &self,
+        pairs: Pairs<Rule>,
+        input: &str,
+    ) -> Result<ast::AstNode<'static>> {
         let mut statements = Vec::new();
-        
+
         for pair in pairs {
             match pair.as_rule() {
                 Rule::program => {
@@ -110,7 +114,8 @@ impl ShellCommandParser {
                             }
                         } else if inner_pair.as_rule() == Rule::inner_program {
                             // Handle inner_program
-                            let inner_ast = self.build_ast_from_pairs(inner_pair.into_inner(), input)?;
+                            let inner_ast =
+                                self.build_ast_from_pairs(inner_pair.into_inner(), input)?;
                             statements.push(inner_ast);
                         }
                     }
@@ -141,15 +146,19 @@ impl ShellCommandParser {
                     // End of input - ignore
                 }
                 _ => {
-                    return Err(anyhow::anyhow!("Unexpected top-level rule: {:?}", pair.as_rule()));
+                    return Err(anyhow::anyhow!(
+                        "Unexpected top-level rule: {:?}",
+                        pair.as_rule()
+                    ));
                 }
             }
         }
-        
+
         if statements.len() == 1 {
-            statements.into_iter().next().ok_or_else(|| {
-                anyhow::anyhow!("No statements found after parsing")
-            })
+            statements
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("No statements found after parsing"))
         } else {
             Ok(ast::AstNode::Program(statements))
         }
@@ -176,20 +185,20 @@ impl ShellCommandParser {
     fn parse_line(&self, pair: Pair<Rule>, input: &str) -> Result<Option<ast::AstNode<'static>>> {
         let mut current_node: Option<ast::AstNode<'static>> = None;
         let mut background = false;
-        
+
         let inner_pairs: Vec<_> = pair.into_inner().collect();
         let mut i = 0;
-        
+
         while i < inner_pairs.len() {
             let inner_pair = &inner_pairs[i];
-            
+
             match inner_pair.as_rule() {
                 Rule::statement => {
                     #[cfg(debug_assertions)]
                     #[cfg(feature = "debug_parse")]
                     eprintln!("PARSE_DEBUG: saw statement: {}", inner_pair.as_str());
                     let stmt = self.parse_statement(inner_pair.clone(), input)?;
-                    
+
                     if current_node.is_none() {
                         current_node = Some(stmt);
                     } else {
@@ -267,10 +276,10 @@ impl ShellCommandParser {
                     // Ignore other rules that might be present
                 }
             }
-            
+
             i += 1;
         }
-        
+
         // Apply background flag if present
         if let Some(mut node) = current_node.take() {
             if background {
@@ -322,21 +331,32 @@ impl ShellCommandParser {
                 _ => {}
             }
         }
-        
+
         Err(anyhow::anyhow!("Unable to parse statement"))
     }
 
     /// Parse select statement with variable, options, and body
-    fn parse_select_statement(&self, pair: Pair<Rule>, input: &str) -> Result<ast::AstNode<'static>> {
+    fn parse_select_statement(
+        &self,
+        pair: Pair<Rule>,
+        input: &str,
+    ) -> Result<ast::AstNode<'static>> {
         let mut variable: Option<&str> = None;
         let mut options_vec: Vec<ast::AstNode<'static>> = Vec::new();
         let mut body: Option<ast::AstNode<'static>> = None;
-        enum SelState { Variable, MaybeIn, Options, Body }
+        enum SelState {
+            Variable,
+            MaybeIn,
+            Options,
+            Body,
+        }
         let mut state = SelState::Variable;
 
         for inner in pair.into_inner() {
             match inner.as_rule() {
-                Rule::select_kw | Rule::select_statement => { state = SelState::Variable; }
+                Rule::select_kw | Rule::select_statement => {
+                    state = SelState::Variable;
+                }
                 Rule::identifier => {
                     if matches!(state, SelState::Variable) {
                         variable = Some(self.leak_string(inner.as_str()));
@@ -345,7 +365,9 @@ impl ShellCommandParser {
                         return Err(anyhow::anyhow!("Unexpected identifier in select statement"));
                     }
                 }
-                Rule::in_kw => { state = SelState::Options; }
+                Rule::in_kw => {
+                    state = SelState::Options;
+                }
                 Rule::word_list => {
                     // Collect words as options
                     for w in inner.into_inner() {
@@ -354,7 +376,9 @@ impl ShellCommandParser {
                         }
                     }
                 }
-                Rule::do_kw => { state = SelState::Body; }
+                Rule::do_kw => {
+                    state = SelState::Body;
+                }
                 Rule::command_list => {
                     if matches!(state, SelState::Body) {
                         body = Some(self.normalize_block(self.parse_command_list(inner, input)?));
@@ -362,15 +386,20 @@ impl ShellCommandParser {
                 }
                 Rule::program | Rule::inner_program => {
                     if matches!(state, SelState::Body) {
-                        body = Some(self.normalize_block(self.build_ast_from_pairs(inner.into_inner(), input)?));
+                        body = Some(self.normalize_block(
+                            self.build_ast_from_pairs(inner.into_inner(), input)?,
+                        ));
                     }
                 }
-                Rule::done_kw => { break; }
+                Rule::done_kw => {
+                    break;
+                }
                 _ => { /* ignore */ }
             }
         }
 
-        let variable = variable.ok_or_else(|| anyhow::anyhow!("Select statement missing variable"))?;
+        let variable =
+            variable.ok_or_else(|| anyhow::anyhow!("Select statement missing variable"))?;
         let body = body.ok_or_else(|| anyhow::anyhow!("Select statement missing body"))?;
 
         // Build options node if provided
@@ -396,7 +425,7 @@ impl ShellCommandParser {
                 return self.parse_pipeline(inner_pair, input);
             }
         }
-        
+
         Err(anyhow::anyhow!("Unable to parse command"))
     }
 
@@ -404,7 +433,7 @@ impl ShellCommandParser {
     fn parse_pipeline(&self, pair: Pair<Rule>, input: &str) -> Result<ast::AstNode<'static>> {
         let mut commands = Vec::new();
         let mut operators = Vec::new();
-        
+
         for inner_pair in pair.into_inner() {
             match inner_pair.as_rule() {
                 Rule::simple_command => {
@@ -423,14 +452,18 @@ impl ShellCommandParser {
                                 let cmd = self.parse_simple_command(ce_inner, input)?;
                                 #[cfg(debug_assertions)]
                                 #[cfg(feature = "debug_parse")]
-                                eprintln!("PARSE_DEBUG: pipeline push command_element->simple_command");
+                                eprintln!(
+                                    "PARSE_DEBUG: pipeline push command_element->simple_command"
+                                );
                                 commands.push(cmd);
                                 found = true;
                             }
                             Rule::subshell => {
                                 // For now treat subshell as its own node
                                 let text = ce_inner.as_str();
-                                let node = ast::AstNode::Subshell(Box::new(ast::AstNode::Word(self.leak_string(text))));
+                                let node = ast::AstNode::Subshell(Box::new(ast::AstNode::Word(
+                                    self.leak_string(text),
+                                )));
                                 commands.push(node);
                                 found = true;
                             }
@@ -445,25 +478,29 @@ impl ShellCommandParser {
                 }
                 Rule::pipe => {
                     operators.push(ast::PipeOperator::Pipe);
-            #[cfg(debug_assertions)]
-            #[cfg(feature = "debug_parse")]
-            eprintln!("PARSE_DEBUG: pipeline saw pipe operator");
+                    #[cfg(debug_assertions)]
+                    #[cfg(feature = "debug_parse")]
+                    eprintln!("PARSE_DEBUG: pipeline saw pipe operator");
                 }
                 _ => {}
             }
         }
-        
+
         if commands.len() == 1 && operators.is_empty() {
             // Single command, not a pipeline
-        #[cfg(debug_assertions)]
-    #[cfg(feature = "debug_parse")]
-    eprintln!("PARSE_DEBUG: collapsing single-element pipeline to Command");
+            #[cfg(debug_assertions)]
+            #[cfg(feature = "debug_parse")]
+            eprintln!("PARSE_DEBUG: collapsing single-element pipeline to Command");
             Ok(commands.into_iter().next().unwrap())
         } else {
             // Actual pipeline
-        #[cfg(debug_assertions)]
-    #[cfg(feature = "debug_parse")]
-    eprintln!("PARSE_DEBUG: building real pipeline: elements={}, operators={}", commands.len(), operators.len());
+            #[cfg(debug_assertions)]
+            #[cfg(feature = "debug_parse")]
+            eprintln!(
+                "PARSE_DEBUG: building real pipeline: elements={}, operators={}",
+                commands.len(),
+                operators.len()
+            );
             Ok(ast::AstNode::Pipeline {
                 elements: commands,
                 operators,
@@ -476,18 +513,24 @@ impl ShellCommandParser {
         let mut opt_name: Option<Box<ast::AstNode<'static>>> = None;
         let mut args = Vec::new();
         let mut redirections = Vec::new();
-    let mut call_generics: Vec<&str> = Vec::new();
-        
+        let mut call_generics: Vec<&str> = Vec::new();
+
         for inner_pair in pair.into_inner() {
             match inner_pair.as_rule() {
                 Rule::word => {
                     let word_value = self.leak_string(inner_pair.as_str());
                     let word_node = ast::AstNode::Word(word_value);
-                    if opt_name.is_none() { opt_name = Some(Box::new(word_node)); } else { args.push(word_node); }
+                    if opt_name.is_none() {
+                        opt_name = Some(Box::new(word_node));
+                    } else {
+                        args.push(word_node);
+                    }
                 }
                 Rule::call_generic_args => {
                     for g in inner_pair.into_inner() {
-                        if g.as_rule() == Rule::identifier { call_generics.push(self.leak_string(g.as_str())); }
+                        if g.as_rule() == Rule::identifier {
+                            call_generics.push(self.leak_string(g.as_str()));
+                        }
                     }
                 }
                 Rule::argument => {
@@ -503,9 +546,19 @@ impl ShellCommandParser {
         }
         let name_box = opt_name.ok_or_else(|| anyhow::anyhow!("Command must have a name"))?;
         if !call_generics.is_empty() {
-            return Ok(ast::AstNode::FunctionCall { name: name_box, args, is_async: false, generics: call_generics });
+            return Ok(ast::AstNode::FunctionCall {
+                name: name_box,
+                args,
+                is_async: false,
+                generics: call_generics,
+            });
         }
-        Ok(ast::AstNode::Command { name: name_box, args, redirections, background: false })
+        Ok(ast::AstNode::Command {
+            name: name_box,
+            args,
+            redirections,
+            background: false,
+        })
     }
 
     /// Parse an argument
@@ -514,7 +567,8 @@ impl ShellCommandParser {
             match inner_pair.as_rule() {
                 Rule::assignment => {
                     // identifier '=' assignment_value
-                    let mut name: Option<&str> = None; let mut value: Option<&str> = None;
+                    let mut name: Option<&str> = None;
+                    let mut value: Option<&str> = None;
                     for a in inner_pair.clone().into_inner() {
                         if a.as_rule() == Rule::identifier && name.is_none() {
                             name = Some(self.leak_string(a.as_str()));
@@ -523,15 +577,30 @@ impl ShellCommandParser {
                     // Fallback: raw text split
                     if name.is_none() {
                         let text = inner_pair.as_str();
-                        if let Some(pos) = text.find('=') { name = Some(self.leak_string(&text[..pos])); value = Some(self.leak_string(&text[pos+1..])); }
+                        if let Some(pos) = text.find('=') {
+                            name = Some(self.leak_string(&text[..pos]));
+                            value = Some(self.leak_string(&text[pos + 1..]));
+                        }
                     } else {
-                        let text = inner_pair.as_str(); if let Some(pos) = text.find('=') { value = Some(self.leak_string(&text[pos+1..])); }
+                        let text = inner_pair.as_str();
+                        if let Some(pos) = text.find('=') {
+                            value = Some(self.leak_string(&text[pos + 1..]));
+                        }
                     }
                     let name = name.ok_or_else(|| anyhow::anyhow!("Invalid assignment"))?;
                     let val_node = ast::AstNode::Word(value.unwrap_or(""));
-                    return Ok(ast::AstNode::VariableAssignment { name, operator: ast::AssignmentOperator::Assign, value: Box::new(val_node), is_local: false, is_export: false, is_readonly: false });
+                    return Ok(ast::AstNode::VariableAssignment {
+                        name,
+                        operator: ast::AssignmentOperator::Assign,
+                        value: Box::new(val_node),
+                        is_local: false,
+                        is_export: false,
+                        is_readonly: false,
+                    });
                 }
-                Rule::closure_expr => { return self.parse_closure_expr(inner_pair, _input); }
+                Rule::closure_expr => {
+                    return self.parse_closure_expr(inner_pair, _input);
+                }
                 Rule::word => {
                     return Ok(ast::AstNode::Word(self.leak_string(inner_pair.as_str())));
                 }
@@ -539,7 +608,7 @@ impl ShellCommandParser {
                     let var_text = inner_pair.as_str();
                     // Remove $ prefix
                     let var_name = if var_text.starts_with("${") && var_text.ends_with("}") {
-                        &var_text[2..var_text.len()-1]
+                        &var_text[2..var_text.len() - 1]
                     } else if let Some(rest) = var_text.strip_prefix("$") {
                         rest
                     } else {
@@ -553,16 +622,16 @@ impl ShellCommandParser {
                 Rule::command_substitution => {
                     let sub_text = inner_pair.as_str();
                     let is_legacy = sub_text.starts_with("`");
-                    
+
                     // Extract the command part
                     let command_str = if is_legacy {
                         // Legacy backtick syntax: `command`
-                        &sub_text[1..sub_text.len()-1]
+                        &sub_text[1..sub_text.len() - 1]
                     } else {
                         // Modern syntax: $(command)
-                        &sub_text[2..sub_text.len()-1]
+                        &sub_text[2..sub_text.len() - 1]
                     };
-                    
+
                     // Parse the inner command (recursively parse for proper semantics)
                     let inner_command = if command_str.trim().is_empty() {
                         ast::AstNode::Word(self.leak_string(""))
@@ -575,7 +644,7 @@ impl ShellCommandParser {
                             }
                         }
                     };
-                    
+
                     return Ok(ast::AstNode::CommandSubstitution {
                         command: Box::new(inner_command),
                         is_legacy,
@@ -584,16 +653,20 @@ impl ShellCommandParser {
                 _ => {}
             }
         }
-        
+
         Err(anyhow::anyhow!("Unable to parse argument"))
     }
 
     /// Parse a redirection
-    fn parse_redirection(&self, pair: Pair<Rule>, _input: &str) -> Result<ast::Redirection<'static>> {
+    fn parse_redirection(
+        &self,
+        pair: Pair<Rule>,
+        _input: &str,
+    ) -> Result<ast::Redirection<'static>> {
         let mut operator = None;
         let mut redir_type = None;
         let mut target = None;
-        
+
         for inner_pair in pair.into_inner() {
             match inner_pair.as_rule() {
                 Rule::redirect_in => {
@@ -623,11 +696,13 @@ impl ShellCommandParser {
                 _ => {}
             }
         }
-        
-        let operator = operator.ok_or_else(|| anyhow::anyhow!("Redirection must have an operator"))?;
-        let redir_type = redir_type.ok_or_else(|| anyhow::anyhow!("Redirection must have a type"))?;
+
+        let operator =
+            operator.ok_or_else(|| anyhow::anyhow!("Redirection must have an operator"))?;
+        let redir_type =
+            redir_type.ok_or_else(|| anyhow::anyhow!("Redirection must have a type"))?;
         let target = target.ok_or_else(|| anyhow::anyhow!("Redirection must have a target"))?;
-        
+
         Ok(ast::Redirection {
             fd: None,
             operator,
@@ -645,13 +720,13 @@ impl ShellCommandParser {
         let mut current_state = IfParseState::Condition;
         // Keep pending elif condition until we see its body to avoid placeholder push/pop
         let mut pending_elif_condition: Option<ast::AstNode<'static>> = None;
-        
+
         let inner_pairs: Vec<_> = pair.into_inner().collect();
         let mut i = 0;
-        
+
         while i < inner_pairs.len() {
             let inner_pair = &inner_pairs[i];
-            
+
             match inner_pair.as_rule() {
                 Rule::if_kw => {
                     current_state = IfParseState::Condition;
@@ -663,7 +738,8 @@ impl ShellCommandParser {
                         }
                         IfParseState::ElifCondition => {
                             // Capture condition for elif branch; body will be consumed later
-                            let elif_condition = self.parse_test_command(inner_pair.clone(), input)?;
+                            let elif_condition =
+                                self.parse_test_command(inner_pair.clone(), input)?;
                             pending_elif_condition = Some(elif_condition);
                         }
                         _ => {
@@ -690,14 +766,17 @@ impl ShellCommandParser {
                     current_state = IfParseState::ThenBranch;
                 }
                 Rule::command_list => {
-                    let body = self.normalize_block(self.parse_command_list(inner_pair.clone(), input)?);
+                    let body =
+                        self.normalize_block(self.parse_command_list(inner_pair.clone(), input)?);
                     match current_state {
                         IfParseState::ThenBranch => {
                             then_branch = Some(body);
                         }
                         IfParseState::ElifBranch => {
                             // Finalize elif branch with the pending condition
-                            let cond = pending_elif_condition.take().ok_or_else(|| anyhow::anyhow!("elif branch missing condition"))?;
+                            let cond = pending_elif_condition
+                                .take()
+                                .ok_or_else(|| anyhow::anyhow!("elif branch missing condition"))?;
                             elif_branches.push((cond, body));
                         }
                         IfParseState::ElseBranch => {
@@ -709,39 +788,51 @@ impl ShellCommandParser {
                     }
                 }
                 Rule::program => {
-                    let body = self.normalize_block(self.build_ast_from_pairs(inner_pair.clone().into_inner(), input)?);
+                    let body = self.normalize_block(
+                        self.build_ast_from_pairs(inner_pair.clone().into_inner(), input)?,
+                    );
                     match current_state {
                         IfParseState::ThenBranch => {
                             then_branch = Some(body);
                         }
                         IfParseState::ElifBranch => {
-                            let cond = pending_elif_condition.take().ok_or_else(|| anyhow::anyhow!("elif branch missing condition"))?;
+                            let cond = pending_elif_condition
+                                .take()
+                                .ok_or_else(|| anyhow::anyhow!("elif branch missing condition"))?;
                             elif_branches.push((cond, body));
                         }
                         IfParseState::ElseBranch => {
                             else_branch = Some(body);
                         }
                         _ => {
-                            return Err(anyhow::anyhow!("Unexpected program block in if statement"));
+                            return Err(anyhow::anyhow!(
+                                "Unexpected program block in if statement"
+                            ));
                         }
                     }
                 }
                 Rule::inner_program => {
                     // Handle inner_program rule as well for nested structures
-                    let body = self.normalize_block(self.build_ast_from_pairs(inner_pair.clone().into_inner(), input)?);
+                    let body = self.normalize_block(
+                        self.build_ast_from_pairs(inner_pair.clone().into_inner(), input)?,
+                    );
                     match current_state {
                         IfParseState::ThenBranch => {
                             then_branch = Some(body);
                         }
                         IfParseState::ElifBranch => {
-                            let cond = pending_elif_condition.take().ok_or_else(|| anyhow::anyhow!("elif branch missing condition"))?;
+                            let cond = pending_elif_condition
+                                .take()
+                                .ok_or_else(|| anyhow::anyhow!("elif branch missing condition"))?;
                             elif_branches.push((cond, body));
                         }
                         IfParseState::ElseBranch => {
                             else_branch = Some(body);
                         }
                         _ => {
-                            return Err(anyhow::anyhow!("Unexpected inner_program block in if statement"));
+                            return Err(anyhow::anyhow!(
+                                "Unexpected inner_program block in if statement"
+                            ));
                         }
                     }
                 }
@@ -760,19 +851,22 @@ impl ShellCommandParser {
                     // Ignore other tokens
                 }
             }
-            
+
             // Update state transitions
-            if current_state == IfParseState::ElifCondition && inner_pair.as_rule() == Rule::then_kw {
+            if current_state == IfParseState::ElifCondition && inner_pair.as_rule() == Rule::then_kw
+            {
                 current_state = IfParseState::ElifBranch;
             }
-            
+
             i += 1;
         }
-        
+
         // Validate required components
-        let condition = condition.ok_or_else(|| anyhow::anyhow!("If statement missing condition"))?;
-        let then_branch = then_branch.ok_or_else(|| anyhow::anyhow!("If statement missing then branch"))?;
-        
+        let condition =
+            condition.ok_or_else(|| anyhow::anyhow!("If statement missing condition"))?;
+        let then_branch =
+            then_branch.ok_or_else(|| anyhow::anyhow!("If statement missing then branch"))?;
+
         Ok(ast::AstNode::If {
             condition: Box::new(condition),
             then_branch: Box::new(then_branch),
@@ -787,23 +881,21 @@ impl ShellCommandParser {
         let mut iterable_args = Vec::new();
         let mut body: Option<ast::AstNode<'static>> = None;
         let mut current_state = ForParseState::Variable;
-        
+
         for inner_pair in pair.into_inner() {
             match inner_pair.as_rule() {
                 Rule::for_kw => {
                     current_state = ForParseState::Variable;
                 }
-                Rule::identifier => {
-                    match current_state {
-                        ForParseState::Variable => {
-                            variable = Some(self.leak_string(inner_pair.as_str()));
-                            current_state = ForParseState::In;
-                        }
-                        _ => {
-                            return Err(anyhow::anyhow!("Unexpected identifier in for statement"));
-                        }
+                Rule::identifier => match current_state {
+                    ForParseState::Variable => {
+                        variable = Some(self.leak_string(inner_pair.as_str()));
+                        current_state = ForParseState::In;
                     }
-                }
+                    _ => {
+                        return Err(anyhow::anyhow!("Unexpected identifier in for statement"));
+                    }
+                },
                 Rule::in_kw => {
                     current_state = ForParseState::Arguments;
                 }
@@ -819,12 +911,15 @@ impl ShellCommandParser {
                 }
                 Rule::command_list => {
                     if current_state == ForParseState::Body {
-                        body = Some(self.normalize_block(self.parse_command_list(inner_pair, input)?));
+                        body =
+                            Some(self.normalize_block(self.parse_command_list(inner_pair, input)?));
                     }
                 }
                 Rule::program | Rule::inner_program => {
                     if current_state == ForParseState::Body {
-                        body = Some(self.normalize_block(self.build_ast_from_pairs(inner_pair.into_inner(), input)?));
+                        body = Some(self.normalize_block(
+                            self.build_ast_from_pairs(inner_pair.into_inner(), input)?,
+                        ));
                     }
                 }
                 Rule::done_kw => {
@@ -836,11 +931,11 @@ impl ShellCommandParser {
                 }
             }
         }
-        
+
         // Validate required components
         let variable = variable.ok_or_else(|| anyhow::anyhow!("For statement missing variable"))?;
         let body = body.ok_or_else(|| anyhow::anyhow!("For statement missing body"))?;
-        
+
         // Create iterable from arguments
         let iterable = if iterable_args.is_empty() {
             // Default to $@ (all positional parameters) if no explicit iterable
@@ -850,7 +945,7 @@ impl ShellCommandParser {
         } else {
             ast::AstNode::ArgumentList(iterable_args)
         };
-        
+
         Ok(ast::AstNode::For {
             variable,
             iterable: Box::new(iterable),
@@ -860,11 +955,15 @@ impl ShellCommandParser {
     }
 
     /// Parse while statement with condition and body
-    fn parse_while_statement(&self, pair: Pair<Rule>, input: &str) -> Result<ast::AstNode<'static>> {
+    fn parse_while_statement(
+        &self,
+        pair: Pair<Rule>,
+        input: &str,
+    ) -> Result<ast::AstNode<'static>> {
         let mut condition: Option<ast::AstNode<'static>> = None;
         let mut body: Option<ast::AstNode<'static>> = None;
         let mut current_state = WhileParseState::Condition;
-        
+
         for inner_pair in pair.into_inner() {
             match inner_pair.as_rule() {
                 Rule::while_kw => {
@@ -874,7 +973,9 @@ impl ShellCommandParser {
                     if current_state == WhileParseState::Condition {
                         condition = Some(self.parse_test_command(inner_pair, input)?);
                     } else {
-                        return Err(anyhow::anyhow!("Unexpected test_command in while statement"));
+                        return Err(anyhow::anyhow!(
+                            "Unexpected test_command in while statement"
+                        ));
                     }
                 }
                 Rule::command => {
@@ -889,12 +990,15 @@ impl ShellCommandParser {
                 }
                 Rule::command_list => {
                     if current_state == WhileParseState::Body {
-                        body = Some(self.normalize_block(self.parse_command_list(inner_pair, input)?));
+                        body =
+                            Some(self.normalize_block(self.parse_command_list(inner_pair, input)?));
                     }
                 }
                 Rule::program | Rule::inner_program => {
                     if current_state == WhileParseState::Body {
-                        body = Some(self.normalize_block(self.build_ast_from_pairs(inner_pair.into_inner(), input)?));
+                        body = Some(self.normalize_block(
+                            self.build_ast_from_pairs(inner_pair.into_inner(), input)?,
+                        ));
                     }
                 }
                 Rule::done_kw => {
@@ -906,11 +1010,12 @@ impl ShellCommandParser {
                 }
             }
         }
-        
+
         // Validate required components
-        let condition = condition.ok_or_else(|| anyhow::anyhow!("While statement missing condition"))?;
+        let condition =
+            condition.ok_or_else(|| anyhow::anyhow!("While statement missing condition"))?;
         let body = body.ok_or_else(|| anyhow::anyhow!("While statement missing body"))?;
-        
+
         Ok(ast::AstNode::While {
             condition: Box::new(condition),
             body: Box::new(body),
@@ -922,7 +1027,7 @@ impl ShellCommandParser {
         let mut expr: Option<ast::AstNode<'static>> = None;
         let mut arms = Vec::new();
         let mut current_state = CaseParseState::Expression;
-        
+
         for inner_pair in pair.into_inner() {
             match inner_pair.as_rule() {
                 Rule::case_kw => {
@@ -953,21 +1058,21 @@ impl ShellCommandParser {
                 }
             }
         }
-        
+
         // Validate required components
         let expr = expr.ok_or_else(|| anyhow::anyhow!("Case statement missing expression"))?;
-        
+
         Ok(ast::AstNode::Case {
             expr: Box::new(expr),
             arms,
         })
     }
-    
+
     /// Parse a single case item (pattern => body)
     fn parse_case_item(&self, pair: Pair<Rule>, input: &str) -> Result<ast::CaseArm<'static>> {
         let mut patterns = Vec::new();
         let mut body: Option<ast::AstNode<'static>> = None;
-        
+
         for inner_pair in pair.into_inner() {
             match inner_pair.as_rule() {
                 Rule::pattern => {
@@ -978,19 +1083,21 @@ impl ShellCommandParser {
                     body = Some(self.normalize_block(self.parse_command_list(inner_pair, input)?));
                 }
                 Rule::program | Rule::inner_program => {
-                    body = Some(self.normalize_block(self.build_ast_from_pairs(inner_pair.into_inner(), input)?));
+                    body = Some(self.normalize_block(
+                        self.build_ast_from_pairs(inner_pair.into_inner(), input)?,
+                    ));
                 }
                 _ => {
                     // Ignore other tokens like ")" and ";;"
                 }
             }
         }
-        
+
         let body = body.ok_or_else(|| anyhow::anyhow!("Case item missing body"))?;
-        
+
         Ok(ast::CaseArm { patterns, body })
     }
-    
+
     /// Parse a pattern for case statements
     fn parse_pattern(&self, pair: Pair<Rule>) -> Result<ast::Pattern<'static>> {
         let mut alternatives: Vec<ast::Pattern<'static>> = Vec::new();
@@ -1014,7 +1121,9 @@ impl ShellCommandParser {
                         } else {
                             ast::GlobElement::Literal(self.leak_string(word))
                         };
-                        let glob_pattern = ast::GlobPattern { elements: vec![element] };
+                        let glob_pattern = ast::GlobPattern {
+                            elements: vec![element],
+                        };
                         alternatives.push(ast::Pattern::Glob(glob_pattern));
                     } else {
                         alternatives.push(ast::Pattern::Literal(self.leak_string(word)));
@@ -1037,8 +1146,8 @@ impl ShellCommandParser {
         let mut params = Vec::new();
         let mut body: Option<ast::AstNode<'static>> = None;
         let mut current_state = FunctionParseState::Name;
-    let mut generics: Vec<&str> = Vec::new();
-        
+        let mut generics: Vec<&str> = Vec::new();
+
         for inner_pair in pair.into_inner() {
             match inner_pair.as_rule() {
                 Rule::function_kw => {
@@ -1048,7 +1157,7 @@ impl ShellCommandParser {
                     match current_state {
                         FunctionParseState::Name => {
                             name = Some(self.leak_string(inner_pair.as_str()));
-                            current_state = FunctionParseState::Body;  // 直接Body状態に移行
+                            current_state = FunctionParseState::Body; // 直接Body状態に移行
                         }
                         FunctionParseState::Parameters => {
                             // Parameter names inside parentheses
@@ -1060,7 +1169,9 @@ impl ShellCommandParser {
                             params.push(param);
                         }
                         _ => {
-                            return Err(anyhow::anyhow!("Unexpected identifier in function definition"));
+                            return Err(anyhow::anyhow!(
+                                "Unexpected identifier in function definition"
+                            ));
                         }
                     }
                 }
@@ -1111,11 +1222,11 @@ impl ShellCommandParser {
                 }
             }
         }
-        
+
         // Validate required components
         let name = name.ok_or_else(|| anyhow::anyhow!("Function definition missing name"))?;
         let body = body.ok_or_else(|| anyhow::anyhow!("Function definition missing body"))?;
-        
+
         Ok(ast::AstNode::Function {
             name,
             params,
@@ -1134,7 +1245,11 @@ impl ShellCommandParser {
                 Rule::closure_param_list => {
                     for p in inner.into_inner() {
                         if p.as_rule() == Rule::identifier {
-                            params.push(ast::Parameter { name: self.leak_string(p.as_str()), default: None, is_variadic: false });
+                            params.push(ast::Parameter {
+                                name: self.leak_string(p.as_str()),
+                                default: None,
+                                is_variadic: false,
+                            });
                         }
                     }
                 }
@@ -1145,36 +1260,56 @@ impl ShellCommandParser {
                         match bg.as_rule() {
                             Rule::statement_list => {
                                 for st in bg.into_inner() {
-                                    if st.as_rule() == Rule::statement { statements.push(self.parse_statement(st, input)?); }
+                                    if st.as_rule() == Rule::statement {
+                                        statements.push(self.parse_statement(st, input)?);
+                                    }
                                 }
                             }
                             Rule::statement => {
                                 statements.push(self.parse_statement(bg, input)?);
                             }
                             Rule::program | Rule::inner_program => {
-                                statements.push(self.normalize_block(self.build_ast_from_pairs(bg.into_inner(), input)?));
+                                statements.push(self.normalize_block(
+                                    self.build_ast_from_pairs(bg.into_inner(), input)?,
+                                ));
                             }
                             _ => {}
                         }
                     }
-                    body_opt = Some(if statements.len() == 1 { statements.remove(0) } else { ast::AstNode::StatementList(statements) });
+                    body_opt = Some(if statements.len() == 1 {
+                        statements.remove(0)
+                    } else {
+                        ast::AstNode::StatementList(statements)
+                    });
                 }
                 _ => {}
             }
         }
         let body = body_opt.unwrap_or_else(|| ast::AstNode::StatementList(Vec::new()));
-        Ok(ast::AstNode::Closure { params, body: Box::new(body), captures: Vec::new(), is_async: false })
+        Ok(ast::AstNode::Closure {
+            params,
+            body: Box::new(body),
+            captures: Vec::new(),
+            is_async: false,
+        })
     }
 
-    fn parse_macro_declaration(&self, pair: Pair<Rule>, _input: &str) -> Result<ast::AstNode<'static>> {
+    fn parse_macro_declaration(
+        &self,
+        pair: Pair<Rule>,
+        _input: &str,
+    ) -> Result<ast::AstNode<'static>> {
         let mut name: Option<&str> = None;
         let mut params: Vec<&str> = Vec::new();
         let mut body: Option<ast::AstNode<'static>> = None;
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::identifier => {
-                    if name.is_none() { name = Some(self.leak_string(inner.as_str())); }
-                    else { params.push(self.leak_string(inner.as_str())); }
+                    if name.is_none() {
+                        name = Some(self.leak_string(inner.as_str()));
+                    } else {
+                        params.push(self.leak_string(inner.as_str()));
+                    }
                 }
                 Rule::brace_group => {
                     // Treat group as body program
@@ -1182,7 +1317,9 @@ impl ShellCommandParser {
                     for s in inner.into_inner() {
                         if s.as_rule() == Rule::statement_list {
                             for st in s.into_inner() {
-                                if st.as_rule() == Rule::statement { statements.push(self.parse_statement(st, _input)?); }
+                                if st.as_rule() == Rule::statement {
+                                    statements.push(self.parse_statement(st, _input)?);
+                                }
                             }
                         }
                     }
@@ -1193,17 +1330,28 @@ impl ShellCommandParser {
         }
         let name = name.ok_or_else(|| anyhow::anyhow!("Macro missing name"))?;
         let body = body.unwrap_or(ast::AstNode::Empty);
-        Ok(ast::AstNode::MacroDeclaration { name, params, body: Box::new(body) })
+        Ok(ast::AstNode::MacroDeclaration {
+            name,
+            params,
+            body: Box::new(body),
+        })
     }
 
-    fn parse_macro_invocation(&self, pair: Pair<Rule>, _input: &str) -> Result<ast::AstNode<'static>> {
+    fn parse_macro_invocation(
+        &self,
+        pair: Pair<Rule>,
+        _input: &str,
+    ) -> Result<ast::AstNode<'static>> {
         let mut name: Option<&str> = None;
         let mut args: Vec<ast::AstNode<'static>> = Vec::new();
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::identifier => {
-                    if name.is_none() { name = Some(self.leak_string(inner.as_str())); }
-                    else { args.push(ast::AstNode::Word(self.leak_string(inner.as_str()))); }
+                    if name.is_none() {
+                        name = Some(self.leak_string(inner.as_str()));
+                    } else {
+                        args.push(ast::AstNode::Word(self.leak_string(inner.as_str())));
+                    }
                 }
                 Rule::word => {
                     args.push(ast::AstNode::Word(self.leak_string(inner.as_str())));
@@ -1216,11 +1364,15 @@ impl ShellCommandParser {
     }
 
     /// Parse modern match statement with expression and arms
-    fn parse_match_statement(&self, pair: Pair<Rule>, input: &str) -> Result<ast::AstNode<'static>> {
+    fn parse_match_statement(
+        &self,
+        pair: Pair<Rule>,
+        input: &str,
+    ) -> Result<ast::AstNode<'static>> {
         let mut expr: Option<ast::AstNode<'static>> = None;
         let mut arms = Vec::new();
         let mut current_state = MatchParseState::Expression;
-        
+
         for inner_pair in pair.into_inner() {
             match inner_pair.as_rule() {
                 Rule::match_kw => {
@@ -1248,7 +1400,7 @@ impl ShellCommandParser {
                 }
             }
         }
-        
+
         // Validate required components
         let expr = expr.ok_or_else(|| anyhow::anyhow!("Match statement missing expression"))?;
 
@@ -1262,7 +1414,11 @@ impl ShellCommandParser {
                 Guard { pattern, .. } => pattern_is_catch_all(pattern),
                 Binding { pattern, .. } => pattern_is_catch_all(pattern),
                 Reference(inner) => pattern_is_catch_all(inner),
-                ArraySlice { before, rest, after } => {
+                ArraySlice {
+                    before,
+                    rest,
+                    after,
+                } => {
                     before.iter().any(pattern_is_catch_all)
                         || rest.as_deref().map(pattern_is_catch_all).unwrap_or(false)
                         || after.iter().any(pattern_is_catch_all)
@@ -1280,30 +1436,32 @@ impl ShellCommandParser {
             is_exhaustive,
         })
     }
-    
+
     /// Parse a single match arm (pattern => body)
     fn parse_match_arm(&self, pair: Pair<Rule>, input: &str) -> Result<ast::MatchArm<'static>> {
         let mut pattern: Option<ast::Pattern<'static>> = None;
         let guard: Option<ast::AstNode<'static>> = None;
         let mut body: Option<ast::AstNode<'static>> = None;
-        
+
         for inner_pair in pair.into_inner() {
             match inner_pair.as_rule() {
                 Rule::pattern => {
                     pattern = Some(self.parse_pattern(inner_pair)?);
                 }
                 Rule::program | Rule::inner_program => {
-                    body = Some(self.normalize_block(self.build_ast_from_pairs(inner_pair.into_inner(), input)?));
+                    body = Some(self.normalize_block(
+                        self.build_ast_from_pairs(inner_pair.into_inner(), input)?,
+                    ));
                 }
                 _ => {
                     // Handle "=>" separator and potential guard clauses
                 }
             }
         }
-        
+
         let pattern = pattern.ok_or_else(|| anyhow::anyhow!("Match arm missing pattern"))?;
         let body = body.ok_or_else(|| anyhow::anyhow!("Match arm missing body"))?;
-        
+
         Ok(ast::MatchArm {
             pattern,
             guard,
@@ -1356,7 +1514,7 @@ impl ShellCommandParser {
     /// Parse a command list
     fn parse_command_list(&self, pair: Pair<Rule>, input: &str) -> Result<ast::AstNode<'static>> {
         let mut statements = Vec::new();
-        
+
         for inner_pair in pair.into_inner() {
             match inner_pair.as_rule() {
                 Rule::statement => {
@@ -1369,7 +1527,7 @@ impl ShellCommandParser {
                 _ => {}
             }
         }
-        
+
         if statements.len() == 1 {
             Ok(statements.into_iter().next().unwrap())
         } else {
@@ -1406,9 +1564,9 @@ pub fn parse(input: &str) -> Result<ast::AstNode> {
         Ok(pairs) => {
             let parser = ShellCommandParser::new();
             parser.build_ast_from_pairs(pairs, input)
-        },
+        }
         Err(e) => Err(anyhow::anyhow!(highlight_error(input, e))),
     }
 }
 
-pub use lexer::TokenKind; 
+pub use lexer::TokenKind;

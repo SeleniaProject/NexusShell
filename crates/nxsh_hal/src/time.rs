@@ -3,12 +3,12 @@
 //! This module provides platform-agnostic time and timing operations
 //! with high precision and timezone support.
 
-use std::time::{Duration, Instant, SystemTime as StdSystemTime, UNIX_EPOCH};
-use std::thread;
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime as StdSystemTime, UNIX_EPOCH};
 
 use crate::error::{HalError, HalResult};
-use crate::platform::{Platform, Capabilities};
+use crate::platform::{Capabilities, Platform};
 use chrono::{DateTime, Utc};
 
 /// Time management and operations
@@ -35,7 +35,8 @@ impl TimeManager {
 
     pub fn unix_timestamp(&self) -> HalResult<u64> {
         let std_time = StdSystemTime::now();
-        let duration = std_time.duration_since(UNIX_EPOCH)
+        let duration = std_time
+            .duration_since(UNIX_EPOCH)
             .map_err(|e| HalError::invalid(&format!("System time error: {e}")))?;
         Ok(duration.as_secs())
     }
@@ -59,7 +60,8 @@ impl TimeManager {
     pub fn sleep_until(&self, deadline: SystemTime) -> HalResult<()> {
         let now = self.now()?;
         if deadline > now {
-            let duration = deadline.duration_since(&now)
+            let duration = deadline
+                .duration_since(&now)
                 .map_err(|e| HalError::invalid(&format!("Invalid duration: {e}")))?;
             thread::sleep(duration);
         }
@@ -91,38 +93,38 @@ impl TimeManager {
             use std::fs;
             let uptime_str = fs::read_to_string("/proc/uptime")
                 .map_err(|e| HalError::io_error("read_uptime", Some("/proc/uptime"), e))?;
-            
+
             let uptime_secs: f64 = uptime_str
                 .split_whitespace()
                 .next()
                 .ok_or_else(|| HalError::invalid("Invalid uptime format"))?
                 .parse()
                 .map_err(|_| HalError::invalid("Invalid uptime number"))?;
-            
+
             Ok(Duration::from_secs_f64(uptime_secs))
         }
         #[cfg(target_os = "macos")]
         {
             // Use pure Rust implementation via /usr/bin/uptime parsing as a safe alternative
             use std::process::Command;
-            
+
             match Command::new("uptime").output() {
                 Ok(output) => {
                     let output_str = String::from_utf8_lossy(&output.stdout);
                     // Parse "up X days, Y:Z," format or similar
                     if let Some(up_pos) = output_str.find("up ") {
                         let after_up = &output_str[up_pos + 3..];
-                        
+
                         // Try to extract time information using regex-like parsing
                         let mut total_seconds = 0u64;
-                        
+
                         // Look for days
                         if let Some(days_end) = after_up.find(" day") {
                             if let Ok(days) = after_up[..days_end].trim().parse::<u64>() {
                                 total_seconds += days * 24 * 3600;
                             }
                         }
-                        
+
                         // Look for hours:minutes pattern
                         if let Some(time_match) = after_up.find(char::is_numeric) {
                             let time_part = &after_up[time_match..];
@@ -131,14 +133,14 @@ impl TimeManager {
                                 if let Some(colon_pos) = time_str.find(':') {
                                     if let (Ok(hours), Ok(minutes)) = (
                                         time_str[..colon_pos].parse::<u64>(),
-                                        time_str[colon_pos + 1..].parse::<u64>()
+                                        time_str[colon_pos + 1..].parse::<u64>(),
                                     ) {
                                         total_seconds += hours * 3600 + minutes * 60;
                                     }
                                 }
                             }
                         }
-                        
+
                         if total_seconds > 0 {
                             return Ok(Duration::from_secs(total_seconds));
                         }
@@ -149,13 +151,18 @@ impl TimeManager {
                     // Fallback: Use /proc/uptime if available (unlikely on macOS, but safe)
                     match std::fs::read_to_string("/proc/uptime") {
                         Ok(content) => {
-                            let uptime_str = content.split_whitespace().next()
+                            let uptime_str = content
+                                .split_whitespace()
+                                .next()
                                 .ok_or_else(|| HalError::invalid("Invalid uptime format"))?;
-                            let uptime_secs: f64 = uptime_str.parse()
+                            let uptime_secs: f64 = uptime_str
+                                .parse()
                                 .map_err(|_| HalError::invalid("Invalid uptime number"))?;
                             Ok(Duration::from_secs_f64(uptime_secs))
                         }
-                        Err(_) => Err(HalError::unsupported("Cannot determine system uptime on this macOS version"))
+                        Err(_) => Err(HalError::unsupported(
+                            "Cannot determine system uptime on this macOS version",
+                        )),
                     }
                 }
             }
@@ -168,7 +175,9 @@ impl TimeManager {
         }
         #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
         {
-            Err(HalError::unsupported("Uptime not supported on this platform"))
+            Err(HalError::unsupported(
+                "Uptime not supported on this platform",
+            ))
         }
     }
 
@@ -176,16 +185,16 @@ impl TimeManager {
         #[cfg(unix)]
         {
             use chrono::Local;
-            
+
             let local_time = Local::now();
             let offset = local_time.offset().local_minus_utc();
-            
+
             Ok(offset)
         }
         #[cfg(windows)]
         {
             use windows_sys::Win32::System::Time::{GetTimeZoneInformation, TIME_ZONE_INFORMATION};
-            
+
             let mut tzi = TIME_ZONE_INFORMATION {
                 Bias: 0,
                 StandardName: [0; 32],
@@ -197,7 +206,7 @@ impl TimeManager {
             };
 
             let _result = unsafe { GetTimeZoneInformation(&mut tzi) };
-            
+
             let offset_seconds = -(tzi.Bias * 60) as i32;
 
             Ok(offset_seconds)
@@ -278,15 +287,15 @@ impl TimeManager {
                         // Fields 13 and 14 are utime and stime in clock ticks
                         let utime_ticks: u64 = fields[13].parse().unwrap_or(0);
                         let stime_ticks: u64 = fields[14].parse().unwrap_or(0);
-                        
+
                         // Get clock ticks per second (usually 100)
                         let ticks_per_sec = 100u64; // Standard value, could also read from sysconf
-                        
+
                         let total_ticks = utime_ticks + stime_ticks;
                         let total_seconds = total_ticks / ticks_per_sec;
                         let remaining_ticks = total_ticks % ticks_per_sec;
                         let nanoseconds = (remaining_ticks * 1_000_000_000) / ticks_per_sec;
-                        
+
                         Ok(Duration::new(total_seconds, nanoseconds as u32))
                     } else {
                         Err(HalError::invalid("Invalid /proc/self/stat format"))
@@ -303,13 +312,25 @@ impl TimeManager {
         }
         #[cfg(windows)]
         {
-            use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
             use windows_sys::Win32::Foundation::FILETIME;
+            use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
 
-            let mut creation_time = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
-            let mut exit_time = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
-            let mut kernel_time = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
-            let mut user_time = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+            let mut creation_time = FILETIME {
+                dwLowDateTime: 0,
+                dwHighDateTime: 0,
+            };
+            let mut exit_time = FILETIME {
+                dwLowDateTime: 0,
+                dwHighDateTime: 0,
+            };
+            let mut kernel_time = FILETIME {
+                dwLowDateTime: 0,
+                dwHighDateTime: 0,
+            };
+            let mut user_time = FILETIME {
+                dwLowDateTime: 0,
+                dwHighDateTime: 0,
+            };
 
             let result = unsafe {
                 GetProcessTimes(
@@ -322,7 +343,11 @@ impl TimeManager {
             };
 
             if result == 0 {
-                return Err(HalError::io_error("GetProcessTimes", None, std::io::Error::last_os_error()));
+                return Err(HalError::io_error(
+                    "GetProcessTimes",
+                    None,
+                    std::io::Error::last_os_error(),
+                ));
             }
 
             let user_duration = filetime_to_duration(&user_time);
@@ -332,7 +357,9 @@ impl TimeManager {
         }
         #[cfg(not(any(unix, windows)))]
         {
-            Err(HalError::unsupported("CPU time not supported on this platform"))
+            Err(HalError::unsupported(
+                "CPU time not supported on this platform",
+            ))
         }
     }
 
@@ -340,19 +367,25 @@ impl TimeManager {
         #[cfg(unix)]
         {
             use chrono::Local;
-            
+
             let _local_time = Local::now();
             let _offset = _local_time.offset().local_minus_utc();
-            
-            Err(HalError::unsupported("Timezone setting not supported on this platform"))
+
+            Err(HalError::unsupported(
+                "Timezone setting not supported on this platform",
+            ))
         }
         #[cfg(windows)]
         {
-            Err(HalError::unsupported("Timezone setting not supported on this platform"))
+            Err(HalError::unsupported(
+                "Timezone setting not supported on this platform",
+            ))
         }
         #[cfg(not(any(unix, windows)))]
         {
-            Err(HalError::unsupported("Timezone setting not supported on this platform"))
+            Err(HalError::unsupported(
+                "Timezone setting not supported on this platform",
+            ))
         }
     }
 
@@ -360,10 +393,10 @@ impl TimeManager {
         #[cfg(unix)]
         {
             use chrono::Local;
-            
+
             let local_time = Local::now();
             let _offset = local_time.offset().local_minus_utc();
-            
+
             Ok(format!("{}", local_time.offset()))
         }
         #[cfg(windows)]
@@ -431,7 +464,10 @@ impl SystemTime {
         self.inner
     }
 
-    pub fn duration_since(&self, earlier: &SystemTime) -> Result<Duration, std::time::SystemTimeError> {
+    pub fn duration_since(
+        &self,
+        earlier: &SystemTime,
+    ) -> Result<Duration, std::time::SystemTimeError> {
         self.inner.duration_since(earlier.inner)
     }
 
@@ -446,7 +482,9 @@ impl SystemTime {
     }
 
     pub fn sub(&self, duration: Duration) -> Option<SystemTime> {
-        self.inner.checked_sub(duration).map(|inner| SystemTime { inner })
+        self.inner
+            .checked_sub(duration)
+            .map(|inner| SystemTime { inner })
     }
 }
 
@@ -530,4 +568,4 @@ fn filetime_to_duration(filetime: &windows_sys::Win32::Foundation::FILETIME) -> 
     let total = ((filetime.dwHighDateTime as u64) << 32) | (filetime.dwLowDateTime as u64);
     // FILETIME is in 100-nanosecond intervals
     Duration::from_nanos(total * 100)
-} 
+}

@@ -1,10 +1,10 @@
+use anyhow::Result;
 use std::{
     collections::HashMap,
+    path::Path,
     sync::{Arc, RwLock},
     time::{Duration, Instant},
-    path::Path,
 };
-use anyhow::Result;
 // removed unused import
 
 /// High-performance completion system with caching
@@ -39,9 +39,13 @@ impl CompletionEngine {
     }
 
     /// Get completions for input (target: <1ms)
-    pub fn get_completions(&self, input: &str, context: &CompletionContext) -> Result<Vec<Completion>> {
+    pub fn get_completions(
+        &self,
+        input: &str,
+        context: &CompletionContext,
+    ) -> Result<Vec<Completion>> {
         let start = Instant::now();
-        
+
         // Check cache first
         if let Some(cached) = self.get_cached_completions(input, context) {
             self.record_completion(start.elapsed(), cached.len(), true);
@@ -53,13 +57,13 @@ impl CompletionEngine {
 
         // Lightweight command-specific suggestions
         completions.extend(self.complete_builtin_flags(&context.command_line));
-        
+
         // Cache results
         self.cache_completions(input, context, &completions);
-        
+
         let duration = start.elapsed();
         self.record_completion(duration, completions.len(), false);
-        
+
         Ok(completions)
     }
 
@@ -75,7 +79,11 @@ impl CompletionEngine {
         self.stats.read().unwrap().clone()
     }
 
-    fn get_cached_completions(&self, input: &str, context: &CompletionContext) -> Option<Vec<Completion>> {
+    fn get_cached_completions(
+        &self,
+        input: &str,
+        context: &CompletionContext,
+    ) -> Option<Vec<Completion>> {
         if !self.config.enable_cache {
             return None;
         }
@@ -91,7 +99,12 @@ impl CompletionEngine {
         None
     }
 
-    fn cache_completions(&self, input: &str, context: &CompletionContext, completions: &[Completion]) {
+    fn cache_completions(
+        &self,
+        input: &str,
+        context: &CompletionContext,
+        completions: &[Completion],
+    ) {
         if !self.config.enable_cache || completions.len() > self.config.max_cache_items {
             return;
         }
@@ -100,7 +113,7 @@ impl CompletionEngine {
             let cache_key = self.create_cache_key(input, context);
             let entry = CacheEntry::new(completions.to_vec(), self.config.cache_ttl);
             cache.insert(cache_key, entry);
-            
+
             // Cleanup old entries if cache is too large
             if cache.len() > self.config.max_cache_size {
                 cache.cleanup_old_entries(self.config.max_cache_size / 2);
@@ -109,10 +122,19 @@ impl CompletionEngine {
     }
 
     fn create_cache_key(&self, input: &str, context: &CompletionContext) -> String {
-        format!("{}:{}:{:?}", input, context.working_dir.to_string_lossy(), context.completion_type)
+        format!(
+            "{}:{}:{:?}",
+            input,
+            context.working_dir.to_string_lossy(),
+            context.completion_type
+        )
     }
 
-    fn generate_completions(&self, input: &str, context: &CompletionContext) -> Result<Vec<Completion>> {
+    fn generate_completions(
+        &self,
+        input: &str,
+        context: &CompletionContext,
+    ) -> Result<Vec<Completion>> {
         match context.completion_type {
             CompletionType::Command => self.complete_commands(input),
             CompletionType::File => self.complete_files(input, &context.working_dir),
@@ -129,12 +151,15 @@ impl CompletionEngine {
         let trimmed = input.trim_start();
         // Match patterns like: "timedatectl ", "timedatectl t", etc.
         const TDCT_SUBCMDS: &[&str] = &[
-            "status", "show", "timesync-status", "show-timesync", "statistics",
-            "add-ntp-server", "remove-ntp-server",
+            "status",
+            "show",
+            "timesync-status",
+            "show-timesync",
+            "statistics",
+            "add-ntp-server",
+            "remove-ntp-server",
         ];
-        const TDCT_FLAGS: &[&str] = &[
-            "--json", "-J", "--monitor", "-h", "--help",
-        ];
+        const TDCT_FLAGS: &[&str] = &["--json", "-J", "--monitor", "-h", "--help"];
 
         let mut out: Vec<Completion> = Vec::new();
         if trimmed.starts_with("timedatectl ") {
@@ -169,7 +194,17 @@ impl CompletionEngine {
             let after = trimmed.strip_prefix("zstd ").unwrap_or("");
             let needle = after.trim_start();
             const ZSTD_FLAGS: &[&str] = &[
-                "-d", "-z", "-c", "-t", "-q", "-v", "-T", "-M", "--memory", "--help", "--version",
+                "-d",
+                "-z",
+                "-c",
+                "-t",
+                "-q",
+                "-v",
+                "-T",
+                "-M",
+                "--memory",
+                "--help",
+                "--version",
             ];
             for f in ZSTD_FLAGS {
                 if f.starts_with(needle) {
@@ -189,7 +224,18 @@ impl CompletionEngine {
             let after = trimmed.strip_prefix("unzstd ").unwrap_or("");
             let needle = after.trim_start();
             const UNZSTD_FLAGS: &[&str] = &[
-                "-k", "--keep", "-f", "--force", "-c", "--stdout", "-t", "--test", "-q", "--quiet", "-v", "--verbose",
+                "-k",
+                "--keep",
+                "-f",
+                "--force",
+                "-c",
+                "--stdout",
+                "-t",
+                "--test",
+                "-q",
+                "--quiet",
+                "-v",
+                "--verbose",
             ];
             for f in UNZSTD_FLAGS {
                 if f.starts_with(needle) {
@@ -209,23 +255,38 @@ impl CompletionEngine {
             let after = trimmed.strip_prefix("tar ").unwrap_or("");
             let needle = after.trim_start();
             const TAR_FLAGS: &[&str] = &[
-                "-c", "--create",
-                "-x", "--extract",
-                "-t", "--list",
-                "-r", "--append",
-                "-u", "--update",
-                "-d", "--diff", "--compare",
-                "-f", "--file",
-                "-z", "--gzip",
-                "-j", "--bzip2",
-                "-J", "--xz",
+                "-c",
+                "--create",
+                "-x",
+                "--extract",
+                "-t",
+                "--list",
+                "-r",
+                "--append",
+                "-u",
+                "--update",
+                "-d",
+                "--diff",
+                "--compare",
+                "-f",
+                "--file",
+                "-z",
+                "--gzip",
+                "-j",
+                "--bzip2",
+                "-J",
+                "--xz",
                 "--zstd",
-                "-v", "--verbose",
-                "-C", "--directory",
-                "-p", "--preserve-permissions",
+                "-v",
+                "--verbose",
+                "-C",
+                "--directory",
+                "-p",
+                "--preserve-permissions",
                 "--no-same-permissions",
                 "--overwrite",
-                "--verify", "-W",
+                "--verify",
+                "-W",
                 "--strip-components=",
                 "--exclude=",
                 "--owner=",
@@ -251,15 +312,25 @@ impl CompletionEngine {
             let after = trimmed.strip_prefix("cp ").unwrap_or("");
             let needle = after.trim_start();
             const CP_FLAGS: &[&str] = &[
-                "-r", "-R", "--recursive",
-                "-a", "--archive",
-                "-v", "--verbose",
-                "-f", "--force",
-                "-n", "--no-clobber",
-                "-i", "--interactive",
-                "-p", "--preserve",
-                "-t", "--target-directory",
-                "-T", "--no-target-directory",
+                "-r",
+                "-R",
+                "--recursive",
+                "-a",
+                "--archive",
+                "-v",
+                "--verbose",
+                "-f",
+                "--force",
+                "-n",
+                "--no-clobber",
+                "-i",
+                "--interactive",
+                "-p",
+                "--preserve",
+                "-t",
+                "--target-directory",
+                "-T",
+                "--no-target-directory",
             ];
             for f in CP_FLAGS {
                 if f.starts_with(needle) {
@@ -279,12 +350,18 @@ impl CompletionEngine {
             let after = trimmed.strip_prefix("mv ").unwrap_or("");
             let needle = after.trim_start();
             const MV_FLAGS: &[&str] = &[
-                "-f", "--force",
-                "-i", "--interactive",
-                "-n", "--no-clobber",
-                "-v", "--verbose",
-                "-t", "--target-directory",
-                "-T", "--no-target-directory",
+                "-f",
+                "--force",
+                "-i",
+                "--interactive",
+                "-n",
+                "--no-clobber",
+                "-v",
+                "--verbose",
+                "-t",
+                "--target-directory",
+                "-T",
+                "--no-target-directory",
             ];
             for f in MV_FLAGS {
                 if f.starts_with(needle) {
@@ -304,11 +381,17 @@ impl CompletionEngine {
             let after = trimmed.strip_prefix("rm ").unwrap_or("");
             let needle = after.trim_start();
             const RM_FLAGS: &[&str] = &[
-                "-r", "-R", "--recursive",
-                "-f", "--force",
-                "-v", "--verbose",
-                "-d", "--dir",
-                "-i", "--interactive",
+                "-r",
+                "-R",
+                "--recursive",
+                "-f",
+                "--force",
+                "-v",
+                "--verbose",
+                "-d",
+                "--dir",
+                "-i",
+                "--interactive",
                 "--one-file-system",
                 "--preserve-root",
                 "--no-preserve-root",
@@ -331,9 +414,7 @@ impl CompletionEngine {
             let after = trimmed.strip_prefix("7z ").unwrap_or("");
             let needle = after.trim_start();
             const SEVENZ_SUBCMDS: &[&str] = &["a", "x", "l", "t"]; // add, extract, list, test
-            const SEVENZ_FLAGS: &[&str] = &[
-                "-o", "-p", "-r", "-y", "-bb3", "-bb0", "-bd",
-            ];
+            const SEVENZ_FLAGS: &[&str] = &["-o", "-p", "-r", "-y", "-bb3", "-bb0", "-bd"];
             for s in SEVENZ_SUBCMDS {
                 if s.starts_with(needle) {
                     out.push(Completion {
@@ -362,12 +443,16 @@ impl CompletionEngine {
         if trimmed.starts_with("zip ") {
             let after = trimmed.strip_prefix("zip ").unwrap_or("");
             let needle = after.trim_start();
-            const ZIP_FLAGS: &[&str] = &[
-                "-r", "-q", "-v", "-0", "-1", "-5", "-9",
-            ];
+            const ZIP_FLAGS: &[&str] = &["-r", "-q", "-v", "-0", "-1", "-5", "-9"];
             for f in ZIP_FLAGS {
                 if f.starts_with(needle) {
-                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("zip flag".to_string()), score: self.calculate_score(needle, f) });
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("zip flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
                 }
             }
         }
@@ -377,44 +462,82 @@ impl CompletionEngine {
             let after = trimmed.strip_prefix("grep ").unwrap_or("");
             let needle = after.trim_start();
             const GREP_FLAGS: &[&str] = &[
-                "-E", "--extended-regexp",
-                "-F", "--fixed-strings",
-                "-G", "--basic-regexp",
-                "-P", "--perl-regexp",
-                "-e", "--regexp",
-                "-f", "--file",
-                "-i", "--ignore-case",
-                "-v", "--invert-match",
-                "-w", "--word-regexp",
-                "-x", "--line-regexp",
-                "-c", "--count",
-                "-l", "--files-with-matches",
-                "-L", "--files-without-match",
-                "-m", "--max-count",
-                "-n", "--line-number",
-                "-H", "--with-filename",
-                "-h", "--no-filename",
-                "-o", "--only-matching",
-                "-q", "--quiet",
-                "-s", "--no-messages",
-                "-r", "--recursive",
-                "-R", "--dereference-recursive",
-                "-A", "--after-context",
-                "-B", "--before-context",
-                "-C", "--context",
-                "-a", "--text",
+                "-E",
+                "--extended-regexp",
+                "-F",
+                "--fixed-strings",
+                "-G",
+                "--basic-regexp",
+                "-P",
+                "--perl-regexp",
+                "-e",
+                "--regexp",
+                "-f",
+                "--file",
+                "-i",
+                "--ignore-case",
+                "-v",
+                "--invert-match",
+                "-w",
+                "--word-regexp",
+                "-x",
+                "--line-regexp",
+                "-c",
+                "--count",
+                "-l",
+                "--files-with-matches",
+                "-L",
+                "--files-without-match",
+                "-m",
+                "--max-count",
+                "-n",
+                "--line-number",
+                "-H",
+                "--with-filename",
+                "-h",
+                "--no-filename",
+                "-o",
+                "--only-matching",
+                "-q",
+                "--quiet",
+                "-s",
+                "--no-messages",
+                "-r",
+                "--recursive",
+                "-R",
+                "--dereference-recursive",
+                "-A",
+                "--after-context",
+                "-B",
+                "--before-context",
+                "-C",
+                "--context",
+                "-a",
+                "--text",
                 "-I",
-                "-z", "--null-data",
-                "-Z", "--null",
-                "--color", "--color=always", "--color=never", "--color=auto",
+                "-z",
+                "--null-data",
+                "-Z",
+                "--null",
+                "--color",
+                "--color=always",
+                "--color=never",
+                "--color=auto",
                 "--include=",
                 "--exclude=",
                 "--exclude-dir=",
-                "--help", "--version",
+                "--help",
+                "--version",
             ];
             for f in GREP_FLAGS {
                 if f.starts_with(needle) {
-                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("grep flag".to_string()), score: self.calculate_score(needle, f) });
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("grep flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
                 }
             }
         }
@@ -424,19 +547,35 @@ impl CompletionEngine {
             let after = trimmed.strip_prefix("sed ").unwrap_or("");
             let needle = after.trim_start();
             const SED_FLAGS: &[&str] = &[
-                "-n", "--quiet", "--silent",
-                "-e", "--expression",
-                "-f", "--file",
-                "-i", "--in-place",
-                "-r", "-E", "--regexp-extended",
-                "-s", "--separate",
-                "-u", "--unbuffered",
+                "-n",
+                "--quiet",
+                "--silent",
+                "-e",
+                "--expression",
+                "-f",
+                "--file",
+                "-i",
+                "--in-place",
+                "-r",
+                "-E",
+                "--regexp-extended",
+                "-s",
+                "--separate",
+                "-u",
+                "--unbuffered",
                 "--posix",
-                "--help", "--version",
+                "--help",
+                "--version",
             ];
             for f in SED_FLAGS {
                 if f.starts_with(needle) {
-                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("sed flag".to_string()), score: self.calculate_score(needle, f) });
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("sed flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
                 }
             }
         }
@@ -446,14 +585,23 @@ impl CompletionEngine {
             let after = trimmed.strip_prefix("awk ").unwrap_or("");
             let needle = after.trim_start();
             const AWK_FLAGS: &[&str] = &[
-                "-F", "--field-separator",
-                "-f", "--file",
-                "-v", "--assign",
+                "-F",
+                "--field-separator",
+                "-f",
+                "--file",
+                "-v",
+                "--assign",
                 "--help",
             ];
             for f in AWK_FLAGS {
                 if f.starts_with(needle) {
-                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("awk flag".to_string()), score: self.calculate_score(needle, f) });
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("awk flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
                 }
             }
         }
@@ -462,12 +610,16 @@ impl CompletionEngine {
         if trimmed.starts_with("unzip ") {
             let after = trimmed.strip_prefix("unzip ").unwrap_or("");
             let needle = after.trim_start();
-            const UNZIP_FLAGS: &[&str] = &[
-                "-d", "-l", "-o", "-n", "-q", "-v", "-P",
-            ];
+            const UNZIP_FLAGS: &[&str] = &["-d", "-l", "-o", "-n", "-q", "-v", "-P"];
             for f in UNZIP_FLAGS {
                 if f.starts_with(needle) {
-                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("unzip flag".to_string()), score: self.calculate_score(needle, f) });
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("unzip flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
                 }
             }
         }
@@ -476,12 +628,17 @@ impl CompletionEngine {
         if trimmed.starts_with("gzip ") {
             let after = trimmed.strip_prefix("gzip ").unwrap_or("");
             let needle = after.trim_start();
-            const GZIP_FLAGS: &[&str] = &[
-                "-d", "-k", "-c", "-f", "-t", "-q", "-v", "-1", "-5", "-9",
-            ];
+            const GZIP_FLAGS: &[&str] =
+                &["-d", "-k", "-c", "-f", "-t", "-q", "-v", "-1", "-5", "-9"];
             for f in GZIP_FLAGS {
                 if f.starts_with(needle) {
-                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("gzip flag".to_string()), score: self.calculate_score(needle, f) });
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("gzip flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
                 }
             }
         }
@@ -490,12 +647,16 @@ impl CompletionEngine {
         if trimmed.starts_with("gunzip ") {
             let after = trimmed.strip_prefix("gunzip ").unwrap_or("");
             let needle = after.trim_start();
-            const GUNZIP_FLAGS: &[&str] = &[
-                "-k", "-c", "-f", "-t", "-q", "-v",
-            ];
+            const GUNZIP_FLAGS: &[&str] = &["-k", "-c", "-f", "-t", "-q", "-v"];
             for f in GUNZIP_FLAGS {
                 if f.starts_with(needle) {
-                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("gunzip flag".to_string()), score: self.calculate_score(needle, f) });
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("gunzip flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
                 }
             }
         }
@@ -504,12 +665,16 @@ impl CompletionEngine {
         if trimmed.starts_with("xz ") {
             let after = trimmed.strip_prefix("xz ").unwrap_or("");
             let needle = after.trim_start();
-            const XZ_FLAGS: &[&str] = &[
-                "-d", "-k", "-c", "-f", "-T", "-q", "-v", "-0", "-5", "-9",
-            ];
+            const XZ_FLAGS: &[&str] = &["-d", "-k", "-c", "-f", "-T", "-q", "-v", "-0", "-5", "-9"];
             for f in XZ_FLAGS {
                 if f.starts_with(needle) {
-                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("xz flag".to_string()), score: self.calculate_score(needle, f) });
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("xz flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
                 }
             }
         }
@@ -518,12 +683,16 @@ impl CompletionEngine {
         if trimmed.starts_with("unxz ") {
             let after = trimmed.strip_prefix("unxz ").unwrap_or("");
             let needle = after.trim_start();
-            const UNXZ_FLAGS: &[&str] = &[
-                "-k", "-c", "-f", "-t", "-q", "-v",
-            ];
+            const UNXZ_FLAGS: &[&str] = &["-k", "-c", "-f", "-t", "-q", "-v"];
             for f in UNXZ_FLAGS {
                 if f.starts_with(needle) {
-                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("unxz flag".to_string()), score: self.calculate_score(needle, f) });
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("unxz flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
                 }
             }
         }
@@ -532,12 +701,16 @@ impl CompletionEngine {
         if trimmed.starts_with("bzip2 ") {
             let after = trimmed.strip_prefix("bzip2 ").unwrap_or("");
             let needle = after.trim_start();
-            const BZIP2_FLAGS: &[&str] = &[
-                "-d", "-k", "-c", "-f", "-q", "-v", "-1", "-5", "-9",
-            ];
+            const BZIP2_FLAGS: &[&str] = &["-d", "-k", "-c", "-f", "-q", "-v", "-1", "-5", "-9"];
             for f in BZIP2_FLAGS {
                 if f.starts_with(needle) {
-                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("bzip2 flag".to_string()), score: self.calculate_score(needle, f) });
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("bzip2 flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
                 }
             }
         }
@@ -546,12 +719,16 @@ impl CompletionEngine {
         if trimmed.starts_with("bunzip2 ") {
             let after = trimmed.strip_prefix("bunzip2 ").unwrap_or("");
             let needle = after.trim_start();
-            const BUNZIP2_FLAGS: &[&str] = &[
-                "-k", "-c", "-f", "-t", "-q", "-v",
-            ];
+            const BUNZIP2_FLAGS: &[&str] = &["-k", "-c", "-f", "-t", "-q", "-v"];
             for f in BUNZIP2_FLAGS {
                 if f.starts_with(needle) {
-                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("bunzip2 flag".to_string()), score: self.calculate_score(needle, f) });
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("bunzip2 flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
                 }
             }
         }
@@ -561,16 +738,28 @@ impl CompletionEngine {
             let after = trimmed.strip_prefix("chmod ").unwrap_or("");
             let needle = after.trim_start();
             const CHMOD_FLAGS: &[&str] = &[
-                "-R", "--recursive",
-                "-v", "--verbose",
-                "-c", "--changes",
+                "-R",
+                "--recursive",
+                "-v",
+                "--verbose",
+                "-c",
+                "--changes",
                 "--reference=",
                 // numeric mode patterns are free-form; we still offer a hint
-                "644", "755", "600", "700",
+                "644",
+                "755",
+                "600",
+                "700",
             ];
             for f in CHMOD_FLAGS {
                 if f.starts_with(needle) {
-                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("chmod flag/mode".to_string()), score: self.calculate_score(needle, f) });
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("chmod flag/mode".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
                 }
             }
         }
@@ -580,9 +769,12 @@ impl CompletionEngine {
             let after = trimmed.strip_prefix("chown ").unwrap_or("");
             let needle = after.trim_start();
             const CHOWN_FLAGS: &[&str] = &[
-                "-R", "--recursive",
-                "-v", "--verbose",
-                "-c", "--changes",
+                "-R",
+                "--recursive",
+                "-v",
+                "--verbose",
+                "-c",
+                "--changes",
                 "--reference=",
                 "--from=",
                 "--preserve-root",
@@ -590,7 +782,13 @@ impl CompletionEngine {
             ];
             for f in CHOWN_FLAGS {
                 if f.starts_with(needle) {
-                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("chown flag".to_string()), score: self.calculate_score(needle, f) });
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("chown flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
                 }
             }
         }
@@ -600,19 +798,55 @@ impl CompletionEngine {
             let after = trimmed.strip_prefix("find ").unwrap_or("");
             let needle = after.trim_start();
             const FIND_FLAGS: &[&str] = &[
-                "-maxdepth", "-mindepth", "-follow", "-L", "-xdev",
-                "-progress", "-parallel", "-icase", "-stats",
-                "-name", "-iname", "-path", "-ipath",
-                "-type", "-size", "-mtime", "-mmin", "-atime", "-amin", "-ctime", "-cmin",
-                "-perm", "-user", "-group",
-                "-regex", "-iregex",
-                "-print", "-print0", "-delete",
-                "-exec", "-execdir", "-ok", "-okdir",
-                "-and", "-a", "-or", "-o", "-not", "!",
+                "-maxdepth",
+                "-mindepth",
+                "-follow",
+                "-L",
+                "-xdev",
+                "-progress",
+                "-parallel",
+                "-icase",
+                "-stats",
+                "-name",
+                "-iname",
+                "-path",
+                "-ipath",
+                "-type",
+                "-size",
+                "-mtime",
+                "-mmin",
+                "-atime",
+                "-amin",
+                "-ctime",
+                "-cmin",
+                "-perm",
+                "-user",
+                "-group",
+                "-regex",
+                "-iregex",
+                "-print",
+                "-print0",
+                "-delete",
+                "-exec",
+                "-execdir",
+                "-ok",
+                "-okdir",
+                "-and",
+                "-a",
+                "-or",
+                "-o",
+                "-not",
+                "!",
             ];
             for f in FIND_FLAGS {
                 if f.starts_with(needle) {
-                    out.push(Completion { text: f.to_string(), display: f.to_string(), completion_type: CompletionType::Command, description: Some("find expression/flag".to_string()), score: self.calculate_score(needle, f) });
+                    out.push(Completion {
+                        text: f.to_string(),
+                        display: f.to_string(),
+                        completion_type: CompletionType::Command,
+                        description: Some("find expression/flag".to_string()),
+                        score: self.calculate_score(needle, f),
+                    });
                 }
             }
         }
@@ -621,17 +855,46 @@ impl CompletionEngine {
 
     fn complete_commands(&self, input: &str) -> Result<Vec<Completion>> {
         let mut completions = Vec::new();
-        
+
         // Built-in commands
         let builtins = [
-            "cd", "ls", "pwd", "echo", "cat", "grep", "find", "ps", "kill", 
-            "cp", "mv", "rm", "mkdir", "rmdir", "touch", "chmod", "chown",
-            "tar", "gzip", "gunzip", "curl", "wget", "git", "ssh", "scp",
+            "cd",
+            "ls",
+            "pwd",
+            "echo",
+            "cat",
+            "grep",
+            "find",
+            "ps",
+            "kill",
+            "cp",
+            "mv",
+            "rm",
+            "mkdir",
+            "rmdir",
+            "touch",
+            "chmod",
+            "chown",
+            "tar",
+            "gzip",
+            "gunzip",
+            "curl",
+            "wget",
+            "git",
+            "ssh",
+            "scp",
             // Extended builtins frequently used in NexusShell
-            "zstd", "unzstd", "zip", "unzip", "bzip2", "bunzip2", "xz", "unxz",
+            "zstd",
+            "unzstd",
+            "zip",
+            "unzip",
+            "bzip2",
+            "bunzip2",
+            "xz",
+            "unxz",
             "timedatectl",
         ];
-        
+
         for builtin in &builtins {
             if builtin.starts_with(input) {
                 completions.push(Completion {
@@ -643,35 +906,43 @@ impl CompletionEngine {
                 });
             }
         }
-        
+
         // System commands from PATH
-        if input.len() >= 2 {  // Only search PATH for inputs >= 2 chars
+        if input.len() >= 2 {
+            // Only search PATH for inputs >= 2 chars
             completions.extend(self.complete_path_commands(input)?);
         }
-        
+
         // Sort by score (higher is better)
-        completions.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
-        
+        completions.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         Ok(completions)
     }
 
     /// Truncate a long string for display safely
     fn truncate_display(&self, s: &str, max_len: usize) -> String {
-        if s.len() <= max_len { return s.to_string(); }
+        if s.len() <= max_len {
+            return s.to_string();
+        }
         let keep = max_len.saturating_sub(3);
         format!("{}...", &s[..keep])
     }
 
     fn complete_path_commands(&self, input: &str) -> Result<Vec<Completion>> {
         let mut completions = Vec::new();
-        
+
         if let Ok(path) = std::env::var("PATH") {
             let paths: Vec<&str> = path.split(if cfg!(windows) { ';' } else { ':' }).collect();
-            
+
             // Ultra-fast mode: only search first 3 PATH entries and limit results
-            for path_dir in paths.iter().take(3) {  
+            for path_dir in paths.iter().take(3) {
                 if let Ok(entries) = std::fs::read_dir(path_dir) {
-                    for entry in entries.flatten().take(20) {  // Limit to 20 entries per directory
+                    for entry in entries.flatten().take(20) {
+                        // Limit to 20 entries per directory
                         if let Ok(file_name) = entry.file_name().into_string() {
                             if file_name.starts_with(input) {
                                 // Skip expensive metadata check - assume executable
@@ -682,8 +953,9 @@ impl CompletionEngine {
                                     description: Some(format!("Command from {path_dir}")),
                                     score: self.calculate_score(input, &file_name),
                                 });
-                                
-                                if completions.len() >= 10 {  // Limit total results for speed
+
+                                if completions.len() >= 10 {
+                                    // Limit total results for speed
                                     return Ok(completions);
                                 }
                             }
@@ -692,13 +964,13 @@ impl CompletionEngine {
                 }
             }
         }
-        
+
         Ok(completions)
     }
 
     fn complete_files(&self, input: &str, working_dir: &Path) -> Result<Vec<Completion>> {
         let mut completions = Vec::new();
-        
+
         let (dir_path, file_prefix) = if let Some(last_slash) = input.rfind('/') {
             let dir_part = &input[..last_slash + 1];
             let file_part = &input[last_slash + 1..];
@@ -706,9 +978,10 @@ impl CompletionEngine {
         } else {
             (working_dir.to_path_buf(), input)
         };
-        
+
         if let Ok(entries) = std::fs::read_dir(&dir_path) {
-            for entry in entries.flatten().take(25) {  // Limit to 25 entries for speed
+            for entry in entries.flatten().take(25) {
+                // Limit to 25 entries for speed
                 if let Ok(file_name) = entry.file_name().into_string() {
                     if file_name.starts_with(file_prefix) && !file_name.starts_with('.') {
                         // Skip expensive is_dir() check for speed - infer from name
@@ -718,59 +991,81 @@ impl CompletionEngine {
                         } else {
                             file_name.clone()
                         };
-                        
+
                         completions.push(Completion {
                             text: file_name.clone(),
                             display: display_name,
-                            completion_type: if is_dir { CompletionType::Directory } else { CompletionType::File },
-                            description: if is_dir { Some("Directory".to_string()) } else { Some("File".to_string()) },
+                            completion_type: if is_dir {
+                                CompletionType::Directory
+                            } else {
+                                CompletionType::File
+                            },
+                            description: if is_dir {
+                                Some("Directory".to_string())
+                            } else {
+                                Some("File".to_string())
+                            },
                             score: self.calculate_score(file_prefix, &file_name),
                         });
-                        
-                        if completions.len() >= 15 {  // Reduced limit for speed
+
+                        if completions.len() >= 15 {
+                            // Reduced limit for speed
                             break;
                         }
                     }
                 }
             }
         }
-        
-        completions.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+
+        completions.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         Ok(completions)
     }
 
     fn complete_directories(&self, input: &str, working_dir: &Path) -> Result<Vec<Completion>> {
         let completions = self.complete_files(input, working_dir)?;
-        Ok(completions.into_iter()
-           .filter(|c| c.completion_type == CompletionType::Directory)
-           .collect())
+        Ok(completions
+            .into_iter()
+            .filter(|c| c.completion_type == CompletionType::Directory)
+            .collect())
     }
 
     fn complete_variables(&self, input: &str) -> Result<Vec<Completion>> {
         let mut completions = Vec::new();
-        
+
         // Environment variables
         for (key, value) in std::env::vars() {
             if key.starts_with(input.trim_start_matches('$')) {
                 completions.push(Completion {
                     text: format!("${key}"),
-                    display: format!("${} = {}", key, if value.len() > 30 { 
-                        format!("{}...", &value[..27]) 
-                    } else { 
-                        value 
-                    }),
+                    display: format!(
+                        "${} = {}",
+                        key,
+                        if value.len() > 30 {
+                            format!("{}...", &value[..27])
+                        } else {
+                            value
+                        }
+                    ),
                     completion_type: CompletionType::Variable,
                     description: Some("Environment variable".to_string()),
                     score: self.calculate_score(input, &key),
                 });
-                
+
                 if completions.len() >= self.config.max_results {
                     break;
                 }
             }
         }
-        
-        completions.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+
+        completions.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         Ok(completions)
     }
 
@@ -810,7 +1105,11 @@ impl CompletionEngine {
                         if !name.is_empty() && name.starts_with(needle) {
                             completions.push(Completion {
                                 text: name.to_string(),
-                                display: format!("{} -> {}", name, self.truncate_display(val.trim(), 40)),
+                                display: format!(
+                                    "{} -> {}",
+                                    name,
+                                    self.truncate_display(val.trim(), 40)
+                                ),
                                 completion_type: CompletionType::Alias,
                                 description: Some("Alias (file)".to_string()),
                                 score: self.calculate_score(needle, name),
@@ -822,7 +1121,11 @@ impl CompletionEngine {
         }
 
         // Sort by score descending
-        completions.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        completions.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         // Respect max_results
         completions.truncate(self.config.max_results);
 
@@ -837,7 +1140,9 @@ impl CompletionEngine {
         if let Ok(hist_env) = std::env::var("NXSH_HISTORY") {
             for line in hist_env.lines().rev().take(self.config.max_results * 2) {
                 let cmd = line.trim();
-                if cmd.is_empty() { continue; }
+                if cmd.is_empty() {
+                    continue;
+                }
                 if needle.is_empty() || cmd.starts_with(needle) || cmd.contains(needle) {
                     completions.push(Completion {
                         text: cmd.to_string(),
@@ -846,14 +1151,18 @@ impl CompletionEngine {
                         description: Some("History".to_string()),
                         score: self.calculate_score(needle, cmd),
                     });
-                    if completions.len() >= self.config.max_results { break; }
+                    if completions.len() >= self.config.max_results {
+                        break;
+                    }
                 }
             }
         } else if let Ok(path) = std::env::var("NXSH_HISTORY_FILE") {
             if let Ok(content) = std::fs::read_to_string(path) {
                 for line in content.lines().rev() {
                     let cmd = line.trim();
-                    if cmd.is_empty() { continue; }
+                    if cmd.is_empty() {
+                        continue;
+                    }
                     if needle.is_empty() || cmd.starts_with(needle) || cmd.contains(needle) {
                         completions.push(Completion {
                             text: cmd.to_string(),
@@ -862,13 +1171,19 @@ impl CompletionEngine {
                             description: Some("History (file)".to_string()),
                             score: self.calculate_score(needle, cmd),
                         });
-                        if completions.len() >= self.config.max_results { break; }
+                        if completions.len() >= self.config.max_results {
+                            break;
+                        }
                     }
                 }
             }
         }
 
-        completions.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        completions.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         completions.truncate(self.config.max_results);
         Ok(completions)
     }
@@ -877,22 +1192,22 @@ impl CompletionEngine {
         if candidate == input {
             return 100.0;
         }
-        
+
         if candidate.starts_with(input) {
             let prefix_score = 50.0;
             let length_bonus = (input.len() as f64 / candidate.len() as f64) * 20.0;
             return prefix_score + length_bonus;
         }
-        
+
         if candidate.contains(input) {
             return 25.0;
         }
-        
+
         // Fuzzy matching score
         let mut score = 0.0;
         let mut input_chars = input.chars();
         let mut current_char = input_chars.next();
-        
+
         for candidate_char in candidate.chars() {
             if let Some(ch) = current_char {
                 if ch == candidate_char {
@@ -901,7 +1216,7 @@ impl CompletionEngine {
                 }
             }
         }
-        
+
         score
     }
 
@@ -910,17 +1225,17 @@ impl CompletionEngine {
             stats.total_requests += 1;
             stats.total_time += duration;
             stats.total_completions += count;
-            
+
             if from_cache {
                 stats.cache_hits += 1;
             } else {
                 stats.cache_misses += 1;
             }
-            
+
             if duration < stats.fastest_completion || stats.fastest_completion == Duration::ZERO {
                 stats.fastest_completion = duration;
             }
-            
+
             if duration > stats.slowest_completion {
                 stats.slowest_completion = duration;
             }
@@ -943,10 +1258,10 @@ impl Default for CompletionConfig {
     fn default() -> Self {
         Self {
             enable_cache: true,
-            cache_ttl: Duration::from_secs(300),  // 5 minutes
+            cache_ttl: Duration::from_secs(300), // 5 minutes
             max_cache_size: 1000,
             max_cache_items: 100,
-            max_results: 15,  // Reduced for speed
+            max_results: 15, // Reduced for speed
             min_chars_for_path_search: 2,
         }
     }
@@ -1038,12 +1353,14 @@ impl CompletionCache {
             return;
         }
 
-        let mut entries_with_age: Vec<_> = self.entries.iter()
+        let mut entries_with_age: Vec<_> = self
+            .entries
+            .iter()
             .map(|(k, v)| (k.clone(), v.created.elapsed()))
             .collect();
-        
+
         entries_with_age.sort_by(|a, b| b.1.cmp(&a.1));
-        
+
         let to_remove = self.entries.len() - target_size;
         for (key, _) in entries_with_age.into_iter().take(to_remove) {
             self.entries.remove(&key);
@@ -1110,7 +1427,7 @@ mod tests {
 
         let completions = engine.get_completions("l", &context).unwrap();
         assert!(!completions.is_empty());
-        
+
         // Should contain "ls"
         let ls_completion = completions.iter().find(|c| c.text == "ls");
         assert!(ls_completion.is_some());
@@ -1132,12 +1449,12 @@ mod tests {
 
         // First request - should miss cache
         let completions1 = engine.get_completions("e", &context).unwrap();
-        
+
         // Second request - should hit cache
         let completions2 = engine.get_completions("e", &context).unwrap();
-        
+
         assert_eq!(completions1.len(), completions2.len());
-        
+
         let stats = engine.stats();
         assert_eq!(stats.cache_hits, 1);
         assert_eq!(stats.cache_misses, 1);
@@ -1146,15 +1463,15 @@ mod tests {
     #[test]
     fn test_completion_scoring() {
         let engine = CompletionEngine::new();
-        
+
         // Exact match should have highest score
         assert_eq!(engine.calculate_score("ls", "ls"), 100.0);
-        
+
         // Prefix match should have high score
         let prefix_score = engine.calculate_score("l", "ls");
         assert!(prefix_score > 50.0);
         assert!(prefix_score < 100.0);
-        
+
         // Contains match should have medium score
         let contains_score = engine.calculate_score("s", "ls");
         assert!(contains_score > 0.0);
@@ -1171,8 +1488,11 @@ mod tests {
             cursor_position: 6,
         };
 
-    let completions = engine.get_completions("", &context).unwrap();
-    assert!(completions.iter().any(|c| c.text == "-i"), "expected -i to be suggested");
+        let completions = engine.get_completions("", &context).unwrap();
+        assert!(
+            completions.iter().any(|c| c.text == "-i"),
+            "expected -i to be suggested"
+        );
     }
 
     #[test]
@@ -1185,8 +1505,11 @@ mod tests {
             cursor_position: 7,
         };
 
-    let completions = engine.get_completions("", &context).unwrap();
-    assert!(completions.iter().any(|c| c.text == "-maxdepth"), "expected -maxdepth to be suggested");
+        let completions = engine.get_completions("", &context).unwrap();
+        assert!(
+            completions.iter().any(|c| c.text == "-maxdepth"),
+            "expected -maxdepth to be suggested"
+        );
     }
 
     #[test]
@@ -1200,7 +1523,10 @@ mod tests {
         };
 
         let completions = engine.get_completions("", &context).unwrap();
-        assert!(completions.iter().any(|c| c.text == "--strip-components="), "expected --strip-components= to be suggested");
+        assert!(
+            completions.iter().any(|c| c.text == "--strip-components="),
+            "expected --strip-components= to be suggested"
+        );
     }
 
     #[test]
@@ -1214,7 +1540,10 @@ mod tests {
         };
 
         let completions = engine.get_completions("", &context).unwrap();
-        assert!(completions.iter().any(|c| c.text == "-r"), "expected -r to be suggested");
+        assert!(
+            completions.iter().any(|c| c.text == "-r"),
+            "expected -r to be suggested"
+        );
     }
 
     #[test]
@@ -1248,7 +1577,7 @@ mod tests {
     fn test_file_completion() {
         let engine = CompletionEngine::new();
         let temp_dir = std::env::temp_dir();
-        
+
         let context = CompletionContext {
             completion_type: CompletionType::File,
             working_dir: temp_dir,
@@ -1256,7 +1585,7 @@ mod tests {
             cursor_position: 0,
         };
 
-    let _completions = engine.get_completions("", &context).unwrap();
+        let _completions = engine.get_completions("", &context).unwrap();
         // Should return some files from temp directory
         // This test might be environment-specific
     }

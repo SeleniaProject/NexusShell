@@ -18,5 +18,3 @@ fn normalize_case_arm_body_wrapping() {
     let s = format!("{ast}");
     assert!(s.contains("echo"));
 }
-
-

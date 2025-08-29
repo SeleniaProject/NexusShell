@@ -18,5 +18,3 @@ fn parse_select_minimal_body() {
     let s = format!("{ast}");
     assert!(s.contains("echo"));
 }
-
-

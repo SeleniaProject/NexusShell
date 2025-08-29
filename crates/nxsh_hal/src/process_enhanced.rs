@@ -1,11 +1,11 @@
+use anyhow::Result;
 use std::{
     collections::HashMap,
+    io::Write, // write_all/flush に必要
+    process::{Child, Command, Stdio},
     sync::{Arc, RwLock},
     time::{Duration, Instant},
-    process::{Command, Child, Stdio},
-    io::Write, // write_all/flush に必要
 };
-use anyhow::Result;
 
 /// Advanced process management and monitoring
 #[derive(Debug)]
@@ -33,7 +33,7 @@ impl ProcessMonitor {
         if let Ok(mut processes) = self.processes.write() {
             processes.insert(pid, info);
         }
-        
+
         if let Ok(mut stats) = self.stats.write() {
             stats.total_processes += 1;
         }
@@ -58,7 +58,10 @@ impl ProcessMonitor {
     /// List all monitored processes
     pub fn list_processes(&self) -> Vec<(u32, ProcessInfo)> {
         if let Ok(processes) = self.processes.read() {
-            return processes.iter().map(|(&pid, info)| (pid, info.clone())).collect();
+            return processes
+                .iter()
+                .map(|(&pid, info)| (pid, info.clone()))
+                .collect();
         }
         Vec::new()
     }
@@ -77,17 +80,17 @@ impl ProcessMonitor {
         if let Ok(mut stats) = self.stats.write() {
             stats.executions += 1;
             stats.total_execution_time += duration;
-            
+
             if exit_code == 0 {
                 stats.successful_executions += 1;
             } else {
                 stats.failed_executions += 1;
             }
-            
+
             if duration < stats.fastest_execution || stats.fastest_execution == Duration::ZERO {
                 stats.fastest_execution = duration;
             }
-            
+
             if duration > stats.slowest_execution {
                 stats.slowest_execution = duration;
             }
@@ -107,31 +110,40 @@ impl ProcessMonitor {
                 ProcessSignal::Stop => 19,
                 ProcessSignal::Cont => 18,
             };
-            
+
             unsafe {
                 if libc::kill(_pid as libc::pid_t, signal_num) != 0 {
-                    return Err(anyhow::anyhow!("Failed to send signal {} to process {}", signal_num, _pid));
+                    return Err(anyhow::anyhow!(
+                        "Failed to send signal {} to process {}",
+                        signal_num,
+                        _pid
+                    ));
                 }
             }
         }
-        
+
         #[cfg(windows)]
         {
             use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
-            use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+            use windows_sys::Win32::System::Threading::{
+                OpenProcess, TerminateProcess, PROCESS_TERMINATE,
+            };
 
             unsafe {
                 let handle: HANDLE = OpenProcess(PROCESS_TERMINATE, 0, _pid);
                 if handle == 0 {
-                    return Err(anyhow::anyhow!("Failed to open process {} for termination", _pid));
+                    return Err(anyhow::anyhow!(
+                        "Failed to open process {} for termination",
+                        _pid
+                    ));
                 }
                 let exit_code: u32 = match _signal {
-                    ProcessSignal::Kill => 1,      // forceful
-                    ProcessSignal::Term => 0,      // graceful intent
+                    ProcessSignal::Kill => 1,         // forceful
+                    ProcessSignal::Term => 0,         // graceful intent
                     ProcessSignal::Int => 0xC000013A, // CTRL+C/Break equivalent status code
-                    ProcessSignal::Quit => 0,      
-                    ProcessSignal::Stop => 0,      
-                    ProcessSignal::Cont => 0,      
+                    ProcessSignal::Quit => 0,
+                    ProcessSignal::Stop => 0,
+                    ProcessSignal::Cont => 0,
                 };
                 let ok = TerminateProcess(handle, exit_code);
                 CloseHandle(handle);
@@ -140,7 +152,7 @@ impl ProcessMonitor {
                 }
             }
         }
-        
+
         #[allow(unreachable_code)]
         Ok(())
     }
@@ -191,12 +203,12 @@ pub enum ProcessStatus {
 /// Process signals for Unix systems
 #[derive(Debug, Clone, Copy)]
 pub enum ProcessSignal {
-    Term,  // SIGTERM
-    Kill,  // SIGKILL
-    Int,   // SIGINT
-    Quit,  // SIGQUIT
-    Stop,  // SIGSTOP
-    Cont,  // SIGCONT
+    Term, // SIGTERM
+    Kill, // SIGKILL
+    Int,  // SIGINT
+    Quit, // SIGQUIT
+    Stop, // SIGSTOP
+    Cont, // SIGCONT
 }
 
 /// Process execution statistics
@@ -254,15 +266,15 @@ impl CommandExecutor {
     /// Execute command with monitoring
     pub fn execute(&self, program: &str, args: &[&str]) -> Result<CommandResult> {
         let start = Instant::now();
-        
+
         let mut command = Command::new(program);
         command.args(args);
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());
-        
+
         let child = command.spawn()?;
         let pid = child.id();
-        
+
         // Register process
         let process_info = ProcessInfo::new(
             pid,
@@ -270,15 +282,16 @@ impl CommandExecutor {
             format!("{} {}", program, args.join(" ")),
         );
         self.monitor.register_process(pid, process_info);
-        
+
         // Wait for completion
         let output = child.wait_with_output()?;
         let duration = start.elapsed();
-        
+
         // Record statistics
-        self.monitor.record_execution(duration, output.status.code().unwrap_or(-1));
+        self.monitor
+            .record_execution(duration, output.status.code().unwrap_or(-1));
         self.monitor.unregister_process(pid);
-        
+
         Ok(CommandResult {
             exit_code: output.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
@@ -294,10 +307,10 @@ impl CommandExecutor {
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());
         command.stdin(Stdio::piped());
-        
+
         let child = command.spawn()?;
         let pid = child.id();
-        
+
         // Register process
         let process_info = ProcessInfo::new(
             pid,
@@ -305,7 +318,7 @@ impl CommandExecutor {
             format!("{} {}", program, args.join(" ")),
         );
         self.monitor.register_process(pid, process_info);
-        
+
         Ok(AsyncCommandHandle {
             child,
             monitor: Arc::clone(&self.monitor),
@@ -352,11 +365,12 @@ impl AsyncCommandHandle {
         let pid = self.child.id();
         let output = self.child.wait_with_output()?;
         let duration = self.start_time.elapsed();
-        
+
         // Record statistics and unregister
-        self.monitor.record_execution(duration, output.status.code().unwrap_or(-1));
+        self.monitor
+            .record_execution(duration, output.status.code().unwrap_or(-1));
         self.monitor.unregister_process(pid);
-        
+
         Ok(CommandResult {
             exit_code: output.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
@@ -395,9 +409,9 @@ impl SystemProcessCollector {
     #[cfg(unix)]
     pub fn list_all_processes() -> Result<Vec<ProcessInfo>> {
         use std::fs;
-        
+
         let mut processes = Vec::new();
-        
+
         let proc_dir = fs::read_dir("/proc")?;
         for entry in proc_dir {
             let entry = entry?;
@@ -407,35 +421,34 @@ impl SystemProcessCollector {
                 }
             }
         }
-        
+
         Ok(processes)
     }
 
     #[cfg(unix)]
     fn read_proc_info(pid: u32) -> Result<ProcessInfo> {
         use std::fs;
-        
+
         let stat_path = format!("/proc/{}/stat", pid);
         let cmdline_path = format!("/proc/{}/cmdline", pid);
-        
+
         let stat_content = fs::read_to_string(stat_path)?;
-        let cmdline_content = fs::read_to_string(cmdline_path)
-            .unwrap_or_else(|_| String::new());
-        
+        let cmdline_content = fs::read_to_string(cmdline_path).unwrap_or_else(|_| String::new());
+
         let stat_fields: Vec<&str> = stat_content.split_whitespace().collect();
         let name = if stat_fields.len() > 1 {
             stat_fields[1].trim_matches(['(', ')']).to_string()
         } else {
             "unknown".to_string()
         };
-        
+
         let command_line = cmdline_content.replace('\0', " ").trim().to_string();
         let command_line = if command_line.is_empty() {
             format!("[{}]", name)
         } else {
             command_line
         };
-        
+
         Ok(ProcessInfo::new(pid, name, command_line))
     }
 
@@ -449,7 +462,8 @@ impl SystemProcessCollector {
     /// Find processes by name
     pub fn find_by_name(name: &str) -> Result<Vec<ProcessInfo>> {
         let all_processes = Self::list_all_processes()?;
-        Ok(all_processes.into_iter()
+        Ok(all_processes
+            .into_iter()
             .filter(|p| p.name.contains(name))
             .collect())
     }
@@ -473,13 +487,13 @@ mod tests {
     fn test_process_monitor() {
         let monitor = ProcessMonitor::new();
         let info = ProcessInfo::new(12345, "test".to_string(), "test command".to_string());
-        
+
         monitor.register_process(12345, info.clone());
-        
+
         let retrieved = monitor.get_process(12345).unwrap();
         assert_eq!(retrieved.pid, 12345);
         assert_eq!(retrieved.name, "test");
-        
+
         monitor.record_execution(Duration::from_millis(100), 0);
         let stats = monitor.stats();
         assert_eq!(stats.executions, 1);
@@ -489,7 +503,7 @@ mod tests {
     #[test]
     fn test_command_executor() {
         let executor = CommandExecutor::new();
-        
+
         // Test with a simple command that should exist on most systems
         #[cfg(unix)]
         {
@@ -497,7 +511,7 @@ mod tests {
             assert!(result.success());
             assert_eq!(result.stdout.trim(), "hello");
         }
-        
+
         #[cfg(windows)]
         {
             let result = executor.execute("cmd", &["/c", "echo hello"]).unwrap();
@@ -515,7 +529,7 @@ mod tests {
             total_execution_time: Duration::from_millis(1000),
             ..Default::default()
         };
-        
+
         assert!((stats.success_rate() - 0.8).abs() < 0.001);
         assert_eq!(stats.avg_execution_time(), Duration::from_millis(100));
     }

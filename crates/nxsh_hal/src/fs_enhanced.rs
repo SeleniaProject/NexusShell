@@ -1,11 +1,11 @@
+use anyhow::Result;
 use std::{
     collections::HashMap,
+    fs,
+    path::Path,
     sync::{Arc, RwLock},
     time::{Duration, Instant},
-    path::Path,
-    fs,
 };
-use anyhow::Result;
 
 /// Advanced file system operations and monitoring
 #[derive(Debug, Clone)]
@@ -31,19 +31,19 @@ impl FileSystemMonitor {
     /// Monitor directory for changes
     pub fn watch_directory(&self, path: &Path) -> Result<()> {
         let path_str = path.to_string_lossy().to_string();
-        
+
         if let Ok(mut watchers) = self.watchers.write() {
             let watcher = FileWatcher::new(path)?;
             watchers.insert(path_str, watcher);
         }
-        
+
         Ok(())
     }
 
     /// Stop monitoring directory
     pub fn unwatch_directory(&self, path: &Path) {
         let path_str = path.to_string_lossy().to_string();
-        
+
         if let Ok(mut watchers) = self.watchers.write() {
             watchers.remove(&path_str);
         }
@@ -84,33 +84,38 @@ impl FileSystemMonitor {
     pub fn analyze_directory(&self, path: &Path) -> Result<DirectoryAnalysis> {
         let start = Instant::now();
         let mut analysis = DirectoryAnalysis::default();
-        
+
         self.analyze_recursive(path, &mut analysis, 0)?;
         analysis.analysis_time = start.elapsed();
-        
+
         Ok(analysis)
     }
 
     #[allow(clippy::only_used_in_recursion)]
-    fn analyze_recursive(&self, path: &Path, analysis: &mut DirectoryAnalysis, depth: usize) -> Result<()> {
+    fn analyze_recursive(
+        &self,
+        path: &Path,
+        analysis: &mut DirectoryAnalysis,
+        depth: usize,
+    ) -> Result<()> {
         if depth > 100 {
             return Ok(()); // Prevent infinite recursion
         }
 
         let entries = fs::read_dir(path)?;
-        
+
         for entry in entries {
             let entry = entry?;
             let metadata = entry.metadata()?;
             let path = entry.path();
-            
+
             if metadata.is_dir() {
                 analysis.directories += 1;
                 self.analyze_recursive(&path, analysis, depth + 1)?;
             } else {
                 analysis.files += 1;
                 analysis.total_size += metadata.len();
-                
+
                 // Categorize by extension
                 if let Some(ext) = path.extension() {
                     let ext = ext.to_string_lossy().to_lowercase();
@@ -118,7 +123,7 @@ impl FileSystemMonitor {
                 }
             }
         }
-        
+
         Ok(())
     }
 }
@@ -193,10 +198,12 @@ pub struct DirectoryAnalysis {
 
 impl DirectoryAnalysis {
     pub fn largest_file_types(&self, count: usize) -> Vec<(String, u64)> {
-        let mut types: Vec<_> = self.file_types.iter()
+        let mut types: Vec<_> = self
+            .file_types
+            .iter()
             .map(|(ext, count)| (ext.clone(), *count))
             .collect();
-        
+
         types.sort_by(|a, b| b.1.cmp(&a.1));
         types.into_iter().take(count).collect()
     }
@@ -221,7 +228,7 @@ impl FileWatcher {
             last_check: Instant::now(),
             file_states: HashMap::new(),
         };
-        
+
         watcher.initialize_states()?;
         Ok(watcher)
     }
@@ -229,7 +236,7 @@ impl FileWatcher {
     pub fn check_changes(&mut self) -> Result<Vec<FileChange>> {
         let mut changes = Vec::new();
         let current_states = self.scan_directory()?;
-        
+
         // Check for new/modified files
         for (path, new_state) in &current_states {
             match self.file_states.get(path) {
@@ -238,7 +245,11 @@ impl FileWatcher {
                         changes.push(FileChange::Modified(path.clone()));
                     }
                     if old_state.size != new_state.size {
-                        changes.push(FileChange::SizeChanged(path.clone(), old_state.size, new_state.size));
+                        changes.push(FileChange::SizeChanged(
+                            path.clone(),
+                            old_state.size,
+                            new_state.size,
+                        ));
                     }
                 }
                 None => {
@@ -246,17 +257,17 @@ impl FileWatcher {
                 }
             }
         }
-        
+
         // Check for deleted files
         for path in self.file_states.keys() {
             if !current_states.contains_key(path) {
                 changes.push(FileChange::Deleted(path.clone()));
             }
         }
-        
+
         self.file_states = current_states;
         self.last_check = Instant::now();
-        
+
         Ok(changes)
     }
 
@@ -267,23 +278,25 @@ impl FileWatcher {
 
     fn scan_directory(&self) -> Result<HashMap<String, FileState>> {
         let mut states = HashMap::new();
-        
+
         if self.path.is_dir() {
             for entry in fs::read_dir(&self.path)? {
                 let entry = entry?;
                 let path = entry.path();
                 let metadata = entry.metadata()?;
-                
+
                 if let Some(path_str) = path.to_str() {
                     let state = FileState {
                         size: metadata.len(),
-                        modified: metadata.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH),
+                        modified: metadata
+                            .modified()
+                            .unwrap_or(std::time::SystemTime::UNIX_EPOCH),
                     };
                     states.insert(path_str.to_string(), state);
                 }
             }
         }
-        
+
         Ok(states)
     }
 }
@@ -312,10 +325,10 @@ impl DiskUsageAnalyzer {
     pub fn analyze(path: &Path) -> Result<DiskUsage> {
         let start = Instant::now();
         let mut usage = DiskUsage::default();
-        
+
         Self::scan_recursive(path, &mut usage)?;
         usage.scan_time = start.elapsed();
-        
+
         Ok(usage)
     }
 
@@ -326,29 +339,32 @@ impl DiskUsageAnalyzer {
     }
 
     /// Find largest directories
-    pub fn find_large_directories(path: &Path, min_size: u64) -> Result<Vec<(std::path::PathBuf, u64)>> {
+    pub fn find_large_directories(
+        path: &Path,
+        min_size: u64,
+    ) -> Result<Vec<(std::path::PathBuf, u64)>> {
         let mut large_dirs = Vec::new();
         Self::find_large_recursive(path, min_size, &mut large_dirs)?;
-        
+
         large_dirs.sort_by(|a, b| b.1.cmp(&a.1));
         Ok(large_dirs)
     }
 
     fn scan_recursive(path: &Path, usage: &mut DiskUsage) -> Result<u64> {
         let mut dir_size = 0;
-        
+
         if !path.is_dir() {
             let metadata = fs::metadata(path)?;
             return Ok(metadata.len());
         }
 
         usage.directories += 1;
-        
+
         for entry in fs::read_dir(path)? {
             let entry = entry?;
             let entry_path = entry.path();
             let metadata = entry.metadata()?;
-            
+
             if metadata.is_dir() {
                 let subdir_size = Self::scan_recursive(&entry_path, usage)?;
                 dir_size += subdir_size;
@@ -356,32 +372,37 @@ impl DiskUsageAnalyzer {
                 usage.files += 1;
                 let file_size = metadata.len();
                 dir_size += file_size;
-                
-                if file_size > 100 * 1024 * 1024 { // Files > 100MB
+
+                if file_size > 100 * 1024 * 1024 {
+                    // Files > 100MB
                     usage.large_files.push((entry_path, file_size));
                 }
             }
         }
-        
+
         usage.total_size += dir_size;
         Ok(dir_size)
     }
 
-    fn find_large_recursive(path: &Path, min_size: u64, results: &mut Vec<(std::path::PathBuf, u64)>) -> Result<u64> {
+    fn find_large_recursive(
+        path: &Path,
+        min_size: u64,
+        results: &mut Vec<(std::path::PathBuf, u64)>,
+    ) -> Result<u64> {
         if !path.is_dir() {
             return Ok(0);
         }
 
         let mut dir_size = 0;
-        
+
         for entry in fs::read_dir(path)? {
             let entry = entry?;
             let entry_path = entry.path();
-            
+
             if entry_path.is_dir() {
                 let subdir_size = Self::find_large_recursive(&entry_path, min_size, results)?;
                 dir_size += subdir_size;
-                
+
                 if subdir_size >= min_size {
                     results.push((entry_path, subdir_size));
                 }
@@ -390,7 +411,7 @@ impl DiskUsageAnalyzer {
                 dir_size += metadata.len();
             }
         }
-        
+
         Ok(dir_size)
     }
 }
@@ -410,12 +431,12 @@ impl DiskUsage {
         const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
         let mut size = size as f64;
         let mut unit = 0;
-        
+
         while size >= 1024.0 && unit < UNITS.len() - 1 {
             size /= 1024.0;
             unit += 1;
         }
-        
+
         if unit == 0 {
             format!("{} {}", size as u64, UNITS[unit])
         } else {
@@ -435,20 +456,16 @@ impl DiskUsage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use std::fs::File;
     use std::io::Write;
+    use tempfile::tempdir;
 
     #[test]
     fn test_filesystem_monitor() {
         let monitor = FileSystemMonitor::new();
-        
-        monitor.record_operation(
-            FileOperation::Read, 
-            Duration::from_millis(10), 
-            1024
-        );
-        
+
+        monitor.record_operation(FileOperation::Read, Duration::from_millis(10), 1024);
+
         let stats = monitor.stats();
         assert_eq!(stats.reads, 1);
         assert_eq!(stats.bytes_read, 1024);
@@ -458,20 +475,20 @@ mod tests {
     #[test]
     fn test_directory_analysis() {
         let dir = tempdir().unwrap();
-        
+
         // Create test files
         let mut file1 = File::create(dir.path().join("test1.txt")).unwrap();
         file1.write_all(b"test content").unwrap();
-    // Ensure metadata length is visible on all platforms before analysis
-    let _ = file1.sync_all();
-        
+        // Ensure metadata length is visible on all platforms before analysis
+        let _ = file1.sync_all();
+
         let mut file2 = File::create(dir.path().join("test2.rs")).unwrap();
         file2.write_all(b"fn main() {}").unwrap();
-    let _ = file2.sync_all();
-        
+        let _ = file2.sync_all();
+
         let monitor = FileSystemMonitor::new();
         let analysis = monitor.analyze_directory(dir.path()).unwrap();
-        
+
         assert_eq!(analysis.files, 2);
         assert!(analysis.file_types.contains_key("txt"));
         assert!(analysis.file_types.contains_key("rs"));
@@ -481,14 +498,14 @@ mod tests {
     #[test]
     fn test_disk_usage_analyzer() {
         let dir = tempdir().unwrap();
-        
+
         // Create test file
         let mut file = File::create(dir.path().join("test.txt")).unwrap();
         file.write_all(b"test content for disk usage").unwrap();
-    let _ = file.sync_all();
-        
+        let _ = file.sync_all();
+
         let usage = DiskUsageAnalyzer::analyze(dir.path()).unwrap();
-        
+
         assert_eq!(usage.files, 1);
         assert!(usage.total_size > 0);
         assert!(usage.scan_time > Duration::ZERO);

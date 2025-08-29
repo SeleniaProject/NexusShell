@@ -3,7 +3,7 @@
 //! This module provides a comprehensive tokenizer that recognizes all shell
 //! constructs with maximum performance and zero-copy string handling.
 
-use logos::{Logos, Lexer, Span};
+use logos::{Lexer, Logos, Span};
 use std::fmt;
 
 /// Token types for shell parsing with logos integration
@@ -591,7 +591,7 @@ impl<'a> Token<'a> {
     pub fn line_col(&self, input: &str) -> (usize, usize) {
         let mut line = 1;
         let mut col = 1;
-        
+
         for (i, ch) in input.char_indices() {
             if i >= self.span.start {
                 break;
@@ -603,62 +603,147 @@ impl<'a> Token<'a> {
                 col += 1;
             }
         }
-        
+
         (line, col)
     }
 
     /// Check if this token is a keyword
     pub fn is_keyword(&self) -> bool {
-        matches!(self.kind,
-            TokenKind::If | TokenKind::Then | TokenKind::Else | TokenKind::Elif | TokenKind::Fi |
-            TokenKind::For | TokenKind::While | TokenKind::Until | TokenKind::Do | TokenKind::Done |
-            TokenKind::Case | TokenKind::Esac | TokenKind::In | TokenKind::Select |
-            TokenKind::Function | TokenKind::Return | TokenKind::Break | TokenKind::Continue |
-            TokenKind::Local | TokenKind::Export | TokenKind::Readonly | TokenKind::Declare |
-            TokenKind::Typeset | TokenKind::Let | TokenKind::Eval | TokenKind::Exec |
-            TokenKind::Source | TokenKind::Dot | TokenKind::Alias | TokenKind::Unalias |
-            TokenKind::Set | TokenKind::Unset | TokenKind::Shift | TokenKind::Getopts |
-            TokenKind::Read | TokenKind::Echo | TokenKind::Printf | TokenKind::Test |
-            TokenKind::Trap | TokenKind::Kill | TokenKind::Jobs | TokenKind::Bg | TokenKind::Fg |
-            TokenKind::Wait | TokenKind::Suspend | TokenKind::Times | TokenKind::Type |
-            TokenKind::Which | TokenKind::Command | TokenKind::Builtin | TokenKind::Enable |
-            TokenKind::Help | TokenKind::History | TokenKind::Fc | TokenKind::Dirs |
-            TokenKind::Pushd | TokenKind::Popd | TokenKind::Cd | TokenKind::Pwd |
-            TokenKind::Exit | TokenKind::Logout
+        matches!(
+            self.kind,
+            TokenKind::If
+                | TokenKind::Then
+                | TokenKind::Else
+                | TokenKind::Elif
+                | TokenKind::Fi
+                | TokenKind::For
+                | TokenKind::While
+                | TokenKind::Until
+                | TokenKind::Do
+                | TokenKind::Done
+                | TokenKind::Case
+                | TokenKind::Esac
+                | TokenKind::In
+                | TokenKind::Select
+                | TokenKind::Function
+                | TokenKind::Return
+                | TokenKind::Break
+                | TokenKind::Continue
+                | TokenKind::Local
+                | TokenKind::Export
+                | TokenKind::Readonly
+                | TokenKind::Declare
+                | TokenKind::Typeset
+                | TokenKind::Let
+                | TokenKind::Eval
+                | TokenKind::Exec
+                | TokenKind::Source
+                | TokenKind::Dot
+                | TokenKind::Alias
+                | TokenKind::Unalias
+                | TokenKind::Set
+                | TokenKind::Unset
+                | TokenKind::Shift
+                | TokenKind::Getopts
+                | TokenKind::Read
+                | TokenKind::Echo
+                | TokenKind::Printf
+                | TokenKind::Test
+                | TokenKind::Trap
+                | TokenKind::Kill
+                | TokenKind::Jobs
+                | TokenKind::Bg
+                | TokenKind::Fg
+                | TokenKind::Wait
+                | TokenKind::Suspend
+                | TokenKind::Times
+                | TokenKind::Type
+                | TokenKind::Which
+                | TokenKind::Command
+                | TokenKind::Builtin
+                | TokenKind::Enable
+                | TokenKind::Help
+                | TokenKind::History
+                | TokenKind::Fc
+                | TokenKind::Dirs
+                | TokenKind::Pushd
+                | TokenKind::Popd
+                | TokenKind::Cd
+                | TokenKind::Pwd
+                | TokenKind::Exit
+                | TokenKind::Logout
         )
     }
 
     /// Check if this token is an operator
     pub fn is_operator(&self) -> bool {
-        matches!(self.kind,
-            TokenKind::Pipe | TokenKind::Or | TokenKind::ObjectPipe | TokenKind::ObjectPipeParallel |
-            TokenKind::Background | TokenKind::And | TokenKind::Semicolon | TokenKind::DoubleSemicolon |
-            TokenKind::RedirectOut | TokenKind::RedirectAppend | TokenKind::RedirectIn |
-            TokenKind::HeredocStart | TokenKind::Herestring | TokenKind::RedirectStderr |
-            TokenKind::RedirectStderrAppend | TokenKind::RedirectBoth | TokenKind::RedirectBothAppend |
-            TokenKind::RedirectFd(_) | TokenKind::RedirectFdAppend(_) |
-            TokenKind::Assign | TokenKind::AssignAdd | TokenKind::AssignSub | TokenKind::AssignMul |
-            TokenKind::AssignDiv | TokenKind::AssignMod | TokenKind::Equal | TokenKind::NotEqual |
-            TokenKind::Less | TokenKind::LessEqual | TokenKind::Greater | TokenKind::GreaterEqual |
-            TokenKind::Match | TokenKind::NotMatch | TokenKind::Plus | TokenKind::Minus |
-            TokenKind::Multiply | TokenKind::Divide | TokenKind::Modulo | TokenKind::Power |
-            TokenKind::Increment | TokenKind::Decrement | TokenKind::Not
+        matches!(
+            self.kind,
+            TokenKind::Pipe
+                | TokenKind::Or
+                | TokenKind::ObjectPipe
+                | TokenKind::ObjectPipeParallel
+                | TokenKind::Background
+                | TokenKind::And
+                | TokenKind::Semicolon
+                | TokenKind::DoubleSemicolon
+                | TokenKind::RedirectOut
+                | TokenKind::RedirectAppend
+                | TokenKind::RedirectIn
+                | TokenKind::HeredocStart
+                | TokenKind::Herestring
+                | TokenKind::RedirectStderr
+                | TokenKind::RedirectStderrAppend
+                | TokenKind::RedirectBoth
+                | TokenKind::RedirectBothAppend
+                | TokenKind::RedirectFd(_)
+                | TokenKind::RedirectFdAppend(_)
+                | TokenKind::Assign
+                | TokenKind::AssignAdd
+                | TokenKind::AssignSub
+                | TokenKind::AssignMul
+                | TokenKind::AssignDiv
+                | TokenKind::AssignMod
+                | TokenKind::Equal
+                | TokenKind::NotEqual
+                | TokenKind::Less
+                | TokenKind::LessEqual
+                | TokenKind::Greater
+                | TokenKind::GreaterEqual
+                | TokenKind::Match
+                | TokenKind::NotMatch
+                | TokenKind::Plus
+                | TokenKind::Minus
+                | TokenKind::Multiply
+                | TokenKind::Divide
+                | TokenKind::Modulo
+                | TokenKind::Power
+                | TokenKind::Increment
+                | TokenKind::Decrement
+                | TokenKind::Not
         )
     }
 
     /// Check if this token is a literal
     pub fn is_literal(&self) -> bool {
-        matches!(self.kind,
+        matches!(
+            self.kind,
             TokenKind::Word(_) | TokenKind::String(_) | TokenKind::Number(_) | TokenKind::Float(_)
         )
     }
 
     /// Check if this token can start a command
     pub fn can_start_command(&self) -> bool {
-        matches!(self.kind,
-            TokenKind::Word(_) | TokenKind::String(_) | TokenKind::Variable(_) |
-            TokenKind::VariableBrace(_) | TokenKind::CommandSubstitution(_) |
-            TokenKind::TildeExpansion(_) | TokenKind::RelativePath(_) | TokenKind::AbsolutePath(_)
+        matches!(
+            self.kind,
+            TokenKind::Word(_)
+                | TokenKind::String(_)
+                | TokenKind::Variable(_)
+                | TokenKind::VariableBrace(_)
+                | TokenKind::CommandSubstitution(_)
+                | TokenKind::TildeExpansion(_)
+                | TokenKind::RelativePath(_)
+                | TokenKind::AbsolutePath(_)
         ) || self.is_keyword()
     }
 
@@ -668,8 +753,14 @@ impl<'a> Token<'a> {
             TokenKind::Or | TokenKind::And => Some(1),
             TokenKind::Pipe | TokenKind::ObjectPipe | TokenKind::ObjectPipeParallel => Some(2),
             TokenKind::Semicolon | TokenKind::DoubleSemicolon | TokenKind::Background => Some(3),
-            TokenKind::Equal | TokenKind::NotEqual | TokenKind::Less | TokenKind::LessEqual |
-            TokenKind::Greater | TokenKind::GreaterEqual | TokenKind::Match | TokenKind::NotMatch => Some(4),
+            TokenKind::Equal
+            | TokenKind::NotEqual
+            | TokenKind::Less
+            | TokenKind::LessEqual
+            | TokenKind::Greater
+            | TokenKind::GreaterEqual
+            | TokenKind::Match
+            | TokenKind::NotMatch => Some(4),
             TokenKind::Plus | TokenKind::Minus => Some(5),
             TokenKind::Multiply | TokenKind::Divide | TokenKind::Modulo => Some(6),
             TokenKind::Power => Some(7),
@@ -694,7 +785,7 @@ impl<'a> Tokenizer<'a> {
     pub fn new(input: &'a str) -> Self {
         let mut lexer = TokenKind::lexer(input);
         let current_token = Self::next_token(&mut lexer, input, &mut Vec::new(), &mut false);
-        
+
         Self {
             lexer,
             input,
@@ -728,7 +819,11 @@ impl<'a> Tokenizer<'a> {
                     if let Some(Ok(TokenKind::Word(delimiter))) = lexer.next() {
                         heredoc_stack.push(delimiter.clone());
                         *in_heredoc = true;
-                        return Some(Token::new(TokenKind::HeredocDelimiter(delimiter), span, slice));
+                        return Some(Token::new(
+                            TokenKind::HeredocDelimiter(delimiter),
+                            span,
+                            slice,
+                        ));
                     }
                 }
 
@@ -764,7 +859,11 @@ impl<'a> Tokenizer<'a> {
                     }
                     let span = start..current_pos;
                     let span_slice = &input[span.clone()];
-                    return Some(Token::new(TokenKind::HeredocContent(content), span, span_slice));
+                    return Some(Token::new(
+                        TokenKind::HeredocContent(content),
+                        span,
+                        span_slice,
+                    ));
                 }
                 content.push_str(line);
                 content.push('\n');
@@ -776,7 +875,11 @@ impl<'a> Tokenizer<'a> {
             heredoc_stack.clear();
             let span = start..input.len();
             let span_slice = &input[span.clone()];
-            Some(Token::new(TokenKind::HeredocContent(content), span, span_slice))
+            Some(Token::new(
+                TokenKind::HeredocContent(content),
+                span,
+                span_slice,
+            ))
         } else {
             *in_heredoc = false;
             None
@@ -804,7 +907,7 @@ impl<'a> Tokenizer<'a> {
     /// Advance to the next token
     pub fn advance(&mut self) -> Option<Token<'a>> {
         let current = self.current_token.take();
-        
+
         if let Some(peeked) = self.peeked_token.take() {
             self.current_token = Some(peeked);
         } else {
@@ -815,13 +918,15 @@ impl<'a> Tokenizer<'a> {
                 &mut self.in_heredoc,
             );
         }
-        
+
         current
     }
 
     /// Check if the current token matches the given kind
     pub fn matches(&self, kind: &TokenKind) -> bool {
-        self.current_token.as_ref().is_some_and(|t| std::mem::discriminant(&t.kind) == std::mem::discriminant(kind))
+        self.current_token
+            .as_ref()
+            .is_some_and(|t| std::mem::discriminant(&t.kind) == std::mem::discriminant(kind))
     }
 
     /// Consume the current token if it matches the given kind
@@ -835,20 +940,26 @@ impl<'a> Tokenizer<'a> {
 
     /// Check if we're at the end of input
     pub fn is_eof(&self) -> bool {
-        matches!(self.current_token, Some(Token { kind: TokenKind::Eof, .. }))
+        matches!(
+            self.current_token,
+            Some(Token {
+                kind: TokenKind::Eof,
+                ..
+            })
+        )
     }
 
     /// Get all remaining tokens as a vector
     pub fn collect_all(mut self) -> Vec<Token<'a>> {
         let mut tokens = Vec::new();
-        
+
         while let Some(token) = self.advance() {
             if matches!(token.kind, TokenKind::Eof) {
                 break;
             }
             tokens.push(token);
         }
-        
+
         tokens
     }
 
@@ -866,7 +977,9 @@ impl<'a> Tokenizer<'a> {
 
     /// Get the current position in the input
     pub fn position(&self) -> usize {
-        self.current_token.as_ref().map_or(self.input.len(), |t| t.span.start)
+        self.current_token
+            .as_ref()
+            .map_or(self.input.len(), |t| t.span.start)
     }
 
     /// Get the remaining input from current position
@@ -917,7 +1030,7 @@ mod tests {
     fn test_basic_tokenization() {
         let input = "echo hello world";
         let tokens = tokenize(input);
-        
+
         assert_eq!(tokens.len(), 3);
         assert!(matches!(tokens[0].kind, TokenKind::Echo));
         assert!(matches!(tokens[1].kind, TokenKind::Word(ref s) if s == "hello"));
@@ -928,7 +1041,7 @@ mod tests {
     fn test_string_tokenization() {
         let input = r#"echo "hello world" 'single quotes'"#;
         let tokens = tokenize(input);
-        
+
         assert_eq!(tokens.len(), 3);
         assert!(matches!(tokens[0].kind, TokenKind::Echo));
         assert!(matches!(tokens[1].kind, TokenKind::String(ref s) if s == "hello world"));
@@ -939,7 +1052,7 @@ mod tests {
     fn test_variable_tokenization() {
         let input = "$var ${complex_var} $(command)";
         let tokens = tokenize(input);
-        
+
         assert_eq!(tokens.len(), 3);
         assert!(matches!(tokens[0].kind, TokenKind::Variable(ref s) if s == "var"));
         assert!(matches!(tokens[1].kind, TokenKind::VariableBrace(ref s) if s == "complex_var"));
@@ -950,7 +1063,7 @@ mod tests {
     fn test_pipeline_tokenization() {
         let input = "ls | grep test || echo failed";
         let tokens = tokenize(input);
-        
+
         assert!(matches!(tokens[0].kind, TokenKind::Word(ref s) if s == "ls"));
         assert!(matches!(tokens[1].kind, TokenKind::Pipe));
         assert!(matches!(tokens[2].kind, TokenKind::Word(ref s) if s == "grep"));
@@ -964,7 +1077,7 @@ mod tests {
     fn test_redirection_tokenization() {
         let input = "command > output.txt 2>> error.log";
         let tokens = tokenize(input);
-        
+
         assert!(matches!(tokens[0].kind, TokenKind::Command));
         assert!(matches!(tokens[1].kind, TokenKind::RedirectOut));
         assert!(matches!(tokens[2].kind, TokenKind::Word(ref s) if s == "output"));
@@ -980,7 +1093,7 @@ mod tests {
     fn test_object_pipe_tokenization() {
         let input = "data |> map |> filter ||> parallel_process";
         let tokens = tokenize(input);
-        
+
         assert!(matches!(tokens[0].kind, TokenKind::Word(ref s) if s == "data"));
         assert!(matches!(tokens[1].kind, TokenKind::ObjectPipe));
         assert!(matches!(tokens[2].kind, TokenKind::Word(ref s) if s == "map"));
@@ -989,4 +1102,4 @@ mod tests {
         assert!(matches!(tokens[5].kind, TokenKind::ObjectPipeParallel));
         assert!(matches!(tokens[6].kind, TokenKind::Word(ref s) if s == "parallel_process"));
     }
-} 
+}

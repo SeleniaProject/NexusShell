@@ -1,5 +1,5 @@
 //! NexusShell Hardware Abstraction Layer (HAL)
-//! 
+//!
 //! This crate provides a unified abstraction layer over platform-specific
 //! system calls and operations. It minimizes unsafe code usage and isolates
 //! platform-specific functionality.
@@ -10,35 +10,35 @@
 //! - Enable easy testing through abstraction
 //! - Support multiple platforms (Unix, Linux, macOS, Windows, FreeBSD)
 
+pub mod command;
+pub mod completion;
+pub mod error;
+pub mod fast_completion;
 pub mod fs;
 pub mod fs_enhanced;
+pub mod memory;
+pub mod network;
+pub mod pipe;
+pub mod platform;
 pub mod process;
 pub mod process_enhanced;
-pub mod pipe;
 pub mod seccomp;
-pub mod platform;
-pub mod error;
-pub mod memory;
 pub mod time;
 pub mod time_enhanced;
-pub mod network;
-pub mod completion;
-pub mod fast_completion;
-pub mod command;
 
 pub use error::{HalError, HalResult};
 
 /// Platform detection and capabilities
-pub use platform::{Platform, Capabilities, detect_platform};
+pub use platform::{detect_platform, Capabilities, Platform};
 
-/// Re-export commonly used types
-pub use fs::{FileSystem, FileHandle, DirectoryHandle, FileMetadata};
-pub use process::{ProcessManager, ProcessHandle, ProcessInfo};
-pub use pipe::{PipeManager, PipeHandle};
-pub use memory::{MemoryManager, MemoryInfo};
-pub use time::TimeManager;
-pub use network::{NetworkManager};
 pub use command::{Command, CommandResult};
+/// Re-export commonly used types
+pub use fs::{DirectoryHandle, FileHandle, FileMetadata, FileSystem};
+pub use memory::{MemoryInfo, MemoryManager};
+pub use network::NetworkManager;
+pub use pipe::{PipeHandle, PipeManager};
+pub use process::{ProcessHandle, ProcessInfo, ProcessManager};
+pub use time::TimeManager;
 
 /// Initialize the HAL with platform-specific optimizations
 pub fn initialize() -> HalResult<()> {
@@ -50,4 +50,4 @@ pub fn initialize() -> HalResult<()> {
 pub fn shutdown() -> HalResult<()> {
     platform::cleanup_platform()?;
     Ok(())
-} 
+}

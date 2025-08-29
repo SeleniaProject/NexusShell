@@ -26,4 +26,4 @@ fn parse_100_cases() {
         }
     }
     // 10*10 = 100 cases verified
-} 
+}

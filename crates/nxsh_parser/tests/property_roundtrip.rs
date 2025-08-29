@@ -1,6 +1,6 @@
+use nxsh_parser::Parser;
 use proptest::prelude::*;
 use proptest::string::string_regex;
-use nxsh_parser::Parser;
 
 fn roundtrip(input: &str) -> bool {
     let parser = Parser::new();
@@ -19,5 +19,3 @@ proptest! {
         let _ = roundtrip(&s);
     }
 }
-
-

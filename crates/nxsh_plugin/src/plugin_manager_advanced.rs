@@ -1,21 +1,17 @@
-#[cfg(feature = "plugin-management")]
-use anyhow::{Result, Context};
-#[cfg(feature = "plugin-management")]
+#![cfg(all(feature = "plugin-management", feature = "async-support"))]
+use anyhow::{Context, Result};
+use log::info;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant, SystemTime},
 };
-#[cfg(feature = "plugin-management")]
 use tokio::sync::RwLock;
-#[cfg(feature = "plugin-management")]
-use serde::{Deserialize, Serialize};
-#[cfg(feature = "plugin-management")]
-use log::info;
 
 /// Plugin store for managing plugin storage and distribution
-#[cfg(feature = "plugin-management")]
+#[cfg(all(feature = "plugin-management", feature = "async-support"))]
 #[derive(Debug)]
 pub struct PluginStore {
     store_directory: PathBuf,
@@ -23,13 +19,14 @@ pub struct PluginStore {
     cache: Arc<RwLock<HashMap<String, CachedPlugin>>>,
 }
 
-#[cfg(feature = "plugin-management")]
+#[cfg(all(feature = "plugin-management", feature = "async-support"))]
 impl PluginStore {
     /// Create a new plugin store
     pub async fn new(store_directory: &Path) -> Result<Self> {
-        tokio::fs::create_dir_all(store_directory).await
+        tokio::fs::create_dir_all(store_directory)
+            .await
             .context("Failed to create store directory")?;
-        
+
         let index_path = store_directory.join("index.json");
         let index = if index_path.exists() {
             let data = tokio::fs::read_to_string(&index_path).await?;
@@ -49,28 +46,45 @@ impl PluginStore {
     pub async fn store_plugin(&self, source_path: &Path, plugin_id: &str) -> Result<PathBuf> {
         let plugin_dir = self.store_directory.join(plugin_id);
         tokio::fs::create_dir_all(&plugin_dir).await?;
-        
+
         let stored_path = plugin_dir.join(format!("{plugin_id}.wasm"));
         tokio::fs::copy(source_path, &stored_path).await?;
-        
+
         // Update index and cache
         let metadata = self.extract_plugin_metadata(&stored_path).await?;
         {
             let mut index = self.index.write().await;
-            index.plugins.insert(plugin_id.to_string(), PluginIndexEntry {
-                id: plugin_id.to_string(),
-                metadata,
-                stored_path: stored_path.clone(),
-                installed_at: SystemTime::now(),
-            });
+            index.plugins.insert(
+                plugin_id.to_string(),
+                PluginIndexEntry {
+                    id: plugin_id.to_string(),
+                    metadata,
+                    stored_path: stored_path.clone(),
+                    installed_at: SystemTime::now(),
+                },
+            );
         }
         {
             let mut cache = self.cache.write().await;
-            cache.insert(plugin_id.to_string(), CachedPlugin { metadata: self.index.read().await.plugins.get(plugin_id).unwrap().metadata.clone(), cached_at: SystemTime::now() });
+            cache.insert(
+                plugin_id.to_string(),
+                CachedPlugin {
+                    metadata: self
+                        .index
+                        .read()
+                        .await
+                        .plugins
+                        .get(plugin_id)
+                        .unwrap()
+                        .metadata
+                        .clone(),
+                    cached_at: SystemTime::now(),
+                },
+            );
         }
-        
+
         self.save_index().await?;
-        
+
         Ok(stored_path)
     }
 
@@ -90,20 +104,26 @@ impl PluginStore {
             let mut cache = self.cache.write().await;
             cache.remove(plugin_id);
         }
-        
+
         self.save_index().await?;
-        
+
         Ok(())
     }
 
     /// Search for plugins
     pub async fn search_plugins(&self, query: &str) -> Result<Vec<PluginSearchResult>> {
         let index = self.index.read().await;
-        let results = index.plugins.values()
+        let results = index
+            .plugins
+            .values()
             .filter(|entry| {
-                entry.metadata.name.contains(query) ||
-                entry.metadata.description.contains(query) ||
-                entry.metadata.capabilities.iter().any(|cap| cap.contains(query))
+                entry.metadata.name.contains(query)
+                    || entry.metadata.description.contains(query)
+                    || entry
+                        .metadata
+                        .capabilities
+                        .iter()
+                        .any(|cap| cap.contains(query))
             })
             .map(|entry| PluginSearchResult {
                 id: entry.id.clone(),
@@ -119,7 +139,9 @@ impl PluginStore {
     pub async fn get_plugin_path(&self, plugin_id: &str) -> Result<PathBuf> {
         // Fast path via index
         let index = self.index.read().await;
-        let entry = index.plugins.get(plugin_id)
+        let entry = index
+            .plugins
+            .get(plugin_id)
             .ok_or_else(|| anyhow::anyhow!("Plugin {} not found in store", plugin_id))?;
         Ok(entry.stored_path.clone())
     }
@@ -132,12 +154,12 @@ impl PluginStore {
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_secs();
         let backup_path = backup_dir.join(format!("backup_{timestamp}.wasm"));
-        
+
         tokio::fs::create_dir_all(&backup_dir).await?;
-        
+
         let source_path = plugin_dir.join(format!("{plugin_id}.wasm"));
         tokio::fs::copy(&source_path, &backup_path).await?;
-        
+
         Ok(backup_path)
     }
 
@@ -145,9 +167,9 @@ impl PluginStore {
     pub async fn replace_plugin(&self, plugin_id: &str, new_plugin_path: &Path) -> Result<()> {
         let plugin_dir = self.store_directory.join(plugin_id);
         let stored_path = plugin_dir.join(format!("{plugin_id}.wasm"));
-        
+
         tokio::fs::copy(new_plugin_path, &stored_path).await?;
-        
+
         // Update index
         let metadata = self.extract_plugin_metadata(&stored_path).await?;
         {
@@ -156,9 +178,9 @@ impl PluginStore {
                 entry.metadata = metadata;
             }
         }
-        
+
         self.save_index().await?;
-        
+
         Ok(())
     }
 
@@ -166,7 +188,8 @@ impl PluginStore {
         // This is a simplified metadata extraction
         // In a real implementation, this would parse the WASM module
         Ok(PluginMetadata {
-            name: plugin_path.file_stem()
+            name: plugin_path
+                .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("Unknown")
                 .to_string(),
@@ -187,29 +210,31 @@ impl PluginStore {
 
     fn calculate_relevance_score(&self, metadata: &PluginMetadata, query: &str) -> f32 {
         let mut score = 0.0;
-        
+
         if metadata.name.contains(query) {
             score += 2.0;
         }
-        
+
         if metadata.description.contains(query) {
             score += 1.0;
         }
-        
+
         if metadata.capabilities.iter().any(|cap| cap.contains(query)) {
             score += 1.5;
         }
-        
+
         score
     }
 }
 
-#[cfg(feature = "plugin-management")]
+#[cfg(all(feature = "plugin-management", feature = "async-support"))]
 impl PluginStore {
     /// Get plugin info summary (placeholder 刷新: 実体実装)
     pub async fn get_plugin_info(&self, plugin_id: &str) -> Result<PluginInfo> {
         let index = self.index.read().await;
-        let entry = index.plugins.get(plugin_id)
+        let entry = index
+            .plugins
+            .get(plugin_id)
             .ok_or_else(|| anyhow::anyhow!("Plugin {} not found", plugin_id))?;
         Ok(PluginInfo {
             id: entry.id.clone(),
@@ -223,17 +248,20 @@ impl PluginStore {
 }
 
 /// Plugin lifecycle manager
+#[cfg(all(feature = "plugin-management", feature = "async-support"))]
 #[derive(Debug)]
 pub struct PluginLifecycleManager {
     lifecycle_states: Arc<RwLock<HashMap<String, PluginLifecycleState>>>,
 }
 
+#[cfg(all(feature = "plugin-management", feature = "async-support"))]
 impl Default for PluginLifecycleManager {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(all(feature = "plugin-management", feature = "async-support"))]
 impl PluginLifecycleManager {
     pub fn new() -> Self {
         Self {
@@ -243,11 +271,14 @@ impl PluginLifecycleManager {
 
     pub async fn initialize_plugin(&self, plugin_id: &str) -> Result<()> {
         let mut states = self.lifecycle_states.write().await;
-        states.insert(plugin_id.to_string(), PluginLifecycleState {
-            current_state: LifecycleState::Initialized,
-            state_history: vec![(LifecycleState::Initialized, SystemTime::now())],
-        });
-        
+        states.insert(
+            plugin_id.to_string(),
+            PluginLifecycleState {
+                current_state: LifecycleState::Initialized,
+                state_history: vec![(LifecycleState::Initialized, SystemTime::now())],
+            },
+        );
+
         info!("Initialized plugin lifecycle: {plugin_id}");
         Ok(())
     }
@@ -256,9 +287,11 @@ impl PluginLifecycleManager {
         let mut states = self.lifecycle_states.write().await;
         if let Some(state) = states.get_mut(plugin_id) {
             state.current_state = LifecycleState::Running;
-            state.state_history.push((LifecycleState::Running, SystemTime::now()));
+            state
+                .state_history
+                .push((LifecycleState::Running, SystemTime::now()));
         }
-        
+
         info!("Started plugin: {plugin_id}");
         Ok(())
     }
@@ -267,9 +300,11 @@ impl PluginLifecycleManager {
         let mut states = self.lifecycle_states.write().await;
         if let Some(state) = states.get_mut(plugin_id) {
             state.current_state = LifecycleState::Stopped;
-            state.state_history.push((LifecycleState::Stopped, SystemTime::now()));
+            state
+                .state_history
+                .push((LifecycleState::Stopped, SystemTime::now()));
         }
-        
+
         info!("Stopped plugin: {plugin_id}");
         Ok(())
     }
@@ -277,35 +312,36 @@ impl PluginLifecycleManager {
     pub async fn cleanup_plugin(&self, plugin_id: &str) -> Result<()> {
         let mut states = self.lifecycle_states.write().await;
         states.remove(plugin_id);
-        
+
         info!("Cleaned up plugin lifecycle: {plugin_id}");
         Ok(())
     }
 }
 
 /// Update manager for plugin updates
+#[cfg(all(feature = "plugin-management", feature = "async-support"))]
 #[derive(Debug)]
 pub struct UpdateManager {
     update_sources: Vec<UpdateSource>,
     update_cache: Arc<RwLock<HashMap<String, CachedUpdate>>>,
 }
 
+#[cfg(all(feature = "plugin-management", feature = "async-support"))]
 impl Default for UpdateManager {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(all(feature = "plugin-management", feature = "async-support"))]
 impl UpdateManager {
     pub fn new() -> Self {
         Self {
-            update_sources: vec![
-                UpdateSource {
-                    name: "Official Repository".to_string(),
-                    url: "https://plugins.nexusshell.org".to_string(),
-                    priority: 1,
-                },
-            ],
+            update_sources: vec![UpdateSource {
+                name: "Official Repository".to_string(),
+                url: "https://plugins.nexusshell.org".to_string(),
+                priority: 1,
+            }],
             update_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -327,12 +363,15 @@ impl UpdateManager {
                 // Cache the result
                 {
                     let mut cache = self.update_cache.write().await;
-                    cache.insert(plugin_id.to_string(), CachedUpdate {
-                        update: Some(update.clone()),
-                        expires_at: SystemTime::now() + Duration::from_secs(3600), // 1 hour cache
-                    });
+                    cache.insert(
+                        plugin_id.to_string(),
+                        CachedUpdate {
+                            update: Some(update.clone()),
+                            expires_at: SystemTime::now() + Duration::from_secs(3600), // 1 hour cache
+                        },
+                    );
                 }
-                
+
                 return Ok(Some(update));
             }
         }
@@ -347,22 +386,31 @@ impl UpdateManager {
         let temp_dir = std::env::temp_dir().join(format!("nxsh_plugin_{}", update.plugin_id));
         std::fs::create_dir_all(&temp_dir)?;
         let update_path = temp_dir.join(format!("{}.wasm", update.plugin_id));
-        
+
         // Simulate download
         tokio::fs::write(&update_path, b"fake wasm content").await?;
-        
+
         Ok(update_path)
     }
 
-    async fn check_source_for_update(&self, source: &UpdateSource, plugin_id: &str) -> Result<Option<PluginUpdate>> {
+    async fn check_source_for_update(
+        &self,
+        source: &UpdateSource,
+        plugin_id: &str,
+    ) -> Result<Option<PluginUpdate>> {
         // Basic skeleton for remote metadata check (disabled when feature missing)
         #[cfg(feature = "remote-plugins")]
         {
             let url = format!("{}/api/v1/plugins/{}/latest", source.url, plugin_id);
-            match ureq::get(&url).timeout(std::time::Duration::from_secs(5)).call() {
+            match ureq::get(&url)
+                .timeout(std::time::Duration::from_secs(5))
+                .call()
+            {
                 Ok(resp) => {
                     let body = resp.into_string().unwrap_or_default();
-                    if body.is_empty() { return Ok(None); }
+                    if body.is_empty() {
+                        return Ok(None);
+                    }
                     match serde_json::from_str::<crate::remote::RemotePluginInfo>(&body) {
                         Ok(info) => Ok(Some(PluginUpdate {
                             plugin_id: plugin_id.to_string(),
@@ -436,6 +484,7 @@ struct CachedPlugin {
 #[derive(Debug)]
 pub struct PluginEntry {
     pub id: String,
+    #[cfg(feature = "wasi-runtime")]
     pub handle: crate::wasi_advanced::PluginHandle,
     pub file_path: PathBuf,
     pub status: PluginStatus,
@@ -528,7 +577,9 @@ pub struct PluginStats {
     pub usage_count: u64,
     pub last_used: Option<Instant>,
     pub install_time: Instant,
+    #[cfg(feature = "async-support")]
     pub resource_usage: crate::security_sandbox::ResourceUsage,
+    #[cfg(feature = "wasi-runtime")]
     pub performance_metrics: crate::wasi_advanced::PerformanceStats,
 }
 
@@ -536,5 +587,6 @@ pub struct PluginStats {
 pub struct SecurityInfo {
     pub total_plugins: usize,
     pub security_violations: usize,
+    #[cfg(feature = "async-support")]
     pub threat_level: crate::security_sandbox::ThreatLevel,
 }

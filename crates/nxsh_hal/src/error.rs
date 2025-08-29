@@ -93,12 +93,30 @@ impl fmt::Display for HalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             HalError::Io(err) => write!(f, "I/O error in {}: {}", err.operation, err.message),
-            HalError::Process(err) => write!(f, "Process error in {}: {}", err.operation, err.message),
-            HalError::Memory(err) => write!(f, "Memory error in {}: {}", err.operation, err.message),
-            HalError::Network(err) => write!(f, "Network error in {}: {}", err.operation, err.message),
-            HalError::Platform(err) => write!(f, "Platform error on {} in {}: {}", err.platform, err.operation, err.message),
-            HalError::Security(err) => write!(f, "Security error in {}: {} (required: {})", err.operation, err.message, err.required_permission),
-            HalError::Resource(err) => write!(f, "Resource error for {}: {}", err.resource_type, err.message),
+            HalError::Process(err) => {
+                write!(f, "Process error in {}: {}", err.operation, err.message)
+            }
+            HalError::Memory(err) => {
+                write!(f, "Memory error in {}: {}", err.operation, err.message)
+            }
+            HalError::Network(err) => {
+                write!(f, "Network error in {}: {}", err.operation, err.message)
+            }
+            HalError::Platform(err) => write!(
+                f,
+                "Platform error on {} in {}: {}",
+                err.platform, err.operation, err.message
+            ),
+            HalError::Security(err) => write!(
+                f,
+                "Security error in {}: {} (required: {})",
+                err.operation, err.message, err.required_permission
+            ),
+            HalError::Resource(err) => write!(
+                f,
+                "Resource error for {}: {}",
+                err.resource_type, err.message
+            ),
             HalError::Invalid(msg) => write!(f, "Invalid operation: {msg}"),
             HalError::Unsupported(msg) => write!(f, "Unsupported operation: {msg}"),
         }
@@ -170,7 +188,12 @@ impl HalError {
         HalError::Invalid(message.to_string())
     }
 
-    pub fn network_error(operation: &str, host: Option<&str>, port: Option<u16>, message: &str) -> Self {
+    pub fn network_error(
+        operation: &str,
+        host: Option<&str>,
+        port: Option<u16>,
+        message: &str,
+    ) -> Self {
         HalError::Invalid(format!(
             "Network error in {operation}: {message} (host: {host:?}, port: {port:?})"
         ))
@@ -183,4 +206,4 @@ impl HalError {
     pub fn invalid_input(message: &str) -> Self {
         HalError::Invalid(message.to_string())
     }
-} 
+}

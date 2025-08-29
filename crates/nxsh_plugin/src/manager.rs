@@ -1,9 +1,9 @@
 //! Plugin Manager for NexusShell
-//! 
+//!
 //! This module provides comprehensive plugin management with support for
 //! discovery, loading, unloading, dependency resolution, and semantic versioning.
 
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 #[cfg(feature = "plugin-management")]
 use semver::{Version, VersionReq};
 use std::{
@@ -22,8 +22,10 @@ use crate::native_runtime::NativePluginRuntime;
 use crate::{
     // runtime::WasiPluginRuntime,
     // component::ComponentRegistry,
-    PluginConfig, PluginMetadata, PluginEvent,
+    PluginConfig,
+    PluginEvent,
     PluginEventHandler,
+    PluginMetadata,
 };
 
 /// Plugin Manager for handling plugin lifecycle
@@ -109,7 +111,8 @@ impl PluginManager {
         if let Some(config_dir) = dirs::config_dir() {
             let config_path = config_dir.join("nexusshell").join("plugins.toml");
             if config_path.exists() {
-                let config_content = fs::read_to_string(&config_path).await
+                let config_content = fs::read_to_string(&config_path)
+                    .await
                     .context("Failed to read plugin configuration")?;
                 self.config = toml::from_str(&config_content)
                     .context("Failed to parse plugin configuration")?;
@@ -123,17 +126,19 @@ impl PluginManager {
         #[cfg(feature = "plugin-management")]
         if let Some(config_dir) = dirs::config_dir() {
             let config_path = config_dir.join("nexusshell").join("plugins.toml");
-            
+
             // Create directory if it doesn't exist
             if let Some(parent) = config_path.parent() {
-                fs::create_dir_all(parent).await
+                fs::create_dir_all(parent)
+                    .await
                     .context("Failed to create config directory")?;
             }
 
             let config_content = toml::to_string_pretty(&self.config)
                 .context("Failed to serialize plugin configuration")?;
-            
-            fs::write(&config_path, config_content).await
+
+            fs::write(&config_path, config_content)
+                .await
                 .context("Failed to write plugin configuration")?;
         }
         Ok(())
@@ -142,17 +147,20 @@ impl PluginManager {
     /// Discover plugins in configured directories
     pub async fn discover_plugins(&mut self) -> Result<()> {
         log::info!("Discovering plugins in configured directories");
-        
+
         let plugin_dir = &self.config.plugin_dir;
         let plugin_path = PathBuf::from(plugin_dir);
-        
+
         if plugin_path.exists() {
             self.discover_plugins_in_directory(&plugin_path).await?;
         } else {
             log::warn!("Plugin directory does not exist: {}", plugin_path.display());
         }
 
-        log::info!("Plugin discovery completed. Found {} plugins", self.plugin_registry.len());
+        log::info!(
+            "Plugin discovery completed. Found {} plugins",
+            self.plugin_registry.len()
+        );
         Ok(())
     }
 
@@ -175,7 +183,7 @@ impl PluginManager {
             }
         }
 
-    Ok(())
+        Ok(())
     }
 
     /// Register a plugin file in the registry
@@ -184,7 +192,7 @@ impl PluginManager {
 
         // Extract metadata from the plugin file
         let metadata = self.extract_plugin_metadata(path).await?;
-        
+
         // Validate plugin metadata
         self.validate_plugin_metadata(&metadata)?;
 
@@ -208,7 +216,8 @@ impl PluginManager {
     async fn extract_plugin_metadata(&self, path: &Path) -> Result<PluginMetadata> {
         // For now, generate basic metadata from filename
         // In a real implementation, this would parse the WASM component metadata
-        let filename = path.file_stem()
+        let filename = path
+            .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("unknown");
 
@@ -233,8 +242,7 @@ impl PluginManager {
     /// Validate plugin metadata
     pub fn validate_plugin_metadata(&self, metadata: &PluginMetadata) -> Result<()> {
         // Validate version format
-        Version::parse(&metadata.version)
-            .context("Invalid plugin version format")?;
+        Version::parse(&metadata.version).context("Invalid plugin version format")?;
 
         // Validate name format
         if metadata.name.is_empty() {
@@ -255,14 +263,15 @@ impl PluginManager {
         // Additional strict policy: if metadata.exports is non-empty but capabilities are empty,
         // hint that at least one capability should be declared. This is a soft warning elevated to
         // error only when NXSH_CAP_MANIFEST_REQUIRED is set.
-            if !metadata.exports.is_empty() && metadata.capabilities.is_empty() {
+        if !metadata.exports.is_empty() && metadata.capabilities.is_empty() {
             // Currently do not error unless env requires it; tests rely on env gate.
         }
 
         // Validate dependencies
         for (dep_name, version_req) in &metadata.dependencies {
-            VersionReq::parse(version_req)
-                .context(format!("Invalid dependency '{dep_name}' version requirement: {version_req}"))?;
+            VersionReq::parse(version_req).context(format!(
+                "Invalid dependency '{dep_name}' version requirement: {version_req}"
+            ))?;
         }
 
         Ok(())
@@ -271,7 +280,7 @@ impl PluginManager {
     /// Generate a unique plugin ID
     fn generate_plugin_id(&self, metadata: &PluginMetadata) -> String {
         let base_id = format!("{}@{}", metadata.name, metadata.version);
-        
+
         // Ensure uniqueness
         let mut counter = 0;
         let mut id = base_id.clone();
@@ -279,7 +288,7 @@ impl PluginManager {
             counter += 1;
             id = format!("{base_id}-{counter}");
         }
-        
+
         id
     }
 
@@ -301,18 +310,20 @@ impl PluginManager {
         self.resolve_dependencies(&metadata).await?;
 
         // For now, only support native plugins (Stage 1)
-        let file_extension = path.extension()
-            .and_then(|ext| ext.to_str())
-            .unwrap_or("");
+        let file_extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
 
         let plugin_type = match file_extension.to_lowercase().as_str() {
             "so" | "dll" | "dylib" => {
                 // Load native plugin
                 if let Some(runtime) = &self.native_runtime {
-                    runtime.load_plugin(path, plugin_id.clone()).await
+                    runtime
+                        .load_plugin(path, plugin_id.clone())
+                        .await
                         .context("Failed to load native plugin")?;
                 } else {
-                    return Err(anyhow::anyhow!("Native runtime not available for native plugin"));
+                    return Err(anyhow::anyhow!(
+                        "Native runtime not available for native plugin"
+                    ));
                 }
                 PluginType::Native
             }
@@ -323,7 +334,9 @@ impl PluginManager {
             _ => {
                 // Default to native plugin for unknown extensions
                 if let Some(runtime) = &self.native_runtime {
-                    runtime.load_plugin(path, plugin_id.clone()).await
+                    runtime
+                        .load_plugin(path, plugin_id.clone())
+                        .await
                         .context("Failed to load native plugin")?;
                 } else {
                     return Err(anyhow::anyhow!("Native runtime not available"));
@@ -346,7 +359,8 @@ impl PluginManager {
         self.emit_event(PluginEvent::Loaded {
             plugin_id: plugin_id.clone(),
             metadata: Box::new(metadata),
-        }).await;
+        })
+        .await;
 
         Ok(plugin_id)
     }
@@ -356,7 +370,9 @@ impl PluginManager {
         log::info!("Unloading plugin: {plugin_id}");
 
         // Check if plugin is loaded
-        let plugin_info = self.loaded_plugins.get(plugin_id)
+        let plugin_info = self
+            .loaded_plugins
+            .get(plugin_id)
             .ok_or_else(|| anyhow::anyhow!("Plugin not loaded: {}", plugin_id))?;
 
         // Check for dependents
@@ -364,7 +380,8 @@ impl PluginManager {
         if !dependents.is_empty() {
             return Err(anyhow::anyhow!(
                 "Cannot unload plugin {} - it has dependents: {:?}",
-                plugin_id, dependents
+                plugin_id,
+                dependents
             ));
         }
 
@@ -372,14 +389,15 @@ impl PluginManager {
         match plugin_info.plugin_type {
             PluginType::Native => {
                 if let Some(runtime) = &self.native_runtime {
-                    runtime.unload_plugin(plugin_id).await
+                    runtime
+                        .unload_plugin(plugin_id)
+                        .await
                         .context("Failed to unload native plugin from runtime")?;
                 }
-            }
-            // PluginType::Wasi => {
-            //     // Stage 2: WASI support (C-free for now)
-            //     return Err(anyhow::anyhow!("WASI plugin unloading not yet supported"));
-            // }
+            } // PluginType::Wasi => {
+              //     // Stage 2: WASI support (C-free for now)
+              //     return Err(anyhow::anyhow!("WASI plugin unloading not yet supported"));
+              // }
         }
 
         // Remove from loaded plugins
@@ -388,7 +406,8 @@ impl PluginManager {
         // Emit event
         self.emit_event(PluginEvent::Unloaded {
             plugin_id: plugin_id.to_string(),
-        }).await;
+        })
+        .await;
 
         Ok(())
     }
@@ -399,7 +418,7 @@ impl PluginManager {
 
         // Get plugins in dependency order (reverse topological sort)
         let unload_order = self.dependency_graph.get_unload_order();
-        
+
         for plugin_id in unload_order {
             if let Err(e) = self.unload_plugin(&plugin_id).await {
                 log::error!("Failed to unload plugin {plugin_id}: {e}");
@@ -415,14 +434,15 @@ impl PluginManager {
 
         for (dep_name, version_req_str) in &metadata.dependencies {
             let version_req = self.parse_dependency(version_req_str)?;
-            
+
             // Find compatible plugin
             let compatible_plugin = self.find_compatible_plugin(dep_name, &version_req)?;
-            
+
             // Ensure dependency is loaded
             if !self.loaded_plugins.contains_key(&compatible_plugin) {
                 return Err(anyhow::anyhow!(
-                    "Dependency {} is not loaded", compatible_plugin
+                    "Dependency {} is not loaded",
+                    compatible_plugin
                 ));
             }
         }
@@ -432,7 +452,8 @@ impl PluginManager {
 
     /// Parse a dependency string
     fn parse_dependency(&self, dependency: &str) -> Result<VersionReq> {
-        VersionReq::parse(dependency).map_err(|e| anyhow::anyhow!("Invalid version requirement: {}", e))
+        VersionReq::parse(dependency)
+            .map_err(|e| anyhow::anyhow!("Invalid version requirement: {}", e))
     }
 
     /// Find a compatible plugin for a dependency
@@ -448,7 +469,8 @@ impl PluginManager {
 
         Err(anyhow::anyhow!(
             "No compatible plugin found for dependency: {}@{}",
-            name, version_req
+            name,
+            version_req
         ))
     }
 
@@ -464,30 +486,54 @@ impl PluginManager {
 
     /// Get plugin metadata
     pub fn get_plugin_metadata(&self, plugin_id: &str) -> Option<&PluginMetadata> {
-        self.plugin_registry.get(plugin_id).map(|entry| &entry.metadata)
+        self.plugin_registry
+            .get(plugin_id)
+            .map(|entry| &entry.metadata)
     }
 
     /// Get plugin status
     pub fn get_plugin_status(&self, plugin_id: &str) -> Option<PluginStatus> {
-        self.plugin_registry.get(plugin_id).map(|entry| entry.status.clone())
+        self.plugin_registry
+            .get(plugin_id)
+            .map(|entry| entry.status.clone())
     }
 
     /// Add an event handler
     pub fn add_event_handler(&mut self, handler: Box<dyn PluginEventHandler>) {
         // Store handler for later emission
         self.event_handlers.push(handler);
-        log::debug!("Plugin event handler registered (total: {})", self.event_handlers.len());
+        log::debug!(
+            "Plugin event handler registered (total: {})",
+            self.event_handlers.len()
+        );
     }
 
     /// Emit a plugin event
     async fn emit_event(&self, event: PluginEvent) {
-        // Dispatch to all registered handlers concurrently; failures are logged and ignored
-        use futures::future::join_all;
-        let futures_iter = self.event_handlers.iter().map(|h| h.handle_event(event.clone()));
-        let results = join_all(futures_iter).await;
-        for res in results {
-            if let Err(e) = res {
-                log::warn!("Plugin event handler error: {e}");
+        // Dispatch to all registered handlers
+        // - When `event-dispatch` feature is enabled, run concurrently via futures::join_all
+        // - Otherwise fall back to sequential dispatch to avoid requiring the `futures` crate
+        #[cfg(feature = "event-dispatch")]
+        {
+            use futures::future::join_all;
+            let futures_iter = self
+                .event_handlers
+                .iter()
+                .map(|h| h.handle_event(event.clone()));
+            let results = join_all(futures_iter).await;
+            for res in results {
+                if let Err(e) = res {
+                    log::warn!("Plugin event handler error: {e}");
+                }
+            }
+        }
+
+        #[cfg(not(feature = "event-dispatch"))]
+        {
+            for handler in &self.event_handlers {
+                if let Err(e) = handler.handle_event(event.clone()).await {
+                    log::warn!("Plugin event handler error: {e}");
+                }
             }
         }
     }
@@ -497,7 +543,8 @@ impl PluginManager {
         log::info!("Updating plugin: {plugin_id}");
 
         // Get current metadata
-        let old_metadata = self.get_plugin_metadata(plugin_id)
+        let old_metadata = self
+            .get_plugin_metadata(plugin_id)
             .ok_or_else(|| anyhow::anyhow!("Plugin not found: {}", plugin_id))?
             .clone();
 
@@ -507,11 +554,12 @@ impl PluginManager {
         // Validate version is newer
         let old_version = Version::parse(&old_metadata.version)?;
         let new_version = Version::parse(&new_metadata.version)?;
-        
+
         if new_version <= old_version {
             return Err(anyhow::anyhow!(
                 "New version {} is not newer than current version {}",
-                new_version, old_version
+                new_version,
+                old_version
             ));
         }
 
@@ -526,7 +574,8 @@ impl PluginManager {
             plugin_id: new_plugin_id,
             old_version: old_metadata.version,
             new_version: new_metadata.version,
-        }).await;
+        })
+        .await;
 
         Ok(())
     }
@@ -541,7 +590,9 @@ impl PluginManager {
         PluginManagerStatistics {
             total_discovered: self.plugin_registry.len(),
             total_loaded: self.loaded_plugins.len(),
-            total_failed: self.plugin_registry.values()
+            total_failed: self
+                .plugin_registry
+                .values()
                 .filter(|entry| matches!(entry.status, PluginStatus::Failed))
                 .count(),
         }
@@ -653,7 +704,7 @@ impl DependencyGraph {
     pub fn get_load_order(&self) -> Vec<String> {
         let mut visited = HashSet::new();
         let mut result = Vec::new();
-        
+
         for plugin_id in self.dependencies.keys() {
             if !visited.contains(plugin_id) {
                 self.topological_sort(plugin_id, &mut visited, &mut result);
@@ -671,7 +722,12 @@ impl DependencyGraph {
     }
 
     /// Topological sort helper
-    fn topological_sort(&self, plugin_id: &str, visited: &mut HashSet<String>, result: &mut Vec<String>) {
+    fn topological_sort(
+        &self,
+        plugin_id: &str,
+        visited: &mut HashSet<String>,
+        result: &mut Vec<String>,
+    ) {
         visited.insert(plugin_id.to_string());
 
         if let Some(dependencies) = self.dependencies.get(plugin_id) {
@@ -692,16 +748,22 @@ impl DependencyGraph {
 
         for plugin_id in self.dependencies.keys() {
             if !visited.contains(plugin_id)
-                && self.has_cycle(plugin_id, &mut visited, &mut rec_stack) {
-                    return true;
-                }
+                && self.has_cycle(plugin_id, &mut visited, &mut rec_stack)
+            {
+                return true;
+            }
         }
 
         false
     }
 
     /// Check for cycle helper
-    fn has_cycle(&self, plugin_id: &str, visited: &mut HashSet<String>, rec_stack: &mut HashSet<String>) -> bool {
+    fn has_cycle(
+        &self,
+        plugin_id: &str,
+        visited: &mut HashSet<String>,
+        rec_stack: &mut HashSet<String>,
+    ) -> bool {
         visited.insert(plugin_id.to_string());
         rec_stack.insert(plugin_id.to_string());
 
@@ -791,7 +853,7 @@ mod tests {
     #[tokio::test]
     async fn test_metadata_validation() {
         let manager = PluginManager::new();
-        
+
         let valid_metadata = PluginMetadata {
             name: "valid-plugin".to_string(),
             version: "1.0.0".to_string(),
@@ -812,7 +874,7 @@ mod tests {
         assert!(manager.validate_plugin_metadata(&valid_metadata).is_ok());
 
         let invalid_metadata = PluginMetadata {
-            name: "".to_string(), // Invalid: empty name
+            name: "".to_string(),                   // Invalid: empty name
             version: "invalid-version".to_string(), // Invalid: bad version format
             description: "Invalid plugin".to_string(),
             author: "Test Author".to_string(),
@@ -830,4 +892,4 @@ mod tests {
 
         assert!(manager.validate_plugin_metadata(&invalid_metadata).is_err());
     }
-} 
+}

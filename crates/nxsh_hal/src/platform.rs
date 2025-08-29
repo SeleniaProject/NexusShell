@@ -4,9 +4,9 @@
 //! management for NexusShell, enabling platform-specific optimizations
 //! and feature availability detection.
 
-use std::sync::Once;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
+use std::sync::Once;
 
 use crate::error::HalResult;
 
@@ -84,23 +84,23 @@ pub struct Capabilities {
     pub has_signals: bool,
     pub has_job_control: bool,
     pub has_process_groups: bool,
-    
+
     // File system capabilities
     pub has_file_locking: bool,
     pub has_memory_mapping: bool,
     pub has_shared_memory: bool,
     pub has_semaphores: bool,
     pub has_message_queues: bool,
-    
+
     // Threading capabilities
     pub has_threads: bool,
     pub has_async_io: bool,
-    
+
     // I/O multiplexing
     pub has_epoll: bool,
     pub has_kqueue: bool,
     pub has_iocp: bool,
-    
+
     // Advanced file operations
     pub has_sendfile: bool,
     pub has_splice: bool,
@@ -108,13 +108,13 @@ pub struct Capabilities {
     pub has_fallocate: bool,
     pub has_posix_fadvise: bool,
     pub has_madvise: bool,
-    
+
     // Security features
     pub has_seccomp: bool,
     pub has_capabilities: bool,
     pub has_namespaces: bool,
     pub has_cgroups: bool,
-    
+
     // System information
     pub cpu_count: usize,
     pub page_size: usize,
@@ -146,7 +146,7 @@ impl Platform {
                     CURRENT_PLATFORM = Some(Platform::detect());
                     CAPABILITIES = Some(Capabilities::detect());
                 });
-                
+
                 CURRENT_PLATFORM.clone().unwrap_or({
                     // This should never happen after init(), but provide a fallback
                     Platform::Linux // Use a concrete variant as fallback
@@ -174,7 +174,7 @@ impl Platform {
         return Platform::Android;
         #[cfg(not(any(
             target_os = "linux",
-            target_os = "macos", 
+            target_os = "macos",
             target_os = "windows",
             target_os = "freebsd",
             target_os = "openbsd",
@@ -212,14 +212,15 @@ impl Platform {
 
     /// Check if the platform is Unix-like
     pub fn is_unix(&self) -> bool {
-        matches!(self, 
-            Platform::Linux | 
-            Platform::MacOS | 
-            Platform::FreeBSD | 
-            Platform::OpenBSD | 
-            Platform::NetBSD | 
-            Platform::Solaris | 
-            Platform::Android
+        matches!(
+            self,
+            Platform::Linux
+                | Platform::MacOS
+                | Platform::FreeBSD
+                | Platform::OpenBSD
+                | Platform::NetBSD
+                | Platform::Solaris
+                | Platform::Android
         )
     }
 
@@ -243,11 +244,16 @@ impl Platform {
             "shared_memory" | "semaphores" | "message_queues" => self.is_unix(),
             "threads" | "async_io" => true,
             "epoll" => matches!(self, Platform::Linux),
-            "kqueue" => matches!(self, Platform::MacOS | Platform::FreeBSD | Platform::OpenBSD | Platform::NetBSD),
+            "kqueue" => matches!(
+                self,
+                Platform::MacOS | Platform::FreeBSD | Platform::OpenBSD | Platform::NetBSD
+            ),
             "iocp" => self.is_windows(),
             "sendfile" | "splice" | "copy_file_range" => matches!(self, Platform::Linux),
             "fallocate" | "posix_fadvise" | "madvise" => self.is_unix(),
-            "seccomp" | "capabilities" | "namespaces" | "cgroups" => matches!(self, Platform::Linux),
+            "seccomp" | "capabilities" | "namespaces" | "cgroups" => {
+                matches!(self, Platform::Linux)
+            }
             _ => false,
         }
     }
@@ -270,7 +276,9 @@ impl Platform {
 
     /// Get the current user
     pub fn get_current_user(&self) -> HalResult<String> {
-        Ok(std::env::var("USER").unwrap_or_else(|_| std::env::var("USERNAME").unwrap_or_else(|_| "unknown".to_string())))
+        Ok(std::env::var("USER").unwrap_or_else(|_| {
+            std::env::var("USERNAME").unwrap_or_else(|_| "unknown".to_string())
+        }))
     }
 
     /// Get the hostname
@@ -317,28 +325,28 @@ impl Platform {
     /// Get network interfaces with MAC addresses and statistics
     pub fn get_network_interfaces(&self) -> Vec<NetworkInterface> {
         let mut interfaces = Vec::new();
-        
+
         #[cfg(target_os = "windows")]
         {
             if let Ok(adapters) = self.get_windows_network_adapters() {
                 interfaces.extend(adapters);
             }
         }
-        
+
         #[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]
         {
             if let Ok(adapters) = self.get_unix_network_interfaces() {
                 interfaces.extend(adapters);
             }
         }
-        
+
         // Fallback: try to get basic interface info
         if interfaces.is_empty() {
             if let Ok(basic_interfaces) = self.get_basic_network_interfaces() {
                 interfaces.extend(basic_interfaces);
             }
         }
-        
+
         interfaces
     }
 
@@ -387,7 +395,10 @@ impl Capabilities {
     #[allow(static_mut_refs)]
     pub fn current() -> Self {
         unsafe {
-            CAPABILITIES.as_ref().expect("Platform capabilities not initialized").clone()
+            CAPABILITIES
+                .as_ref()
+                .expect("Platform capabilities not initialized")
+                .clone()
         }
     }
 
@@ -408,7 +419,10 @@ impl Capabilities {
             has_threads: true,
             has_async_io: true,
             has_epoll: matches!(platform, Platform::Linux),
-            has_kqueue: matches!(platform, Platform::MacOS | Platform::FreeBSD | Platform::OpenBSD | Platform::NetBSD),
+            has_kqueue: matches!(
+                platform,
+                Platform::MacOS | Platform::FreeBSD | Platform::OpenBSD | Platform::NetBSD
+            ),
             has_iocp: platform.is_windows(),
             has_sendfile: matches!(platform, Platform::Linux),
             has_splice: matches!(platform, Platform::Linux),
@@ -423,10 +437,18 @@ impl Capabilities {
             cpu_count: num_cpus::get(),
             page_size: detect_page_size(),
             max_path_length: detect_max_path_length(&platform),
-            endianness: if cfg!(target_endian = "big") { "big".to_string() } else { "little".to_string() },
+            endianness: if cfg!(target_endian = "big") {
+                "big".to_string()
+            } else {
+                "little".to_string()
+            },
             filesystem_features: detect_filesystem_features(&platform),
             network_features: vec!["tcp".to_string(), "udp".to_string()],
-            security_features: if platform.is_unix() { vec!["unix_permissions".to_string()] } else { vec![] },
+            security_features: if platform.is_unix() {
+                vec!["unix_permissions".to_string()]
+            } else {
+                vec![]
+            },
             virtualization_features: vec![],
             hardware_features: vec![],
         }
@@ -475,31 +497,31 @@ impl Capabilities {
 pub fn detect_platform() -> Platform {
     #[cfg(target_os = "linux")]
     return Platform::Linux;
-    
+
     #[cfg(target_os = "macos")]
     return Platform::MacOS;
-    
+
     #[cfg(target_os = "windows")]
     return Platform::Windows;
-    
+
     #[cfg(target_os = "freebsd")]
     return Platform::FreeBSD;
-    
+
     #[cfg(target_os = "openbsd")]
     return Platform::OpenBSD;
-    
+
     #[cfg(target_os = "netbsd")]
     return Platform::NetBSD;
-    
+
     #[cfg(target_os = "solaris")]
     return Platform::Solaris;
-    
+
     #[cfg(target_os = "android")]
     return Platform::Android;
-    
+
     #[cfg(not(any(
         target_os = "linux",
-        target_os = "macos", 
+        target_os = "macos",
         target_os = "windows",
         target_os = "freebsd",
         target_os = "openbsd",
@@ -542,7 +564,11 @@ pub fn detect_capabilities(platform: &Platform) -> Capabilities {
         cpu_count: num_cpus::get(),
         page_size: detect_page_size(),
         max_path_length: detect_max_path_length(platform),
-        endianness: if cfg!(target_endian = "little") { "Little".to_string() } else { "Big".to_string() },
+        endianness: if cfg!(target_endian = "little") {
+            "Little".to_string()
+        } else {
+            "Big".to_string()
+        },
         filesystem_features: Vec::new(),
         network_features: Vec::new(),
         security_features: Vec::new(),
@@ -575,11 +601,29 @@ pub fn detect_capabilities(platform: &Platform) -> Capabilities {
             caps.has_capabilities = true;
             caps.has_namespaces = true;
             caps.has_cgroups = true;
-            caps.filesystem_features = vec!["extended_attributes".to_string(), "case_sensitive".to_string(), "hard_links".to_string(), "symbolic_links".to_string(), "file_holes".to_string(), "reflinks".to_string(), "compression".to_string(), "encryption".to_string()];
+            caps.filesystem_features = vec![
+                "extended_attributes".to_string(),
+                "case_sensitive".to_string(),
+                "hard_links".to_string(),
+                "symbolic_links".to_string(),
+                "file_holes".to_string(),
+                "reflinks".to_string(),
+                "compression".to_string(),
+                "encryption".to_string(),
+            ];
             caps.network_features = vec!["ipv4".to_string(), "ipv6".to_string()];
             caps.security_features = vec!["apparmor".to_string(), "selinux".to_string()];
             caps.virtualization_features = vec!["kvm".to_string(), "vmware".to_string()];
-            caps.hardware_features = vec!["sse".to_string(), "sse2".to_string(), "sse3".to_string(), "ssse3".to_string(), "sse4.1".to_string(), "sse4.2".to_string(), "avx".to_string(), "avx2".to_string()];
+            caps.hardware_features = vec![
+                "sse".to_string(),
+                "sse2".to_string(),
+                "sse3".to_string(),
+                "ssse3".to_string(),
+                "sse4.1".to_string(),
+                "sse4.2".to_string(),
+                "avx".to_string(),
+                "avx2".to_string(),
+            ];
         }
         Platform::MacOS => {
             caps.has_fork = true;
@@ -598,11 +642,29 @@ pub fn detect_capabilities(platform: &Platform) -> Capabilities {
             caps.has_sendfile = true;
             caps.has_posix_fadvise = true;
             caps.has_madvise = true;
-            caps.filesystem_features = vec!["extended_attributes".to_string(), "case_sensitive".to_string(), "hard_links".to_string(), "symbolic_links".to_string(), "file_holes".to_string(), "resource_forks".to_string(), "compression".to_string(), "encryption".to_string()];
+            caps.filesystem_features = vec![
+                "extended_attributes".to_string(),
+                "case_sensitive".to_string(),
+                "hard_links".to_string(),
+                "symbolic_links".to_string(),
+                "file_holes".to_string(),
+                "resource_forks".to_string(),
+                "compression".to_string(),
+                "encryption".to_string(),
+            ];
             caps.network_features = vec!["ipv4".to_string(), "ipv6".to_string()];
             caps.security_features = vec!["file_integrity".to_string(), "gatekeeper".to_string()];
             caps.virtualization_features = vec!["hypervisor".to_string(), "vmware".to_string()];
-            caps.hardware_features = vec!["sse".to_string(), "sse2".to_string(), "sse3".to_string(), "ssse3".to_string(), "sse4.1".to_string(), "sse4.2".to_string(), "avx".to_string(), "avx2".to_string()];
+            caps.hardware_features = vec![
+                "sse".to_string(),
+                "sse2".to_string(),
+                "sse3".to_string(),
+                "ssse3".to_string(),
+                "sse4.1".to_string(),
+                "sse4.2".to_string(),
+                "avx".to_string(),
+                "avx2".to_string(),
+            ];
         }
         Platform::Windows => {
             caps.has_pipes = true; // Named pipes
@@ -612,11 +674,29 @@ pub fn detect_capabilities(platform: &Platform) -> Capabilities {
             caps.has_semaphores = true;
             caps.has_async_io = true;
             caps.has_iocp = true;
-            caps.filesystem_features = vec!["case_sensitive".to_string(), "hard_links".to_string(), "symbolic_links".to_string(), "file_holes".to_string(), "alternate_streams".to_string(), "compression".to_string(), "encryption".to_string(), "reparse_points".to_string()];
+            caps.filesystem_features = vec![
+                "case_sensitive".to_string(),
+                "hard_links".to_string(),
+                "symbolic_links".to_string(),
+                "file_holes".to_string(),
+                "alternate_streams".to_string(),
+                "compression".to_string(),
+                "encryption".to_string(),
+                "reparse_points".to_string(),
+            ];
             caps.network_features = vec!["ipv4".to_string(), "ipv6".to_string()];
             caps.security_features = vec!["firewall".to_string(), "antivirus".to_string()];
             caps.virtualization_features = vec!["hypervisor".to_string(), "vmware".to_string()];
-            caps.hardware_features = vec!["sse".to_string(), "sse2".to_string(), "sse3".to_string(), "ssse3".to_string(), "sse4.1".to_string(), "sse4.2".to_string(), "avx".to_string(), "avx2".to_string()];
+            caps.hardware_features = vec![
+                "sse".to_string(),
+                "sse2".to_string(),
+                "sse3".to_string(),
+                "ssse3".to_string(),
+                "sse4.1".to_string(),
+                "sse4.2".to_string(),
+                "avx".to_string(),
+                "avx2".to_string(),
+            ];
         }
         Platform::FreeBSD | Platform::OpenBSD | Platform::NetBSD => {
             caps.has_fork = true;
@@ -635,19 +715,49 @@ pub fn detect_capabilities(platform: &Platform) -> Capabilities {
             caps.has_sendfile = true;
             caps.has_posix_fadvise = true;
             caps.has_madvise = true;
-            caps.filesystem_features = vec!["extended_attributes".to_string(), "case_sensitive".to_string(), "hard_links".to_string(), "symbolic_links".to_string(), "file_holes".to_string(), "compression".to_string(), "encryption".to_string()];
+            caps.filesystem_features = vec![
+                "extended_attributes".to_string(),
+                "case_sensitive".to_string(),
+                "hard_links".to_string(),
+                "symbolic_links".to_string(),
+                "file_holes".to_string(),
+                "compression".to_string(),
+                "encryption".to_string(),
+            ];
             caps.network_features = vec!["ipv4".to_string(), "ipv6".to_string()];
             caps.security_features = vec!["apparmor".to_string(), "selinux".to_string()];
             caps.virtualization_features = vec!["kvm".to_string(), "vmware".to_string()];
-            caps.hardware_features = vec!["sse".to_string(), "sse2".to_string(), "sse3".to_string(), "ssse3".to_string(), "sse4.1".to_string(), "sse4.2".to_string(), "avx".to_string(), "avx2".to_string()];
+            caps.hardware_features = vec![
+                "sse".to_string(),
+                "sse2".to_string(),
+                "sse3".to_string(),
+                "ssse3".to_string(),
+                "sse4.1".to_string(),
+                "sse4.2".to_string(),
+                "avx".to_string(),
+                "avx2".to_string(),
+            ];
         }
         _ => {
             // Conservative defaults for unknown platforms
-            caps.filesystem_features = vec!["case_sensitive".to_string(), "hard_links".to_string(), "symbolic_links".to_string()];
+            caps.filesystem_features = vec![
+                "case_sensitive".to_string(),
+                "hard_links".to_string(),
+                "symbolic_links".to_string(),
+            ];
             caps.network_features = vec!["ipv4".to_string(), "ipv6".to_string()];
             caps.security_features = vec!["firewall".to_string(), "antivirus".to_string()];
             caps.virtualization_features = vec!["hypervisor".to_string(), "vmware".to_string()];
-            caps.hardware_features = vec!["sse".to_string(), "sse2".to_string(), "sse3".to_string(), "ssse3".to_string(), "sse4.1".to_string(), "sse4.2".to_string(), "avx".to_string(), "avx2".to_string()];
+            caps.hardware_features = vec![
+                "sse".to_string(),
+                "sse2".to_string(),
+                "sse3".to_string(),
+                "ssse3".to_string(),
+                "sse4.1".to_string(),
+                "sse4.2".to_string(),
+                "avx".to_string(),
+                "avx2".to_string(),
+            ];
         }
     }
 
@@ -673,12 +783,12 @@ fn detect_page_size() -> usize {
             }
             _ => {}
         }
-        
+
         // Fallback: Use standard defaults based on common Unix systems
         #[cfg(target_arch = "x86_64")]
         return 4096;
         #[cfg(target_arch = "aarch64")]
-        return 4096; 
+        return 4096;
         #[cfg(target_arch = "arm")]
         return 4096;
         #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm")))]
@@ -705,14 +815,14 @@ fn detect_max_path_length(platform: &Platform) -> usize {
         Platform::Windows => 260, // MAX_PATH on Windows
         Platform::Linux => 4096,  // PATH_MAX on Linux
         Platform::MacOS => 1024,  // PATH_MAX on macOS
-        _ => 1024, // Conservative default
+        _ => 1024,                // Conservative default
     }
 }
 
 /// Detect filesystem-specific features
 fn detect_filesystem_features(platform: &Platform) -> Vec<String> {
     let mut features = Vec::new();
-    
+
     match platform {
         Platform::Linux => {
             features.push("extended_attributes".to_string());
@@ -751,29 +861,32 @@ fn detect_filesystem_features(platform: &Platform) -> Vec<String> {
             features.push("symbolic_links".to_string());
         }
     }
-    
+
     features
 }
 
 impl Platform {
     /// Get network interfaces on Windows
     #[cfg(target_os = "windows")]
-    fn get_windows_network_adapters(&self) -> Result<Vec<NetworkInterface>, Box<dyn std::error::Error>> {
+    fn get_windows_network_adapters(
+        &self,
+    ) -> Result<Vec<NetworkInterface>, Box<dyn std::error::Error>> {
         use std::process::Command;
-        
+
         let output = Command::new("netsh")
             .args(["interface", "show", "interface"])
             .output()?;
-            
+
         let output_str = String::from_utf8_lossy(&output.stdout);
         let mut interfaces = Vec::new();
-        
-        for line in output_str.lines().skip(3) { // Skip header lines
+
+        for line in output_str.lines().skip(3) {
+            // Skip header lines
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 4 {
                 let name = parts[3..].join(" ");
                 let is_up = parts[0] == "Enabled";
-                
+
                 let interface = NetworkInterface {
                     name,
                     is_up,
@@ -783,23 +896,26 @@ impl Platform {
                     mtu: None,
                     statistics: None,
                 };
-                
+
                 interfaces.push(interface);
             }
         }
-        
+
         Ok(interfaces)
     }
-    
+
     /// Get MAC address on Windows
     #[cfg(target_os = "windows")]
-    fn get_windows_mac_address(&self, interface_name: &str) -> Result<String, Box<dyn std::error::Error>> {
+    fn get_windows_mac_address(
+        &self,
+        interface_name: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         use std::process::Command;
-        
+
         let output = Command::new("getmac")
             .args(["/fo", "csv", "/nh"])
             .output()?;
-            
+
         let output_str = String::from_utf8_lossy(&output.stdout);
         for line in output_str.lines() {
             if line.contains(interface_name) {
@@ -809,23 +925,25 @@ impl Platform {
                 }
             }
         }
-        
+
         Err("MAC address not found".into())
     }
-    
+
     /// Get network interfaces on Unix systems
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]
-    fn get_unix_network_interfaces(&self) -> Result<Vec<NetworkInterface>, Box<dyn std::error::Error>> {
+    fn get_unix_network_interfaces(
+        &self,
+    ) -> Result<Vec<NetworkInterface>, Box<dyn std::error::Error>> {
         use std::process::Command;
-        
+
         let output = Command::new("ip")
             .args(&["link", "show"])
             .output()
             .or_else(|_| Command::new("ifconfig").arg("-a").output())?;
-            
+
         let output_str = String::from_utf8_lossy(&output.stdout);
         let mut interfaces = Vec::new();
-        
+
         // Parse ip link output
         for line in output_str.lines() {
             if line.starts_with(char::is_numeric) {
@@ -834,10 +952,10 @@ impl Platform {
                     let name = parts[1].trim_end_matches(':').to_string();
                     let is_up = line.contains("UP");
                     let is_loopback = line.contains("LOOPBACK");
-                    
+
                     let mac_address = self.extract_mac_from_line(&line);
                     let mtu = self.extract_mtu_from_line(&line);
-                    
+
                     let interface = NetworkInterface {
                         name,
                         is_up,
@@ -847,28 +965,28 @@ impl Platform {
                         mtu,
                         statistics: None, // Would need /proc/net/dev parsing on Linux
                     };
-                    
+
                     interfaces.push(interface);
                 }
             }
         }
-        
+
         Ok(interfaces)
     }
-    
+
     /// Extract MAC address from interface line
     #[allow(dead_code)]
     fn extract_mac_from_line(&self, line: &str) -> Option<String> {
         // Look for MAC address pattern (XX:XX:XX:XX:XX:XX)
         let mac_regex = regex::Regex::new(r"([0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2})").ok()?;
-        
+
         if let Some(captures) = mac_regex.captures(line) {
             return Some(captures[1].to_string());
         }
-        
+
         None
     }
-    
+
     /// Extract MTU from interface line
     #[allow(dead_code)]
     fn extract_mtu_from_line(&self, line: &str) -> Option<u32> {
@@ -880,14 +998,16 @@ impl Platform {
                 }
             }
         }
-        
+
         None
     }
-    
+
     /// Get basic network interfaces using platform-independent methods
-    fn get_basic_network_interfaces(&self) -> Result<Vec<NetworkInterface>, Box<dyn std::error::Error>> {
+    fn get_basic_network_interfaces(
+        &self,
+    ) -> Result<Vec<NetworkInterface>, Box<dyn std::error::Error>> {
         let mut interfaces = Vec::new();
-        
+
         // Try to get interface names from /sys/class/net (Linux)
         #[cfg(target_os = "linux")]
         {
@@ -896,7 +1016,7 @@ impl Platform {
                     if let Some(name) = entry.file_name().to_str() {
                         let is_up = self.is_interface_up_linux(name);
                         let is_loopback = name == "lo";
-                        
+
                         let interface = NetworkInterface {
                             name: name.to_string(),
                             is_up,
@@ -906,13 +1026,13 @@ impl Platform {
                             mtu: self.get_linux_mtu(name).ok(),
                             statistics: self.get_linux_interface_stats(name).ok(),
                         };
-                        
+
                         interfaces.push(interface);
                     }
                 }
             }
         }
-        
+
         // Fallback: create a minimal loopback interface
         if interfaces.is_empty() {
             interfaces.push(NetworkInterface {
@@ -925,10 +1045,10 @@ impl Platform {
                 statistics: None,
             });
         }
-        
+
         Ok(interfaces)
     }
-    
+
     /// Check if interface is up on Linux
     #[cfg(target_os = "linux")]
     fn is_interface_up_linux(&self, interface: &str) -> bool {
@@ -936,33 +1056,48 @@ impl Platform {
             .map(|state| state.trim() == "up")
             .unwrap_or(false)
     }
-    
+
     /// Get MAC address on Linux
     #[cfg(target_os = "linux")]
     fn get_linux_mac_address(&self, interface: &str) -> Result<String, Box<dyn std::error::Error>> {
         let mac = std::fs::read_to_string(format!("/sys/class/net/{}/address", interface))?;
         Ok(mac.trim().to_string())
     }
-    
+
     /// Get MTU on Linux
     #[cfg(target_os = "linux")]
     fn get_linux_mtu(&self, interface: &str) -> Result<u32, Box<dyn std::error::Error>> {
         let mtu_str = std::fs::read_to_string(format!("/sys/class/net/{}/mtu", interface))?;
         Ok(mtu_str.trim().parse()?)
     }
-    
+
     /// Get interface statistics on Linux
     #[cfg(target_os = "linux")]
-    fn get_linux_interface_stats(&self, interface: &str) -> Result<NetworkStatistics, Box<dyn std::error::Error>> {
+    fn get_linux_interface_stats(
+        &self,
+        interface: &str,
+    ) -> Result<NetworkStatistics, Box<dyn std::error::Error>> {
         let stats_dir = format!("/sys/class/net/{}/statistics", interface);
-        
-        let rx_bytes = std::fs::read_to_string(format!("{}/rx_bytes", stats_dir))?.trim().parse()?;
-        let tx_bytes = std::fs::read_to_string(format!("{}/tx_bytes", stats_dir))?.trim().parse()?;
-        let rx_packets = std::fs::read_to_string(format!("{}/rx_packets", stats_dir))?.trim().parse()?;
-        let tx_packets = std::fs::read_to_string(format!("{}/tx_packets", stats_dir))?.trim().parse()?;
-        let rx_errors = std::fs::read_to_string(format!("{}/rx_errors", stats_dir))?.trim().parse()?;
-        let tx_errors = std::fs::read_to_string(format!("{}/tx_errors", stats_dir))?.trim().parse()?;
-        
+
+        let rx_bytes = std::fs::read_to_string(format!("{}/rx_bytes", stats_dir))?
+            .trim()
+            .parse()?;
+        let tx_bytes = std::fs::read_to_string(format!("{}/tx_bytes", stats_dir))?
+            .trim()
+            .parse()?;
+        let rx_packets = std::fs::read_to_string(format!("{}/rx_packets", stats_dir))?
+            .trim()
+            .parse()?;
+        let tx_packets = std::fs::read_to_string(format!("{}/tx_packets", stats_dir))?
+            .trim()
+            .parse()?;
+        let rx_errors = std::fs::read_to_string(format!("{}/rx_errors", stats_dir))?
+            .trim()
+            .parse()?;
+        let tx_errors = std::fs::read_to_string(format!("{}/tx_errors", stats_dir))?
+            .trim()
+            .parse()?;
+
         Ok(NetworkStatistics {
             rx_bytes,
             tx_bytes,
@@ -990,13 +1125,13 @@ pub fn initialize_platform() -> HalResult<()> {
     INIT.call_once(|| {
         let platform = detect_platform();
         let capabilities = detect_capabilities(&platform);
-        
+
         unsafe {
             CURRENT_PLATFORM = Some(platform);
             CAPABILITIES = Some(capabilities);
         }
     });
-    
+
     Ok(())
 }
 
@@ -1004,4 +1139,4 @@ pub fn initialize_platform() -> HalResult<()> {
 pub fn cleanup_platform() -> HalResult<()> {
     // Currently no cleanup needed, but reserved for future use
     Ok(())
-} 
+}

@@ -50,7 +50,7 @@ pub enum ProcessStatus {
 }
 
 /// Process handle for managing spawned processes
-/// 
+///
 /// This struct provides a high-level interface for process management,
 /// abstracting platform-specific details while maintaining full control
 /// over process lifecycle operations.
@@ -69,22 +69,26 @@ pub struct ProcessHandle {
 
 impl ProcessHandle {
     /// Create a new process handle from a spawned child process
-    /// 
+    ///
     /// # Arguments
     /// * `child` - The spawned child process from std::process::Command
     /// * `command` - The command string used to spawn the process
-    /// 
+    ///
     /// # Returns
     /// A new ProcessHandle instance with initialized process information
     pub fn new(child: Child, command: String) -> Self {
         let pid = child.id();
         let start_time = Instant::now();
-        
+
         // Initialize process information with current status
         let info = ProcessInfo {
             pid,
             parent_pid: Some(std::process::id()),
-            name: command.split_whitespace().next().unwrap_or("unknown").to_string(),
+            name: command
+                .split_whitespace()
+                .next()
+                .unwrap_or("unknown")
+                .to_string(),
             command_line: command,
             start_time: std::time::SystemTime::now(),
             cpu_time: std::time::Duration::ZERO,
@@ -101,15 +105,15 @@ impl ProcessHandle {
     }
 
     /// Create a new process handle from existing process information
-    /// 
+    ///
     /// This method creates a handle for process monitoring without direct
     /// control capabilities. Useful for referencing processes spawned by
     /// other components while maintaining type safety.
-    /// 
+    ///
     /// # Arguments
     /// * `pid` - Process identifier for the existing process
     /// * `info` - Process information structure
-    /// 
+    ///
     /// # Returns
     /// A new ProcessHandle instance for monitoring the existing process
     pub fn new_from_existing(pid: ProcessId, info: ProcessInfo) -> HalResult<Self> {
@@ -132,26 +136,27 @@ impl ProcessHandle {
     }
 
     /// Wait for process to complete (blocking)
-    /// 
+    ///
     /// This method will block the current thread until the process exits.
     /// It's recommended to use this in async contexts with proper task spawning
     /// to avoid blocking the entire executor.
-    /// 
+    ///
     /// # Returns
     /// - `Ok(ExitStatus)` - Process completed with the given exit status
     /// - `Err(HalError)` - Error occurred while waiting for process
-    /// 
+    ///
     /// # Note
     /// After this call, the process handle becomes invalid for further operations
     pub fn wait(&mut self) -> HalResult<ExitStatus> {
         if let Some(child) = self.child.as_mut() {
-            let exit_status = child.wait()
-                .map_err(|e| HalError::process_error(
-                    "wait", 
-                    Some(self.pid), 
-                    &format!("Failed to wait for process: {e}")
-                ))?;
-            
+            let exit_status = child.wait().map_err(|e| {
+                HalError::process_error(
+                    "wait",
+                    Some(self.pid),
+                    &format!("Failed to wait for process: {e}"),
+                )
+            })?;
+
             // Update internal status based on exit result
             self.info.status = if let Some(code) = exit_status.code() {
                 ProcessStatus::Exited(code)
@@ -171,27 +176,27 @@ impl ProcessHandle {
                     ProcessStatus::Unknown
                 }
             };
-            
+
             // Process has exited, clear the child handle
             self.child = None;
-            
+
             Ok(exit_status)
         } else {
             // Process already finished or invalid
             Err(HalError::process_error(
-                "wait", 
-                Some(self.pid), 
-                "Process handle is invalid or already finished"
+                "wait",
+                Some(self.pid),
+                "Process handle is invalid or already finished",
             ))
         }
     }
 
     /// Try to wait for process (non-blocking)
-    /// 
+    ///
     /// This method checks if the process has completed without blocking.
     /// It's safe to call repeatedly and is the preferred method for polling
     /// process status in event loops.
-    /// 
+    ///
     /// # Returns
     /// - `Ok(Some(ExitStatus))` - Process completed with the given exit status
     /// - `Ok(None)` - Process is still running
@@ -219,23 +224,21 @@ impl ProcessHandle {
                             ProcessStatus::Unknown
                         }
                     };
-                    
+
                     // Process has exited, clear the child handle
                     self.child = None;
-                    
+
                     Ok(Some(exit_status))
                 }
                 Ok(None) => {
                     // Process is still running
                     Ok(None)
                 }
-                Err(e) => {
-                    Err(HalError::process_error(
-                        "try_wait", 
-                        Some(self.pid), 
-                        &format!("Failed to check process status: {e}")
-                    ))
-                }
+                Err(e) => Err(HalError::process_error(
+                    "try_wait",
+                    Some(self.pid),
+                    &format!("Failed to check process status: {e}"),
+                )),
             }
         } else {
             // Process already finished or invalid
@@ -244,55 +247,56 @@ impl ProcessHandle {
     }
 
     /// Kill the process forcefully
-    /// 
+    ///
     /// This method attempts to terminate the process immediately.
     /// On Unix systems, this sends SIGKILL which cannot be caught or ignored.
     /// On Windows, this calls TerminateProcess.
-    /// 
+    ///
     /// # Returns
     /// - `Ok(())` - Kill signal sent successfully
     /// - `Err(HalError)` - Failed to kill process
-    /// 
+    ///
     /// # Note
     /// After calling this method, you should call try_wait() to reap the process
     pub fn kill(&mut self) -> HalResult<()> {
         if let Some(child) = self.child.as_mut() {
-            child.kill()
-                .map_err(|e| HalError::process_error(
-                    "kill", 
-                    Some(self.pid), 
-                    &format!("Failed to kill process: {e}")
-                ))?;
-            
+            child.kill().map_err(|e| {
+                HalError::process_error(
+                    "kill",
+                    Some(self.pid),
+                    &format!("Failed to kill process: {e}"),
+                )
+            })?;
+
             // Update status to indicate the process was killed
             self.info.status = ProcessStatus::Signaled(9); // SIGKILL
-            
+
             Ok(())
         } else {
             // Process already finished or invalid
             Err(HalError::process_error(
-                "kill", 
-                Some(self.pid), 
-                "Process handle is invalid or already finished"
+                "kill",
+                Some(self.pid),
+                "Process handle is invalid or already finished",
             ))
         }
     }
 
     /// Send signal to process (Unix only)
-    /// 
+    ///
     /// This method sends a Unix signal to the process. Common signals include:
     /// - SIGTERM (15): Request graceful termination
     /// - SIGKILL (9): Force immediate termination (cannot be caught)
     /// - SIGSTOP (19): Stop (pause) the process
     /// - SIGCONT (18): Continue a stopped process
-    /// 
+    ///
     /// # Arguments
     /// * `signal` - The signal number to send (e.g., 15 for SIGTERM)
-    /// 
+    ///
     /// # Returns
     /// - `Ok(())` - Signal sent successfully
     /// - `Err(HalError)` - Failed to send signal or invalid signal number
-    /// 
+    ///
     /// # Platform Support
     /// This method is only available on Unix-like systems (Linux, macOS, BSD)
     #[cfg(unix)]
@@ -303,9 +307,9 @@ impl ProcessHandle {
         // Validate that we have a valid process
         if self.child.is_none() {
             return Err(HalError::process_error(
-                "signal", 
-                Some(self.pid), 
-                "Process handle is invalid or already finished"
+                "signal",
+                Some(self.pid),
+                "Process handle is invalid or already finished",
             ));
         }
 
@@ -314,12 +318,13 @@ impl ProcessHandle {
             .map_err(|e| HalError::invalid(&format!("Invalid signal number {}: {}", signal, e)))?;
 
         // Send the signal to the process
-        signal::kill(Pid::from_raw(self.pid as i32), nix_signal)
-            .map_err(|e| HalError::process_error(
-                "signal", 
-                Some(self.pid), 
-                &format!("Failed to send signal {} to process: {}", signal, e)
-            ))?;
+        signal::kill(Pid::from_raw(self.pid as i32), nix_signal).map_err(|e| {
+            HalError::process_error(
+                "signal",
+                Some(self.pid),
+                &format!("Failed to send signal {} to process: {}", signal, e),
+            )
+        })?;
 
         Ok(())
     }
@@ -329,7 +334,7 @@ impl ProcessHandle {
         // Update process status and resource usage
         // This is a simplified implementation - real implementation would
         // query system for actual process information
-        
+
         if let Ok(Some(exit_status)) = self.try_wait() {
             self.info.status = if let Some(code) = exit_status.code() {
                 ProcessStatus::Exited(code)
@@ -389,7 +394,7 @@ impl ProcessManager {
     {
         let mut command = Command::new(program.as_ref());
         command.args(args);
-        
+
         let child = match command.spawn() {
             Ok(child) => child,
             Err(e) => {
@@ -398,8 +403,9 @@ impl ProcessManager {
         };
 
         let pid = child.id();
-        let command_line = format!("{} {}", 
-            program, 
+        let command_line = format!(
+            "{} {}",
+            program,
             args.iter()
                 .map(|s| s.as_ref().to_string_lossy())
                 .collect::<Vec<_>>()
@@ -422,7 +428,9 @@ impl ProcessManager {
 
         // Store the process handle
         {
-            let mut processes = self.processes.lock()
+            let mut processes = self
+                .processes
+                .lock()
                 .map_err(|_| HalError::resource_error("Process map lock poisoned"))?;
             processes.insert(pid, _handle);
         }
@@ -444,11 +452,14 @@ impl ProcessManager {
         //    does not hold any mutex or pointer into the map, avoiding lifetime hazards.
         // 5) The monitor-only handle still exposes `kill()`/`wait()`, but they return
         //    errors because `child=None`. This is intentional to uphold (1)–(3).
-        let processes = self.processes.lock()
+        let processes = self
+            .processes
+            .lock()
             .map_err(|_| HalError::resource_error("Process map lock poisoned"))?;
-        let handle = processes.get(&pid)
-            .ok_or_else(|| HalError::process_error("get_process", None, "Process handle disappeared"))?;
-        
+        let handle = processes.get(&pid).ok_or_else(|| {
+            HalError::process_error("get_process", None, "Process handle disappeared")
+        })?;
+
         // Create a new handle with the same PID and info, but without child process access
         // to prevent resource conflicts while maintaining process identification.
         let new_handle = ProcessHandle::new_from_existing(handle.pid, handle.info.clone())?;
@@ -484,12 +495,16 @@ impl ProcessManager {
             command.stderr(stderr);
         }
 
-        let child = command.spawn()
-            .map_err(|e| HalError::process_error("spawn", None, &format!("Failed to spawn process: {e}")))?;
+        let child = command.spawn().map_err(|e| {
+            HalError::process_error("spawn", None, &format!("Failed to spawn process: {e}"))
+        })?;
 
-        let command_line = format!("{} {}", 
+        let command_line = format!(
+            "{} {}",
             config.program.as_ref().to_string_lossy(),
-            config.args.iter()
+            config
+                .args
+                .iter()
                 .map(|s| s.as_ref().to_string_lossy())
                 .collect::<Vec<_>>()
                 .join(" ")
@@ -503,39 +518,54 @@ impl ProcessManager {
 
     /// Get process information by PID
     pub fn get_process_info(&self, pid: ProcessId) -> HalResult<Option<ProcessInfo>> {
-        let processes = self.processes.lock()
+        let processes = self
+            .processes
+            .lock()
             .map_err(|_| HalError::resource_error("Process map lock poisoned"))?;
-        
+
         Ok(processes.get(&pid).map(|handle| handle.info().clone()))
     }
 
     /// List all managed processes
     pub fn list_processes(&self) -> HalResult<Vec<ProcessInfo>> {
-        let processes = self.processes.lock()
+        let processes = self
+            .processes
+            .lock()
             .map_err(|_| HalError::resource_error("Process map lock poisoned"))?;
-        
-        Ok(processes.values().map(|handle| handle.info().clone()).collect())
+
+        Ok(processes
+            .values()
+            .map(|handle| handle.info().clone())
+            .collect())
     }
 
     /// Kill a process by PID
     pub fn kill_process(&mut self, pid: ProcessId) -> HalResult<()> {
-        let mut processes = self.processes.lock()
+        let mut processes = self
+            .processes
+            .lock()
             .map_err(|_| HalError::resource_error("Process map lock poisoned"))?;
-        
+
         if let Some(handle) = processes.get_mut(&pid) {
             handle.kill()?;
             self.stats.processes_killed += 1;
             Ok(())
         } else {
-            Err(HalError::process_error("get_process", Some(pid), &format!("Process {pid} not found")))
+            Err(HalError::process_error(
+                "get_process",
+                Some(pid),
+                &format!("Process {pid} not found"),
+            ))
         }
     }
 
     /// Wait for a process to complete
     pub fn wait_for_process(&mut self, pid: ProcessId) -> HalResult<Option<ExitStatus>> {
-        let mut processes = self.processes.lock()
+        let mut processes = self
+            .processes
+            .lock()
             .map_err(|_| HalError::resource_error("Process map lock poisoned"))?;
-        
+
         if let Some(handle) = processes.get_mut(&pid) {
             let status = handle.wait()?;
             self.stats.processes_completed += 1;
@@ -547,21 +577,23 @@ impl ProcessManager {
 
     /// Clean up finished processes
     pub fn cleanup_finished(&mut self) -> HalResult<()> {
-        let mut processes = self.processes.lock()
+        let mut processes = self
+            .processes
+            .lock()
             .map_err(|_| HalError::resource_error("Process map lock poisoned"))?;
-        
+
         let mut to_remove = Vec::new();
-        
+
         for (pid, handle) in processes.iter_mut() {
             if let Ok(Some(_)) = handle.try_wait() {
                 to_remove.push(*pid);
             }
         }
-        
+
         for pid in to_remove {
             processes.remove(&pid);
         }
-        
+
         Ok(())
     }
 
@@ -584,8 +616,13 @@ impl ProcessManager {
         let nix_signal = Signal::try_from(signal)
             .map_err(|e| HalError::invalid_input(&format!("Invalid signal: {}", e)))?;
 
-        signal::killpg(Pid::from_raw(pgid as i32), nix_signal)
-            .map_err(|e| HalError::process_error("killpg", Some(pgid), &format!("Failed to send signal to process group: {}", e)))
+        signal::killpg(Pid::from_raw(pgid as i32), nix_signal).map_err(|e| {
+            HalError::process_error(
+                "killpg",
+                Some(pgid),
+                &format!("Failed to send signal to process group: {}", e),
+            )
+        })
     }
 
     /// Get system process information (all processes)
@@ -726,7 +763,7 @@ mod tests {
             .arg("hello")
             .arg("world")
             .env("TEST", "value");
-        
+
         assert_eq!(config.args.len(), 2);
         assert_eq!(config.env.get("TEST"), Some(&"value".to_string()));
     }
@@ -737,8 +774,8 @@ mod tests {
 mod process_handle_tests {
     use super::*;
     use std::process::Command;
-    use std::time::Duration;
     use std::thread;
+    use std::time::Duration;
 
     /// Helper function to create a test process that runs for a short duration
     fn create_test_process(duration_ms: u64) -> Result<ProcessHandle, Box<dyn std::error::Error>> {
@@ -758,7 +795,8 @@ mod process_handle_tests {
             c
         };
 
-        let child = cmd.spawn()
+        let child = cmd
+            .spawn()
             .map_err(|e| format!("Failed to spawn test process: {e}"))?;
         Ok(ProcessHandle::new(child, command_str))
     }
@@ -781,7 +819,8 @@ mod process_handle_tests {
             c
         };
 
-        let child = cmd.spawn()
+        let child = cmd
+            .spawn()
             .map_err(|e| format!("Failed to spawn long-running process: {e}"))?;
         Ok(ProcessHandle::new(child, command_str))
     }
@@ -795,12 +834,15 @@ mod process_handle_tests {
                 return;
             }
         };
-        
+
         // Verify basic properties
         assert!(handle.pid() > 0);
         assert_eq!(handle.info().pid, handle.pid());
         assert_eq!(handle.info().status, ProcessStatus::Running);
-        assert!(handle.info().command_line.contains("sleep") || handle.info().command_line.contains("ping"));
+        assert!(
+            handle.info().command_line.contains("sleep")
+                || handle.info().command_line.contains("ping")
+        );
     }
 
     #[test]
@@ -812,7 +854,7 @@ mod process_handle_tests {
                 return;
             }
         };
-        
+
         // Process should still be running
         match handle.try_wait() {
             Ok(None) => {
@@ -830,7 +872,7 @@ mod process_handle_tests {
                 return;
             }
         }
-        
+
         // Clean up
         let _ = handle.kill();
         let _ = handle.try_wait();
@@ -845,16 +887,16 @@ mod process_handle_tests {
                 return;
             }
         };
-        
+
         // Wait for process to complete
         thread::sleep(Duration::from_millis(200));
-        
+
         // Process should have completed
         match handle.try_wait() {
             Ok(Some(exit_status)) => {
                 // Verify exit status properties
                 assert!(exit_status.success() || !exit_status.success()); // Just verify it's a valid status
-                
+
                 // Status should be updated
                 match handle.info().status {
                     ProcessStatus::Exited(_) => {
@@ -864,7 +906,10 @@ mod process_handle_tests {
                         // Also acceptable on some platforms
                     }
                     _ => {
-                        eprintln!("Warning: Unexpected process status after completion: {:?}", handle.info().status);
+                        eprintln!(
+                            "Warning: Unexpected process status after completion: {:?}",
+                            handle.info().status
+                        );
                         // Skip validation if status is unexpected
                     }
                 }
@@ -898,17 +943,17 @@ mod process_handle_tests {
                 return;
             }
         };
-        
+
         // wait() should block until completion
         let start = std::time::Instant::now();
         match handle.wait() {
             Ok(_exit_status) => {
                 let elapsed = start.elapsed();
-                
+
                 // Should have taken at least some time
                 // Windows 環境などで最小スリープ粒度が粗い/高速終了するケースを考慮し閾値を緩和
                 assert!(elapsed >= Duration::from_millis(20));
-                
+
                 // Status should be updated
                 match handle.info().status {
                     ProcessStatus::Exited(_) => {
@@ -918,11 +963,14 @@ mod process_handle_tests {
                         // Also acceptable on some platforms
                     }
                     _ => {
-                        eprintln!("Warning: Unexpected process status after wait: {:?}", handle.info().status);
-                        // Skip validation if status is unexpected  
+                        eprintln!(
+                            "Warning: Unexpected process status after wait: {:?}",
+                            handle.info().status
+                        );
+                        // Skip validation if status is unexpected
                     }
                 }
-                
+
                 // Subsequent operations should fail since process is done
                 assert!(handle.wait().is_err());
                 assert!(handle.kill().is_err());
@@ -943,19 +991,19 @@ mod process_handle_tests {
                 return;
             }
         };
-        
+
         // Kill the process
         if let Err(e) = handle.kill() {
             eprintln!("Warning: Failed to kill process: {e}");
             return;
         }
-        
+
         // Process should be marked as killed
         assert_eq!(handle.info().status, ProcessStatus::Signaled(9));
-        
+
         // Wait for the process to actually die
         thread::sleep(Duration::from_millis(100));
-        
+
         // try_wait should reflect that the process is dead
         match handle.try_wait() {
             Ok(Some(_)) => {
@@ -979,7 +1027,7 @@ mod process_handle_tests {
                 // This is also acceptable
             }
         }
-        
+
         // Subsequent kill should fail
         assert!(handle.kill().is_err());
     }
@@ -990,11 +1038,14 @@ mod process_handle_tests {
         let handle = match create_long_running_process() {
             Ok(h) => h,
             Err(e) => {
-                eprintln!("Skipping test: Failed to create long-running process: {}", e);
+                eprintln!(
+                    "Skipping test: Failed to create long-running process: {}",
+                    e
+                );
                 return;
             }
         };
-        
+
         // Test valid signal
         if let Err(e) = handle.signal(15) {
             eprintln!("Warning: Failed to send SIGTERM: {}", e);
@@ -1002,10 +1053,10 @@ mod process_handle_tests {
             let _ = handle.signal(9); // SIGKILL
             return;
         }
-        
+
         // Test invalid signal
         assert!(handle.signal(999).is_err());
-        
+
         // Clean up
         let _ = handle.signal(9); // SIGKILL
         thread::sleep(Duration::from_millis(100));
@@ -1020,14 +1071,14 @@ mod process_handle_tests {
                 return;
             }
         };
-        
+
         // Wait for process to complete
         let _ = handle.wait();
-        
+
         // All operations on completed process should fail
         assert!(handle.wait().is_err());
         assert!(handle.kill().is_err());
-        
+
         // try_wait on completed process should return None
         match handle.try_wait() {
             Ok(None) => {
@@ -1041,4 +1092,4 @@ mod process_handle_tests {
             }
         }
     }
-} 
+}

@@ -3,9 +3,9 @@
 //! This module provides abstractions for command execution across different platforms.
 
 use crate::error::{HalError, HalResult};
-use std::process::{Command as StdCommand, Stdio, ExitStatus};
 use std::ffi::OsStr;
 use std::path::Path;
+use std::process::{Command as StdCommand, ExitStatus, Stdio};
 
 /// Command builder and executor
 pub struct Command {
@@ -72,35 +72,38 @@ impl Command {
 
     /// Execute the command and wait for completion
     pub fn status(&mut self) -> HalResult<ExitStatus> {
-        self.inner.status()
-            .map_err(|e| HalError::Io(crate::error::IoError {
+        self.inner.status().map_err(|e| {
+            HalError::Io(crate::error::IoError {
                 operation: "status".to_string(),
                 path: None,
                 kind: e.kind(),
                 message: e.to_string(),
-            }))
+            })
+        })
     }
 
     /// Execute the command and capture output
     pub fn output(&mut self) -> HalResult<std::process::Output> {
-        self.inner.output()
-            .map_err(|e| HalError::Io(crate::error::IoError {
+        self.inner.output().map_err(|e| {
+            HalError::Io(crate::error::IoError {
                 operation: "output".to_string(),
                 path: None,
                 kind: e.kind(),
                 message: e.to_string(),
-            }))
+            })
+        })
     }
 
     /// Spawn the command without waiting
     pub fn spawn(&mut self) -> HalResult<std::process::Child> {
-        self.inner.spawn()
-            .map_err(|e| HalError::Io(crate::error::IoError {
+        self.inner.spawn().map_err(|e| {
+            HalError::Io(crate::error::IoError {
                 operation: "spawn".to_string(),
                 path: None,
                 kind: e.kind(),
                 message: e.to_string(),
-            }))
+            })
+        })
     }
 }
 
@@ -150,19 +153,19 @@ where
     S: AsRef<OsStr>,
 {
     let program_str = program.as_ref().to_string_lossy();
-    
+
     // Security validation: Check for potentially dangerous command patterns
     if !is_safe_command(&program_str) {
         return Err(HalError::process_error(
-            "execute", 
-            None, 
-            &format!("Unsafe command detected: {program_str}")
+            "execute",
+            None,
+            &format!("Unsafe command detected: {program_str}"),
         ));
     }
-    
+
     // Convert args to Vec for validation
     let args_vec: Vec<_> = args.into_iter().collect();
-    
+
     // Security validation: Check each argument
     for (i, arg) in args_vec.iter().enumerate() {
         let arg_str = arg.as_ref().to_string_lossy();
@@ -170,11 +173,11 @@ where
             return Err(HalError::process_error(
                 "execute",
                 None,
-                &format!("Unsafe argument {i} detected: {arg_str}")
+                &format!("Unsafe argument {i} detected: {arg_str}"),
             ));
         }
     }
-    
+
     let output = StdCommand::new(program)
         .args(args_vec)
         .output()
@@ -195,19 +198,19 @@ where
     S: AsRef<OsStr>,
 {
     let program_str = program.as_ref().to_string_lossy();
-    
+
     // Security validation: Check for potentially dangerous command patterns
     if !is_safe_command(&program_str) {
         return Err(HalError::process_error(
-            "execute_background", 
-            None, 
-            &format!("Unsafe command detected: {program_str}")
+            "execute_background",
+            None,
+            &format!("Unsafe command detected: {program_str}"),
         ));
     }
-    
+
     // Convert args to Vec for validation
     let args_vec: Vec<_> = args.into_iter().collect();
-    
+
     // Security validation: Check each argument
     for (i, arg) in args_vec.iter().enumerate() {
         let arg_str = arg.as_ref().to_string_lossy();
@@ -215,11 +218,11 @@ where
             return Err(HalError::process_error(
                 "execute_background",
                 None,
-                &format!("Unsafe argument {i} detected: {arg_str}")
+                &format!("Unsafe argument {i} detected: {arg_str}"),
             ));
         }
     }
-    
+
     StdCommand::new(program)
         .args(args_vec)
         .spawn()
@@ -233,25 +236,29 @@ fn is_safe_command(command: &str) -> bool {
     if command.trim().is_empty() {
         return false;
     }
-    
+
     // Reject commands with dangerous characters that could indicate injection
-    let dangerous_chars = [';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>', '\n', '\r'];
+    let dangerous_chars = [
+        ';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>', '\n', '\r',
+    ];
     if command.chars().any(|c| dangerous_chars.contains(&c)) {
         return false;
     }
-    
+
     // Reject path traversal attempts
     if command.contains("..") {
         return false;
     }
-    
+
     // Reject commands that try to modify the environment maliciously
     if command.starts_with("LD_PRELOAD=") || command.starts_with("DYLD_") {
         return false;
     }
-    
+
     // Allow only alphanumeric characters, hyphens, underscores, dots, and forward slashes for paths
-    command.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '/' || c == '\\')
+    command
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '/' || c == '\\')
 }
 
 /// Validate that a command argument is safe
@@ -261,25 +268,25 @@ fn is_safe_argument(arg: &str) -> bool {
     if arg.is_empty() {
         return true;
     }
-    
+
     // Check for null bytes (not allowed in arguments)
     if arg.contains('\0') {
         return false;
     }
-    
+
     // For simplicity, we allow most characters in arguments since they're properly escaped
     // by the Command API, but we still check for particularly dangerous patterns
-    
+
     // Reject arguments that look like they're trying to execute commands
     if arg.starts_with("$(") || arg.starts_with("`") {
         return false;
     }
-    
+
     // Reject arguments that try to redirect or pipe
     if arg.contains(" > ") || arg.contains(" < ") || arg.contains(" | ") {
         return false;
     }
-    
+
     // Arguments are generally safe when passed through Command API
     true
 }
@@ -287,7 +294,7 @@ fn is_safe_argument(arg: &str) -> bool {
 /// Check if a command exists in PATH
 pub fn command_exists<S: AsRef<OsStr>>(command: S) -> bool {
     let command_str = command.as_ref().to_string_lossy();
-    
+
     #[cfg(windows)]
     {
         // On Windows, try both with and without .exe extension
@@ -296,12 +303,9 @@ pub fn command_exists<S: AsRef<OsStr>>(command: S) -> bool {
         } else {
             vec![command_str.to_string(), format!("{}.exe", command_str)]
         };
-        
+
         for cmd in commands {
-            if let Ok(output) = StdCommand::new("where")
-                .arg(&cmd)
-                .output()
-            {
+            if let Ok(output) = StdCommand::new("where").arg(&cmd).output() {
                 if output.status.success() {
                     return true;
                 }
@@ -309,13 +313,10 @@ pub fn command_exists<S: AsRef<OsStr>>(command: S) -> bool {
         }
         false
     }
-    
+
     #[cfg(not(windows))]
     {
-        if let Ok(output) = StdCommand::new("which")
-            .arg(command)
-            .output()
-        {
+        if let Ok(output) = StdCommand::new("which").arg(command).output() {
             output.status.success()
         } else {
             false

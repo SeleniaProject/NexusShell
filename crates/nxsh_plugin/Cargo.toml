@@ -34,7 +34,7 @@ full = [
 minimal = ["async-support"]
 
 # Security-focused build with verification but no remote capabilities
-secure = ["native-plugins", "crypto-verification", "plugin-management"]
+secure = ["native-plugins", "crypto-verification", "plugin-management", "async-support"]
 
 # Development build with hot-reload but no remote capabilities
 dev = ["native-plugins", "plugin-management", "hot-reload", "async-support"]

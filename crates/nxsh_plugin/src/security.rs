@@ -1,9 +1,9 @@
 //! Capability-based security system for NexusShell plugins
-//! 
+//!
 //! This module provides a comprehensive security framework with capability-based
 //! access control, sandboxing, and policy enforcement for WASI plugins.
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -13,7 +13,7 @@ use std::{
 #[cfg(feature = "async-support")]
 use tokio::sync::RwLock;
 
-use crate::{PluginMetadata, PluginError, PluginResult};
+use crate::{PluginError, PluginMetadata, PluginResult};
 
 /// Security context for WASM plugin execution
 #[derive(Debug, Clone)]
@@ -57,7 +57,7 @@ impl Default for SecurityContext {
         Self {
             allowed_functions: HashSet::new(),
             max_memory: 16 * 1024 * 1024, // 16MB
-            max_execution_time: 5000, // 5 seconds
+            max_execution_time: 5000,     // 5 seconds
             network_access: NetworkPolicy::None,
             filesystem_access: FilesystemPolicy::None,
         }
@@ -74,7 +74,7 @@ impl SecurityContext {
     pub fn restrictive() -> Self {
         Self {
             allowed_functions: HashSet::new(),
-            max_memory: 1024 * 1024, // 1MB
+            max_memory: 1024 * 1024,  // 1MB
             max_execution_time: 1000, // 1 second
             network_access: NetworkPolicy::None,
             filesystem_access: FilesystemPolicy::None,
@@ -96,7 +96,7 @@ impl SecurityContext {
         Self {
             allowed_functions,
             max_memory: 64 * 1024 * 1024, // 64MB
-            max_execution_time: 30000, // 30 seconds
+            max_execution_time: 30000,    // 30 seconds
             network_access: NetworkPolicy::Limited(HashSet::new()),
             filesystem_access: FilesystemPolicy::ReadOnly(HashSet::new()),
         }
@@ -134,7 +134,9 @@ impl SecurityContext {
             FilesystemPolicy::ReadOnly(allowed_paths) => {
                 if write {
                     Err(anyhow!("Write access denied"))
-                } else if allowed_paths.is_empty() || allowed_paths.iter().any(|p| path.starts_with(p)) {
+                } else if allowed_paths.is_empty()
+                    || allowed_paths.iter().any(|p| path.starts_with(p))
+                {
                     Ok(())
                 } else {
                     Err(anyhow!("Access to path '{}' denied", path))
@@ -171,13 +173,13 @@ impl CapabilityManager {
     /// Initialize the capability manager
     pub async fn initialize(&mut self) -> Result<()> {
         log::info!("Initializing capability-based security manager");
-        
+
         // Load default capabilities
         self.load_default_capabilities().await?;
-        
+
         // Load security policies
         self.load_security_policies().await?;
-        
+
         log::info!("Capability manager initialized successfully");
         Ok(())
     }
@@ -185,7 +187,7 @@ impl CapabilityManager {
     /// Load default capabilities
     async fn load_default_capabilities(&self) -> Result<()> {
         let mut capabilities = self.capabilities.write().await;
-        
+
         // File system capabilities
         capabilities.register_capability(Capability {
             name: "filesystem.read".to_string(),
@@ -286,16 +288,16 @@ impl CapabilityManager {
     async fn load_security_policies(&self) -> Result<()> {
         // In a real implementation, this would load from configuration files
         let mut policies = self.policies.write().await;
-        
+
         // Default restrictive policy
         policies.insert("default".to_string(), SecurityPolicy::restrictive());
-        
+
         // Trusted policy for verified plugins
         policies.insert("trusted".to_string(), SecurityPolicy::trusted());
-        
+
         // Development policy for testing
         policies.insert("development".to_string(), SecurityPolicy::development());
-        
+
         Ok(())
     }
 
@@ -304,39 +306,46 @@ impl CapabilityManager {
         log::debug!("Validating capabilities for plugin: {}", metadata.name);
 
         let capabilities = self.capabilities.read().await;
-        
+
         for capability_name in &metadata.capabilities {
             // Check if capability exists
             if !capabilities.has_capability(capability_name) {
-                return Err(PluginError::ValidationFailed(
-                    format!("Unknown capability: {capability_name}")
-                ));
+                return Err(PluginError::ValidationFailed(format!(
+                    "Unknown capability: {capability_name}"
+                )));
             }
 
             // Check if capability is allowed by policy
             let policy = self.get_policy_for_plugin(metadata).await;
             if !policy.allows_capability(capability_name) {
-                return Err(PluginError::CapabilityDenied(
-                    format!("Capability {capability_name} denied by policy")
-                ));
+                return Err(PluginError::CapabilityDenied(format!(
+                    "Capability {capability_name} denied by policy"
+                )));
             }
 
             // Check risk level
             if let Some(capability) = capabilities.get_capability(capability_name) {
                 if !policy.allows_risk_level(capability.risk_level) {
-                    return Err(PluginError::CapabilityDenied(
-                        format!("Capability {capability_name} risk level too high")
-                    ));
+                    return Err(PluginError::CapabilityDenied(format!(
+                        "Capability {capability_name} risk level too high"
+                    )));
                 }
             }
         }
 
-        log::debug!("Plugin {} capabilities validated successfully", metadata.name);
+        log::debug!(
+            "Plugin {} capabilities validated successfully",
+            metadata.name
+        );
         Ok(())
     }
 
     /// Check if a plugin has permission to execute a specific function
-    pub async fn check_capability_permission(&self, plugin_id: &str, function: &str) -> PluginResult<()> {
+    pub async fn check_capability_permission(
+        &self,
+        plugin_id: &str,
+        function: &str,
+    ) -> PluginResult<()> {
         // In a real implementation, this would check function-specific permissions
         // For now, allow all executions for loaded plugins
         log::debug!("Checking execution permission for {plugin_id}::{function}");
@@ -346,14 +355,23 @@ impl CapabilityManager {
     /// Get security policy for a plugin
     async fn get_policy_for_plugin(&self, metadata: &PluginMetadata) -> SecurityPolicy {
         let policies = self.policies.read().await;
-        
+
         // Determine policy based on plugin characteristics
         if self.is_trusted_plugin(metadata) {
-            policies.get("trusted").cloned().unwrap_or_else(|| self.default_policy.clone())
+            policies
+                .get("trusted")
+                .cloned()
+                .unwrap_or_else(|| self.default_policy.clone())
         } else if self.is_development_plugin(metadata) {
-            policies.get("development").cloned().unwrap_or_else(|| self.default_policy.clone())
+            policies
+                .get("development")
+                .cloned()
+                .unwrap_or_else(|| self.default_policy.clone())
         } else {
-            policies.get("default").cloned().unwrap_or_else(|| self.default_policy.clone())
+            policies
+                .get("default")
+                .cloned()
+                .unwrap_or_else(|| self.default_policy.clone())
         }
     }
 
@@ -365,11 +383,17 @@ impl CapabilityManager {
 
     /// Check if a plugin is in development mode
     fn is_development_plugin(&self, metadata: &PluginMetadata) -> bool {
-        metadata.version.contains("dev") || metadata.version.contains("alpha") || metadata.version.contains("beta")
+        metadata.version.contains("dev")
+            || metadata.version.contains("alpha")
+            || metadata.version.contains("beta")
     }
 
     /// Create a sandbox context for a plugin
-    pub async fn create_sandbox_context(&self, plugin_id: &str, metadata: &PluginMetadata) -> Result<SandboxContext> {
+    pub async fn create_sandbox_context(
+        &self,
+        plugin_id: &str,
+        metadata: &PluginMetadata,
+    ) -> Result<SandboxContext> {
         log::debug!("Creating sandbox context for plugin: {plugin_id}");
 
         let policy = self.get_policy_for_plugin(metadata).await;
@@ -461,9 +485,13 @@ impl SecurityPolicy {
             name: "Restrictive".to_string(),
             description: "Highly restrictive policy for untrusted plugins".to_string(),
             allowed_capabilities: ["system.time", "system.random", "env.read"]
-                .iter().map(|s| s.to_string()).collect(),
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
             denied_capabilities: ["process.spawn", "process.signal", "network.listen"]
-                .iter().map(|s| s.to_string()).collect(),
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
             max_risk_level: RiskLevel::Medium,
             max_memory_bytes: 32 * 1024 * 1024, // 32MB
             max_cpu_time_seconds: 10,
@@ -525,7 +553,7 @@ impl SecurityPolicy {
         if self.denied_capabilities.contains(capability) {
             return false;
         }
-        
+
         if self.allowed_capabilities.is_empty() {
             true // Allow all if no specific allowlist
         } else {
@@ -561,7 +589,8 @@ impl CapabilityRegistry {
 
     /// Register a capability
     pub fn register_capability(&mut self, capability: Capability) {
-        self.capabilities.insert(capability.name.clone(), capability);
+        self.capabilities
+            .insert(capability.name.clone(), capability);
     }
 
     /// Check if a capability exists
@@ -586,7 +615,8 @@ impl CapabilityRegistry {
 
     /// Count capabilities by risk level
     pub fn count_by_risk_level(&self, risk_level: RiskLevel) -> usize {
-        self.capabilities.values()
+        self.capabilities
+            .values()
             .filter(|cap| cap.risk_level == risk_level)
             .count()
     }
@@ -636,9 +666,9 @@ impl SandboxContext {
     /// Check if a command can be executed
     pub fn can_execute_command(&self, _command: &str) -> bool {
         // Basic implementation - check if execution capability is allowed
-        self.allowed_capabilities.iter().any(|cap| {
-            cap.name == "execution" || cap.name.contains("execute")
-        })
+        self.allowed_capabilities
+            .iter()
+            .any(|cap| cap.name == "execution" || cap.name.contains("execute"))
     }
 }
 
@@ -655,7 +685,7 @@ impl Default for ResourceLimits {
     fn default() -> Self {
         Self {
             max_memory: 64 * 1024 * 1024, // 64MB
-            max_cpu_time: 30, // 30 seconds
+            max_cpu_time: 30,             // 30 seconds
             max_file_descriptors: 20,
             max_network_connections: 5,
         }
@@ -687,7 +717,7 @@ mod tests {
     async fn test_capability_manager_initialization() {
         let mut manager = CapabilityManager::new();
         manager.initialize().await.unwrap();
-        
+
         let stats = manager.get_statistics().await;
         assert!(stats.total_capabilities > 0);
         assert!(stats.total_policies > 0);
@@ -713,7 +743,7 @@ mod tests {
     #[test]
     fn test_capability_allows() {
         let policy = SecurityPolicy::restrictive();
-        
+
         assert!(policy.allows_capability("system.time"));
         assert!(policy.allows_capability("env.read"));
         assert!(!policy.allows_capability("process.spawn"));
@@ -730,7 +760,7 @@ mod tests {
     #[test]
     fn test_capability_registry() {
         let mut registry = CapabilityRegistry::new();
-        
+
         let capability = Capability {
             name: "test.capability".to_string(),
             description: "Test capability".to_string(),
@@ -740,9 +770,12 @@ mod tests {
         };
 
         registry.register_capability(capability.clone());
-        
+
         assert!(registry.has_capability("test.capability"));
-        assert_eq!(registry.get_capability("test.capability"), Some(&capability));
+        assert_eq!(
+            registry.get_capability("test.capability"),
+            Some(&capability)
+        );
         assert_eq!(registry.count(), 1);
     }
 
@@ -768,7 +801,10 @@ mod tests {
             max_nexus_version: None,
         };
 
-        assert!(manager.validate_plugin_security(&valid_metadata).await.is_ok());
+        assert!(manager
+            .validate_plugin_security(&valid_metadata)
+            .await
+            .is_ok());
 
         let invalid_metadata = PluginMetadata {
             name: "test-plugin".to_string(),
@@ -787,6 +823,9 @@ mod tests {
             max_nexus_version: None,
         };
 
-        assert!(manager.validate_plugin_security(&invalid_metadata).await.is_err());
+        assert!(manager
+            .validate_plugin_security(&invalid_metadata)
+            .await
+            .is_err());
     }
-} 
+}

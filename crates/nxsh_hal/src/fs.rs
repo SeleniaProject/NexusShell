@@ -3,14 +3,14 @@
 //! This module provides a comprehensive, platform-agnostic interface to
 //! file system operations with optimizations for each supported platform.
 
+use std::ffi::OsString;
 use std::fs::{self, File, Permissions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::ffi::OsString;
 use std::time::SystemTime;
 
 use crate::error::{HalError, HalResult};
-use crate::platform::{Platform, Capabilities};
+use crate::platform::{Capabilities, Platform};
 
 /// High-level file system interface
 #[derive(Debug)]
@@ -31,18 +31,19 @@ impl FileSystem {
     /// Open a file with specified options
     pub fn open<P: AsRef<Path>>(&self, path: P, options: &HalOpenOptions) -> HalResult<FileHandle> {
         let path = path.as_ref();
-        
+
         // Validate path length
         if path.as_os_str().len() > self.capabilities.max_path_length {
             return Err(HalError::invalid(&format!(
-                "Path too long: {} > {}", 
-                path.as_os_str().len(), 
+                "Path too long: {} > {}",
+                path.as_os_str().len(),
                 self.capabilities.max_path_length
             )));
         }
 
-        let file = options.open(path)
-            .map_err(|e| HalError::io_error("open", Some(path.to_str().unwrap_or("<invalid>")), e))?;
+        let file = options.open(path).map_err(|e| {
+            HalError::io_error("open", Some(path.to_str().unwrap_or("<invalid>")), e)
+        })?;
 
         Ok(FileHandle::new(file, path.to_path_buf(), options.clone()))
     }
@@ -50,40 +51,51 @@ impl FileSystem {
     /// Create a directory with all parent directories
     pub fn create_dir_all<P: AsRef<Path>>(&self, path: P) -> HalResult<()> {
         let path = path.as_ref();
-        fs::create_dir_all(path)
-            .map_err(|e| HalError::io_error("create_dir_all", Some(path.to_str().unwrap_or("<invalid>")), e))?;
+        fs::create_dir_all(path).map_err(|e| {
+            HalError::io_error(
+                "create_dir_all",
+                Some(path.to_str().unwrap_or("<invalid>")),
+                e,
+            )
+        })?;
         Ok(())
     }
 
     /// Remove a file
     pub fn remove_file<P: AsRef<Path>>(&self, path: P) -> HalResult<()> {
         let path = path.as_ref();
-        fs::remove_file(path)
-            .map_err(|e| HalError::io_error("remove_file", Some(path.to_str().unwrap_or("<invalid>")), e))?;
+        fs::remove_file(path).map_err(|e| {
+            HalError::io_error("remove_file", Some(path.to_str().unwrap_or("<invalid>")), e)
+        })?;
         Ok(())
     }
 
     /// Remove a directory and all its contents
     pub fn remove_dir_all<P: AsRef<Path>>(&self, path: P) -> HalResult<()> {
         let path = path.as_ref();
-        fs::remove_dir_all(path)
-            .map_err(|e| HalError::io_error("remove_dir_all", Some(path.to_str().unwrap_or("<invalid>")), e))?;
+        fs::remove_dir_all(path).map_err(|e| {
+            HalError::io_error(
+                "remove_dir_all",
+                Some(path.to_str().unwrap_or("<invalid>")),
+                e,
+            )
+        })?;
         Ok(())
     }
 
     /// Copy a file with platform-specific optimizations
-    /// 
+    ///
     /// This method automatically selects the most efficient copying strategy
     /// available on the current platform:
     /// - Linux: copy_file_range -> sendfile -> generic
     /// - macOS: copyfile -> generic  
     /// - Windows: CopyFileEx -> generic
     /// - Other: generic implementation
-    /// 
+    ///
     /// # Arguments
     /// * `from` - Source file path
     /// * `to` - Destination file path
-    /// 
+    ///
     /// # Returns
     /// Number of bytes copied on success
     pub fn copy<P: AsRef<Path>, Q: AsRef<Path>>(&self, from: P, to: Q) -> HalResult<u64> {
@@ -92,14 +104,17 @@ impl FileSystem {
 
         // Validate inputs
         if !from.exists() {
-            return Err(HalError::io_error("copy", Some(from.to_str().unwrap_or("<invalid>")), 
-                std::io::Error::new(std::io::ErrorKind::NotFound, "Source file not found")));
+            return Err(HalError::io_error(
+                "copy",
+                Some(from.to_str().unwrap_or("<invalid>")),
+                std::io::Error::new(std::io::ErrorKind::NotFound, "Source file not found"),
+            ));
         }
 
         // Use platform-specific optimizations when available
         match self.platform {
             Platform::Linux => self.copy_linux(from, to),
-            Platform::MacOS => self.copy_macos(from, to), 
+            Platform::MacOS => self.copy_macos(from, to),
             Platform::Windows => self.copy_windows(from, to),
             _ => self.copy_generic(from, to),
         }
@@ -108,9 +123,10 @@ impl FileSystem {
     /// Get file metadata
     pub fn metadata<P: AsRef<Path>>(&self, path: P) -> HalResult<FileMetadata> {
         let path = path.as_ref();
-        let metadata = fs::metadata(path)
-            .map_err(|e| HalError::io_error("metadata", Some(path.to_str().unwrap_or("<invalid>")), e))?;
-        
+        let metadata = fs::metadata(path).map_err(|e| {
+            HalError::io_error("metadata", Some(path.to_str().unwrap_or("<invalid>")), e)
+        })?;
+
         Ok(FileMetadata::from_std(metadata, path))
     }
 
@@ -123,8 +139,13 @@ impl FileSystem {
     /// Get the canonical absolute path
     pub fn canonicalize<P: AsRef<Path>>(&self, path: P) -> HalResult<PathBuf> {
         let path = path.as_ref();
-        path.canonicalize()
-            .map_err(|e| HalError::io_error("canonicalize", Some(path.to_str().unwrap_or("<invalid>")), e))
+        path.canonicalize().map_err(|e| {
+            HalError::io_error(
+                "canonicalize",
+                Some(path.to_str().unwrap_or("<invalid>")),
+                e,
+            )
+        })
     }
 
     /// Create a hard link
@@ -133,11 +154,14 @@ impl FileSystem {
         let link = link.as_ref();
 
         if !self.capabilities.filesystem_feature("hard_links") {
-            return Err(HalError::unsupported("Hard links not supported on this platform"));
+            return Err(HalError::unsupported(
+                "Hard links not supported on this platform",
+            ));
         }
 
-        fs::hard_link(original, link)
-            .map_err(|e| HalError::io_error("hard_link", Some(link.to_str().unwrap_or("<invalid>")), e))?;
+        fs::hard_link(original, link).map_err(|e| {
+            HalError::io_error("hard_link", Some(link.to_str().unwrap_or("<invalid>")), e)
+        })?;
         Ok(())
     }
 
@@ -147,23 +171,32 @@ impl FileSystem {
         let link = link.as_ref();
 
         if !self.capabilities.filesystem_feature("symbolic_links") {
-            return Err(HalError::unsupported("Symbolic links not supported on this platform"));
+            return Err(HalError::unsupported(
+                "Symbolic links not supported on this platform",
+            ));
         }
 
         #[cfg(unix)]
         {
-            std::os::unix::fs::symlink(original, link)
-                .map_err(|e| HalError::io_error("symlink", Some(link.to_str().unwrap_or("<invalid>")), e))?;
+            std::os::unix::fs::symlink(original, link).map_err(|e| {
+                HalError::io_error("symlink", Some(link.to_str().unwrap_or("<invalid>")), e)
+            })?;
         }
 
         #[cfg(windows)]
         {
             if original.is_dir() {
-                std::os::windows::fs::symlink_dir(original, link)
-                    .map_err(|e| HalError::io_error("symlink_dir", Some(link.to_str().unwrap_or("<invalid>")), e))?;
+                std::os::windows::fs::symlink_dir(original, link).map_err(|e| {
+                    HalError::io_error("symlink_dir", Some(link.to_str().unwrap_or("<invalid>")), e)
+                })?;
             } else {
-                std::os::windows::fs::symlink_file(original, link)
-                    .map_err(|e| HalError::io_error("symlink_file", Some(link.to_str().unwrap_or("<invalid>")), e))?;
+                std::os::windows::fs::symlink_file(original, link).map_err(|e| {
+                    HalError::io_error(
+                        "symlink_file",
+                        Some(link.to_str().unwrap_or("<invalid>")),
+                        e,
+                    )
+                })?;
             }
         }
 
@@ -173,15 +206,25 @@ impl FileSystem {
     /// Read a symbolic link
     pub fn read_link<P: AsRef<Path>>(&self, path: P) -> HalResult<PathBuf> {
         let path = path.as_ref();
-        fs::read_link(path)
-            .map_err(|e| HalError::io_error("read_link", Some(path.to_str().unwrap_or("<invalid>")), e))
+        fs::read_link(path).map_err(|e| {
+            HalError::io_error("read_link", Some(path.to_str().unwrap_or("<invalid>")), e)
+        })
     }
 
     /// Set file permissions
-    pub fn set_permissions<P: AsRef<Path>>(&self, path: P, permissions: Permissions) -> HalResult<()> {
+    pub fn set_permissions<P: AsRef<Path>>(
+        &self,
+        path: P,
+        permissions: Permissions,
+    ) -> HalResult<()> {
         let path = path.as_ref();
-        fs::set_permissions(path, permissions)
-            .map_err(|e| HalError::io_error("set_permissions", Some(path.to_str().unwrap_or("<invalid>")), e))?;
+        fs::set_permissions(path, permissions).map_err(|e| {
+            HalError::io_error(
+                "set_permissions",
+                Some(path.to_str().unwrap_or("<invalid>")),
+                e,
+            )
+        })?;
         Ok(())
     }
 
@@ -189,32 +232,32 @@ impl FileSystem {
     pub fn rename<P: AsRef<Path>, Q: AsRef<Path>>(&self, from: P, to: Q) -> HalResult<()> {
         let from = from.as_ref();
         let to = to.as_ref();
-        fs::rename(from, to)
-            .map_err(|e| HalError::io_error("rename", Some(to.to_str().unwrap_or("<invalid>")), e))?;
+        fs::rename(from, to).map_err(|e| {
+            HalError::io_error("rename", Some(to.to_str().unwrap_or("<invalid>")), e)
+        })?;
         Ok(())
     }
 
     /// Get available disk space
     pub fn disk_usage<P: AsRef<Path>>(&self, path: P) -> HalResult<DiskUsage> {
         let path = path.as_ref();
-        
+
         #[cfg(unix)]
         {
             // Use nix crate for safe statvfs instead of direct libc calls
             use nix::sys::statvfs::statvfs;
-            
+
             match statvfs(path) {
-                Ok(stat) => {
-                    Ok(DiskUsage {
-                        total: stat.blocks() * stat.fragment_size(),
-                        free: stat.blocks_available() * stat.fragment_size(),
-                        available: stat.blocks_available() * stat.fragment_size(),
-                    })
-                }
-                Err(err) => {
-                    Err(HalError::io_error("statvfs", Some(path.to_str().unwrap_or("<invalid>")), 
-                                           io::Error::from(err)))
-                }
+                Ok(stat) => Ok(DiskUsage {
+                    total: stat.blocks() * stat.fragment_size(),
+                    free: stat.blocks_available() * stat.fragment_size(),
+                    available: stat.blocks_available() * stat.fragment_size(),
+                }),
+                Err(err) => Err(HalError::io_error(
+                    "statvfs",
+                    Some(path.to_str().unwrap_or("<invalid>")),
+                    io::Error::from(err),
+                )),
             }
         }
 
@@ -239,8 +282,11 @@ impl FileSystem {
             };
 
             if result == 0 {
-                return Err(HalError::io_error("GetDiskFreeSpaceExW", Some(path.to_str().unwrap_or("<invalid>")), 
-                                             io::Error::last_os_error()));
+                return Err(HalError::io_error(
+                    "GetDiskFreeSpaceExW",
+                    Some(path.to_str().unwrap_or("<invalid>")),
+                    io::Error::last_os_error(),
+                ));
             }
 
             Ok(DiskUsage {
@@ -252,7 +298,9 @@ impl FileSystem {
 
         #[cfg(not(any(unix, windows)))]
         {
-            Err(HalError::unsupported("Disk usage not supported on this platform"))
+            Err(HalError::unsupported(
+                "Disk usage not supported on this platform",
+            ))
         }
     }
 
@@ -328,45 +376,69 @@ impl FileSystem {
     }
 
     /// Generic file copy implementation with buffered I/O
-    /// 
+    ///
     /// This method provides a reliable fallback implementation that works
     /// on all platforms when platform-specific optimizations are not available.
     /// It uses buffered reading and writing for optimal performance.
     fn copy_generic(&self, from: &Path, to: &Path) -> HalResult<u64> {
         use std::io::{BufReader, BufWriter, Read, Write};
-        
+
         // Open source file for reading
-        let src_file = std::fs::File::open(from)
-            .map_err(|e| HalError::io_error("copy_generic_open_src", Some(from.to_str().unwrap_or("<invalid>")), e))?;
+        let src_file = std::fs::File::open(from).map_err(|e| {
+            HalError::io_error(
+                "copy_generic_open_src",
+                Some(from.to_str().unwrap_or("<invalid>")),
+                e,
+            )
+        })?;
         let mut src_reader = BufReader::new(src_file);
-        
+
         // Create destination file
-        let dst_file = std::fs::File::create(to)
-            .map_err(|e| HalError::io_error("copy_generic_create_dst", Some(to.to_str().unwrap_or("<invalid>")), e))?;
+        let dst_file = std::fs::File::create(to).map_err(|e| {
+            HalError::io_error(
+                "copy_generic_create_dst",
+                Some(to.to_str().unwrap_or("<invalid>")),
+                e,
+            )
+        })?;
         let mut dst_writer = BufWriter::new(dst_file);
-        
+
         // Copy data in chunks with proper error handling
         let mut buffer = vec![0u8; 64 * 1024]; // 64KB buffer for optimal performance
         let mut total_copied = 0u64;
-        
+
         loop {
             match src_reader.read(&mut buffer) {
                 Ok(0) => break, // End of file
                 Ok(bytes_read) => {
-                    dst_writer.write_all(&buffer[..bytes_read])
-                        .map_err(|e| HalError::io_error("copy_generic_write", Some(to.to_str().unwrap_or("<invalid>")), e))?;
+                    dst_writer.write_all(&buffer[..bytes_read]).map_err(|e| {
+                        HalError::io_error(
+                            "copy_generic_write",
+                            Some(to.to_str().unwrap_or("<invalid>")),
+                            e,
+                        )
+                    })?;
                     total_copied += bytes_read as u64;
                 }
                 Err(e) => {
-                    return Err(HalError::io_error("copy_generic_read", Some(from.to_str().unwrap_or("<invalid>")), e));
+                    return Err(HalError::io_error(
+                        "copy_generic_read",
+                        Some(from.to_str().unwrap_or("<invalid>")),
+                        e,
+                    ));
                 }
             }
         }
-        
+
         // Ensure all data is flushed to disk
-        dst_writer.flush()
-            .map_err(|e| HalError::io_error("copy_generic_flush", Some(to.to_str().unwrap_or("<invalid>")), e))?;
-        
+        dst_writer.flush().map_err(|e| {
+            HalError::io_error(
+                "copy_generic_flush",
+                Some(to.to_str().unwrap_or("<invalid>")),
+                e,
+            )
+        })?;
+
         Ok(total_copied)
     }
 
@@ -376,8 +448,13 @@ impl FileSystem {
     fn copy_with_copy_file_range(&self, from: &Path, to: &Path) -> HalResult<u64> {
         // Instead of using unsafe libc syscalls, use safe Rust standard library
         // This provides good performance while maintaining safety
-        let copied = std::fs::copy(from, to)
-            .map_err(|e| HalError::io_error("copy_file_safe", Some(to.to_str().unwrap_or("<invalid>")), e))?;
+        let copied = std::fs::copy(from, to).map_err(|e| {
+            HalError::io_error(
+                "copy_file_safe",
+                Some(to.to_str().unwrap_or("<invalid>")),
+                e,
+            )
+        })?;
         Ok(copied)
     }
 
@@ -386,8 +463,13 @@ impl FileSystem {
     fn copy_with_sendfile(&self, from: &Path, to: &Path) -> HalResult<u64> {
         // Instead of using unsafe libc sendfile, use safe Rust standard library
         // This provides good performance while maintaining safety
-        let copied = std::fs::copy(from, to)
-            .map_err(|e| HalError::io_error("copy_file_safe", Some(to.to_str().unwrap_or("<invalid>")), e))?;
+        let copied = std::fs::copy(from, to).map_err(|e| {
+            HalError::io_error(
+                "copy_file_safe",
+                Some(to.to_str().unwrap_or("<invalid>")),
+                e,
+            )
+        })?;
         Ok(copied)
     }
 
@@ -396,8 +478,13 @@ impl FileSystem {
     fn copy_with_copyfile(&self, from: &Path, to: &Path) -> HalResult<u64> {
         // Instead of using unsafe C copyfile, use safe Rust standard library
         // This provides good performance while maintaining safety and avoiding C dependencies
-        let copied = std::fs::copy(from, to)
-            .map_err(|e| HalError::io_error("copy_file_safe", Some(to.to_str().unwrap_or("<invalid>")), e))?;
+        let copied = std::fs::copy(from, to).map_err(|e| {
+            HalError::io_error(
+                "copy_file_safe",
+                Some(to.to_str().unwrap_or("<invalid>")),
+                e,
+            )
+        })?;
         Ok(copied)
     }
 
@@ -405,16 +492,16 @@ impl FileSystem {
     fn copy_with_copyfileex(&self, from: &Path, to: &Path) -> HalResult<u64> {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
-        use windows_sys::Win32::Storage::FileSystem::CopyFileExW;
         use windows_sys::Win32::Foundation::{BOOL, TRUE};
-        
+        use windows_sys::Win32::Storage::FileSystem::CopyFileExW;
+
         // CopyFileEx flags - fail if destination exists
         const COPY_FILE_FAIL_IF_EXISTS: u32 = 0x00000001;
-        
+
         // Convert paths to wide strings
         let from_wide: Vec<u16> = OsStr::new(from).encode_wide().chain(Some(0)).collect();
         let to_wide: Vec<u16> = OsStr::new(to).encode_wide().chain(Some(0)).collect();
-        
+
         // Use CopyFileEx for efficient copying with progress callback support
         let result: BOOL = unsafe {
             CopyFileExW(
@@ -426,22 +513,31 @@ impl FileSystem {
                 COPY_FILE_FAIL_IF_EXISTS,
             )
         };
-        
+
         if result != TRUE {
             let errno = std::io::Error::last_os_error();
-            return Err(HalError::io_error("CopyFileEx", Some(to.to_str().unwrap_or("<invalid>")), errno));
+            return Err(HalError::io_error(
+                "CopyFileEx",
+                Some(to.to_str().unwrap_or("<invalid>")),
+                errno,
+            ));
         }
-        
+
         // Get file size to return
-        let metadata = std::fs::metadata(from)
-            .map_err(|e| HalError::io_error("copyfileex_metadata", Some(from.to_str().unwrap_or("<invalid>")), e))?;
-        
+        let metadata = std::fs::metadata(from).map_err(|e| {
+            HalError::io_error(
+                "copyfileex_metadata",
+                Some(from.to_str().unwrap_or("<invalid>")),
+                e,
+            )
+        })?;
+
         Ok(metadata.len())
     }
 
     // Comprehensive cross-platform implementations for file operations
     // These provide fallback functionality when platform-specific optimizations are not available
-    
+
     #[cfg(not(target_os = "linux"))]
     #[allow(dead_code)]
     fn copy_with_copy_file_range(&self, from: &Path, to: &Path) -> HalResult<u64> {
@@ -492,7 +588,11 @@ pub struct FileHandle {
 
 impl FileHandle {
     fn new(file: fs::File, path: PathBuf, options: HalOpenOptions) -> Self {
-        Self { file, path, options }
+        Self {
+            file,
+            path,
+            options,
+        }
     }
 
     /// Get the file path
@@ -502,37 +602,66 @@ impl FileHandle {
 
     /// Get file metadata
     pub fn metadata(&self) -> HalResult<FileMetadata> {
-        let metadata = self.file.metadata()
-            .map_err(|e| HalError::io_error("metadata", Some(self.path.to_str().unwrap_or("<invalid>")), e))?;
+        let metadata = self.file.metadata().map_err(|e| {
+            HalError::io_error(
+                "metadata",
+                Some(self.path.to_str().unwrap_or("<invalid>")),
+                e,
+            )
+        })?;
         Ok(FileMetadata::from_std(metadata, &self.path))
     }
 
     /// Sync all data to disk
     pub fn sync_all(&mut self) -> HalResult<()> {
-        self.file.sync_all()
-            .map_err(|e| HalError::io_error("sync_all", Some(self.path.to_str().unwrap_or("<invalid>")), e))?;
+        self.file.sync_all().map_err(|e| {
+            HalError::io_error(
+                "sync_all",
+                Some(self.path.to_str().unwrap_or("<invalid>")),
+                e,
+            )
+        })?;
         Ok(())
     }
 
     /// Sync data (but not metadata) to disk
     pub fn sync_data(&mut self) -> HalResult<()> {
-        self.file.sync_data()
-            .map_err(|e| HalError::io_error("sync_data", Some(self.path.to_str().unwrap_or("<invalid>")), e))?;
+        self.file.sync_data().map_err(|e| {
+            HalError::io_error(
+                "sync_data",
+                Some(self.path.to_str().unwrap_or("<invalid>")),
+                e,
+            )
+        })?;
         Ok(())
     }
 
     /// Set file length
     pub fn set_len(&mut self, size: u64) -> HalResult<()> {
-        self.file.set_len(size)
-            .map_err(|e| HalError::io_error("set_len", Some(self.path.to_str().unwrap_or("<invalid>")), e))?;
+        self.file.set_len(size).map_err(|e| {
+            HalError::io_error(
+                "set_len",
+                Some(self.path.to_str().unwrap_or("<invalid>")),
+                e,
+            )
+        })?;
         Ok(())
     }
 
     /// Try to clone the file handle
     pub fn try_clone(&self) -> HalResult<FileHandle> {
-        let cloned_file = self.file.try_clone()
-            .map_err(|e| HalError::io_error("try_clone", Some(self.path.to_str().unwrap_or("<invalid>")), e))?;
-        Ok(FileHandle::new(cloned_file, self.path.clone(), self.options.clone()))
+        let cloned_file = self.file.try_clone().map_err(|e| {
+            HalError::io_error(
+                "try_clone",
+                Some(self.path.to_str().unwrap_or("<invalid>")),
+                e,
+            )
+        })?;
+        Ok(FileHandle::new(
+            cloned_file,
+            self.path.clone(),
+            self.options.clone(),
+        ))
     }
 }
 
@@ -573,13 +702,23 @@ impl DirectoryHandle {
     }
 
     pub fn read_dir(&self) -> HalResult<Vec<DirEntry>> {
-        let entries = fs::read_dir(&self.path)
-            .map_err(|e| HalError::io_error("read_dir", Some(self.path.to_str().unwrap_or("<invalid>")), e))?;
+        let entries = fs::read_dir(&self.path).map_err(|e| {
+            HalError::io_error(
+                "read_dir",
+                Some(self.path.to_str().unwrap_or("<invalid>")),
+                e,
+            )
+        })?;
 
         let mut result = Vec::new();
         for entry in entries {
-            let entry = entry
-                .map_err(|e| HalError::io_error("read_dir_entry", Some(self.path.to_str().unwrap_or("<invalid>")), e))?;
+            let entry = entry.map_err(|e| {
+                HalError::io_error(
+                    "read_dir_entry",
+                    Some(self.path.to_str().unwrap_or("<invalid>")),
+                    e,
+                )
+            })?;
             result.push(DirEntry::from_std(entry)?);
         }
 
@@ -732,8 +871,7 @@ impl FileType {
 }
 
 /// File opening options (renamed to avoid conflict with std::fs::OpenOptions)
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct HalOpenOptions {
     pub read: bool,
     pub write: bool,
@@ -746,7 +884,6 @@ pub struct HalOpenOptions {
     #[cfg(unix)]
     pub custom_flags: i32,
 }
-
 
 impl HalOpenOptions {
     pub fn new() -> Self {
@@ -864,7 +1001,8 @@ mod filesystem_copy_tests {
     /// Helper function to create a test file with specified content
     fn create_test_file(content: &[u8]) -> NamedTempFile {
         let mut file = NamedTempFile::new().expect("Failed to create temp file");
-        file.write_all(content).expect("Failed to write test content");
+        file.write_all(content)
+            .expect("Failed to write test content");
         file.flush().expect("Failed to flush test file");
         file
     }
@@ -878,16 +1016,17 @@ mod filesystem_copy_tests {
     fn test_copy_small_file() {
         let fs = setup_test_environment();
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        
+
         // Create source file with small content
         let content = b"Hello, World!";
         let src_file = create_test_file(content);
         let dst_path = temp_dir.path().join("copied.txt");
-        
+
         // Test copy operation
-        let bytes_copied = fs.copy(src_file.path(), &dst_path)
+        let bytes_copied = fs
+            .copy(src_file.path(), &dst_path)
             .expect("Failed to copy small file");
-        
+
         // Verify results
         assert_eq!(bytes_copied, content.len() as u64);
         assert!(dst_path.exists());
@@ -898,16 +1037,17 @@ mod filesystem_copy_tests {
     fn test_copy_large_file() {
         let fs = setup_test_environment();
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        
+
         // Create source file with large content (1MB)
         let content = vec![0x42u8; 1024 * 1024];
         let src_file = create_test_file(&content);
         let dst_path = temp_dir.path().join("large_copied.txt");
-        
+
         // Test copy operation
-        let bytes_copied = fs.copy(src_file.path(), &dst_path)
+        let bytes_copied = fs
+            .copy(src_file.path(), &dst_path)
             .expect("Failed to copy large file");
-        
+
         // Verify results
         assert_eq!(bytes_copied, content.len() as u64);
         assert!(dst_path.exists());
@@ -918,16 +1058,17 @@ mod filesystem_copy_tests {
     fn test_copy_empty_file() {
         let fs = setup_test_environment();
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        
+
         // Create empty source file
         let content = b"";
         let src_file = create_test_file(content);
         let dst_path = temp_dir.path().join("empty_copied.txt");
-        
+
         // Test copy operation
-        let bytes_copied = fs.copy(src_file.path(), &dst_path)
+        let bytes_copied = fs
+            .copy(src_file.path(), &dst_path)
             .expect("Failed to copy empty file");
-        
+
         // Verify results
         assert_eq!(bytes_copied, 0);
         assert!(dst_path.exists());
@@ -938,10 +1079,10 @@ mod filesystem_copy_tests {
     fn test_copy_nonexistent_source() {
         let fs = setup_test_environment();
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        
+
         let nonexistent = temp_dir.path().join("nonexistent.txt");
         let dst_path = temp_dir.path().join("destination.txt");
-        
+
         // Test copy operation should fail
         let result = fs.copy(&nonexistent, &dst_path);
         assert!(result.is_err());
@@ -952,17 +1093,18 @@ mod filesystem_copy_tests {
     fn test_copy_to_existing_file() {
         let fs = setup_test_environment();
         let _temp_dir = TempDir::new().expect("Failed to create temp dir");
-        
+
         // Create source and destination files
         let src_content = b"Source content";
         let dst_content = b"Destination content";
         let src_file = create_test_file(src_content);
         let dst_file = create_test_file(dst_content);
-        
+
         // Test copy operation (should overwrite)
-        let bytes_copied = fs.copy(src_file.path(), dst_file.path())
+        let bytes_copied = fs
+            .copy(src_file.path(), dst_file.path())
             .expect("Failed to copy over existing file");
-        
+
         // Verify results
         assert_eq!(bytes_copied, src_content.len() as u64);
         assert_eq!(read_file_content(dst_file.path()), src_content);
@@ -972,16 +1114,17 @@ mod filesystem_copy_tests {
     fn test_copy_binary_file() {
         let fs = setup_test_environment();
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        
+
         // Create binary content with various byte values
         let content: Vec<u8> = (0..=255).cycle().take(1000).collect();
         let src_file = create_test_file(&content);
         let dst_path = temp_dir.path().join("binary_copied.bin");
-        
+
         // Test copy operation
-        let bytes_copied = fs.copy(src_file.path(), &dst_path)
+        let bytes_copied = fs
+            .copy(src_file.path(), &dst_path)
             .expect("Failed to copy binary file");
-        
+
         // Verify results
         assert_eq!(bytes_copied, content.len() as u64);
         assert!(dst_path.exists());
@@ -992,16 +1135,17 @@ mod filesystem_copy_tests {
     fn test_copy_generic_implementation() {
         let fs = setup_test_environment();
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        
+
         // Create test file
         let content = b"Testing generic copy implementation";
         let src_file = create_test_file(content);
         let dst_path = temp_dir.path().join("generic_copied.txt");
-        
+
         // Test generic copy directly
-        let bytes_copied = fs.copy_generic(src_file.path(), &dst_path)
+        let bytes_copied = fs
+            .copy_generic(src_file.path(), &dst_path)
             .expect("Failed to use generic copy");
-        
+
         // Verify results
         assert_eq!(bytes_copied, content.len() as u64);
         assert!(dst_path.exists());
@@ -1012,20 +1156,21 @@ mod filesystem_copy_tests {
     fn test_copy_preserves_content_integrity() {
         let fs = setup_test_environment();
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        
+
         // Create file with specific pattern
         let mut content = Vec::new();
         for i in 0u32..1000 {
             content.extend_from_slice(&i.to_le_bytes());
         }
-        
+
         let src_file = create_test_file(&content);
         let dst_path = temp_dir.path().join("integrity_test.bin");
-        
+
         // Test copy operation
-        let bytes_copied = fs.copy(src_file.path(), &dst_path)
+        let bytes_copied = fs
+            .copy(src_file.path(), &dst_path)
             .expect("Failed to copy for integrity test");
-        
+
         // Verify exact content match
         assert_eq!(bytes_copied, content.len() as u64);
         let copied_content = read_file_content(&dst_path);
@@ -1037,18 +1182,19 @@ mod filesystem_copy_tests {
     fn test_copy_performance_multiple_files() {
         let fs = setup_test_environment();
         let _temp_dir = TempDir::new().expect("Failed to create temp dir");
-        
+
         // Create multiple test files
         let content = vec![0xAAu8; 1024]; // 1KB each
         let file_count = 10;
-        
+
         for i in 0..file_count {
             let src_file = create_test_file(&content);
             let dst_path = _temp_dir.path().join(format!("copy_{i}.txt"));
-            
-            let bytes_copied = fs.copy(src_file.path(), &dst_path)
+
+            let bytes_copied = fs
+                .copy(src_file.path(), &dst_path)
                 .expect("Failed to copy in performance test");
-            
+
             assert_eq!(bytes_copied, content.len() as u64);
             assert!(dst_path.exists());
         }
@@ -1058,24 +1204,25 @@ mod filesystem_copy_tests {
     fn test_copy_different_chunk_sizes() {
         let fs = setup_test_environment();
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        
+
         // Test files of different sizes to exercise different code paths
         let test_sizes = vec![
-            1,           // Single byte
-            63,          // Less than buffer size
-            64 * 1024,   // Exactly buffer size
+            1,             // Single byte
+            63,            // Less than buffer size
+            64 * 1024,     // Exactly buffer size
             64 * 1024 + 1, // More than buffer size
-            128 * 1024,  // Multiple buffer sizes
+            128 * 1024,    // Multiple buffer sizes
         ];
-        
+
         for size in test_sizes {
             let content = vec![0x55u8; size];
             let src_file = create_test_file(&content);
             let dst_path = temp_dir.path().join(format!("chunk_test_{size}.bin"));
-            
-            let bytes_copied = fs.copy(src_file.path(), &dst_path)
+
+            let bytes_copied = fs
+                .copy(src_file.path(), &dst_path)
                 .unwrap_or_else(|_| panic!("Failed to copy file of size {size}"));
-            
+
             assert_eq!(bytes_copied, size as u64);
             assert_eq!(read_file_content(&dst_path), content);
         }
@@ -1085,30 +1232,31 @@ mod filesystem_copy_tests {
     #[test]
     fn test_copy_preserves_metadata() {
         use std::os::unix::fs::PermissionsExt;
-        
+
         let fs = setup_test_environment();
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        
+
         // Create source file with specific permissions
         let content = b"Metadata test";
         let src_file = create_test_file(content);
         let src_path = src_file.path();
-        
+
         // Set specific permissions
         let mut perms = fs::metadata(src_path).unwrap().permissions();
         perms.set_mode(0o644);
         fs::set_permissions(src_path, perms).unwrap();
-        
+
         let dst_path = temp_dir.path().join("metadata_copied.txt");
-        
+
         // Copy file
-        fs.copy(src_path, &dst_path).expect("Failed to copy for metadata test");
-        
+        fs.copy(src_path, &dst_path)
+            .expect("Failed to copy for metadata test");
+
         // Verify content is preserved
         assert_eq!(read_file_content(&dst_path), content);
-        
+
         // Note: Basic copy doesn't necessarily preserve all metadata
         // This test mainly verifies that copy works without breaking permissions
         assert!(dst_path.exists());
     }
-} 
+}

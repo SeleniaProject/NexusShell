@@ -1,4 +1,6 @@
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
+use log::{debug, info};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -6,9 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::RwLock;
-use wasmi::{Engine, Linker, Module, Store, Caller, Val};
-use serde::{Deserialize, Serialize};
-use log::{info, debug};
+use wasmi::{Caller, Engine, Linker, Module, Store, Val};
 
 /// Pure Rust WASI context replacement - no C/C++ dependencies
 #[derive(Debug, Clone)]
@@ -52,14 +52,14 @@ impl AdvancedWasiRuntime {
         let config = WasiRuntimeConfig::default();
         let engine = Engine::default();
         let mut linker = Linker::new(&engine);
-        
+
         // Add WASI imports (simplified without wasi_common)
         // wasi_common::sync::add_to_linker(&mut linker, |s| s)
         //     .context("Failed to add WASI to linker")?;
-        
+
         // Add custom shell functions
         Self::add_shell_functions(&mut linker)?;
-        
+
         Ok(Self {
             engine,
             modules: Arc::new(RwLock::new(HashMap::new())),
@@ -74,57 +74,68 @@ impl AdvancedWasiRuntime {
     /// Load a WASM plugin from file
     pub async fn load_plugin(&self, path: &Path, plugin_id: &str) -> Result<PluginHandle> {
         let start_time = Instant::now();
-        
+
         info!("Loading WASM plugin: {plugin_id} from {path:?}");
-        
+
         // Security validation
         self.security_manager.validate_plugin_file(path).await?;
-        
+
         // Read WASM bytecode
-        let wasm_bytes = tokio::fs::read(path).await
+        let wasm_bytes = tokio::fs::read(path)
+            .await
             .context("Failed to read WASM file")?;
-        
+
         // Validate WASM module
-        let module = Module::new(&self.engine, &wasm_bytes)
-            .context("Failed to parse WASM module")?;
-        
+        let module =
+            Module::new(&self.engine, &wasm_bytes).context("Failed to parse WASM module")?;
+
         // Create WASI context with appropriate permissions
         let wasi_ctx = self.create_wasi_context(plugin_id).await?;
         let mut store = Store::new(&self.engine, wasi_ctx);
-        
+
         // Instantiate module
         let linker = self.linker.read().await;
-        let instance_pre = linker.instantiate(&mut store, &module)
+        let instance_pre = linker
+            .instantiate(&mut store, &module)
             .context("Failed to instantiate WASM module")?;
-        let instance = instance_pre.start(&mut store)
+        let instance = instance_pre
+            .start(&mut store)
             .context("Failed to start WASM instance")?;
-        
+
         drop(linker);
-        
+
         // Get plugin metadata
         let metadata = self.extract_plugin_metadata(&instance, &mut store).await?;
-        
-        // Don't store the store - only keep the instance and metadata  
+
+        // Don't store the store - only keep the instance and metadata
         let loaded_module = LoadedModule {
             instance,
             metadata: metadata.clone(),
             load_time: start_time.elapsed(),
         };
-        
+
         // Store module
         {
             let mut modules = self.modules.write().await;
             modules.insert(plugin_id.to_string(), loaded_module);
         }
-        
+
         // Update performance metrics
-        self.performance_monitor.record_load(plugin_id, start_time.elapsed()).await;
-        
+        self.performance_monitor
+            .record_load(plugin_id, start_time.elapsed())
+            .await;
+
         // Register with resource manager
-        self.resource_manager.register_plugin(plugin_id, &metadata).await?;
-        
-        info!("Successfully loaded plugin {} in {:?}", plugin_id, start_time.elapsed());
-        
+        self.resource_manager
+            .register_plugin(plugin_id, &metadata)
+            .await?;
+
+        info!(
+            "Successfully loaded plugin {} in {:?}",
+            plugin_id,
+            start_time.elapsed()
+        );
+
         Ok(PluginHandle {
             id: plugin_id.to_string(),
             metadata,
@@ -132,63 +143,78 @@ impl AdvancedWasiRuntime {
     }
 
     /// Execute a plugin function
-    pub async fn execute_function(&self, plugin_id: &str, function_name: &str, args: &[Val]) -> Result<Vec<Val>> {
+    pub async fn execute_function(
+        &self,
+        plugin_id: &str,
+        function_name: &str,
+        args: &[Val],
+    ) -> Result<Vec<Val>> {
         let start_time = Instant::now();
-        
+
         // Create temporary store for execution
         let wasi_ctx = self.create_wasi_context(plugin_id).await?;
         let mut store = Store::new(&self.engine, wasi_ctx);
-        
+
         let modules = self.modules.read().await;
-        let loaded_module = modules.get(plugin_id)
+        let loaded_module = modules
+            .get(plugin_id)
             .ok_or_else(|| anyhow::anyhow!("Plugin {} not loaded", plugin_id))?;
-        
+
         // Security check
-        self.security_manager.validate_function_call(plugin_id, function_name, args).await?;
-        
+        self.security_manager
+            .validate_function_call(plugin_id, function_name, args)
+            .await?;
+
         // Get function
-        let func = loaded_module.instance
+        let func = loaded_module
+            .instance
             .get_func(&mut store, function_name)
-            .ok_or_else(|| anyhow::anyhow!("Function {} not found in plugin {}", function_name, plugin_id))?;
-        
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Function {} not found in plugin {}",
+                    function_name,
+                    plugin_id
+                )
+            })?;
+
         // Execute with timeout
-        let result = tokio::time::timeout(
-            self.config.execution_timeout,
-            async {
-                let mut results = vec![Val::I32(0); func.ty(&store).results().len()];
-                func.call(&mut store, args, &mut results)?;
-                Ok::<Vec<Val>, anyhow::Error>(results)
-            }
-        ).await
+        let result = tokio::time::timeout(self.config.execution_timeout, async {
+            let mut results = vec![Val::I32(0); func.ty(&store).results().len()];
+            func.call(&mut store, args, &mut results)?;
+            Ok::<Vec<Val>, anyhow::Error>(results)
+        })
+        .await
         .context("Plugin function execution timed out")?
         .context("Plugin function execution failed")?;
-        
+
         let execution_time = start_time.elapsed();
-        
+
         // Update performance metrics
-        self.performance_monitor.record_execution(plugin_id, function_name, execution_time).await;
-        
+        self.performance_monitor
+            .record_execution(plugin_id, function_name, execution_time)
+            .await;
+
         // Check resource limits
         self.resource_manager.check_limits(plugin_id).await?;
-        
+
         debug!("Executed {plugin_id}::{function_name} in {execution_time:?}");
-        
+
         Ok(result)
     }
 
     /// Unload a plugin
     pub async fn unload_plugin(&self, plugin_id: &str) -> Result<()> {
         info!("Unloading plugin: {plugin_id}");
-        
+
         // Remove from modules
         {
             let mut modules = self.modules.write().await;
             modules.remove(plugin_id);
         }
-        
+
         // Clean up resources
         self.resource_manager.unregister_plugin(plugin_id).await?;
-        
+
         info!("Successfully unloaded plugin: {plugin_id}");
         Ok(())
     }
@@ -196,74 +222,108 @@ impl AdvancedWasiRuntime {
     /// List loaded plugins
     pub async fn list_plugins(&self) -> Vec<PluginInfo> {
         let modules = self.modules.read().await;
-        modules.iter().map(|(id, module)| {
-            PluginInfo {
+        modules
+            .iter()
+            .map(|(id, module)| PluginInfo {
                 id: id.clone(),
                 metadata: module.metadata.clone(),
                 load_time: module.load_time,
                 status: PluginStatus::Loaded,
-            }
-        }).collect()
+            })
+            .collect()
     }
 
     /// Add shell-specific functions to the linker
     fn add_shell_functions(linker: &mut Linker<PureRustWasiCtx>) -> Result<()> {
         // Shell command execution
-    linker.func_wrap("shell", "execute_command", |_caller: Caller<'_, PureRustWasiCtx>, _command_ptr: i32, _command_len: i32| -> i32 {
-            // Implementation for executing shell commands from WASM
-            0 // Success
-        })?;
-        
+        linker.func_wrap(
+            "shell",
+            "execute_command",
+            |_caller: Caller<'_, PureRustWasiCtx>, _command_ptr: i32, _command_len: i32| -> i32 {
+                // Implementation for executing shell commands from WASM
+                0 // Success
+            },
+        )?;
+
         // Environment variable access
-    linker.func_wrap("shell", "get_env", |_caller: Caller<'_, PureRustWasiCtx>, _key_ptr: i32, _key_len: i32, _value_ptr: i32, _value_len: i32| -> i32 {
-            // Implementation for accessing environment variables
-            0 // Success
-        })?;
-        
+        linker.func_wrap(
+            "shell",
+            "get_env",
+            |_caller: Caller<'_, PureRustWasiCtx>,
+             _key_ptr: i32,
+             _key_len: i32,
+             _value_ptr: i32,
+             _value_len: i32|
+             -> i32 {
+                // Implementation for accessing environment variables
+                0 // Success
+            },
+        )?;
+
         // File system operations
-    linker.func_wrap("shell", "read_file", |_caller: Caller<'_, PureRustWasiCtx>, _path_ptr: i32, _path_len: i32, _content_ptr: i32, _content_len: i32| -> i32 {
-            // Implementation for reading files
-            0 // Success
-        })?;
-        
+        linker.func_wrap(
+            "shell",
+            "read_file",
+            |_caller: Caller<'_, PureRustWasiCtx>,
+             _path_ptr: i32,
+             _path_len: i32,
+             _content_ptr: i32,
+             _content_len: i32|
+             -> i32 {
+                // Implementation for reading files
+                0 // Success
+            },
+        )?;
+
         // Process management
-    linker.func_wrap("shell", "spawn_process", |_caller: Caller<'_, PureRustWasiCtx>, _cmd_ptr: i32, _cmd_len: i32| -> i32 {
-            // Implementation for spawning processes
-            0 // Success
-        })?;
-        
+        linker.func_wrap(
+            "shell",
+            "spawn_process",
+            |_caller: Caller<'_, PureRustWasiCtx>, _cmd_ptr: i32, _cmd_len: i32| -> i32 {
+                // Implementation for spawning processes
+                0 // Success
+            },
+        )?;
+
         Ok(())
     }
 
     /// Create WASI context with appropriate permissions
     async fn create_wasi_context(&self, _plugin_id: &str) -> Result<PureRustWasiCtx> {
-        let _permissions = self.security_manager.get_plugin_permissions(_plugin_id).await?;
-        
+        let _permissions = self
+            .security_manager
+            .get_plugin_permissions(_plugin_id)
+            .await?;
+
         // Create pure Rust WASI context - no C/C++ dependencies
         Ok(PureRustWasiCtx::new())
     }
 
     /// Extract plugin metadata from WASM module
-    async fn extract_plugin_metadata(&self, instance: &wasmi::Instance, store: &mut Store<PureRustWasiCtx>) -> Result<PluginMetadata> {
+    async fn extract_plugin_metadata(
+        &self,
+        instance: &wasmi::Instance,
+        store: &mut Store<PureRustWasiCtx>,
+    ) -> Result<PluginMetadata> {
         // Try to get metadata function
         if let Some(metadata_func) = instance.get_func(&*store, "get_metadata") {
             // Call metadata function and parse result
             let mut results = vec![Val::I32(0); 2]; // ptr, len
             metadata_func.call(&mut *store, &[], &mut results)?;
-            
+
             if let (Val::I32(ptr), Val::I32(len)) = (&results[0], &results[1]) {
                 // Read metadata from WASM memory
                 if let Some(memory) = instance.get_memory(&*store, "memory") {
                     let mut buf = vec![0u8; *len as usize];
                     memory.read(&*store, *ptr as usize, &mut buf)?;
-                    
+
                     let metadata_json = String::from_utf8(buf)?;
                     let metadata: PluginMetadata = serde_json::from_str(&metadata_json)?;
                     return Ok(metadata);
                 }
             }
         }
-        
+
         // Fallback to default metadata
         Ok(PluginMetadata {
             name: "Unknown".to_string(),
@@ -306,31 +366,40 @@ impl SecurityManager {
         if !path.exists() {
             return Err(anyhow::anyhow!("Plugin file does not exist: {:?}", path));
         }
-        
+
         if path.extension().and_then(|e| e.to_str()) != Some("wasm") {
             return Err(anyhow::anyhow!("Plugin file must have .wasm extension"));
         }
-        
+
         // Additional security checks could go here
         // - File size limits
         // - Digital signature verification
         // - Malware scanning
-        
+
         Ok(())
     }
 
-    async fn validate_function_call(&self, plugin_id: &str, function_name: &str, _args: &[Val]) -> Result<()> {
+    async fn validate_function_call(
+        &self,
+        plugin_id: &str,
+        function_name: &str,
+        _args: &[Val],
+    ) -> Result<()> {
         let permissions = self.permissions.read().await;
-        
+
         if let Some(perms) = permissions.get(plugin_id) {
             // Check if function is allowed
             if let Some(allowed_functions) = &perms.allowed_functions {
                 if !allowed_functions.contains(&function_name.to_string()) {
-                    return Err(anyhow::anyhow!("Function {} not allowed for plugin {}", function_name, plugin_id));
+                    return Err(anyhow::anyhow!(
+                        "Function {} not allowed for plugin {}",
+                        function_name,
+                        plugin_id
+                    ));
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -397,11 +466,11 @@ impl PerformanceMonitor {
         let plugin_stats = stats.entry(plugin_id.to_string()).or_default();
         plugin_stats.total_execution_time += duration;
         plugin_stats.execution_count += 1;
-        
+
         if duration > plugin_stats.max_execution_time {
             plugin_stats.max_execution_time = duration;
         }
-        
+
         if duration < plugin_stats.min_execution_time || plugin_stats.min_execution_time.is_zero() {
             plugin_stats.min_execution_time = duration;
         }
@@ -412,7 +481,7 @@ impl PerformanceMonitor {
         let total_plugins = stats.len();
         let total_executions: u64 = stats.values().map(|s| s.execution_count).sum();
         let total_time: Duration = stats.values().map(|s| s.total_execution_time).sum();
-        
+
         PerformanceStats {
             total_plugins,
             total_executions,
@@ -519,7 +588,6 @@ pub struct PerformanceStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     #[tokio::test]
     async fn test_runtime_creation() {

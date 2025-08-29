@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use anyhow::Result;
+use std::collections::HashMap;
 // use nxsh_core::context::ShellContext; // Temporarily disabled to avoid circular dependency
 
 /// Command information for plugin registration
@@ -46,30 +46,33 @@ impl Default for PluginRegistrar {
 }
 
 impl PluginRegistrar {
-    pub fn new() -> Self { 
-        Self { 
+    pub fn new() -> Self {
+        Self {
             builtins: HashMap::new(),
             registered_commands: HashMap::new(),
-        } 
+        }
     }
-    
+
     pub fn register_builtin(&mut self, b: Box<dyn Builtin + Send + Sync>) {
         self.builtins.insert(b.name().to_string(), b);
     }
-    
+
     pub fn register_command(&self, command_info: &CommandInfo) -> Result<()> {
         // In a real implementation, this would integrate with the shell's command registry
         // For now, we just log the registration
-        log::info!("Registering plugin command: {} from {}", 
-                  command_info.name, command_info.plugin_name);
+        log::info!(
+            "Registering plugin command: {} from {}",
+            command_info.name,
+            command_info.plugin_name
+        );
         Ok(())
     }
-    
-    pub fn builtins(&self) -> impl Iterator<Item=&Box<dyn Builtin + Send + Sync>> {
+
+    pub fn builtins(&self) -> impl Iterator<Item = &Box<dyn Builtin + Send + Sync>> {
         self.builtins.values()
     }
-    
+
     pub fn get_registered_commands(&self) -> &HashMap<String, CommandInfo> {
         &self.registered_commands
     }
-} 
+}

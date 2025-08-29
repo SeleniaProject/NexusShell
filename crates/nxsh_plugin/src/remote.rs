@@ -1,20 +1,20 @@
 //! Remote Plugin Support for NexusShell
-//! 
+//!
 //! This module provides functionality for downloading, managing, and updating
 //! plugins from remote repositories. Uses Pure Rust HTTP client (ureq) to maintain
 //! zero C dependencies policy.
 
-use anyhow::{Result, Context};
+use crate::keys::{load_community_pubkey_b64, load_official_pubkey_b64};
+use anyhow::{Context, Result};
+#[cfg(feature = "remote-plugins")]
+use base64::engine::{general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::{File, create_dir_all};
-use std::io::{Write, Read};
+use std::fs::{create_dir_all, File};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 #[cfg(feature = "remote-plugins")]
 use ureq;
-#[cfg(feature = "remote-plugins")]
-use base64::engine::{Engine, general_purpose::STANDARD as BASE64};
-use crate::keys::{load_official_pubkey_b64, load_community_pubkey_b64};
 
 /// Remote plugin repository configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,7 +67,8 @@ impl RemotePluginManager {
     pub fn add_repository(&mut self, repo: RemoteRepository) {
         self.repositories.push(repo);
         // Sort by priority (higher priority first)
-        self.repositories.sort_by(|a, b| b.priority.cmp(&a.priority));
+        self.repositories
+            .sort_by(|a, b| b.priority.cmp(&a.priority));
     }
 
     /// Download plugin from remote repository
@@ -104,24 +105,36 @@ impl RemotePluginManager {
             .call()
             .with_context(|| format!("Failed to fetch metadata from {metadata_url}"))?;
 
-        let body = response.into_string().with_context(|| "Failed to read metadata response")?;
-        let plugin_info: RemotePluginInfo = serde_json::from_str(&body)
-            .with_context(|| "Failed to parse plugin metadata")?;
+        let body = response
+            .into_string()
+            .with_context(|| "Failed to read metadata response")?;
+        let plugin_info: RemotePluginInfo =
+            serde_json::from_str(&body).with_context(|| "Failed to parse plugin metadata")?;
 
         // Verify platform compatibility
         if !self.is_platform_compatible(&plugin_info.platforms)? {
-            anyhow::bail!("Plugin {} is not compatible with current platform", plugin_id);
+            anyhow::bail!(
+                "Plugin {} is not compatible with current platform",
+                plugin_id
+            );
         }
 
         // Download plugin binary
         let download_response = ureq::get(&plugin_info.download_url)
             .set("User-Agent", &self.user_agent)
             .call()
-            .with_context(|| format!("Failed to download plugin from {}", plugin_info.download_url))?; // cannot use shorthand inside braces due to borrow later
+            .with_context(|| {
+                format!(
+                    "Failed to download plugin from {}",
+                    plugin_info.download_url
+                )
+            })?; // cannot use shorthand inside braces due to borrow later
 
         // Read all bytes
         let mut bytes = Vec::new();
-        download_response.into_reader().read_to_end(&mut bytes)
+        download_response
+            .into_reader()
+            .read_to_end(&mut bytes)
             .with_context(|| "Failed to read plugin data")?;
 
         // Verify checksum
@@ -145,10 +158,7 @@ impl RemotePluginManager {
 
     /// Check if plugin is compatible with current platform
     fn is_platform_compatible(&self, platforms: &[String]) -> Result<bool> {
-        let current_platform = format!("{}-{}", 
-            std::env::consts::OS, 
-            std::env::consts::ARCH
-        );
+        let current_platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
 
         Ok(platforms.is_empty() || // Empty means all platforms
            platforms.iter().any(|p| p == "all" || p == &current_platform))
@@ -156,8 +166,8 @@ impl RemotePluginManager {
 
     /// Verify plugin checksum
     fn verify_checksum(&self, data: &[u8], expected_checksum: &str) -> Result<()> {
-        use sha2::{Sha256, Digest};
-        
+        use sha2::{Digest, Sha256};
+
         let mut hasher = Sha256::new();
         hasher.update(data);
         let computed_hash = hasher.finalize();
@@ -167,8 +177,8 @@ impl RemotePluginManager {
             Ok(())
         } else {
             anyhow::bail!(
-                "Checksum mismatch: expected {}, got {}", 
-                expected_checksum, 
+                "Checksum mismatch: expected {}, got {}",
+                expected_checksum,
                 computed_hex
             )
         }
@@ -176,28 +186,36 @@ impl RemotePluginManager {
 
     /// Verify plugin signature
     fn verify_signature(&self, data: &[u8], signature: &str, public_key: &str) -> Result<()> {
-        use ed25519_dalek::{Signature, VerifyingKey, Verifier};
-        
+        use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+
         // Decode public key and signature
-        let public_key_bytes = BASE64.decode(public_key)
+        let public_key_bytes = BASE64
+            .decode(public_key)
             .with_context(|| "Invalid base64 public key")?;
-        let signature_bytes = BASE64.decode(signature)
+        let signature_bytes = BASE64
+            .decode(signature)
             .with_context(|| "Invalid base64 signature")?;
-        
+
         // Create verifying key
         let verifying_key = VerifyingKey::from_bytes(
-            public_key_bytes.as_slice().try_into()
-                .map_err(|_| anyhow::anyhow!("Invalid public key length"))?
-        ).map_err(|e| anyhow::anyhow!("Invalid Ed25519 public key: {}", e))?;
-        
+            public_key_bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("Invalid public key length"))?,
+        )
+        .map_err(|e| anyhow::anyhow!("Invalid Ed25519 public key: {}", e))?;
+
         // Create signature
         let sig = Signature::from_bytes(
-            signature_bytes.as_slice().try_into()
-                .map_err(|_| anyhow::anyhow!("Invalid signature length"))?
+            signature_bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("Invalid signature length"))?,
         );
-        
+
         // Verify signature
-        verifying_key.verify(data, &sig)
+        verifying_key
+            .verify(data, &sig)
             .map_err(|_| anyhow::anyhow!("Signature verification failed"))
     }
 
@@ -231,9 +249,11 @@ impl RemotePluginManager {
             .call()
             .with_context(|| format!("Failed to fetch catalog from {catalog_url}"))?;
 
-        let body = response.into_string().with_context(|| "Failed to read catalog response")?;
-        let plugins: Vec<RemotePluginInfo> = serde_json::from_str(&body)
-            .with_context(|| "Failed to parse plugin catalog")?;
+        let body = response
+            .into_string()
+            .with_context(|| "Failed to read catalog response")?;
+        let plugins: Vec<RemotePluginInfo> =
+            serde_json::from_str(&body).with_context(|| "Failed to parse plugin catalog")?;
 
         Ok(plugins)
     }
@@ -251,8 +271,9 @@ impl RemotePluginManager {
             match self.fetch_repository_catalog(repo) {
                 Ok(plugins) => {
                     for plugin in plugins {
-                        if plugin.name.to_lowercase().contains(&query_lower) ||
-                           plugin.description.to_lowercase().contains(&query_lower) {
+                        if plugin.name.to_lowercase().contains(&query_lower)
+                            || plugin.description.to_lowercase().contains(&query_lower)
+                        {
                             results.push(plugin);
                         }
                     }
@@ -274,7 +295,7 @@ impl RemotePluginManager {
             }
 
             let cache_file = self.cache_dir.join(format!("{}-catalog.json", repo.name));
-            
+
             match self.fetch_repository_catalog(repo) {
                 Ok(plugins) => {
                     let json = serde_json::to_string_pretty(&plugins)?;
@@ -300,7 +321,7 @@ impl Default for RemotePluginManager {
             .join("plugin-cache");
 
         let mut manager = Self::new(cache_dir).unwrap();
-        
+
         // Add official NexusShell plugin repository (key loaded via env/file/built-in)
         let official_key = load_official_pubkey_b64();
         manager.add_repository(RemoteRepository {
@@ -334,7 +355,7 @@ mod tests {
     fn test_remote_manager_creation() {
         let temp_dir = TempDir::new().unwrap();
         let manager = RemotePluginManager::new(temp_dir.path()).unwrap();
-        
+
         assert_eq!(manager.repositories.len(), 0);
         assert!(manager.cache_dir.exists());
     }
@@ -364,14 +385,15 @@ mod tests {
 
         // Test universal compatibility
         assert!(manager.is_platform_compatible(&[]).unwrap());
-        assert!(manager.is_platform_compatible(&["all".to_string()]).unwrap());
+        assert!(manager
+            .is_platform_compatible(&["all".to_string()])
+            .unwrap());
 
         // Test specific platform
-        let current_platform = format!("{}-{}", 
-            std::env::consts::OS, 
-            std::env::consts::ARCH
-        );
+        let current_platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
         assert!(manager.is_platform_compatible(&[current_platform]).unwrap());
-        assert!(!manager.is_platform_compatible(&["nonexistent-platform".to_string()]).unwrap());
+        assert!(!manager
+            .is_platform_compatible(&["nonexistent-platform".to_string()])
+            .unwrap());
     }
 }

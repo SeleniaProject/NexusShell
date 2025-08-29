@@ -1,7 +1,10 @@
 use std::{
-    sync::{Arc, RwLock, atomic::{AtomicU64, Ordering}},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, RwLock,
+    },
     thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 /// High-precision timing and performance measurement system
@@ -98,11 +101,11 @@ impl TimeManager {
         if let Ok(mut stats) = self.stats.write() {
             stats.measurement_count += 1;
             stats.total_measured_time += duration;
-            
+
             if duration < stats.min_measured_time || stats.min_measured_time == Duration::ZERO {
                 stats.min_measured_time = duration;
             }
-            
+
             if duration > stats.max_measured_time {
                 stats.max_measured_time = duration;
             }
@@ -278,7 +281,8 @@ impl PerformanceMonitor {
     /// Get all counter values
     pub fn get_all_counters(&self) -> std::collections::HashMap<String, u64> {
         if let Ok(counters) = self.counters.read() {
-            counters.iter()
+            counters
+                .iter()
                 .map(|(k, v)| (k.clone(), v.load(Ordering::Relaxed)))
                 .collect()
         } else {
@@ -342,7 +346,7 @@ impl DateTimeFormatter {
         let duration = timestamp.duration_since(UNIX_EPOCH).unwrap_or_default();
         let secs = duration.as_secs();
         let nanos = duration.subsec_nanos();
-        
+
         let years = 1970 + secs / (365 * 24 * 3600);
         let remaining = secs % (365 * 24 * 3600);
         let days = remaining / (24 * 3600);
@@ -351,9 +355,17 @@ impl DateTimeFormatter {
         let remaining = remaining % 3600;
         let minutes = remaining / 60;
         let seconds = remaining % 60;
-        
-        format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:06}Z",
-            years, 1 + days / 30, 1 + days % 30, hours, minutes, seconds, nanos / 1000)
+
+        format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:06}Z",
+            years,
+            1 + days / 30,
+            1 + days % 30,
+            hours,
+            minutes,
+            seconds,
+            nanos / 1000
+        )
     }
 
     /// Format timestamp as RFC 3339
@@ -388,15 +400,15 @@ mod tests {
     #[test]
     fn test_timer_basic_operations() {
         let mut timer = Timer::new();
-        
+
         assert!(!timer.is_running());
         assert_eq!(timer.elapsed(), Duration::ZERO);
-        
+
         timer.start();
         assert!(timer.is_running());
-        
+
         thread::sleep(Duration::from_millis(10));
-        
+
         let elapsed = timer.stop();
         assert!(!timer.is_running());
         assert!(elapsed >= Duration::from_millis(10));
@@ -406,12 +418,12 @@ mod tests {
     #[test]
     fn test_time_manager_measure() {
         let manager = TimeManager::new();
-        
+
         let (result, duration) = manager.measure(|| {
             thread::sleep(Duration::from_millis(5));
             42
         });
-        
+
         assert_eq!(result, 42);
         assert!(duration >= Duration::from_millis(5));
     }
@@ -419,16 +431,16 @@ mod tests {
     #[test]
     fn test_performance_monitor() {
         let monitor = PerformanceMonitor::new();
-        
+
         monitor.increment_counter("test_counter");
         monitor.increment_counter("test_counter");
         monitor.add_to_counter("test_counter", 3);
-        
+
         assert_eq!(monitor.get_counter("test_counter"), 5);
-        
+
         monitor.record_timing("test_timer", Duration::from_millis(100));
         monitor.record_timing("test_timer", Duration::from_millis(200));
-        
+
         assert_eq!(monitor.get_timing("test_timer"), Duration::from_millis(300));
     }
 
@@ -438,7 +450,7 @@ mod tests {
         let formatted = DateTimeFormatter::iso8601(now);
         assert!(formatted.contains("T"));
         assert!(formatted.contains("Z"));
-        
+
         let duration = Duration::from_secs(3661) + Duration::from_millis(500);
         let formatted = DateTimeFormatter::format_duration(duration);
         assert!(formatted.contains("1h"));

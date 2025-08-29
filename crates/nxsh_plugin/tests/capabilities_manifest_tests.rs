@@ -43,5 +43,3 @@ fn accepts_when_capabilities_present() {
     assert!(manager.validate_plugin_metadata(&valid).is_ok());
     std::env::remove_var("NXSH_CAP_MANIFEST_REQUIRED");
 }
-
-

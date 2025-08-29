@@ -1,8 +1,8 @@
+use anyhow::Result;
 use std::{
     sync::{Arc, RwLock},
     time::{Duration, Instant},
 };
-use anyhow::Result;
 
 /// Ultra-fast completion system optimized for <1ms target
 #[derive(Debug)]
@@ -28,13 +28,13 @@ impl FastCompletionEngine {
     /// Ultra-fast completion (target: <1ms)
     pub fn get_completions_fast(&self, input: &str) -> Result<Vec<FastCompletion>> {
         let start = Instant::now();
-        
+
         if input.is_empty() {
             return Ok(Vec::new());
         }
 
         let mut completions = Vec::with_capacity(10);
-        
+
         // Only search built-in commands for maximum speed
         for &builtin in self.builtin_cache.iter() {
             if builtin.starts_with(input) {
@@ -42,19 +42,24 @@ impl FastCompletionEngine {
                     text: builtin.to_string(),
                     score: if builtin == input { 100.0 } else { 50.0 },
                 });
-                
-                if completions.len() >= 8 {  // Strict limit for speed
+
+                if completions.len() >= 8 {
+                    // Strict limit for speed
                     break;
                 }
             }
         }
-        
+
         // Sort by score (exact matches first)
-        completions.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
-        
+        completions.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         let duration = start.elapsed();
         self.record_completion(duration, completions.len());
-        
+
         Ok(completions)
     }
 
@@ -67,11 +72,11 @@ impl FastCompletionEngine {
             stats.total_requests += 1;
             stats.total_time += duration;
             stats.total_completions += count;
-            
+
             if duration < stats.fastest_completion || stats.fastest_completion == Duration::ZERO {
                 stats.fastest_completion = duration;
             }
-            
+
             if duration > stats.slowest_completion {
                 stats.slowest_completion = duration;
             }
@@ -88,13 +93,56 @@ pub struct FastCompletion {
 
 /// Pre-compiled builtin commands list
 static BUILTIN_COMMANDS: &[&str] = &[
-    "cd", "ls", "pwd", "echo", "cat", "grep", "find", "ps", "kill",
-    "cp", "mv", "rm", "mkdir", "rmdir", "touch", "chmod", "chown",
-    "tar", "gzip", "gunzip", "bzip2", "bunzip2", "xz", "unxz", "zip", "unzip",
-    "zstd", "unzstd", "timedatectl",
-    "curl", "wget", "git", "ssh", "scp",
-    "head", "tail", "sort", "uniq", "wc", "awk", "sed", "tr",
-    "du", "df", "free", "top", "htop", "ping", "nc", "telnet",
+    "cd",
+    "ls",
+    "pwd",
+    "echo",
+    "cat",
+    "grep",
+    "find",
+    "ps",
+    "kill",
+    "cp",
+    "mv",
+    "rm",
+    "mkdir",
+    "rmdir",
+    "touch",
+    "chmod",
+    "chown",
+    "tar",
+    "gzip",
+    "gunzip",
+    "bzip2",
+    "bunzip2",
+    "xz",
+    "unxz",
+    "zip",
+    "unzip",
+    "zstd",
+    "unzstd",
+    "timedatectl",
+    "curl",
+    "wget",
+    "git",
+    "ssh",
+    "scp",
+    "head",
+    "tail",
+    "sort",
+    "uniq",
+    "wc",
+    "awk",
+    "sed",
+    "tr",
+    "du",
+    "df",
+    "free",
+    "top",
+    "htop",
+    "ping",
+    "nc",
+    "telnet",
 ];
 
 /// Completion statistics (reused from original)
@@ -130,10 +178,10 @@ mod tests {
     #[test]
     fn test_fast_completion_engine() {
         let engine = FastCompletionEngine::new();
-        
+
         let completions = engine.get_completions_fast("l").unwrap();
         assert!(!completions.is_empty());
-        
+
         // Should contain "ls"
         let ls_completion = completions.iter().find(|c| c.text == "ls");
         assert!(ls_completion.is_some());
@@ -142,24 +190,27 @@ mod tests {
     #[test]
     fn test_performance_target() {
         let engine = FastCompletionEngine::new();
-        
+
         // Run multiple completions to get average
         for _ in 0..10 {
             let _ = engine.get_completions_fast("ls").unwrap();
         }
-        
+
         let stats = engine.stats();
-        assert!(stats.performance_target_met(), 
-            "Average completion time: {:?}, should be < 1ms", stats.avg_completion_time());
+        assert!(
+            stats.performance_target_met(),
+            "Average completion time: {:?}, should be < 1ms",
+            stats.avg_completion_time()
+        );
     }
 
     #[test]
     fn test_exact_match_priority() {
         let engine = FastCompletionEngine::new();
-        
+
         let completions = engine.get_completions_fast("ls").unwrap();
         assert!(!completions.is_empty());
-        
+
         // Exact match should be first
         assert_eq!(completions[0].text, "ls");
         assert_eq!(completions[0].score, 100.0);

@@ -1,16 +1,16 @@
 //! Pure Rust WASM Plugin Loader
-//! 
+//!
 //! This module provides WASM plugin loading capabilities using Pure Rust components.
 //! NO C dependencies - uses wasmi instead of wasmtime for Windows compatibility.
 
-use anyhow::{Result, anyhow, Context};
-use std::path::Path;
-use std::fs;
-#[cfg(feature = "wasi-runtime")]
-use wasmi::{Engine, Store, Module, Linker, Caller, Instance, Val};
+use crate::permissions::PluginPermissions;
 use crate::registrar::PluginRegistrar;
 use crate::security::SecurityContext;
-use crate::permissions::PluginPermissions;
+use anyhow::{anyhow, Context, Result};
+use std::fs;
+use std::path::Path;
+#[cfg(feature = "wasi-runtime")]
+use wasmi::{Caller, Engine, Instance, Linker, Module, Store, Val};
 
 /// Resource limiter for WASM execution
 #[derive(Debug, Clone)]
@@ -79,7 +79,7 @@ impl WasmPluginLoader {
         permissions: PluginPermissions,
     ) -> Result<LoadedPlugin> {
         let path = path.as_ref();
-        
+
         // Read and validate WASM file
         let wasm_bytes = fs::read(path)
             .with_context(|| format!("Failed to read WASM file: {}", path.display()))?;
@@ -103,7 +103,8 @@ impl WasmPluginLoader {
         // store.limiter(|state| &mut state.permissions);
 
         // Instantiate the module directly
-        let instance = self.linker
+        let instance = self
+            .linker
             .instantiate(&mut store, &module)
             .with_context(|| format!("Failed to instantiate WASM module: {plugin_name}"))?
             .start(&mut store)
@@ -122,27 +123,34 @@ impl WasmPluginLoader {
         linker.func_wrap(
             "nxsh",
             "register_command",
-            |caller: Caller<'_, PluginHostState>, name_ptr: i32, name_len: i32, desc_ptr: i32, desc_len: i32| -> Result<i32, wasmi::Error> {
+            |caller: Caller<'_, PluginHostState>,
+             name_ptr: i32,
+             name_len: i32,
+             desc_ptr: i32,
+             desc_len: i32|
+             -> Result<i32, wasmi::Error> {
                 let memory = caller
                     .get_export("memory")
                     .and_then(|e| e.into_memory())
                     .ok_or_else(|| wasmi::Error::new("Missing memory export"))?;
 
                 // Read command name from WASM memory
-                let name_bytes = memory.data(&caller)
+                let name_bytes = memory
+                    .data(&caller)
                     .get(name_ptr as usize..(name_ptr + name_len) as usize)
                     .ok_or_else(|| wasmi::Error::new("Invalid name pointer"))?;
                 let name = String::from_utf8_lossy(name_bytes).to_string();
 
                 // Read description from WASM memory
-                let desc_bytes = memory.data(&caller)
+                let desc_bytes = memory
+                    .data(&caller)
                     .get(desc_ptr as usize..(desc_ptr + desc_len) as usize)
                     .ok_or_else(|| wasmi::Error::new("Invalid description pointer"))?;
                 let description = String::from_utf8_lossy(desc_bytes).to_string();
 
                 // Register command with host
                 let host_state = caller.data();
-                
+
                 // Create command registration request
                 let command_info = crate::registrar::CommandInfo {
                     name: name.clone(),
@@ -154,13 +162,21 @@ impl WasmPluginLoader {
 
                 // Register through the registrar
                 if let Err(e) = host_state.registrar.register_command(&command_info) {
-                    log::warn!("Failed to register command '{}' from plugin '{}': {}", 
-                              name, host_state.plugin_name, e);
+                    log::warn!(
+                        "Failed to register command '{}' from plugin '{}': {}",
+                        name,
+                        host_state.plugin_name,
+                        e
+                    );
                     return Ok(1); // Error code
                 }
 
-                log::info!("Plugin '{}' successfully registered command: {} - {}", 
-                          host_state.plugin_name, name, description);
+                log::info!(
+                    "Plugin '{}' successfully registered command: {} - {}",
+                    host_state.plugin_name,
+                    name,
+                    description
+                );
                 Ok(0) // Success
             },
         )?;
@@ -169,13 +185,17 @@ impl WasmPluginLoader {
         linker.func_wrap(
             "nxsh",
             "log_info",
-            |caller: Caller<'_, PluginHostState>, msg_ptr: i32, msg_len: i32| -> Result<(), wasmi::Error> {
+            |caller: Caller<'_, PluginHostState>,
+             msg_ptr: i32,
+             msg_len: i32|
+             -> Result<(), wasmi::Error> {
                 let memory = caller
                     .get_export("memory")
                     .and_then(|e| e.into_memory())
                     .ok_or_else(|| wasmi::Error::new("Missing memory export"))?;
 
-                let msg_bytes = memory.data(&caller)
+                let msg_bytes = memory
+                    .data(&caller)
                     .get(msg_ptr as usize..(msg_ptr + msg_len) as usize)
                     .ok_or_else(|| wasmi::Error::new("Invalid message pointer"))?;
                 let message = String::from_utf8_lossy(msg_bytes);
@@ -189,13 +209,17 @@ impl WasmPluginLoader {
         linker.func_wrap(
             "nxsh",
             "log_error",
-            |caller: Caller<'_, PluginHostState>, msg_ptr: i32, msg_len: i32| -> Result<(), wasmi::Error> {
+            |caller: Caller<'_, PluginHostState>,
+             msg_ptr: i32,
+             msg_len: i32|
+             -> Result<(), wasmi::Error> {
                 let memory = caller
                     .get_export("memory")
                     .and_then(|e| e.into_memory())
                     .ok_or_else(|| wasmi::Error::new("Missing memory export"))?;
 
-                let msg_bytes = memory.data(&caller)
+                let msg_bytes = memory
+                    .data(&caller)
                     .get(msg_ptr as usize..(msg_ptr + msg_len) as usize)
                     .ok_or_else(|| wasmi::Error::new("Invalid message pointer"))?;
                 let message = String::from_utf8_lossy(msg_bytes);
@@ -214,7 +238,8 @@ impl LoadedPlugin {
     /// Initialize the plugin by calling its init function
     pub fn initialize(&mut self) -> Result<()> {
         // Try to get the plugin's init function
-        let init_func = self.instance
+        let init_func = self
+            .instance
             .get_func(&self.store, "nx_plugin_init")
             .context("Plugin does not export nx_plugin_init function")?;
 
@@ -238,23 +263,34 @@ impl LoadedPlugin {
     /// Execute a plugin command
     pub fn execute_command(&mut self, command: &str, _args: &[String]) -> Result<i32> {
         // Try to get the plugin's execute function
-        let execute_func = self.instance
+        let execute_func = self
+            .instance
             .get_func(&self.store, "nx_plugin_execute")
             .ok_or_else(|| anyhow!("Plugin does not export nx_plugin_execute function"))?;
 
         // For simplicity, we'll pass a dummy command ID
         // In a real implementation, you'd serialize the command and args into WASM memory
-        let command_id = command.as_bytes().iter().fold(0i32, |acc, &b| acc.wrapping_add(b as i32));
+        let command_id = command
+            .as_bytes()
+            .iter()
+            .fold(0i32, |acc, &b| acc.wrapping_add(b as i32));
 
         let mut results = vec![Val::I32(0)];
         execute_func
             .call(&mut self.store, &[Val::I32(command_id)], &mut results)
-            .with_context(|| format!("Failed to execute command '{}' in plugin: {}", command, self.plugin_name))?;
+            .with_context(|| {
+                format!(
+                    "Failed to execute command '{}' in plugin: {}",
+                    command, self.plugin_name
+                )
+            })?;
 
         if let Val::I32(exit_code) = results[0] {
             Ok(exit_code)
         } else {
-            Err(anyhow!("Plugin execute function returned unexpected value type"))
+            Err(anyhow!(
+                "Plugin execute function returned unexpected value type"
+            ))
         }
     }
 
@@ -287,8 +323,8 @@ impl LoadedPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
     use std::io::Write;
+    use tempfile::NamedTempFile;
 
     #[test]
     fn test_wasm_loader_creation() {
@@ -296,7 +332,7 @@ mod tests {
         assert!(loader.is_ok());
     }
 
-    #[test] 
+    #[test]
     fn test_invalid_wasm_file() {
         let loader = WasmPluginLoader::new().unwrap();
         let mut temp_file = NamedTempFile::new().unwrap();
@@ -309,4 +345,4 @@ mod tests {
         );
         assert!(result.is_err());
     }
-} 
+}

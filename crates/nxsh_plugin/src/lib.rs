@@ -1,65 +1,77 @@
 //! Native Rust Plugin Support for NexusShell.
-//! 
+//!
 //! This module provides a comprehensive plugin system using native Rust dynamic libraries,
 //! with capability-based security and dynamic loading.
-//! 
+//!
 //! STAGE 1: Native Rust Plugin Support (100% Pure Rust)
 //! STAGE 2: WASI Plugin Support (planned for future milestone)
 
 use anyhow::Result;
+#[cfg(any(feature = "native-plugins", feature = "async-support"))]
+use once_cell::sync::Lazy;
 use std::sync::Arc;
 #[cfg(any(feature = "native-plugins", feature = "async-support"))]
 use tokio::sync::RwLock;
-#[cfg(any(feature = "native-plugins", feature = "async-support"))]
-use once_cell::sync::Lazy;
 
 pub mod json;
-pub mod registrar;
-#[cfg(feature = "wasi-runtime")]
-pub mod loader;             // Pure Rust WASM plugin loading (restored)
 #[cfg(any(feature = "crypto-verification", feature = "plugin-management"))]
 pub mod keys;
-#[cfg(feature = "remote-plugins")]
-pub mod remote;             // Stage 2: Remote plugin support (restored in Phase 3)
-#[cfg(feature = "native-plugins")]
-pub mod native_runtime;     // Stage 1: Native Rust plugins
 #[cfg(feature = "wasi-runtime")]
-pub mod runtime;            // Pure Rust WASI plugins (restored)
-// Manager: 本実装は機能有効時のみ。無効時はスタブにフォールバック。
-#[cfg(any(feature = "native-plugins", feature = "plugin-management", feature = "async-support"))]
+pub mod loader; // Pure Rust WASM plugin loading (restored)
+#[cfg(feature = "native-plugins")]
+pub mod native_runtime; // Stage 1: Native Rust plugins
+pub mod registrar;
+#[cfg(feature = "remote-plugins")]
+pub mod remote; // Stage 2: Remote plugin support (restored in Phase 3)
+#[cfg(feature = "wasi-runtime")]
+pub mod runtime; // Pure Rust WASI plugins (restored)
+                 // Manager: 本実装は機能有効時のみ。無効時はスタブにフォールバック。
+#[cfg(any(
+    feature = "native-plugins",
+    feature = "plugin-management",
+    feature = "async-support"
+))]
 pub mod manager;
-#[cfg(not(any(feature = "native-plugins", feature = "plugin-management", feature = "async-support")))]
+#[cfg(not(any(
+    feature = "native-plugins",
+    feature = "plugin-management",
+    feature = "async-support"
+)))]
 pub mod manager_stub;
-#[cfg(not(any(feature = "native-plugins", feature = "plugin-management", feature = "async-support")))]
+#[cfg(not(any(
+    feature = "native-plugins",
+    feature = "plugin-management",
+    feature = "async-support"
+)))]
 pub use manager_stub as manager;
 
 // セキュリティ関連は async-support が前提。無効時はコンパイル対象外。
-#[cfg(feature = "async-support")]
-pub mod security;
 #[cfg(feature = "wasi-runtime")]
-pub mod component;          // Pure Rust Component model (restored)
-#[cfg(feature = "crypto-verification")]
-pub mod signature;
+pub mod component; // Pure Rust Component model (restored)
 #[cfg(feature = "async-support")]
 pub mod permissions;
+#[cfg(all(feature = "plugin-management", feature = "async-support"))]
+pub mod plugin_manager_advanced;
 #[cfg(feature = "wasi-runtime")]
-pub mod resource_table;     // Pure Rust WASM resource management (restored)
-#[cfg(feature = "wasi-runtime")]
-pub mod wasi_advanced;      // Advanced WASM/WASI runtime
+pub mod resource_table; // Pure Rust WASM resource management (restored)
 #[cfg(feature = "async-support")]
-pub mod security_sandbox;   // Security sandbox system
-#[cfg(feature = "plugin-management")]
-pub mod plugin_manager_advanced; // Advanced plugin management
+pub mod security;
+#[cfg(feature = "async-support")]
+pub mod security_sandbox; // Security sandbox system
+#[cfg(feature = "crypto-verification")]
+pub mod signature;
+#[cfg(feature = "wasi-runtime")]
+pub mod wasi_advanced; // Advanced WASM/WASI runtime // Advanced plugin management
 
+#[cfg(feature = "wasi-runtime")]
+use crate::component::ComponentRegistry;
+pub use crate::manager::PluginManager;
 #[cfg(feature = "native-plugins")]
 use crate::native_runtime::NativePluginRuntime;
 #[cfg(feature = "wasi-runtime")]
-use crate::runtime::WasiPluginRuntime;
-#[cfg(feature = "wasi-runtime")]
-use crate::component::ComponentRegistry;
-#[cfg(feature = "wasi-runtime")]
 use crate::resource_table::ResourceTable;
-pub use crate::manager::PluginManager;
+#[cfg(feature = "wasi-runtime")]
+use crate::runtime::WasiPluginRuntime;
 // 署名は機能有効時のみ公開。無効時は最小スタブ型を提供。
 #[cfg(feature = "crypto-verification")]
 pub use crate::signature::PluginSignature;
@@ -104,12 +116,12 @@ impl PluginSystem {
             initialized: false,
         }
     }
-    
+
     async fn initialize_internal(&mut self) -> Result<()> {
         if self.initialized {
             return Ok(());
         }
-        
+
         // Initialize native runtime
         #[cfg(feature = "native-plugins")]
         {
@@ -117,75 +129,75 @@ impl PluginSystem {
             native_runtime.initialize().await?;
             self.native_runtime = Some(native_runtime);
         }
-        
+
         // Initialize WASI runtime
         #[cfg(feature = "wasi-runtime")]
         {
             let wasi_runtime = WasiPluginRuntime::new()?;
             self.wasi_runtime = Some(wasi_runtime);
-            
+
             // Initialize component registry
             let component_registry = ComponentRegistry::new()?;
             self.component_registry = Some(component_registry);
-            
+
             // Initialize resource table
             let resource_table = ResourceTable::new();
             self.resource_table = Some(resource_table);
         }
-        
+
         // Initialize manager
         let manager = PluginManager::new();
         self.manager = Some(manager);
-        
+
         self.initialized = true;
         log::info!("Pure Rust Plugin system initialized successfully");
         Ok(())
     }
-    
+
     #[cfg(feature = "native-plugins")]
     fn native_runtime(&self) -> Option<&NativePluginRuntime> {
         self.native_runtime.as_ref()
     }
-    
+
     #[cfg(feature = "wasi-runtime")]
     fn wasi_runtime(&self) -> Option<&WasiPluginRuntime> {
         self.wasi_runtime.as_ref()
     }
-    
+
     #[cfg(feature = "wasi-runtime")]
     fn component_registry(&self) -> Option<&ComponentRegistry> {
         self.component_registry.as_ref()
     }
-    
+
     #[cfg(feature = "wasi-runtime")]
     fn resource_table(&self) -> Option<&ResourceTable> {
         self.resource_table.as_ref()
     }
-    
+
     fn manager(&self) -> Option<&PluginManager> {
         self.manager.as_ref()
     }
-    
+
     #[cfg(feature = "native-plugins")]
     fn native_runtime_mut(&mut self) -> Option<&mut NativePluginRuntime> {
         self.native_runtime.as_mut()
     }
-    
+
     #[cfg(feature = "wasi-runtime")]
     fn wasi_runtime_mut(&mut self) -> Option<&mut WasiPluginRuntime> {
         self.wasi_runtime.as_mut()
     }
-    
+
     #[cfg(feature = "wasi-runtime")]
     fn component_registry_mut(&mut self) -> Option<&mut ComponentRegistry> {
         self.component_registry.as_mut()
     }
-    
+
     #[cfg(feature = "wasi-runtime")]
     fn resource_table_mut(&mut self) -> Option<&mut ResourceTable> {
         self.resource_table.as_mut()
     }
-    
+
     fn manager_mut(&mut self) -> Option<&mut PluginManager> {
         self.manager.as_mut()
     }
@@ -216,15 +228,15 @@ pub async fn get_system() -> Arc<RwLock<PluginSystem>> {
 pub async fn shutdown() -> Result<()> {
     let system = PLUGIN_SYSTEM.clone();
     let mut system = system.write().await;
-    
+
     if let Some(manager) = system.manager_mut() {
         manager.unload_all_plugins().await?;
     }
-    
+
     system.native_runtime = None;
     system.manager = None;
     system.initialized = false;
-    
+
     log::info!("Plugin system shutdown complete");
     Ok(())
 }
@@ -234,7 +246,7 @@ pub async fn shutdown() -> Result<()> {
 pub async fn load_plugin<P: AsRef<std::path::Path>>(path: P) -> Result<String> {
     let system = PLUGIN_SYSTEM.clone();
     let mut system = system.write().await;
-    
+
     if let Some(manager) = system.manager_mut() {
         manager.load_plugin(path).await
     } else {
@@ -252,7 +264,7 @@ pub fn load_plugin<P: AsRef<std::path::Path>>(_path: P) -> Result<String> {
 pub async fn unload_plugin(plugin_id: &str) -> Result<()> {
     let system = PLUGIN_SYSTEM.clone();
     let mut system = system.write().await;
-    
+
     if let Some(manager) = system.manager_mut() {
         manager.unload_plugin(plugin_id).await
     } else {
@@ -270,7 +282,7 @@ pub fn unload_plugin(_plugin_id: &str) -> Result<()> {
 pub async fn list_plugins() -> Vec<String> {
     let system = PLUGIN_SYSTEM.clone();
     let system = system.read().await;
-    
+
     if let Some(runtime) = system.native_runtime() {
         runtime.list_plugins().await
     } else {
@@ -288,9 +300,11 @@ pub fn list_plugins() -> Vec<String> {
 pub async fn execute_plugin(plugin_id: &str, function: &str, args: &[String]) -> Result<String> {
     let system = PLUGIN_SYSTEM.clone();
     let system = system.read().await;
-    
+
     if let Some(runtime) = system.native_runtime() {
-        runtime.execute_plugin(plugin_id, function, args).await
+        runtime
+            .execute_plugin(plugin_id, function, args)
+            .await
             .map_err(|e| anyhow::anyhow!("Plugin execution failed: {:?}", e))
     } else {
         Err(anyhow::anyhow!("Plugin system not initialized"))
@@ -372,20 +386,52 @@ pub type PluginResult<T> = std::result::Result<T, PluginError>;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PluginEvent {
     // Box<PluginMetadata> でサイズ削減 (large_enum_variant 対策)
-    Loaded { plugin_id: String, metadata: Box<PluginMetadata> },
-    Unloaded { plugin_id: String },
-    Executed { plugin_id: String, function: String, duration_ms: u64 },
-    Error { plugin_id: String, error: String },
-    SignatureVerified { plugin_id: String, key_id: String },
-    SignatureVerificationFailed { plugin_id: String, reason: String },
-    PermissionGranted { plugin_id: String, capability: String },
-    PermissionDenied { plugin_id: String, capability: String, reason: String },
-    Updated { plugin_id: String, old_version: String, new_version: String },
+    Loaded {
+        plugin_id: String,
+        metadata: Box<PluginMetadata>,
+    },
+    Unloaded {
+        plugin_id: String,
+    },
+    Executed {
+        plugin_id: String,
+        function: String,
+        duration_ms: u64,
+    },
+    Error {
+        plugin_id: String,
+        error: String,
+    },
+    SignatureVerified {
+        plugin_id: String,
+        key_id: String,
+    },
+    SignatureVerificationFailed {
+        plugin_id: String,
+        reason: String,
+    },
+    PermissionGranted {
+        plugin_id: String,
+        capability: String,
+    },
+    PermissionDenied {
+        plugin_id: String,
+        capability: String,
+        reason: String,
+    },
+    Updated {
+        plugin_id: String,
+        old_version: String,
+        new_version: String,
+    },
 }
 
 /// Plugin event handler trait
 pub trait PluginEventHandler: Send + Sync {
-    fn handle_event(&self, event: PluginEvent) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + '_>>;
+    fn handle_event(
+        &self,
+        event: PluginEvent,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + '_>>;
 }
 
 /// Plugin system errors
@@ -393,58 +439,58 @@ pub trait PluginEventHandler: Send + Sync {
 pub enum PluginError {
     #[error("Plugin not found: {0}")]
     NotFound(String),
-    
+
     #[error("Plugin load error: {0}")]
     LoadError(String),
-    
+
     #[error("Plugin execution error: {0}")]
     ExecutionError(String),
-    
+
     #[error("Plugin security error: {0}")]
     SecurityError(String),
-    
+
     #[error("Plugin dependency error: {0}")]
     DependencyError(String),
-    
+
     #[error("Plugin version error: {0}")]
     VersionError(String),
-    
+
     #[error("Plugin runtime error: {0}")]
     RuntimeError(String),
-    
+
     #[error("Plugin WASM runtime error: {0}")]
     Runtime(String),
-    
+
     #[error("Plugin configuration error: {0}")]
     ConfigError(String),
-    
+
     #[error("Plugin signature error: {0}")]
     SignatureError(String),
-    
+
     #[error("Plugin permission error: {0}")]
     PermissionError(String),
-    
+
     #[error("Plugin encryption error: {0}")]
     EncryptionError(String),
-    
+
     #[error("Plugin I/O error: {0}")]
     IoError(#[from] std::io::Error),
-    
+
     #[error("Plugin serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
-    
+
     #[error("Plugin initialization error: {0}")]
     InitializationError(String),
-    
+
     #[error("Invalid argument: {0}")]
     InvalidArgument(String),
-    
+
     #[error("Validation failed: {0}")]
     ValidationFailed(String),
-    
+
     #[error("Capability denied: {0}")]
     CapabilityDenied(String),
-    
+
     #[error("Invalid format: {0}")]
     InvalidFormat(String),
 }
@@ -466,14 +512,14 @@ impl From<wasmi::Error> for PluginError {
 #[cfg(all(feature = "crypto-verification", feature = "async-support"))]
 pub mod security_integration {
     use super::*;
-    use crate::{signature::SignatureVerifier, permissions::PermissionManager};
-    
+    use crate::{permissions::PermissionManager, signature::SignatureVerifier};
+
     /// Integrated security manager for plugins
     pub struct IntegratedSecurityManager {
         signature_verifier: SignatureVerifier,
         permission_manager: PermissionManager,
     }
-    
+
     impl IntegratedSecurityManager {
         pub async fn new() -> Result<Self> {
             // Attempt key rotation before initializing signature verifier (best-effort)
@@ -481,16 +527,16 @@ pub mod security_integration {
             let _ = crate::keys::rotate_trusted_keys_if_requested();
             let mut signature_verifier = SignatureVerifier::new()?;
             signature_verifier.initialize().await?;
-            
+
             let mut permission_manager = PermissionManager::new()?;
             permission_manager.initialize().await?;
-            
+
             Ok(Self {
                 signature_verifier,
                 permission_manager,
             })
         }
-        
+
         /// Perform complete security validation of a plugin
         pub async fn validate_plugin<P: AsRef<std::path::Path>>(
             &self,
@@ -498,19 +544,19 @@ pub mod security_integration {
             metadata: &PluginMetadata,
         ) -> Result<SecurityValidationResult> {
             // Verify signature
-            let signature_result = self.signature_verifier
-                .verify_plugin(&plugin_path, metadata).await
+            let signature_result = self
+                .signature_verifier
+                .verify_plugin(&plugin_path, metadata)
+                .await
                 .map_err(|e| anyhow::anyhow!("Signature verification failed: {:?}", e))?;
-            
+
             // Create execution context with minimal privileges
-            let execution_context = self.permission_manager
-                .create_execution_context(
-                    &metadata.name,
-                    metadata,
-                    &metadata.capabilities,
-                ).await
+            let execution_context = self
+                .permission_manager
+                .create_execution_context(&metadata.name, metadata, &metadata.capabilities)
+                .await
                 .map_err(|e| anyhow::anyhow!("Permission context creation failed: {:?}", e))?;
-            
+
             Ok(SecurityValidationResult {
                 signature_valid: signature_result.valid,
                 signature_key_id: signature_result.key_id,
@@ -519,7 +565,7 @@ pub mod security_integration {
             })
         }
     }
-    
+
     /// Result of security validation
     #[derive(Debug, Clone)]
     pub struct SecurityValidationResult {
@@ -533,14 +579,14 @@ pub mod security_integration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_plugin_system_initialization() {
         let system = get_system().await;
         let system_guard = system.read().await;
         assert!(!system_guard.initialized);
     }
-    
+
     #[test]
     fn test_plugin_config_default() {
         let config = PluginConfig::default();
@@ -549,20 +595,20 @@ mod tests {
         assert!(config.enable_encryption);
         assert_eq!(config.security_policy, "restrictive");
     }
-    
+
     #[test]
     fn test_plugin_error_types() {
         let error = PluginError::NotFound("test-plugin".to_string());
         assert!(error.to_string().contains("test-plugin"));
-        
+
         let error = PluginError::SecurityError("signature invalid".to_string());
         assert!(error.to_string().contains("security"));
     }
-    
+
     #[tokio::test]
     async fn test_security_integration() {
         // This would require proper setup in a real test environment
         // let security_manager = security_integration::IntegratedSecurityManager::new().await;
         // assert!(security_manager.is_ok());
     }
-} 
+}
