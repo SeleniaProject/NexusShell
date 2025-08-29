@@ -118,6 +118,9 @@ impl Default for PromptConfig {
 /// Simple prompt formatter for CUI display
 pub struct PromptFormatter {
     config: PromptConfig,
+    cached_prompt: Option<String>,
+    last_cwd: Option<std::path::PathBuf>,
+    last_git_status: Option<String>,
 }
 
 impl Default for PromptFormatter {
@@ -146,6 +149,9 @@ impl PromptFormatter {
                 use_unicode_symbols: true,
                 color_theme: PromptColorTheme::default(),
             },
+            cached_prompt: None,
+            last_cwd: None,
+            last_git_status: None,
         }
     }
 
@@ -153,12 +159,20 @@ impl PromptFormatter {
     pub fn new() -> Self {
         Self {
             config: PromptConfig::default(),
+            cached_prompt: None,
+            last_cwd: None,
+            last_git_status: None,
         }
     }
     
     /// Create a new prompt formatter with custom configuration
     pub fn with_config(config: PromptConfig) -> Self {
-        Self { config }
+        Self { 
+            config,
+            cached_prompt: None,
+            last_cwd: None,
+            last_git_status: None,
+        }
     }
     
     /// Generate and display the shell prompt
@@ -442,48 +456,121 @@ impl PromptFormatter {
         }
         
         // Add final prompt character
-        prompt.push_str(" $ ");
+        prompt.push_str("$ ");
         
         Ok(prompt)
     }
 
     #[cfg(not(feature = "async"))]
-    pub fn generate_prompt(&self) -> Result<String> {
-        let mut prompt = String::new();
-
-        if let Ok(ps1) = env::var("PS1") {
-            return self.process_ps1_format(&ps1);
+    pub fn generate_prompt(&mut self) -> Result<String> {
+        // Check if we can use cached prompt
+        let current_cwd = env::current_dir().ok();
+        let should_regenerate = self.should_regenerate_prompt(&current_cwd);
+        
+        if !should_regenerate {
+            if let Some(ref cached) = self.cached_prompt {
+                return Ok(cached.clone());
+            }
         }
 
+        let mut prompt = String::new();
+
+        // Handle PS1 environment variable
+        if let Ok(ps1) = env::var("PS1") {
+            let generated = self.process_ps1_format(&ps1)?;
+            self.cached_prompt = Some(generated.clone());
+            self.last_cwd = current_cwd;
+            return Ok(generated);
+        }
+
+        // Build default prompt format
         if self.config.show_user {
-            prompt.push_str(&format!("\x1b[32m{}\x1b[0m", whoami::username()));
+            let username = whoami::username();
+            if !username.is_empty() {
+                prompt.push_str(&format!("\x1b[32m{}\x1b[0m", username));
+            }
         }
 
         if self.config.show_hostname {
-            if self.config.show_user { prompt.push('@'); }
-            prompt.push_str(&format!("\x1b[32m{}\x1b[0m", hostname::get().unwrap_or_default().to_string_lossy()));
+            if self.config.show_user && !prompt.is_empty() { 
+                prompt.push('@'); 
+            }
+            if let Ok(hostname) = hostname::get() {
+                let hostname_str = hostname.to_string_lossy();
+                if !hostname_str.is_empty() {
+                    prompt.push_str(&format!("\x1b[32m{}\x1b[0m", hostname_str));
+                }
+            }
         }
 
         if self.config.show_cwd {
-            if self.config.show_user || self.config.show_hostname { prompt.push(':'); }
-            let cwd = env::current_dir()?;
-            let home = env::var("HOME").or_else(|_| env::var("USERPROFILE"));
-            let display_path = if let Ok(home_path) = home {
-                let home_path = Path::new(&home_path);
-                if cwd.starts_with(home_path) {
-                    format!("~{}", cwd.strip_prefix(home_path).unwrap().display())
-                } else { cwd.display().to_string() }
-            } else { cwd.display().to_string() };
-            prompt.push_str(&format!("\x1b[34m{display_path}\x1b[0m"));
+            if (self.config.show_user || self.config.show_hostname) && !prompt.is_empty() { 
+                prompt.push(':'); 
+            }
+            
+            if let Ok(cwd) = env::current_dir() {
+                let home = env::var("HOME").or_else(|_| env::var("USERPROFILE"));
+                let display_path = if let Ok(home_path) = home {
+                    let home_path = Path::new(&home_path);
+                    if cwd.starts_with(home_path) {
+                        if let Ok(relative) = cwd.strip_prefix(home_path) {
+                            if relative.as_os_str().is_empty() {
+                                "~".to_string()
+                            } else {
+                                format!("~/{}", relative.display())
+                            }
+                        } else {
+                            cwd.display().to_string()
+                        }
+                    } else { 
+                        cwd.display().to_string() 
+                    }
+                } else { 
+                    cwd.display().to_string() 
+                };
+                prompt.push_str(&format!("\x1b[34m{}\x1b[0m", display_path));
+            }
         }
 
         if self.config.show_git_info {
-            let git_info = self.get_git_info_blocking().unwrap_or_default();
-            if !git_info.is_empty() { prompt.push_str(&git_info); }
+            match self.get_git_info_blocking() {
+                Ok(git_info) if !git_info.is_empty() => {
+                    prompt.push_str(&git_info);
+                    self.last_git_status = Some(git_info);
+                },
+                _ => {
+                    self.last_git_status = None;
+                }
+            }
         }
 
-        prompt.push_str(" $ ");
+        prompt.push_str("$ ");
+        
+        // Cache the generated prompt
+        self.cached_prompt = Some(prompt.clone());
+        self.last_cwd = current_cwd;
+        
         Ok(prompt)
+    }
+    
+    /// Determine if prompt needs to be regenerated
+    fn should_regenerate_prompt(&self, current_cwd: &Option<std::path::PathBuf>) -> bool {
+        // Always regenerate if no cache
+        if self.cached_prompt.is_none() {
+            return true;
+        }
+        
+        // Regenerate if directory changed
+        if &self.last_cwd != current_cwd {
+            return true;
+        }
+        
+        // Regenerate if git info is enabled (git status might have changed)
+        if self.config.show_git_info {
+            return true;
+        }
+        
+        false
     }
     
     /// Process PS1 format string with variable substitution
@@ -602,11 +689,25 @@ impl PromptFormatter {
     /// Update prompt configuration
     pub fn update_config(&mut self, config: PromptConfig) {
         self.config = config;
+        // Clear cache when configuration changes
+        self.clear_cache();
     }
     
     /// Get current configuration
     pub fn config(&self) -> &PromptConfig {
         &self.config
+    }
+    
+    /// Clear cached prompt data
+    pub fn clear_cache(&mut self) {
+        self.cached_prompt = None;
+        self.last_cwd = None;
+        self.last_git_status = None;
+    }
+    
+    /// Force prompt regeneration on next call
+    pub fn invalidate_cache(&mut self) {
+        self.cached_prompt = None;
     }
 }
 

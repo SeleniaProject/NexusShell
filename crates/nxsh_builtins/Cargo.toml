@@ -6,7 +6,7 @@ license = "Apache-2.0 OR MIT"
 
 [features]
 # Full (desktop/server) build keeps legacy behavior. BusyBox/minimal build will disable default features via nxsh_cli.
-default = ["minimal", "compression-bzip2", "compression-lzma", "compression-zip", "net-ftp"]
+default = ["minimal", "compression-bzip2", "compression-lzma", "compression-zip", "compression-zstd", "net-ftp"]
 linux = []  # Linux-specific features (procfs removed as it's C/C++ dependent)
 metrics = ["dep:metrics", "dep:metrics-exporter-prometheus"]  # Enable metrics + prometheus exporter
 # Advanced updater (HTTP + semantic versioning + signatures). All heavy HTTP/crypto deps made optional.
@@ -307,6 +307,10 @@ criterion = "0.5"
 proptest = "1.0"
 assert_cmd = "2.0"
 predicates = "3.0" 
+tokio = { version = "1", features = ["rt", "macros", "time", "process", "fs", "signal"] }
+futures = "0.3"
+tokio-stream = "0.1"
+ruzstd = "0.5"
 
 [build-dependencies]
 regex = "1"

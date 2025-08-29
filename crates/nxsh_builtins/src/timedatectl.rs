@@ -211,6 +211,8 @@ impl TimedatectlManager {
 
         #[cfg(feature = "async-runtime")]
         let (event_sender, _) = tokio::sync::broadcast::channel(1000);
+        #[cfg(not(feature = "async-runtime"))]
+        let (event_sender, _) = std::sync::mpsc::channel();
 
         Ok(Self {
             config,
@@ -218,6 +220,8 @@ impl TimedatectlManager {
             last_sync: None,
             sync_history: Vec::new(),
             #[cfg(feature = "async-runtime")]
+            event_sender,
+            #[cfg(not(feature = "async-runtime"))]
             event_sender,
             ntp_enabled: true,
             timezone_cache: HashMap::new(),
@@ -596,6 +600,9 @@ impl TimedatectlManager {
 
     fn broadcast_event(&self, event: TimeSyncEvent) -> Result<()> {
         // Try to send event, ignore if no receivers
+        #[cfg(feature = "async-runtime")]
+        let _ = self.event_sender.send(event);
+        #[cfg(not(feature = "async-runtime"))]
         let _ = self.event_sender.send(event);
         Ok(())
     }
@@ -671,6 +678,8 @@ pub struct TimedatectlManager {
     sync_history: Vec<SyncResult>,
     #[cfg(feature = "async-runtime")]
     event_sender: tokio::sync::broadcast::Sender<TimeSyncEvent>,
+    #[cfg(not(feature = "async-runtime"))]
+    event_sender: std::sync::mpsc::Sender<TimeSyncEvent>,
     ntp_enabled: bool,
     timezone_cache: HashMap<String, bool>,
     statistics: SyncStatistics,

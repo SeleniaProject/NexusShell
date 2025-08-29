@@ -3,12 +3,12 @@
 // do not require a real FAT image. They validate cryptographic signing paths and
 // tamper detection using the public CLI entry.
 
-use std::fs;
-use std::io::Write;
-use tempfile::tempdir;
+#[cfg(feature = "updates")] use std::fs;
+#[cfg(feature = "updates")] use std::io::Write;
+#[cfg(feature = "updates")] use tempfile::tempdir;
 
 // Use tokio runtime because fsck_cli is async
-use nxsh_builtins::fsck::fsck_cli;
+#[cfg(feature = "updates")] use nxsh_builtins::fsck::fsck_cli;
 
 #[cfg(feature = "updates")]
 fn make_keypair_hex() -> (String, String) {

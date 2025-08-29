@@ -6,10 +6,19 @@ pub struct Seq {
     pub of_extra: u32,
 }
 
-/// Convert raw matches and literals to a flat sequence stream (very simplified for now).
+/// Convert input into (sequences, literals_stream). Minimal stub: no sequences.
 pub fn tokenize_sequences(input: &[u8]) -> (Vec<Seq>, Vec<u8>) {
-    // Placeholder: no sequences yet, only literals all-in-one block
-    let mut lit = Vec::with_capacity(input.len());
-    lit.extend_from_slice(input);
-    (Vec::new(), lit)
+    (Vec::new(), input.to_vec())
+}
+
+/// Older call-sites expect a (seq_bytes, literals_stream) pair.
+/// Minimal stub: return empty seq_bytes and a clone of input.
+pub fn tokenize_full(input: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    (Vec::new(), input.to_vec())
+}
+
+/// Return one minimal "sequence" candidate and the literals stream; used for fallbacks.
+pub fn tokenize_first(input: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
+    if input.is_empty() { return None; }
+    Some((vec![0u8], input.to_vec()))
 }

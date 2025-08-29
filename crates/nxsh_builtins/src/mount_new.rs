@@ -248,7 +248,7 @@ mod windows_impl {
         let disk_array = if disks_json.is_array() {
             disks_json.as_array().unwrap()
         } else {
-            &vec![disks_json]
+            vec![&disks_json]
         };
 
         for disk_json in disk_array {
@@ -277,7 +277,7 @@ mod windows_impl {
                 6 => "RAM Disk",
                 _ => "Other",
             };
-            options.push(format!("type={drive_type_desc}"));
+            options.push(format!("type={}", drive_type_desc));
 
             let used_bytes = if let (Some(size), Some(free)) = (size, free_space) {
                 Some(size - free)
@@ -356,7 +356,7 @@ mod windows_impl {
         Ok(volumes)
     }
 
-    fn enhance_mounts_with_volumes(mounts: &mut [MountInfo], volumes: Vec<Value>) {
+    fn enhance_mounts_with_volumes(mounts: &mut Vec<MountInfo>, volumes: Vec<Value>) {
         for mount in mounts.iter_mut() {
             let drive_letter = mount.device.trim_end_matches(':');
             
@@ -366,14 +366,14 @@ mod windows_impl {
                         // Enhance mount info with volume data
                         if let Some(label) = volume["FileSystemLabel"].as_str() {
                             if !label.is_empty() {
-                                mount.options.push(format!("label={label}"));
+                                mount.options.push(format!("label={}", label));
                             }
                         }
                         if let Some(health) = volume["HealthStatus"].as_str() {
-                            mount.options.push(format!("health={health}"));
+                            mount.options.push(format!("health={}", health));
                         }
                         if let Some(status) = volume["OperationalStatus"].as_str() {
-                            mount.options.push(format!("status={status}"));
+                            mount.options.push(format!("status={}", status));
                         }
                         if let Some(unique_id) = volume["UniqueId"].as_str() {
                             mount.mount_id = Some(unique_id.to_string());
@@ -437,10 +437,10 @@ mod windows_impl {
 
     fn mount_network_drive(source: &str, target: &str, config: &MountConfig) -> Result<()> {
         let mut cmd = Command::new("net");
-        cmd.args(["use", target, source]);
+        cmd.args(&["use", target, source]);
 
         if config.dry_run {
-            println!("Would execute: net use {target} {source}");
+            println!("Would execute: net use {} {}", target, source);
             return Ok(());
         }
 
@@ -448,7 +448,7 @@ mod windows_impl {
         
         if output.status.success() {
             if config.verbose {
-                println!("Successfully mounted network drive '{source}' as '{target}'");
+                println!("Successfully mounted network drive '{}' as '{}'", source, target);
             }
             Ok(())
         } else {
@@ -1319,7 +1319,7 @@ fn show_version() {
 }
 
 /// Main mount CLI entry point
-pub fn mount_cli(args: &[String]) -> Result<()> {
+pub async fn mount_cli(args: &[String]) -> Result<()> {
     let config = MountConfig::parse_args(args)?;
 
     if config.help {
@@ -1506,21 +1506,21 @@ mod tests {
         assert!(mount.options.contains(&"read-only".to_string()));
     }
 
-    #[test]
-    fn test_mount_help() {
-        let result = mount_cli(&["--help".to_string()]);
+    #[tokio::test]
+    async fn test_mount_help() {
+        let result = mount_cli(&["--help".to_string()]).await;
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn test_mount_version() {
-        let result = mount_cli(&["-V".to_string()]);
+    #[tokio::test]
+    async fn test_mount_version() {
+        let result = mount_cli(&["-V".to_string()]).await;
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn test_mount_list() {
-        let result = mount_cli(&[]);
+    #[tokio::test]
+    async fn test_mount_list() {
+        let result = mount_cli(&[]).await;
         assert!(result.is_ok());
     }
 

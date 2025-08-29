@@ -13,7 +13,7 @@
 //! - Integrity verification at multiple levels
 
 use anyhow::{anyhow, Result, Context};
-use nxsh_core::{nxsh_log_info, nxsh_log_warn, nxsh_log_error};
+use nxsh_core::{nxsh_log_info, nxsh_log_warn, nxsh_log_error, nxsh_log_debug};
 #[cfg(feature = "updates")]
 use sha2::{Sha256, Digest};
 use serde::{Deserialize, Serialize};
@@ -150,6 +150,7 @@ pub struct UpdateStatus {
     pub installation_status: InstallationStatus,
     pub channel: ReleaseChannel,
     pub last_downloaded_path: Option<PathBuf>,
+    pub last_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,6 +211,7 @@ pub fn init_update_system(config: UpdateConfig) -> Result<()> {
             installation_status: InstallationStatus::None,
             channel,
             last_downloaded_path: None,
+            last_error: None,
         }),
         client,
     };
@@ -1099,6 +1101,7 @@ mod tests {
             installation_status: InstallationStatus::Downloading,
             channel: ReleaseChannel::Stable,
             last_downloaded_path: None,
+            last_error: None,
         };
 
         assert!(status.update_available);

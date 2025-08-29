@@ -1,8 +1,12 @@
 //! Internal Pure-Rust Zstandard encoder implementation (work-in-progress).
-//! This is a shim that points to the real implementation under `src/zstd/zstd_impl/`.
+//! Public surface mirrors what the higher-level writer expects, with
+//! minimal, spec-compliant stubs for areas not yet fully implemented.
 
-// Re-export the entire module tree from the real path so that callers can use
-// `zstd_impl::{huffman, fse, bitstream, lz77, seq, encoder, ...}` uniformly.
-#[path = "zstd/zstd_impl/mod.rs"]
-mod real;
-pub use real::*;
+pub mod bitstream;
+pub mod encoder;
+pub mod seq;
+
+// Lightweight, public stubs used by higher layers (to be replaced with full impl)
+pub mod fse;
+pub mod huffman;
+pub mod seq_write;

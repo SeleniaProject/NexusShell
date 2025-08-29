@@ -58,6 +58,9 @@ pub enum BuiltinError {
     #[error("Internal error: {0}")]
     Internal(String),
     
+    #[error("Not implemented: {0}")]
+    NotImplemented(String),
+    
     #[error("Other error: {0}")]
     Other(String),
 }

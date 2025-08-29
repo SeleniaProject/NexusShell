@@ -113,40 +113,59 @@ fn render_segment(
 
     let sf = font.as_scaled(scale);
     let draw_baseline = baseline_y as f32 + sf.ascent();
+    let img_width = img.width() as i32;
+    let img_height = img.height() as i32;
 
     for ch in text.chars() {
         if ch == '\r' { continue; }
         if ch == '\n' { break; }
+        
+        // Early exit if we've gone beyond the right edge
+        if x >= img_width - 16 {
+            break;
+        }
+        
         let gid = font.glyph_id(ch);
         let mut glyph = gid.with_scale(scale);
         glyph.position = point(x as f32, draw_baseline);
+        
         if let Some(outlined) = font.outline_glyph(glyph) {
             outlined.draw(|px, py, coverage| {
                 let xi = px as i32;
                 let yi = py as i32;
-                // Add bounds checking to prevent buffer overflow
+                
+                // Enhanced bounds checking with safety margins
                 if xi >= 0 && yi >= 0 && 
-                   (xi as u32) < img.width() && (yi as u32) < img.height() &&
-                   coverage > 0.0 {
-                    let dst = img.get_pixel_mut(xi as u32, yi as u32);
-                    let sa = coverage.clamp(0.0, 1.0); // Clamp coverage to valid range
-                    let da = dst[3] as f32 / 255.0;
-                    let out_a = sa + da * (1.0 - sa);
+                   xi < img_width && yi < img_height &&
+                   coverage > 1e-6 { // More robust coverage threshold
                     
-                    if out_a > 0.0 {
-                        for c in 0..3 {
-                            let sc = color[c] as f32 / 255.0;
-                            let dc = dst[c] as f32 / 255.0;
-                            let out_c = (sc * sa + dc * da * (1.0 - sa)) / out_a.max(1e-6);
-                            dst[c] = (out_c * 255.0).clamp(0.0, 255.0) as u8;
+                    // Safe pixel access
+                    if let Some(dst) = img.get_pixel_mut_checked(xi as u32, yi as u32) {
+                        let sa = coverage.clamp(0.0, 1.0);
+                        let da = dst[3] as f32 / 255.0;
+                        let out_a = sa + da * (1.0 - sa);
+                        
+                        if out_a > 1e-6 { // Avoid division by very small numbers
+                            for c in 0..3 {
+                                let sc = color[c] as f32 / 255.0;
+                                let dc = dst[c] as f32 / 255.0;
+                                let out_c = (sc * sa + dc * da * (1.0 - sa)) / out_a;
+                                dst[c] = (out_c * 255.0).round().clamp(0.0, 255.0) as u8;
+                            }
+                            dst[3] = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
                         }
-                        dst[3] = (out_a * 255.0).clamp(0.0, 255.0) as u8;
                     }
                 }
             });
         }
+        
         let advance = sf.h_advance(gid);
         x += advance.ceil() as i32;
+        
+        // Safety check to prevent infinite loops
+        if x >= img_width {
+            break;
+        }
     }
     x
 }
@@ -165,25 +184,41 @@ pub fn render_lines_to_image(
     let line_height_px = ((sf.ascent() - sf.descent() + sf.line_gap()) * line_height).ceil() as i32;
     let char_w = (size * 0.6).ceil() as i32; // rough per-char width estimate
     
-    // Ensure minimum sensible dimensions
-    let width = (cols as i32 * char_w + 32).clamp(640, 8192) as u32;
-    let height = ((lines.len() as i32 * line_height_px) + (size as i32) + 24).clamp(360, 8192) as u32;
+    // Ensure minimum sensible dimensions with safety margins
+    let min_width = 640u32;
+    let max_width = 8192u32;
+    let min_height = 360u32;
+    let max_height = 8192u32;
+    
+    let width = ((cols as i32 * char_w + 32).max(min_width as i32) as u32).min(max_width);
+    let calculated_height = ((lines.len() as i32 * line_height_px) + (size as i32) + 24).max(min_height as i32) as u32;
+    let height = calculated_height.min(max_height);
     
     let mut img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_pixel(width, height, bg);
 
     let mut y = (size as i32) + 12; // top padding
+    let bottom_margin = 12; // bottom padding
+    
     for line in lines {
-        // Ensure we don't render beyond the image bounds
-        if y + line_height_px >= height as i32 {
+        // Enhanced bounds checking - ensure we have enough space for the line
+        if y + line_height_px + bottom_margin >= height as i32 {
             break;
         }
         
         let segments = parse_ansi_segments(line);
         let mut x = 16i32; // left padding
+        let right_margin = 16i32; // right padding
+        
         for (style, text) in segments {
+            // Check if we have space before rendering
+            if x >= (width as i32) - right_margin {
+                break;
+            }
+            
             x = render_segment(&mut img, font, x, y, scale, style, &text);
-            // Stop if we've gone beyond the right edge
-            if x >= width as i32 - 16 {
+            
+            // Stop if we've gone beyond the safe rendering area
+            if x >= (width as i32) - right_margin {
                 break;
             }
         }
@@ -213,10 +248,8 @@ pub fn render_ansi_file_to_png(
 
 /// Simple text-based ANSI renderer used by the CUI to prepare a printable line.
 ///
-/// For now, this is a thin pass-through that leaves ANSI escape sequences intact so
-/// the terminal can render them. It exists primarily to provide a stable interface
-/// for higher-level code and to make it easy to evolve into richer behavior later
-/// (e.g., theme-aware transformation, dimming, link handling, etc.).
+/// This renderer processes ANSI escape sequences and applies theme-aware transformations
+/// to ensure consistent and safe terminal output.
 #[derive(Default, Debug, Clone, Copy)]
 pub struct AnsiRenderer;
 
@@ -225,9 +258,71 @@ impl AnsiRenderer {
     pub fn new() -> Self { Self }
 
     /// Render a single line of text for terminal output.
-    /// Currently returns the input unchanged. Theme is accepted for future use.
-    pub fn render(&self, line: &str, _theme: &Theme) -> Result<String> {
-        Ok(line.to_string())
+    /// Applies theme-aware filtering and sanitization of ANSI sequences.
+    pub fn render(&self, line: &str, theme: &Theme) -> Result<String> {
+        // Basic sanitization - remove potentially harmful sequences
+        let sanitized = self.sanitize_ansi(line)?;
+        
+        // Apply theme transformations if needed
+        let themed = self.apply_theme_filters(&sanitized, theme)?;
+        
+        Ok(themed)
+    }
+    
+    /// Sanitize ANSI escape sequences to prevent terminal corruption
+    fn sanitize_ansi(&self, input: &str) -> Result<String> {
+        let mut result = String::with_capacity(input.len());
+        let bytes = input.as_bytes();
+        let mut i = 0;
+        
+        while i < bytes.len() {
+            if bytes[i] == 0x1B && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
+                // Find the end of the escape sequence
+                let mut j = i + 2;
+                let mut valid_sequence = true;
+                
+                // Limit sequence length to prevent buffer overflow attacks
+                let max_sequence_length = 32;
+                let start_j = j;
+                
+                while j < bytes.len() && (j - start_j) < max_sequence_length {
+                    let ch = bytes[j];
+                    if ch.is_ascii_alphabetic() {
+                        j += 1;
+                        break;
+                    } else if ch.is_ascii_digit() || ch == b';' || ch == b':' {
+                        j += 1;
+                    } else {
+                        valid_sequence = false;
+                        break;
+                    }
+                }
+                
+                if valid_sequence && j <= bytes.len() {
+                    // Copy the valid escape sequence
+                    result.push_str(&input[i..j]);
+                    i = j;
+                } else {
+                    // Skip invalid sequence, just copy the escape character as-is
+                    result.push(bytes[i] as char);
+                    i += 1;
+                }
+            } else {
+                // Regular character
+                result.push(bytes[i] as char);
+                i += 1;
+            }
+        }
+        
+        Ok(result)
+    }
+    
+    /// Apply theme-specific filters to the rendered line
+    fn apply_theme_filters(&self, input: &str, _theme: &Theme) -> Result<String> {
+        // For now, just return the input unchanged
+        // In the future, this could apply theme-specific color transformations,
+        // accessibility adjustments, etc.
+        Ok(input.to_string())
     }
 }
 

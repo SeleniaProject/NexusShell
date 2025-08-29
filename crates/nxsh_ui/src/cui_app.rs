@@ -232,7 +232,7 @@ impl CuiApp {
                     }
                 }
                 Event::Resize(cols, rows) => {
-                    self.terminal_size = (cols, rows);
+                    self.handle_resize(cols, rows).await?;
                     if let Some(sender) = &self.event_sender {
                         sender.send(AppEvent::Resize(cols, rows))?;
                     }
@@ -430,6 +430,41 @@ impl CuiApp {
                 self.select_next_completion();
                 Ok(InputResult::Refresh)
             }
+            KeyCode::PageUp => {
+                self.select_previous_completion_page();
+                Ok(InputResult::Refresh)
+            }
+            KeyCode::PageDown => {
+                self.select_next_completion_page();
+                Ok(InputResult::Refresh)
+            }
+            KeyCode::Home => {
+                self.select_first_completion();
+                Ok(InputResult::Refresh)
+            }
+            KeyCode::End => {
+                self.select_last_completion();
+                Ok(InputResult::Refresh)
+            }
+            // Allow character input to continue typing and filter completions
+            KeyCode::Char(c) => {
+                self.insert_char(c);
+                // Update completions with new input
+                self.trigger_completion().await
+            }
+            KeyCode::Backspace => {
+                if self.cursor_position > 0 {
+                    self.delete_backward();
+                    // Update completions with modified input
+                    if self.input_buffer.is_empty() {
+                        self.cancel_completion();
+                        self.state = AppState::Normal;
+                    } else {
+                        self.trigger_completion().await?;
+                    }
+                }
+                Ok(InputResult::Refresh)
+            }
             _ => {
                 // Cancel completion and handle as normal
                 self.cancel_completion();
@@ -567,12 +602,26 @@ impl CuiApp {
 
     fn estimate_prompt_length(&self, prompt_text: &str) -> usize {
         let cleaned = Self::strip_ansi_sequences(prompt_text);
-        UnicodeWidthStr::width(cleaned.as_str())
+        // Use unicode width calculation but ensure it's not zero
+        UnicodeWidthStr::width(cleaned.as_str()).max(1)
     }
 
     fn input_display_width_up_to_cursor(&self) -> usize {
+        if self.input_buffer.is_empty() || self.cursor_position == 0 {
+            return 0;
+        }
+        
         let up_to = self.cursor_position.min(self.input_buffer.len());
-        let slice = &self.input_buffer[..up_to];
+        
+        // Ensure we're at a character boundary
+        let safe_up_to = if self.input_buffer.is_char_boundary(up_to) {
+            up_to
+        } else {
+            // Find the previous character boundary
+            (0..up_to).rev().find(|&i| self.input_buffer.is_char_boundary(i)).unwrap_or(0)
+        };
+        
+        let slice = &self.input_buffer[..safe_up_to];
         UnicodeWidthStr::width(slice)
     }
 
@@ -580,13 +629,24 @@ impl CuiApp {
         let mut out = String::with_capacity(s.len());
         let bytes = s.as_bytes();
         let mut i = 0;
+        
         while i < bytes.len() {
             if bytes[i] == 0x1B && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
+                // Skip ANSI escape sequence
                 i += 2;
-                while i < bytes.len() && bytes[i] != b'm' { i += 1; }
-                if i < bytes.len() { i += 1; }
+                // Find the end of the sequence (letter character)
+                while i < bytes.len() {
+                    let b = bytes[i];
+                    i += 1;
+                    if b.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
             } else {
-                out.push(bytes[i] as char);
+                // Regular character
+                if bytes[i].is_ascii() || s.is_char_boundary(i) {
+                    out.push(bytes[i] as char);
+                }
                 i += 1;
             }
         }
@@ -699,6 +759,35 @@ impl CuiApp {
         }
     }
 
+    /// Handle terminal resize
+    async fn handle_resize(&mut self, cols: u16, rows: u16) -> Result<()> {
+        let old_size = self.terminal_size;
+        self.terminal_size = (cols, rows);
+        
+        // Log resize for debugging
+        if cols != old_size.0 || rows != old_size.1 {
+            self.scroll_buffer.add_line(format!(
+                "Terminal resized: {}x{} -> {}x{}", 
+                old_size.0, old_size.1, cols, rows
+            ));
+        }
+        
+        // Clear prompt cache to force regeneration with new dimensions
+        self.prompt_formatter.invalidate_cache();
+        
+        // Adjust scroll buffer to new size if needed
+        let new_buffer_size = (rows as usize).saturating_sub(3).max(10) * 100; // Reasonable buffer size
+        if new_buffer_size != self.config.scroll_buffer_size {
+            self.scroll_buffer = ScrollBuffer::new(new_buffer_size);
+        }
+        
+        // Force full screen refresh
+        execute!(stdout(), terminal::Clear(ClearType::All))?;
+        self.render()?;
+        
+        Ok(())
+    }
+
     /// 補完操作
     fn select_next_completion(&mut self) {
         if let Some(completions) = &self.current_completions {
@@ -716,6 +805,42 @@ impl CuiApp {
                 } else {
                     completions.items.len() - 1
                 };
+            }
+        }
+    }
+
+    fn select_next_completion_page(&mut self) {
+        if let Some(completions) = &self.current_completions {
+            if !completions.items.is_empty() {
+                let page_size = 8; // Same as max_items in render_completion_panel
+                let new_index = (self.completion_index + page_size).min(completions.items.len() - 1);
+                self.completion_index = new_index;
+            }
+        }
+    }
+
+    fn select_previous_completion_page(&mut self) {
+        if let Some(completions) = &self.current_completions {
+            if !completions.items.is_empty() {
+                let page_size = 8; // Same as max_items in render_completion_panel
+                let new_index = self.completion_index.saturating_sub(page_size);
+                self.completion_index = new_index;
+            }
+        }
+    }
+
+    fn select_first_completion(&mut self) {
+        if let Some(completions) = &self.current_completions {
+            if !completions.items.is_empty() {
+                self.completion_index = 0;
+            }
+        }
+    }
+
+    fn select_last_completion(&mut self) {
+        if let Some(completions) = &self.current_completions {
+            if !completions.items.is_empty() {
+                self.completion_index = completions.items.len() - 1;
             }
         }
     }
@@ -774,31 +899,144 @@ impl CuiApp {
 
     // duplicate block removed (render and helpers)
 
-    /// レンダリング
+    /// 🎨 Enhanced rendering with beautiful visual effects
     fn render(&mut self) -> Result<()> {
         let start_time = Instant::now();
 
-        // Only clear screen if terminal was resized or on first render
-        if self.last_render_time.elapsed() > Duration::from_millis(500) {
-            execute!(stdout(), terminal::Clear(ClearType::All))?;
-            execute!(stdout(), cursor::MoveTo(0, 0))?;
+        // Smooth screen management with minimal flicker
+        let should_clear_screen = self.should_clear_screen();
+        
+        if should_clear_screen {
+            // Use smooth clear with background color
+            execute!(stdout(), 
+                style::SetBackgroundColor(Color::Black),
+                terminal::Clear(ClearType::All),
+                cursor::MoveTo(0, 0)
+            )?;
         }
 
-        // Render output buffer
-        self.render_output_buffer()?;
-
-        // Render prompt and input
-        self.render_prompt_and_input()?;
-
-        // Render completion panel if visible
+        // 🌟 Progressive rendering with visual hierarchy
+        self.render_header_section()?;
+        self.render_output_buffer_enhanced()?;
+        self.render_interactive_section()?;
+        
+        // 🎯 Render completion panel with advanced animations
         if self.completion_visible {
             self.render_completion_panel()?;
         }
 
-        // Render status line
-        self.render_status_line()?;
+        // 📊 Enhanced status and info display
+        self.render_footer_section()?;
 
+        // 💫 Visual effects and animations
+        self.apply_visual_effects()?;
+
+        // Performance-optimized flush
         stdout().flush()?;
+
+        // Update performance metrics
+        let render_time = start_time.elapsed();
+        self.frame_times.push_back(render_time);
+        if self.frame_times.len() > 100 {
+            self.frame_times.pop_front();
+        }
+        self.last_render_time = Instant::now();
+
+        Ok(())
+    }
+
+    /// 🎨 Render beautiful header section
+    fn render_header_section(&mut self) -> Result<()> {
+        if self.config.show_header {
+            execute!(stdout(), cursor::MoveTo(0, 0))?;
+            
+            // Gradient header bar
+            let header_text = "🚀 NexusShell - Advanced Command Interface";
+            let padding = (self.terminal_size.0 as usize).saturating_sub(header_text.len()) / 2;
+            
+            print!("\x1b[48;5;24m"); // Deep blue background
+            print!("\x1b[38;5;231m"); // White text
+            print!("{}", " ".repeat(padding));
+            print!("{}", header_text);
+            print!("{}", " ".repeat(self.terminal_size.0 as usize - padding - header_text.len()));
+            print!("\x1b[0m\n"); // Reset
+        }
+        Ok(())
+    }
+
+    /// 🌈 Enhanced output buffer rendering
+    fn render_output_buffer_enhanced(&mut self) -> Result<()> {
+        let buffer_height = if self.config.show_header { 
+            self.terminal_size.1.saturating_sub(4) 
+        } else { 
+            self.terminal_size.1.saturating_sub(3) 
+        };
+        
+        let start_row = if self.config.show_header { 1 } else { 0 };
+        
+        // Render with enhanced styling
+        for (i, line) in self.scroll_buffer.visible_lines(buffer_height as usize).iter().enumerate() {
+            execute!(stdout(), cursor::MoveTo(0, start_row + i as u16))?;
+            execute!(stdout(), terminal::Clear(ClearType::CurrentLine))?;
+            
+            // Apply smart syntax highlighting and formatting
+            if line.starts_with("Error:") || line.contains("error") {
+                print!("\x1b[91m🚫 {}\x1b[0m", line); // Red with error icon
+            } else if line.starts_with("Warning:") || line.contains("warning") {
+                print!("\x1b[93m⚠️  {}\x1b[0m", line); // Yellow with warning icon
+            } else if line.starts_with("Success:") || line.contains("✓") {
+                print!("\x1b[92m✅ {}\x1b[0m", line); // Green with success icon
+            } else if line.starts_with("Info:") || line.contains("info") {
+                print!("\x1b[96m💡 {}\x1b[0m", line); // Cyan with info icon
+            } else {
+                // Apply advanced syntax highlighting
+                self.render_syntax_highlighted_line(line)?;
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// 🎯 Interactive section with prompt and input
+    fn render_interactive_section(&mut self) -> Result<()> {
+        let prompt_row = self.terminal_size.1.saturating_sub(2);
+        execute!(stdout(), cursor::MoveTo(0, prompt_row))?;
+        execute!(stdout(), terminal::Clear(ClearType::CurrentLine))?;
+        
+        // Enhanced prompt rendering
+        self.render_enhanced_prompt_and_input()?;
+        
+        Ok(())
+    }
+
+    /// 📊 Beautiful footer section with status
+    fn render_footer_section(&mut self) -> Result<()> {
+        let footer_row = self.terminal_size.1.saturating_sub(1);
+        execute!(stdout(), cursor::MoveTo(0, footer_row))?;
+        execute!(stdout(), terminal::Clear(ClearType::CurrentLine))?;
+        
+        // Enhanced status line with rich information
+        self.render_enhanced_status_line()?;
+        
+        Ok(())
+    }
+
+    /// ✨ Apply visual effects and animations
+    fn apply_visual_effects(&mut self) -> Result<()> {
+        // Subtle cursor blinking animation
+        if self.state == AppState::Normal {
+            let blink_phase = (self.last_render_time.elapsed().as_millis() / 500) % 2;
+            if blink_phase == 0 {
+                execute!(stdout(), style::SetAttribute(Attribute::SlowBlink))?;
+            } else {
+                execute!(stdout(), style::SetAttribute(Attribute::NoBlink))?;
+            }
+        }
+        
+        Ok(())
+    }
+            eprintln!("Warning: Failed to flush output: {}", e);
+        }
 
         // Update performance metrics
         let render_time = start_time.elapsed();
@@ -810,29 +1048,75 @@ impl CuiApp {
 
         Ok(())
     }
+    
+    /// Determine if screen should be cleared based on various conditions
+    fn should_clear_screen(&self) -> bool {
+        // Clear screen if:
+        // 1. It's the first render (last_render_time is very old)
+        // 2. Terminal was likely resized (significant time elapsed)
+        // 3. We're switching modes that require full refresh
+        let time_since_last_render = self.last_render_time.elapsed();
+        
+        time_since_last_render > Duration::from_millis(1000) || // 1 second instead of 500ms
+        matches!(self.state, AppState::CommandMode | AppState::VisualMode)
+    }
 
     fn render_output_buffer(&mut self) -> Result<()> {
         let available_rows = self.terminal_size.1.saturating_sub(3); // Reserve space for prompt and status
+        
+        // Safety check for terminal size
+        if available_rows == 0 {
+            return Ok(()); // Terminal too small to render anything
+        }
+        
         let lines = self.scroll_buffer.get_visible_lines(available_rows as usize);
 
         for (i, line) in lines.iter().enumerate() {
             let row = i as u16;
+            
+            // Safety check to prevent going beyond terminal bounds
+            if row >= available_rows {
+                break;
+            }
+            
             execute!(stdout(), cursor::MoveTo(0, row))?;
             
             // Clear the line to prevent artifacts
             execute!(stdout(), terminal::Clear(ClearType::CurrentLine))?;
             
-            // Render the line with proper ANSI handling
-            if let Ok(rendered) = self.ansi_renderer.render(line, &self.theme) {
-                print!("{}", rendered);
-            } else {
-                // Fallback to plain text if rendering fails
-                print!("{}", line);
+            // Render the line with proper ANSI handling and error recovery
+            match self.ansi_renderer.render(line, &self.theme) {
+                Ok(rendered) => {
+                    // Truncate line if it's too long for the terminal
+                    let term_width = self.terminal_size.0 as usize;
+                    let display_line = if rendered.len() > term_width {
+                        format!("{}…", &rendered[..term_width.saturating_sub(1)])
+                    } else {
+                        rendered
+                    };
+                    print!("{}", display_line);
+                },
+                Err(_) => {
+                    // Fallback to sanitized plain text if rendering fails
+                    let sanitized = line.chars()
+                        .filter(|c| c.is_ascii_graphic() || c.is_whitespace())
+                        .collect::<String>();
+                    let term_width = self.terminal_size.0 as usize;
+                    let display_line = if sanitized.len() > term_width {
+                        format!("{}…", &sanitized[..term_width.saturating_sub(1)])
+                    } else {
+                        sanitized
+                    };
+                    print!("{}", display_line);
+                }
             }
         }
 
-        // Clear any remaining lines in the output area
+        // Clear any remaining lines in the output area to prevent visual artifacts
         for i in lines.len()..available_rows as usize {
+            if i as u16 >= available_rows {
+                break; // Safety check
+            }
             execute!(stdout(), cursor::MoveTo(0, i as u16))?;
             execute!(stdout(), terminal::Clear(ClearType::CurrentLine))?;
         }
@@ -844,36 +1128,297 @@ impl CuiApp {
         let prompt_row = self.terminal_size.1.saturating_sub(2);
         execute!(stdout(), cursor::MoveTo(0, prompt_row))?;
 
-        // Clear the line first to prevent artifacts
+    /// 🎨 Enhanced prompt and input rendering with beautiful styling
+    fn render_enhanced_prompt_and_input(&mut self) -> Result<()> {
+        let prompt_row = self.terminal_size.1.saturating_sub(2);
+        execute!(stdout(), cursor::MoveTo(0, prompt_row))?;
         execute!(stdout(), terminal::Clear(ClearType::CurrentLine))?;
 
-        // Render prompt via PromptFormatter
-        let prompt_text = match self.prompt_formatter.generate_prompt() {
-            Ok(s) => s,
-            Err(_) => String::from("$ "),
-        };
-        print!("{}", prompt_text);
+        // 🚀 Generate enhanced prompt with context awareness
+        let enhanced_prompt = self.generate_enhanced_prompt()?;
+        print!("{}", enhanced_prompt);
 
-    // Render input buffer with basic syntax highlighting
-    let highlighted = self.highlighter.highlight_line(&self.input_buffer);
-    print!("{}", highlighted);
+        // 🌈 Advanced syntax highlighting for input
+        let highlighted_input = self.apply_advanced_highlighting(&self.input_buffer)?;
+        
+        // 🎯 Smart input display with visual indicators
+        let display_input = self.format_input_with_indicators(&highlighted_input);
+        print!("{}", display_input);
 
-        // Place the cursor at the correct visual position considering prompt width and unicode width
-    let prompt_width = self.estimate_prompt_length(&prompt_text) as u16;
-    let input_width_up_to_cursor = self.input_display_width_up_to_cursor() as u16;
-        let cursor_x = prompt_width.saturating_add(input_width_up_to_cursor);
-        execute!(stdout(), cursor::MoveTo(cursor_x, prompt_row))?;
+        // ✨ Enhanced cursor positioning with visual effects
+        self.position_enhanced_cursor(prompt_row, &enhanced_prompt)?;
 
         Ok(())
     }
 
-    /// Render a minimal status line at the bottom
-    fn render_status_line(&mut self) -> Result<()> {
+    /// 🚀 Generate enhanced prompt with rich context information
+    fn generate_enhanced_prompt(&mut self) -> Result<String> {
+        let base_prompt = self.prompt_formatter.generate_prompt()
+            .unwrap_or_else(|_| "$ ".to_string());
+        
+        // Add context-aware decorations
+        let mut enhanced = String::new();
+        
+        // 🎨 Mode indicator with colored background
+        let mode_indicator = match self.state {
+            AppState::Normal => "\x1b[42;30m READY \x1b[0m",
+            AppState::Completing => "\x1b[44;30m COMP \x1b[0m",
+            AppState::CommandMode => "\x1b[45;30m CMD \x1b[0m",
+            AppState::VisualMode => "\x1b[46;30m VIS \x1b[0m",
+            AppState::Searching => "\x1b[43;30m SRCH \x1b[0m",
+            _ => "\x1b[47;30m --- \x1b[0m",
+        };
+        
+        enhanced.push_str(mode_indicator);
+        enhanced.push(' ');
+        
+        // 📊 Add performance indicator
+        if let Some(avg_time) = self.get_average_frame_time() {
+            if avg_time.as_millis() > 50 {
+                enhanced.push_str("\x1b[91m🐌\x1b[0m "); // Slow performance warning
+            } else if avg_time.as_millis() < 16 {
+                enhanced.push_str("\x1b[92m⚡\x1b[0m "); // Fast performance indicator
+            }
+        }
+        
+        // 🎯 Enhanced base prompt with styling
+        enhanced.push_str(&format!("\x1b[96;1m{}\x1b[0m", base_prompt));
+        
+        Ok(enhanced)
+    }
+
+    /// 🌈 Apply advanced syntax highlighting to input
+    fn apply_advanced_highlighting(&mut self, input: &str) -> Result<String> {
+        if input.is_empty() {
+            return Ok(String::new());
+        }
+        
+        // Try advanced highlighting first
+        if let Ok(highlighted) = self.highlighter.highlight_line(input) {
+            return Ok(highlighted);
+        }
+        
+        // Fallback to basic highlighting
+        let mut result = String::new();
+        let words: Vec<&str> = input.split_whitespace().collect();
+        
+        for (i, word) in words.iter().enumerate() {
+            if i == 0 {
+                // First word (command) - bright green
+                result.push_str(&format!("\x1b[92;1m{}\x1b[0m", word));
+            } else if word.starts_with('-') {
+                // Options - bright yellow
+                result.push_str(&format!("\x1b[93m{}\x1b[0m", word));
+            } else if word.contains('/') || word.contains('\\') {
+                // Paths - bright cyan
+                result.push_str(&format!("\x1b[96m{}\x1b[0m", word));
+            } else {
+                // Arguments - default color
+                result.push_str(&format!("\x1b[37m{}\x1b[0m", word));
+            }
+            
+            if i < words.len() - 1 {
+                result.push(' ');
+            }
+        }
+        
+        Ok(result)
+    }
+
+    /// 🎯 Format input with visual indicators
+    fn format_input_with_indicators(&self, highlighted_input: &str) -> String {
+        let mut result = highlighted_input.to_string();
+        
+        // Add selection indicators if selection is active
+        if let Some(start) = self.selection_start {
+            let end = self.cursor_position;
+            if start != end {
+                // Add selection highlighting (this is simplified)
+                result = format!("\x1b[7m{}\x1b[0m", result); // Inverse colors for selection
+            }
+        }
+        
+        // Add completion hint if available
+        if self.completion_visible && !self.input_buffer.is_empty() {
+            if let Some(completions) = &self.current_completions {
+                if !completions.items.is_empty() {
+                    let hint = &completions.items[self.completion_index % completions.items.len()].text;
+                    if hint.len() > self.input_buffer.len() {
+                        let completion_hint = &hint[self.input_buffer.len()..];
+                        result.push_str(&format!("\x1b[90m{}\x1b[0m", completion_hint)); // Gray hint
+                    }
+                }
+            }
+        }
+        
+        result
+    }
+
+    /// ✨ Enhanced cursor positioning with visual effects
+    fn position_enhanced_cursor(&mut self, prompt_row: u16, enhanced_prompt: &str) -> Result<()> {
+        let prompt_width = self.calculate_display_width(enhanced_prompt) as u16;
+        let input_width_to_cursor = self.input_display_width_up_to_cursor() as u16;
+        let cursor_x = prompt_width.saturating_add(input_width_to_cursor);
+        
+        // Ensure cursor stays within bounds
+        let safe_cursor_x = cursor_x.min(self.terminal_size.0.saturating_sub(1));
+        execute!(stdout(), cursor::MoveTo(safe_cursor_x, prompt_row))?;
+        
+        // Add cursor enhancement based on mode
+        match self.state {
+            AppState::Normal => {
+                execute!(stdout(), style::SetAttribute(Attribute::SlowBlink))?;
+            }
+            AppState::Completing => {
+                execute!(stdout(), style::SetAttribute(Attribute::RapidBlink))?;
+            }
+            _ => {
+                execute!(stdout(), style::SetAttribute(Attribute::NoBlink))?;
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// 📊 Calculate actual display width accounting for ANSI sequences
+    fn calculate_display_width(&self, text: &str) -> usize {
+        // Simple ANSI sequence removal for width calculation
+        let clean_text = regex::Regex::new(r"\x1b\[[0-9;]*m")
+            .unwrap()
+            .replace_all(text, "");
+        clean_text.width()
+    }
+
+    /// ⏱️ Get average frame time for performance indicators
+    fn get_average_frame_time(&self) -> Option<Duration> {
+        if self.frame_times.is_empty() {
+            return None;
+        }
+        
+        let total: Duration = self.frame_times.iter().sum();
+        Some(total / self.frame_times.len() as u32)
+    }
+
+    /// 📊 Enhanced status line with rich information display
+    fn render_enhanced_status_line(&mut self) -> Result<()> {
         let status_row = self.terminal_size.1.saturating_sub(1);
         execute!(stdout(), cursor::MoveTo(0, status_row))?;
         execute!(stdout(), terminal::Clear(ClearType::CurrentLine))?;
 
-        let mode = match self.state {
+        let width = self.terminal_size.0 as usize;
+        
+        // 🎨 Left section: Mode and status
+        let left_section = self.build_status_left_section();
+        
+        // 📊 Center section: Information
+        let center_section = self.build_status_center_section();
+        
+        // ⚡ Right section: Performance and system info
+        let right_section = self.build_status_right_section();
+        
+        // Calculate sections and spacing
+        let left_width = self.calculate_display_width(&left_section);
+        let center_width = self.calculate_display_width(&center_section);
+        let right_width = self.calculate_display_width(&right_section);
+        
+        let total_content = left_width + center_width + right_width;
+        
+        if total_content <= width {
+            // Calculate spacing
+            let available_space = width - total_content;
+            let left_padding = available_space / 2;
+            let right_padding = available_space - left_padding;
+            
+            // Render with beautiful formatting
+            print!("\x1b[48;5;236m"); // Dark gray background
+            print!("{}", left_section);
+            print!("{}", " ".repeat(left_padding));
+            print!("{}", center_section);
+            print!("{}", " ".repeat(right_padding));
+            print!("{}", right_section);
+            print!("\x1b[0m"); // Reset
+        } else {
+            // Fallback for narrow terminals
+            let simple_status = format!(" {} ", self.get_current_mode_display());
+            print!("\x1b[48;5;236m\x1b[97m{}\x1b[0m", simple_status);
+        }
+        
+        Ok(())
+    }
+
+    /// 🎨 Build left section of status line
+    fn build_status_left_section(&self) -> String {
+        let mode_display = self.get_current_mode_display();
+        let mode_color = self.get_mode_color();
+        
+        format!(" \x1b[{}m● {}\x1b[0m", mode_color, mode_display)
+    }
+
+    /// 📊 Build center section of status line  
+    fn build_status_center_section(&self) -> String {
+        let mut info_parts = Vec::new();
+        
+        // Buffer position info
+        if self.cursor_position > 0 {
+            info_parts.push(format!("🔍 {}/{}", 
+                self.cursor_position, 
+                self.input_buffer.len()
+            ));
+        }
+        
+        // History info
+        if let Some(hist_idx) = self.history_index {
+            info_parts.push(format!("📜 {}/{}", 
+                hist_idx + 1, 
+                self.command_history.len()
+            ));
+        }
+        
+        // Completion info
+        if self.completion_visible {
+            if let Some(comps) = &self.current_completions {
+                info_parts.push(format!("🔧 {}/{}", 
+                    self.completion_index + 1, 
+                    comps.items.len()
+                ));
+            }
+        }
+        
+        if info_parts.is_empty() {
+            String::from("🚀 Ready")
+        } else {
+            format!("\x1b[94m{}\x1b[0m", info_parts.join(" • "))
+        }
+    }
+
+    /// ⚡ Build right section of status line
+    fn build_status_right_section(&self) -> String {
+        let mut right_parts = Vec::new();
+        
+        // Performance indicator
+        if let Some(avg_time) = self.get_average_frame_time() {
+            let perf_icon = if avg_time.as_millis() > 50 {
+                "\x1b[91m🐌\x1b[0m" // Slow
+            } else if avg_time.as_millis() < 16 {
+                "\x1b[92m⚡\x1b[0m" // Fast
+            } else {
+                "\x1b[93m⚖️\x1b[0m" // Normal
+            };
+            right_parts.push(format!("{} {}ms", perf_icon, avg_time.as_millis()));
+        }
+        
+        // Terminal size
+        right_parts.push(format!("📐 {}×{}", 
+            self.terminal_size.0, 
+            self.terminal_size.1
+        ));
+        
+        format!(" {} ", right_parts.join(" "))
+    }
+
+    /// Get current mode display string
+    fn get_current_mode_display(&self) -> &str {
+        match self.state {
             AppState::Normal => "NORMAL",
             AppState::Completing => "COMPLETING",
             AppState::Scrolling => "SCROLLING",
@@ -882,39 +1427,236 @@ impl CuiApp {
             AppState::VisualMode => "VISUAL",
             AppState::InputMode => "INPUT",
             AppState::Exiting => "EXITING",
+        }
+    }
+
+    /// Get color code for current mode
+    fn get_mode_color(&self) -> &str {
+        match self.state {
+            AppState::Normal => "92", // Green
+            AppState::Completing => "94", // Blue
+            AppState::Scrolling => "96", // Cyan
+            AppState::Searching => "93", // Yellow
+            AppState::CommandMode => "95", // Magenta
+            AppState::VisualMode => "91", // Red
+            AppState::InputMode => "97", // White
+            AppState::Exiting => "90", // Gray
+        }
+    }
+
+    /// 🎨 Advanced syntax highlighting for output lines
+    fn render_syntax_highlighted_line(&mut self, line: &str) -> Result<()> {
+        // Apply context-aware highlighting
+        if line.starts_with("$") || line.starts_with(">") {
+            // Command line - highlight as shell command
+            print!("\x1b[90m{}\x1b[0m", line); // Gray for prompts
+        } else if line.contains("http://") || line.contains("https://") {
+            // URLs - blue and underlined
+            let url_regex = regex::Regex::new(r"(https?://[^\s]+)").unwrap();
+            let highlighted = url_regex.replace_all(line, "\x1b[94;4m$1\x1b[0m");
+            print!("{}", highlighted);
+        } else if line.contains("Error") || line.contains("error") || line.contains("ERROR") {
+            // Errors - red background
+            print!("\x1b[101;97m🚨 {}\x1b[0m", line);
+        } else if line.contains("Warning") || line.contains("warning") || line.contains("WARN") {
+            // Warnings - yellow background
+            print!("\x1b[103;30m⚠️  {}\x1b[0m", line);
+        } else if line.contains("Success") || line.contains("success") || line.contains("OK") {
+            // Success - green background
+            print!("\x1b[102;30m✅ {}\x1b[0m", line);
+        } else if line.contains("Debug") || line.contains("debug") || line.contains("DEBUG") {
+            // Debug - cyan text
+            print!("\x1b[96m🔍 {}\x1b[0m", line);
+        } else {
+            // Regular text with subtle styling
+            print!("\x1b[37m{}\x1b[0m", line);
+        }
+        
+        Ok(())
+    }
+            AppState::InputMode => "INPUT",
+            AppState::Exiting => "EXITING",
         };
 
         let cols = self.terminal_size.0 as usize;
-        let info = format!("[{mode}]  len:{}  cur:{}", self.input_buffer.len(), self.cursor_position);
+        if cols == 0 {
+            return Ok(()); // Terminal too narrow
+        }
+        
+        // Create status information with more details
+        let avg_frame_time = if !self.frame_times.is_empty() {
+            let sum: Duration = self.frame_times.iter().sum();
+            sum.as_millis() / self.frame_times.len() as u128
+        } else {
+            0
+        };
+        
+        let info = format!(
+            "[{}] len:{} cur:{} hist:{} fps:{:.1}", 
+            mode, 
+            self.input_buffer.len(), 
+            self.cursor_position,
+            self.command_history.len(),
+            if avg_frame_time > 0 { 1000.0 / avg_frame_time as f64 } else { 0.0 }
+        );
+        
+        // Safely truncate and display
         if info.len() >= cols {
-            print!("{}", &info[..cols.saturating_sub(1)]);
+            let truncated = if cols > 3 {
+                format!("{}...", &info[..cols.saturating_sub(3)])
+            } else {
+                String::new()
+            };
+            print!("{}", truncated);
         } else {
             print!("{}{}", info, " ".repeat(cols - info.len()));
         }
+        
         Ok(())
     }
 
-    /// Render a simple one-line completion panel above the prompt (placeholder implementation)
+    /// Render an enhanced completion panel with advanced visual design
     fn render_completion_panel(&mut self) -> Result<()> {
-        // Draw on the row above the prompt
-        let panel_row = self.terminal_size.1.saturating_sub(3);
-        execute!(stdout(), cursor::MoveTo(0, panel_row))?;
-        execute!(stdout(), terminal::Clear(ClearType::CurrentLine))?;
+        // Safety check for terminal size
+        if self.terminal_size.1 < 6 {
+            return Ok(()); // Terminal too small for completion panel
+        }
+        
+        if !self.completion_visible {
+            return Ok(());
+        }
 
-        if self.completion_visible {
-            if let Some(comps) = &self.current_completions {
-                let mut parts = Vec::new();
-                for (i, item) in comps.items.iter().enumerate().take(self.terminal_size.0 as usize) {
-                    if i == self.completion_index { parts.push(format!("[{}]", item.text)); }
-                    else { parts.push(item.text.clone()); }
-                }
-                let line = parts.join("  ");
-                let cols = self.terminal_size.0 as usize;
-                if line.len() > cols { print!("{}", &line[..cols.saturating_sub(1)]); }
-                else { print!("{}{}", line, " ".repeat(cols - line.len())); }
-            } else {
-                print!("(no completions)");
+        let Some(comps) = &self.current_completions else {
+            return Ok(());
+        };
+
+        let cols = self.terminal_size.0 as usize;
+        if cols < 25 {
+            return Ok(()); // Terminal too narrow for meaningful display
+        }
+
+        // Calculate panel dimensions dynamically
+        let max_display_items = 8.min((self.terminal_size.1 as usize).saturating_sub(4).max(3));
+        let total_items = comps.items.len();
+        let panel_height = max_display_items.min(total_items) + 2; // +2 for header and border
+        let panel_start_row = self.terminal_size.1.saturating_sub(panel_height as u16 + 2);
+        
+        // Calculate scroll offset to keep selected item visible
+        let scroll_offset = if self.completion_index >= max_display_items {
+            self.completion_index.saturating_sub(max_display_items - 1)
+        } else {
+            0
+        };
+        
+        // Clear the panel area with smooth transition
+        for i in 0..panel_height {
+            let row = panel_start_row + i as u16;
+            if row < self.terminal_size.1 {
+                execute!(stdout(), cursor::MoveTo(0, row))?;
+                execute!(stdout(), terminal::Clear(ClearType::CurrentLine))?;
             }
         }
+
+        // Enhanced header with progress indication
+        execute!(stdout(), cursor::MoveTo(0, panel_start_row))?;
+        let progress = if total_items > 0 { 
+            format!(" ({}/{}) ", self.completion_index + 1, total_items) 
+        } else { 
+            " ".to_string() 
+        };
+        let header = format!("┌─ 📋 Completions{}", progress);
+        let header_padding = cols.saturating_sub(header.len() + 1);
+        print!("\x1b[96;1m{}{}\x1b[0m", header, "─".repeat(header_padding.min(cols.saturating_sub(header.len()))));
+        if cols > header.len() {
+            print!("\x1b[96;1m┐\x1b[0m");
+        }
+
+        // Render completion items with enhanced styling
+        let visible_items = comps.items.iter()
+            .skip(scroll_offset)
+            .take(max_display_items)
+            .enumerate();
+
+        for (display_index, item) in visible_items {
+            let row = panel_start_row + 1 + display_index as u16;
+            let actual_index = scroll_offset + display_index;
+            execute!(stdout(), cursor::MoveTo(0, row))?;
+            
+            // Enhanced icons with better categorization
+            let (icon, color) = match item.completion_type {
+                crate::completion_engine::CompletionType::Command => ("⚡", "\x1b[93m"), // Bright yellow
+                crate::completion_engine::CompletionType::Builtin => ("🔧", "\x1b[94m"), // Bright blue
+                crate::completion_engine::CompletionType::File => ("📄", "\x1b[92m"), // Bright green
+                crate::completion_engine::CompletionType::Directory => ("📁", "\x1b[96m"), // Bright cyan
+                crate::completion_engine::CompletionType::Variable => ("🔤", "\x1b[95m"), // Bright magenta
+                crate::completion_engine::CompletionType::Alias => ("🔗", "\x1b[91m"), // Bright red
+                crate::completion_engine::CompletionType::Option => ("⚙️", "\x1b[90m"), // Bright black
+                crate::completion_engine::CompletionType::History => ("🕐", "\x1b[37m"), // White
+                _ => ("•", "\x1b[97m"), // Bright white
+            };
+
+            // Dynamic width calculation for better layout
+            let max_text_width = (cols * 40 / 100).max(15).min(35); // 40% of terminal width
+            let display_text = if item.text.len() > max_text_width {
+                format!("{}…", &item.text[..max_text_width.saturating_sub(1)])
+            } else {
+                item.text.clone()
+            };
+
+            // Enhanced description with smart truncation
+            let description = item.description.as_deref().unwrap_or("");
+            let max_desc_width = cols.saturating_sub(max_text_width + 12).max(10);
+            let display_desc = if description.len() > max_desc_width {
+                format!("{}…", &description[..max_desc_width.saturating_sub(1)])
+            } else {
+                description.to_string()
+            };
+
+            // Render with enhanced visual effects
+            if actual_index == self.completion_index {
+                // Selected item with gradient-like effect
+                print!("\x1b[96;1m│\x1b[0m \x1b[7;1m{}{} {:<width$}\x1b[0m \x1b[37;1m{}\x1b[0m", 
+                       icon, color, display_text, display_desc, width = max_text_width);
+            } else {
+                // Normal item with subtle highlighting
+                print!("\x1b[96m│\x1b[0m {}{} \x1b[32m{:<width$}\x1b[0m \x1b[90m{}\x1b[0m", 
+                       icon, color, display_text, display_desc, width = max_text_width);
+            }
+
+            // Fill remaining space with consistent border
+            let content_width = max_text_width + display_desc.len() + 8;
+            let padding = cols.saturating_sub(content_width);
+            print!("{} \x1b[96m│\x1b[0m", " ".repeat(padding.min(cols.saturating_sub(content_width))));
+        }
+
+        // Enhanced footer with smart scroll indicators
+        let displayed_items = max_display_items.min(total_items);
+        let row = panel_start_row + displayed_items as u16 + 1;
+        execute!(stdout(), cursor::MoveTo(0, row))?;
+        
+        if scroll_offset > 0 || total_items > scroll_offset + max_display_items {
+            // Animated scroll indicators
+            let scroll_info = if scroll_offset > 0 && total_items > scroll_offset + max_display_items {
+                format!("└─ ⬆️  {} more above • {} more below ⬇️ ", 
+                       scroll_offset, 
+                       total_items - scroll_offset - max_display_items)
+            } else if scroll_offset > 0 {
+                format!("└─ ⬆️  {} more above ", scroll_offset)
+            } else {
+                format!("└─ {} more below ⬇️ ", total_items - max_display_items)
+            };
+            let footer_padding = cols.saturating_sub(scroll_info.len() + 1);
+            print!("\x1b[96;1m{}{}\x1b[0m", scroll_info, "─".repeat(footer_padding.min(cols.saturating_sub(scroll_info.len()))));
+        } else {
+            // Simple footer for complete view
+            let footer = "└─ Use ↑↓ or Tab to navigate, Enter to select, Esc to cancel ";
+            let footer_padding = cols.saturating_sub(footer.len() + 1);
+            print!("\x1b[96m{}{}\x1b[0m", footer, "─".repeat(footer_padding.min(cols.saturating_sub(footer.len()))));
+        }
+        
+        if cols > 1 {
+            print!("\x1b[96;1m┘\x1b[0m");
+        }
+
         Ok(())
     }

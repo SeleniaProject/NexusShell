@@ -25,6 +25,8 @@ log = "0.4"
 ctrlc = "3.4"
 # Unicode text width calculation
 unicode-width = "0.1"
+# Regular expressions for advanced text processing
+regex = "1.10"
 # Color handling with advanced features (maintained alternative)
 nu-ansi-term = "0.50"
 # Terminal detection for color support (std-based)
@@ -42,8 +44,6 @@ sysinfo = "0.29"
 battery = { version = "0.7", optional = true }
 # Unique ID generation for sessions
 uuid = { version = "1.0", features = ["v4", "serde"] }
-# Regular expressions for syntax highlighting
-regex = "1.10"
 # Async support for high-performance operations
 tokio = { version = "1.0", features = ["full", "sync"], optional = true }
 # Rich text and formatting

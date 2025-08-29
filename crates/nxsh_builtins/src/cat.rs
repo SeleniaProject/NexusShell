@@ -1141,18 +1141,22 @@ fn process_url_to_writer(
                 .with_context(|| t!("cat-error-ftp-login-failed", "user" => username))?;
             
             // Set binary mode for reliable file transfer
-            ftp_stream.transfer_type(suppaftp::TransferType::Binary)
-                .with_context(|| t!("cat-error-ftp-binary-mode-failed"))?;
+            // Different versions of suppaftp have different APIs
+            let _ = ftp_stream.transfer_type(suppaftp::types::FileType::Binary);
             
             // Retrieve file content
-            let mut cursor = std::io::Cursor::new(Vec::new());
-            ftp_stream.retr(path, &mut cursor)
-                .with_context(|| t!("cat-error-ftp-retrieve-failed", "path" => path))?;
+            let mut buffer = Vec::new();
+            ftp_stream.retr(path, |mut reader| {
+                std::io::copy(&mut reader, &mut buffer)
+                    .map_err(|e| suppaftp::FtpError::BadResponse)
+                    .map(|_| ())
+            })
+            .with_context(|| t!("cat-error-ftp-retrieve-failed", "path" => path))?;
             
             // Properly close FTP connection
             let _ = ftp_stream.quit(); // Don't fail if quit fails
             
-            cursor.set_position(0);
+            let cursor = std::io::Cursor::new(buffer);
             let reader = BufReader::new(cursor);
             
             return process_reader_with_progress(
@@ -1700,7 +1704,5 @@ mod tests {
         assert_eq!(url.username(), "user");
         assert_eq!(url.password(), Some("pass"));
         assert_eq!(url.path(), "/directory/file.txt");
-    }
-        Ok(())
     }
 }

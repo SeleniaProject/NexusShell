@@ -238,6 +238,7 @@ impl Default for ThemeConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UiConfig {
     pub show_status_bar: bool,
+    pub show_header: bool,
     pub show_side_panel: bool,
     pub side_panel_width: u16,
     pub show_suggestions: bool,
@@ -250,12 +251,15 @@ pub struct UiConfig {
     pub notification_timeout: u64,
     pub max_output_lines: usize,
     pub auto_scroll_output: bool,
+    pub scroll_buffer_size: usize,
+    pub theme_name: String,
 }
 
 impl Default for UiConfig {
     fn default() -> Self {
         Self {
             show_status_bar: true,
+            show_header: true,
             show_side_panel: false,
             side_panel_width: 30,
             show_suggestions: true,
@@ -268,6 +272,8 @@ impl Default for UiConfig {
             notification_timeout: 3000,
             max_output_lines: 10000,
             auto_scroll_output: true,
+            scroll_buffer_size: 1000,
+            theme_name: "default".to_string(),
         }
     }
 }

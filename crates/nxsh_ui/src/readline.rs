@@ -377,11 +377,23 @@ impl ReadLine {
     }
     
     fn apply_completion(&mut self, completion: &CompletionResult) -> io::Result<()> {
-        let (_, word_start, _word) = self.completion_engine.parse_completion_context(&self.line, self.cursor_pos);
-        
-        // Replace the current word with the completion
-        self.line.replace_range(word_start..self.cursor_pos, &completion.completion);
-        self.cursor_pos = word_start + completion.completion.len();
+        let (_prefix, word_start, word) = self.completion_engine.parse_completion_context(&self.line, self.cursor_pos);
+        let mut replacement = completion.completion.clone();
+
+        // Quote paths with spaces or special chars unless already quoted
+        if matches!(completion.completion_type, crate::completion::CompletionType::File | crate::completion::CompletionType::Directory) {
+            let needs_quote = replacement.chars().any(|c| matches!(c,
+                ' ' | '\t' | '(' | ')' | '[' | ']' | '{' | '}' | '&' | ';' | '"' | '\''
+            ));
+            let already_quoted = word.starts_with('"') || word.starts_with('\'');
+            if needs_quote && !already_quoted {
+                replacement = format!("\"{}\"", replacement);
+            }
+        }
+
+        // Replace the current word with the (possibly quoted) completion
+        self.line.replace_range(word_start..self.cursor_pos, &replacement);
+        self.cursor_pos = word_start + replacement.len();
         
         self.clear_completion_state();
         Ok(())
@@ -437,7 +449,10 @@ impl ReadLine {
         // Add space after command completions, but not after file/directory completions
         match completion.completion_type {
             crate::completion::CompletionType::Command | 
-            crate::completion::CompletionType::Builtin => true,
+            crate::completion::CompletionType::Builtin |
+            crate::completion::CompletionType::Flag |
+            crate::completion::CompletionType::Subcommand |
+            crate::completion::CompletionType::EnvVar => true,
             crate::completion::CompletionType::Directory => false, // Allow continuing path
             crate::completion::CompletionType::File => self.cursor_pos == self.line.len(), // Only at end
             _ => false,
@@ -521,9 +536,16 @@ impl ReadLine {
         let mut out = stdout();
         // Capture current row as the prompt start
         out.flush()?;
-    self.input_row = cursor::position()?.1;
-    let (_, term_height) = terminal::size()?;
-    let max_row = term_height.saturating_sub(1);
+        self.input_row = cursor::position()?.1;
+        let (_, term_height) = terminal::size()?;
+        let max_row = term_height.saturating_sub(1);
+        // Ensure the full prompt (possibly multi-line) fits within the screen
+        let prompt_rows = (self.prompt_lines as u16).max(1);
+        let needed_last = self.input_row.saturating_add(prompt_rows.saturating_sub(1));
+        if needed_last > max_row {
+            // Clamp starting row so that the bottom of the prompt aligns to the last screen row
+            self.input_row = max_row.saturating_sub(prompt_rows.saturating_sub(1));
+        }
 
         // Proactively clear the prompt area (all lines the prompt will occupy)
         for r in 0..self.prompt_lines as u16 {
@@ -533,7 +555,7 @@ impl ReadLine {
             out.queue(terminal::Clear(terminal::ClearType::CurrentLine))?;
         }
 
-        // Print prompt per line (avoid implicit newline side-effects)
+    // Print prompt per line (avoid implicit newline side-effects)
         for (i, line) in self.prompt.lines().enumerate() {
             let row = self.input_row.saturating_add(i as u16);
             if row > max_row { break; }
@@ -569,36 +591,45 @@ impl ReadLine {
     (rows, last_row_col)
     }
 
-    // Minimal ANSI escape stripper (CSI and OSC)
+    // Minimal ANSI escape stripper (CSI and OSC) preserving UTF-8 bytes
+    // NOTE: Build the output as raw bytes to avoid corrupting multi-byte characters
     fn strip_ansi(s: &str) -> String {
-        let mut out = String::with_capacity(s.len());
         let bytes = s.as_bytes();
-        let mut i = 0;
+        let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+        let mut i = 0usize;
         while i < bytes.len() {
             if bytes[i] == 0x1B {
+                // Start of an escape sequence: CSI (ESC '[') or OSC (ESC ']')
                 i += 1;
                 if i < bytes.len() && (bytes[i] == b'[' || bytes[i] == b']') {
                     let initiator = bytes[i];
                     i += 1;
+                    // Consume until final byte of sequence
                     while i < bytes.len() {
                         let b = bytes[i];
                         i += 1;
                         if initiator == b'[' {
+                            // CSI ends at bytes in 0x40..=0x7E
                             if (0x40..=0x7E).contains(&b) { break; }
-                        } else { // OSC: BEL or ST (ESC \\)
+                        } else {
+                            // OSC ends with BEL (0x07) or ST (ESC '\\')
                             if b == 0x07 { break; }
-                            if b == 0x1B && i < bytes.len() && bytes[i] == b'\\' { i += 1; break; }
+                            if b == 0x1B {
+                                if i < bytes.len() && bytes[i] == b'\\' { i += 1; }
+                                break;
+                            }
                         }
                     }
                     continue;
                 }
-                // Unrecognized ESC — skip it
+                // Lone ESC — skip it
                 continue;
             }
-            out.push(bytes[i] as char);
+            // Normal byte, keep as-is
+            out.push(bytes[i]);
             i += 1;
         }
-        out
+        String::from_utf8_lossy(&out).into_owned()
     }
     
     fn refresh_display(&mut self) -> io::Result<()> {
@@ -607,6 +638,12 @@ impl ReadLine {
         // Clear only the region we own: prompt lines + previous panel (no extra blank line)
         let (_, term_height) = terminal::size()?;
         let max_row = term_height.saturating_sub(1);
+        // Clamp starting row if terminal shrank, to keep prompt fully visible
+        let prompt_rows = (self.prompt_lines as u16).max(1);
+        let needed_last = self.input_row.saturating_add(prompt_rows.saturating_sub(1));
+        if needed_last > max_row {
+            self.input_row = max_row.saturating_sub(prompt_rows.saturating_sub(1));
+        }
         let clear_rows = self.prompt_lines as u16 + (self.last_panel_height as u16);
         for r in 0..clear_rows {
             let row = self.input_row.saturating_add(r);
@@ -619,6 +656,11 @@ impl ReadLine {
         for (i, line) in self.prompt.lines().enumerate() {
             out.queue(cursor::MoveTo(0, self.input_row + i as u16))?;
             out.queue(terminal::Clear(terminal::ClearType::CurrentLine))?; // ensure full line clean
+            // For multi-line prompts, indent subsequent lines slightly to avoid
+            // visual confusion with wrapped input. This is purely cosmetic.
+            if i > 0 {
+                out.queue(Print(""))?; // placeholder (keep future tweak simple)
+            }
             out.queue(Print(line))?;
         }
 
