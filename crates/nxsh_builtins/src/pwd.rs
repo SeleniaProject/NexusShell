@@ -3,10 +3,10 @@
 //!   -L : logical path from $PWD (default)
 //!   -P : physical path with symlink resolution
 
+use super::ui_design::{ColorPalette, Colorize, Icons};
 use anyhow::Result;
 use nxsh_core::context::ShellContext;
 use std::env;
-use super::ui_design::{Colorize, ColorPalette, Icons};
 
 pub fn pwd_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
     let mut physical = false;
@@ -20,21 +20,27 @@ pub fn pwd_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
     let path = if physical {
         env::current_dir()?
     } else {
-        ctx.get_var("PWD").map(|s| s.into()).unwrap_or(env::current_dir()?)
+        ctx.get_var("PWD")
+            .map(|s| s.into())
+            .unwrap_or(env::current_dir()?)
     };
-    
+
     let palette = ColorPalette::new();
-    println!("{} {}", 
-        Icons::FOLDER, 
+    println!(
+        "{} {}",
+        Icons::FOLDER,
         path.display().to_string().colorize(&palette.success)
     );
     Ok(())
 }
 
 /// Execute the pwd builtin command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     let mut physical = false;
-    
+
     for arg in args {
         match arg.as_str() {
             "-P" => physical = true,
@@ -79,19 +85,19 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
                     eprintln!("❌ pwd error: {e}");
                     return Ok(1);
                 }
-            }
+            },
         }
     };
 
     // Stylish output with cyberpunk theme colors
-    let cyan = "\x1b[38;2;0;245;255m";     // #00f5ff - cyberpunk cyan
-    let purple = "\x1b[38;2;153;69;255m";  // #9945ff - deep purple
+    let cyan = "\x1b[38;2;0;245;255m"; // #00f5ff - cyberpunk cyan
+    let purple = "\x1b[38;2;153;69;255m"; // #9945ff - deep purple
     let reset = "\x1b[0m";
-    
+
     // Format path components with alternating colors
     let path_str = path.display().to_string();
     let components: Vec<&str> = path_str.split(['/', '\\']).collect();
-    
+
     print!("📁 ");
     for (i, component) in components.iter().enumerate() {
         if !component.is_empty() {
@@ -115,5 +121,4 @@ mod tests {
         let ctx = ShellContext::new();
         pwd_cli(&[], &ctx).unwrap();
     }
-} 
-
+}

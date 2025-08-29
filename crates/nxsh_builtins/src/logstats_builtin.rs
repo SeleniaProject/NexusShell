@@ -11,7 +11,8 @@ pub fn set_logging_system<T>(_logging: T) {}
 
 pub fn logstats_cli(args: &[String]) -> Result<()> {
     let mut mode = OutputMode::Plain;
-    for a in args.iter().skip(1) { // args[0] is the command name
+    for a in args.iter().skip(1) {
+        // args[0] is the command name
         match a.as_str() {
             "--json" => mode = OutputMode::JsonCompact,
             "--pretty" => mode = OutputMode::JsonPretty,
@@ -38,9 +39,7 @@ pub fn logstats_cli(args: &[String]) -> Result<()> {
             println!("{{\"error\":\"logging disabled\",\"available\":false}}");
         }
         OutputMode::JsonPretty => {
-            println!(
-                "{{\n  \"error\": \"logging disabled\",\n  \"available\": false\n}}"
-            );
+            println!("{{\n  \"error\": \"logging disabled\",\n  \"available\": false\n}}");
         }
     }
 
@@ -48,7 +47,11 @@ pub fn logstats_cli(args: &[String]) -> Result<()> {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
-enum OutputMode { Plain, JsonCompact, JsonPretty }
+enum OutputMode {
+    Plain,
+    JsonCompact,
+    JsonPretty,
+}
 
 fn print_help() {
     println!(
@@ -63,13 +66,19 @@ fn print_help() {
 }
 
 // Adapter function for the builtin command interface
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     logstats_cli(args).map_err(|e| crate::common::BuiltinError::Other(e.to_string()))?;
     Ok(0)
 }
 
 /// Render logstats in the specified mode for testing
-pub fn render_logstats_for_mode(mode: &str, map: &std::collections::BTreeMap<String, i32>) -> String {
+pub fn render_logstats_for_mode(
+    mode: &str,
+    map: &std::collections::BTreeMap<String, i32>,
+) -> String {
     match mode {
         "json" => {
             let mut json_pairs = Vec::new();
@@ -96,4 +105,3 @@ pub fn render_logstats_for_mode(mode: &str, map: &std::collections::BTreeMap<Str
         }
     }
 }
-

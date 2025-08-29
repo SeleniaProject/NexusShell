@@ -32,11 +32,14 @@ fn unzstd_roundtrip_store_mode() {
     assert!(zst_path.exists());
 
     // Decompress; keep original .zst and allow overwrite of existing target
-    assert!(unzstd_cli(&["-k".to_string(), "-f".to_string(), zst_path.to_string_lossy().to_string()]).is_ok());
+    assert!(unzstd_cli(&[
+        "-k".to_string(),
+        "-f".to_string(),
+        zst_path.to_string_lossy().to_string()
+    ])
+    .is_ok());
 
     // Validate content restored (target is input_path)
     let restored = std::fs::read_to_string(&input_path).unwrap();
     assert_eq!(restored, original);
 }
-
-

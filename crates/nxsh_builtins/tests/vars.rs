@@ -1,4 +1,4 @@
-use nxsh_builtins::vars::{let_cli, declare_cli, printf_cli};
+use nxsh_builtins::vars::{declare_cli, let_cli, printf_cli};
 use nxsh_core::context::ShellContext;
 
 #[test]
@@ -28,4 +28,4 @@ fn printf_hex() {
     // For now, just test that printf_cli doesn't crash
     let result = printf_cli(&["%08x\n".into(), "255".into()]);
     assert!(result.is_ok());
-} 
+}

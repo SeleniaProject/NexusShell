@@ -22,5 +22,3 @@ fn prom_lines_have_type_or_default() {
     assert!(s.contains("nxsh_log_messages_logged "));
     assert!(s.contains("# TYPE nxsh_log_unknown_metric"));
 }
-
-

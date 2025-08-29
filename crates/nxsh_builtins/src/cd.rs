@@ -4,12 +4,12 @@
 //! with support for various shell features like directory stack,
 //! CDPATH, and symbolic link handling.
 
-use nxsh_core::{Builtin, ExecutionResult, ShellResult, ShellError, ErrorKind};
 use nxsh_core::context::ShellContext;
-use nxsh_core::error::{RuntimeErrorKind, IoErrorKind};
+use nxsh_core::error::{IoErrorKind, RuntimeErrorKind};
+use nxsh_core::{Builtin, ErrorKind, ExecutionResult, ShellError, ShellResult};
 use std::env;
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 // use super::ui_design::{ColorPalette, Icons};
 
 /// The `cd` builtin command implementation
@@ -43,9 +43,13 @@ impl Builtin for CdCommand {
     fn execute(&self, ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
         let mut follow_symlinks = true;
         let mut target_dir: Option<String> = None;
-        
-    // Parse arguments (skip command name if present)
-    let mut i = if !args.is_empty() && args[0] == "cd" { 1 } else { 0 };
+
+        // Parse arguments (skip command name if present)
+        let mut i = if !args.is_empty() && args[0] == "cd" {
+            1
+        } else {
+            0
+        };
         while i < args.len() {
             match args[i].as_str() {
                 "-L" => follow_symlinks = true,
@@ -54,7 +58,7 @@ impl Builtin for CdCommand {
                     if target_dir.is_some() {
                         return Err(ShellError::new(
                             ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
-                            "cd: too many arguments"
+                            "cd: too many arguments",
                         ));
                     }
                     target_dir = Some("-".to_string());
@@ -62,14 +66,14 @@ impl Builtin for CdCommand {
                 arg if arg.starts_with('-') => {
                     return Err(ShellError::new(
                         ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
-                        format!("cd: invalid option: {arg}")
+                        format!("cd: invalid option: {arg}"),
                     ));
                 }
                 arg => {
                     if target_dir.is_some() {
                         return Err(ShellError::new(
                             ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
-                            "cd: too many arguments"
+                            "cd: too many arguments",
                         ));
                     }
                     target_dir = Some(arg.to_string());
@@ -83,8 +87,12 @@ impl Builtin for CdCommand {
             Some(dir) => self.resolve_target_directory(&dir, ctx)?,
             None => {
                 // No argument - go to HOME directory
-                ctx.get_var("HOME")
-                    .ok_or_else(|| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::VariableNotFound), "cd: HOME not set"))?
+                ctx.get_var("HOME").ok_or_else(|| {
+                    ShellError::new(
+                        ErrorKind::RuntimeError(RuntimeErrorKind::VariableNotFound),
+                        "cd: HOME not set",
+                    )
+                })?
             }
         };
 
@@ -92,9 +100,13 @@ impl Builtin for CdCommand {
         let resolved_target = match target.as_str() {
             "-" => {
                 // Go to previous directory (stored in OLDPWD)
-                let oldpwd = ctx.get_var("OLDPWD")
-                    .ok_or_else(|| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::VariableNotFound), "cd: OLDPWD not set"))?;
-                
+                let oldpwd = ctx.get_var("OLDPWD").ok_or_else(|| {
+                    ShellError::new(
+                        ErrorKind::RuntimeError(RuntimeErrorKind::VariableNotFound),
+                        "cd: OLDPWD not set",
+                    )
+                })?;
+
                 // Print the directory we're changing to (bash behavior)
                 println!("{oldpwd}");
                 oldpwd
@@ -103,9 +115,13 @@ impl Builtin for CdCommand {
         };
 
         // Save current directory as OLDPWD
-        let current_dir = env::current_dir()
-            .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::PermissionError), format!("Failed to get current directory: {e}")))?;
-        
+        let current_dir = env::current_dir().map_err(|e| {
+            ShellError::new(
+                ErrorKind::IoError(IoErrorKind::PermissionError),
+                format!("Failed to get current directory: {e}"),
+            )
+        })?;
+
         // Change to the target directory
         let new_path = PathBuf::from(&resolved_target);
         let canonical_path = if follow_symlinks {
@@ -115,8 +131,12 @@ impl Builtin for CdCommand {
         };
 
         // Actually change directory
-        env::set_current_dir(&canonical_path)
-            .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::NotFound), format!("cd: {resolved_target}: {e}")))?;
+        env::set_current_dir(&canonical_path).map_err(|e| {
+            ShellError::new(
+                ErrorKind::IoError(IoErrorKind::NotFound),
+                format!("cd: {resolved_target}: {e}"),
+            )
+        })?;
 
         // Update shell context
         ctx.cwd = canonical_path.clone();
@@ -144,7 +164,7 @@ impl CdCommand {
     /// Resolve target directory using CDPATH if necessary
     fn resolve_target_directory(&self, target: &str, ctx: &ShellContext) -> ShellResult<String> {
         let path = Path::new(target);
-        
+
         // If path is absolute or starts with ./ or ../, use it directly
         if path.is_absolute() || target.starts_with("./") || target.starts_with("../") {
             return Ok(target.to_string());
@@ -152,9 +172,14 @@ impl CdCommand {
 
         // Try current directory first
         let current_attempt = env::current_dir()
-            .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::PermissionError), format!("Failed to get current directory: {e}")))?
+            .map_err(|e| {
+                ShellError::new(
+                    ErrorKind::IoError(IoErrorKind::PermissionError),
+                    format!("Failed to get current directory: {e}"),
+                )
+            })?
             .join(target);
-        
+
         if current_attempt.exists() {
             return Ok(target.to_string());
         }
@@ -175,8 +200,12 @@ impl CdCommand {
 
     /// Canonicalize path (resolve symlinks)
     fn canonicalize_path(&self, path: &Path) -> ShellResult<PathBuf> {
-        let p = path.canonicalize()
-            .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::NotFound), format!("cd: {}: {}", path.display(), e)))?;
+        let p = path.canonicalize().map_err(|e| {
+            ShellError::new(
+                ErrorKind::IoError(IoErrorKind::NotFound),
+                format!("cd: {}: {}", path.display(), e),
+            )
+        })?;
 
         #[cfg(windows)]
         {
@@ -193,8 +222,12 @@ impl CdCommand {
         let mut result = if path.is_absolute() {
             PathBuf::from("/")
         } else {
-            env::current_dir()
-                .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::PermissionError), format!("Failed to get current directory: {e}")))?
+            env::current_dir().map_err(|e| {
+                ShellError::new(
+                    ErrorKind::IoError(IoErrorKind::PermissionError),
+                    format!("Failed to get current directory: {e}"),
+                )
+            })?
         };
 
         for component in path.components() {
@@ -222,14 +255,14 @@ impl CdCommand {
         if !result.exists() {
             return Err(ShellError::new(
                 ErrorKind::IoError(IoErrorKind::NotFound),
-                format!("cd: {}: No such file or directory", path.display())
+                format!("cd: {}: No such file or directory", path.display()),
             ));
         }
 
         if !result.is_dir() {
             return Err(ShellError::new(
                 ErrorKind::IoError(IoErrorKind::InvalidData),
-                format!("cd: {}: Not a directory", path.display())
+                format!("cd: {}: Not a directory", path.display()),
             ));
         }
 
@@ -255,7 +288,11 @@ impl CdCommand {
                 Prefix::VerbatimUNC(server, share) => {
                     // Convert \\?\UNC\server\share\... -> \\server\share\...
                     let mut out = PathBuf::new();
-                    out.push(format!("\\\\{}\\{}", server.to_string_lossy(), share.to_string_lossy()));
+                    out.push(format!(
+                        "\\\\{}\\{}",
+                        server.to_string_lossy(),
+                        share.to_string_lossy()
+                    ));
                     for c in comps {
                         out.push(c.as_os_str());
                     }
@@ -282,7 +319,8 @@ impl CdCommand {
         let env_file = path.join(".env");
         if env_file.exists() {
             // Detect whether auto load is enabled via context variable or process env
-            let auto_load_env = ctx.get_var("NXSH_AUTO_LOAD_ENV")
+            let auto_load_env = ctx
+                .get_var("NXSH_AUTO_LOAD_ENV")
                 .map(|v| v == "1" || v == "true")
                 .unwrap_or_else(|| {
                     env::var("NXSH_AUTO_LOAD_ENV")
@@ -303,7 +341,8 @@ impl CdCommand {
         if shell_config.exists() {
             // Implemented: opt-in auto sourcing of directory config keys as env vars only (no command exec)
             // Gate: NXSH_AUTO_SOURCE_DIR_CONFIG = 1/true (context var preferred over process env)
-            let auto_source_dir_config = ctx.get_var("NXSH_AUTO_SOURCE_DIR_CONFIG")
+            let auto_source_dir_config = ctx
+                .get_var("NXSH_AUTO_SOURCE_DIR_CONFIG")
                 .map(|v| v == "1" || v == "true")
                 .unwrap_or_else(|| {
                     env::var("NXSH_AUTO_SOURCE_DIR_CONFIG")
@@ -324,16 +363,24 @@ impl CdCommand {
 
     /// Get the logical current directory (following symlinks)
     pub fn get_logical_pwd() -> ShellResult<PathBuf> {
-        env::current_dir()
-            .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::PermissionError), format!("Failed to get current directory: {e}")))
+        env::current_dir().map_err(|e| {
+            ShellError::new(
+                ErrorKind::IoError(IoErrorKind::PermissionError),
+                format!("Failed to get current directory: {e}"),
+            )
+        })
     }
 
     /// Get the physical current directory (without following symlinks)
     pub fn get_physical_pwd() -> ShellResult<PathBuf> {
         // This is more complex to implement properly and would require
         // tracking the path without resolving symlinks
-        env::current_dir()
-            .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::PermissionError), format!("Failed to get current directory: {e}")))
+        env::current_dir().map_err(|e| {
+            ShellError::new(
+                ErrorKind::IoError(IoErrorKind::PermissionError),
+                format!("Failed to get current directory: {e}"),
+            )
+        })
     }
 
     /// Load environment variables from a .env file
@@ -343,33 +390,34 @@ impl CdCommand {
         }
 
         let content = fs::read_to_string(env_file)?;
-        
+
         for line in content.lines() {
             let line = line.trim();
-            
+
             // Skip comments and empty lines
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
-            
+
             // Parse KEY=VALUE format
             if let Some((key, value)) = line.split_once('=') {
                 let key = key.trim();
                 let value = value.trim();
-                
+
                 // Remove quotes if present
-                let value = if (value.starts_with('"') && value.ends_with('"')) ||
-                              (value.starts_with('\'') && value.ends_with('\'')) {
-                    &value[1..value.len()-1]
+                let value = if (value.starts_with('"') && value.ends_with('"'))
+                    || (value.starts_with('\'') && value.ends_with('\''))
+                {
+                    &value[1..value.len() - 1]
                 } else {
                     value
                 };
-                
+
                 // Set the environment variable in the shell context
                 ctx.set_var(key, value.to_string());
             }
         }
-        
+
         Ok(())
     }
 
@@ -378,10 +426,10 @@ impl CdCommand {
         // Look for common shell configuration files in the directory
         let config_files = [
             ".nxshrc",
-            ".shellrc", 
+            ".shellrc",
             ".dirrc",
             "nxsh.config",
-            "shell.config"
+            "shell.config",
         ];
 
         for config_file in &config_files {
@@ -390,7 +438,11 @@ impl CdCommand {
                 // For now, we'll just load it as environment variables
                 // In a full implementation, this could execute shell commands
                 if let Err(e) = self.load_env_file(&config_path, ctx) {
-                    eprintln!("Warning: Failed to load config file {}: {}", config_path.display(), e);
+                    eprintln!(
+                        "Warning: Failed to load config file {}: {}",
+                        config_path.display(),
+                        e
+                    );
                 }
             }
         }
@@ -409,11 +461,14 @@ impl Default for CdCommand {
 pub fn cd_cli(args: &[String], ctx: &mut nxsh_core::context::ShellContext) -> ShellResult<()> {
     let cd_cmd = CdCommand;
     let result = cd_cmd.execute(ctx, args)?;
-    
+
     if result.is_success() {
         Ok(())
     } else {
-        Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound), format!("cd failed with exit code {}", result.exit_code)))
+        Err(ShellError::new(
+            ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound),
+            format!("cd failed with exit code {}", result.exit_code),
+        ))
     }
 }
 
@@ -425,19 +480,20 @@ pub fn cd(args: &[String], ctx: &mut ShellContext) -> anyhow::Result<()> {
         0 => Ok(()),
         code => Err(anyhow::anyhow!("cd failed with exit code {}", code)),
     }
-} 
-
-
+}
 
 /// Execute function for cd command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     use super::ui_design::Colorize;
-    
-    let cyan = "\x1b[38;2;0;245;255m";     // #00f5ff
-    let green = "\x1b[38;2;46;213;115m";   // #2ed573
-    let yellow = "\x1b[38;2;255;190;11m";  // #ffbe0b
+
+    let cyan = "\x1b[38;2;0;245;255m"; // #00f5ff
+    let green = "\x1b[38;2;46;213;115m"; // #2ed573
+    let yellow = "\x1b[38;2;255;190;11m"; // #ffbe0b
     let reset = "\x1b[0m";
-    
+
     // Handle arguments - only take the first argument, ignore the rest
     let target_dir_owned;
     let target_dir = if !args.is_empty() {
@@ -455,7 +511,7 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
             }
         }
     };
-    
+
     // Handle special cases
     let target_path = if target_dir == "-" {
         match std::env::var("OLDPWD") {
@@ -471,34 +527,34 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
     } else {
         target_dir.to_string()
     };
-    
+
     // Expand home directory
     let expanded_path = if target_path.starts_with('~') {
         match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
             Ok(home) => target_path.replacen('~', &home, 1),
-            Err(_) => target_path
+            Err(_) => target_path,
         }
     } else {
         target_path
     };
-    
+
     // Get current directory for OLDPWD
     let current_dir = match std::env::current_dir() {
         Ok(dir) => dir.to_string_lossy().to_string(),
         Err(_) => String::new(),
     };
-    
+
     // Change directory
     match std::env::set_current_dir(&expanded_path) {
         Ok(()) => {
             // Set OLDPWD
             std::env::set_var("OLDPWD", current_dir);
-            
+
             // Update PWD
             if let Ok(new_dir) = std::env::current_dir() {
                 std::env::set_var("PWD", new_dir.to_string_lossy().as_ref());
             }
-            
+
             // Show success with cyberpunk style
             if !args.is_empty() && target_dir != "." {
                 let short_path = if expanded_path.len() > 50 {
@@ -508,7 +564,7 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
                 };
                 println!("{cyan}📁 Changed to: {green}{short_path}{reset}");
             }
-            
+
             Ok(0)
         }
         Err(e) => {
@@ -522,21 +578,23 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
 mod tests {
     use super::*;
     use nxsh_core::context::ShellContext;
+    use serial_test::serial;
     use std::env;
     use tempfile::TempDir;
-    use serial_test::serial;
 
     // Serialize current_dir mutations across tests to avoid race conditions
     static CWD_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-    fn cwd_lock() -> &'static std::sync::Mutex<()> { CWD_LOCK.get_or_init(|| std::sync::Mutex::new(())) }
+    fn cwd_lock() -> &'static std::sync::Mutex<()> {
+        CWD_LOCK.get_or_init(|| std::sync::Mutex::new(()))
+    }
 
     #[test]
     #[serial]
     fn test_cd_to_home() {
         let mut shell_ctx = ShellContext::new();
         shell_ctx.set_var("HOME", "/tmp");
-        
-    let _result = cd_cli(&["cd".to_string()], &mut shell_ctx);
+
+        let _result = cd_cli(&["cd".to_string()], &mut shell_ctx);
         // This test would need proper setup to work in all environments
     }
 
@@ -547,9 +605,9 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let sub_dir = temp_dir.path().join("subdir");
         std::fs::create_dir(&sub_dir).unwrap();
-        
+
         env::set_current_dir(temp_dir.path()).unwrap();
-        
+
         let mut shell_ctx = ShellContext::new();
         let result = cd_cli(&["cd".to_string(), "subdir".to_string()], &mut shell_ctx);
         if let Err(e) = &result {
@@ -563,8 +621,11 @@ mod tests {
     #[serial]
     fn test_cd_to_nonexistent_directory() {
         let mut shell_ctx = ShellContext::new();
-        let result = cd_cli(&["cd".to_string(), "/nonexistent/directory".to_string()], &mut shell_ctx);
-        
+        let result = cd_cli(
+            &["cd".to_string(), "/nonexistent/directory".to_string()],
+            &mut shell_ctx,
+        );
+
         assert!(result.is_err());
     }
 
@@ -574,14 +635,14 @@ mod tests {
         let _g = cwd_lock().lock().unwrap();
         let temp_dir1 = TempDir::new().unwrap();
         let temp_dir2 = TempDir::new().unwrap();
-        
+
         env::set_current_dir(temp_dir1.path()).unwrap();
-        
+
         let mut shell_ctx = ShellContext::new();
         shell_ctx.set_var("OLDPWD", temp_dir2.path().to_string_lossy().to_string());
-        
+
         let result = cd_cli(&["cd".to_string(), "-".to_string()], &mut shell_ctx);
-        
+
         assert!(result.is_ok());
         assert_eq!(env::current_dir().unwrap(), temp_dir2.path());
     }
@@ -593,22 +654,32 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let sub_dir = temp_dir.path().join("project");
         fs::create_dir(&sub_dir).unwrap();
-        
+
         // Create a .env file
         let env_file = sub_dir.join(".env");
-        fs::write(&env_file, "TEST_VAR=test_value\nANOTHER_VAR=\"quoted value\"").unwrap();
-        
+        fs::write(
+            &env_file,
+            "TEST_VAR=test_value\nANOTHER_VAR=\"quoted value\"",
+        )
+        .unwrap();
+
         env::set_current_dir(temp_dir.path()).unwrap();
-        
+
         let mut shell_ctx = ShellContext::new();
         shell_ctx.set_var("NXSH_AUTO_LOAD_ENV", "1");
-        
+
         let result = cd_cli(&["cd".to_string(), "project".to_string()], &mut shell_ctx);
         assert!(result.is_ok());
-        
+
         // Check that environment variables were loaded
-        assert_eq!(shell_ctx.get_var("TEST_VAR"), Some("test_value".to_string()));
-        assert_eq!(shell_ctx.get_var("ANOTHER_VAR"), Some("quoted value".to_string()));
+        assert_eq!(
+            shell_ctx.get_var("TEST_VAR"),
+            Some("test_value".to_string())
+        );
+        assert_eq!(
+            shell_ctx.get_var("ANOTHER_VAR"),
+            Some("quoted value".to_string())
+        );
     }
 
     #[test]
@@ -618,29 +689,41 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let sub_dir = temp_dir.path().join("project");
         fs::create_dir(&sub_dir).unwrap();
-        
+
         // Create a .nxshrc file
         let config_file = sub_dir.join(".nxshrc");
         fs::write(&config_file, "PROJECT_ROOT=/path/to/project\nDEBUG_MODE=on").unwrap();
-        
+
         env::set_current_dir(temp_dir.path()).unwrap();
-        
+
         let mut shell_ctx = ShellContext::new();
         shell_ctx.set_var("NXSH_AUTO_SOURCE_DIR_CONFIG", "1");
-        
+
         let result = cd_cli(&["cd".to_string(), "project".to_string()], &mut shell_ctx);
         if let Err(e) = &result {
             eprintln!("[debug test_cd_auto_source_dir_config] cd error: {e:?}");
         }
         assert!(result.is_ok());
-        
+
         // Debug: print all vars to see what was set
-        eprintln!("[debug test_cd_auto_source_dir_config] PROJECT_ROOT: {:?}", shell_ctx.get_var("PROJECT_ROOT"));
-        eprintln!("[debug test_cd_auto_source_dir_config] DEBUG_MODE: {:?}", shell_ctx.get_var("DEBUG_MODE"));
-        eprintln!("[debug test_cd_auto_source_dir_config] PWD: {:?}", shell_ctx.get_var("PWD"));
-        
+        eprintln!(
+            "[debug test_cd_auto_source_dir_config] PROJECT_ROOT: {:?}",
+            shell_ctx.get_var("PROJECT_ROOT")
+        );
+        eprintln!(
+            "[debug test_cd_auto_source_dir_config] DEBUG_MODE: {:?}",
+            shell_ctx.get_var("DEBUG_MODE")
+        );
+        eprintln!(
+            "[debug test_cd_auto_source_dir_config] PWD: {:?}",
+            shell_ctx.get_var("PWD")
+        );
+
         // Check that config variables were loaded
-        assert_eq!(shell_ctx.get_var("PROJECT_ROOT"), Some("/path/to/project".to_string()));
+        assert_eq!(
+            shell_ctx.get_var("PROJECT_ROOT"),
+            Some("/path/to/project".to_string())
+        );
         assert_eq!(shell_ctx.get_var("DEBUG_MODE"), Some("on".to_string()));
     }
 
@@ -651,7 +734,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let sub_dir = temp_dir.path().join("project");
         fs::create_dir(&sub_dir).unwrap();
-        
+
         // Create a .env file with comments and various formats
         let env_content = r#"
 # This is a comment
@@ -665,20 +748,32 @@ SPACED_VALUE = value with spaces around equals
 "#;
         let env_file = sub_dir.join(".env");
         fs::write(&env_file, env_content).unwrap();
-        
+
         env::set_current_dir(temp_dir.path()).unwrap();
-        
+
         let mut shell_ctx = ShellContext::new();
         shell_ctx.set_var("NXSH_AUTO_LOAD_ENV", "true");
-        
+
         let result = cd_cli(&["cd".to_string(), "project".to_string()], &mut shell_ctx);
         assert!(result.is_ok());
-        
+
         // Check parsing results
-        assert_eq!(shell_ctx.get_var("TEST_VAR"), Some("simple_value".to_string()));
-        assert_eq!(shell_ctx.get_var("QUOTED_VAR"), Some("double quoted".to_string()));
-        assert_eq!(shell_ctx.get_var("SINGLE_QUOTED"), Some("single quoted".to_string()));
+        assert_eq!(
+            shell_ctx.get_var("TEST_VAR"),
+            Some("simple_value".to_string())
+        );
+        assert_eq!(
+            shell_ctx.get_var("QUOTED_VAR"),
+            Some("double quoted".to_string())
+        );
+        assert_eq!(
+            shell_ctx.get_var("SINGLE_QUOTED"),
+            Some("single quoted".to_string())
+        );
         assert_eq!(shell_ctx.get_var("EMPTY_VALUE"), Some("".to_string()));
-        assert_eq!(shell_ctx.get_var("SPACED_VALUE"), Some("value with spaces around equals".to_string()));
+        assert_eq!(
+            shell_ctx.get_var("SPACED_VALUE"),
+            Some("value with spaces around equals".to_string())
+        );
     }
 }

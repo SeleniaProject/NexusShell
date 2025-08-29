@@ -1,4 +1,4 @@
-﻿//! `ls` command - comprehensive directory listing implementation.
+//! `ls` command - comprehensive directory listing implementation.
 //!
 //! Supports most standard ls options:
 //!   ls [OPTIONS] [FILES...]
@@ -26,32 +26,29 @@
 //!   -u                     - Sort by access time
 //!   --group-directories-first - Group directories before files
 
-use anyhow::{Result, anyhow};
-use std::fs::{self, Metadata};
+use super::ui_design::{
+    Alignment, Animation, BorderStyle, Colorize, Notification, TableFormatter, TableOptions,
+};
+use anyhow::{anyhow, Result};
+use chrono::{DateTime, Local};
+use humansize::{format_size, BINARY};
+use nu_ansi_term::{Color as NuColor, Style};
 use nxsh_core::memory_efficient::MemoryEfficientStringBuilder;
+use std::collections::HashMap;
+use std::fs::{self, Metadata};
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
-use std::path::{Path, PathBuf};
-use std::time::SystemTime;
-use std::collections::HashMap;
-use std::sync::Mutex;
-use chrono::{DateTime, Local};
-use nu_ansi_term::{Color as NuColor, Style};
-use humansize::{format_size, BINARY};
-use unicode_width::UnicodeWidthStr;
-use super::ui_design::{
-    TableFormatter, Colorize, Animation, Notification,
-    BorderStyle, Alignment, TableOptions
-};
-#[cfg(windows)]
-use windows_sys::Win32::{
-    Security::{
-        LookupAccountSidW, GROUP_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, SID_NAME_USE,
-        GetFileSecurityW, GetSecurityDescriptorOwner, GetSecurityDescriptorGroup,
-    },
-};
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::SystemTime;
+use unicode_width::UnicodeWidthStr;
+#[cfg(windows)]
+use windows_sys::Win32::Security::{
+    GetFileSecurityW, GetSecurityDescriptorGroup, GetSecurityDescriptorOwner, LookupAccountSidW,
+    GROUP_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, SID_NAME_USE,
+};
 
 // Git repository integration
 #[derive(Debug, Clone)]
@@ -64,9 +61,9 @@ impl GitRepository {
     /// Create a Git repository instance
     pub fn new(path: &Path) -> Option<Self> {
         Self::find_git_root(path).map(|git_root| GitRepository {
-                root_path: git_root,
-                is_initialized: true,
-            })
+            root_path: git_root,
+            is_initialized: true,
+        })
     }
 
     /// Find the Git repository root by walking up directories
@@ -146,12 +143,12 @@ fn get_user_name(uid: u32) -> String {
 
     // Try to resolve from system
     let name = resolve_user_name(uid).unwrap_or_else(|| uid.to_string());
-    
+
     // Cache the result
     if let Ok(mut cache) = USER_CACHE.lock() {
         cache.insert(uid, name.clone());
     }
-    
+
     name
 }
 
@@ -167,12 +164,12 @@ fn get_group_name(gid: u32) -> String {
 
     // Try to resolve from system
     let name = resolve_group_name(gid).unwrap_or_else(|| gid.to_string());
-    
+
     // Cache the result
     if let Ok(mut cache) = GROUP_CACHE.lock() {
         cache.insert(gid, name.clone());
     }
-    
+
     name
 }
 
@@ -194,27 +191,27 @@ impl UserGroupCache {
             groups: HashMap::new(),
         }
     }
-    
+
     fn get_user_name(&mut self, uid: u32) -> String {
         if let Some(name) = self.users.get(&uid) {
             return name.clone();
         }
-        
+
         let name = Self::resolve_user_name_system(uid);
         self.users.insert(uid, name.clone());
         name
     }
-    
+
     fn get_group_name(&mut self, gid: u32) -> String {
         if let Some(name) = self.groups.get(&gid) {
             return name.clone();
         }
-        
+
         let name = Self::resolve_group_name_system(gid);
         self.groups.insert(gid, name.clone());
         name
     }
-    
+
     #[cfg(unix)]
     fn resolve_user_name_system(uid: u32) -> String {
         // Try reading /etc/passwd directly
@@ -230,7 +227,7 @@ impl UserGroupCache {
                 }
             }
         }
-        
+
         // Fallback to getent if /etc/passwd fails
         if let Ok(output) = std::process::Command::new("getent")
             .args(["passwd", &uid.to_string()])
@@ -245,11 +242,11 @@ impl UserGroupCache {
                 }
             }
         }
-        
+
         // Final fallback to numeric ID
         uid.to_string()
     }
-    
+
     #[cfg(unix)]
     fn resolve_group_name_system(gid: u32) -> String {
         // Try reading /etc/group directly
@@ -265,7 +262,7 @@ impl UserGroupCache {
                 }
             }
         }
-        
+
         // Fallback to getent if /etc/group fails
         if let Ok(output) = std::process::Command::new("getent")
             .args(["group", &gid.to_string()])
@@ -280,18 +277,18 @@ impl UserGroupCache {
                 }
             }
         }
-        
+
         // Final fallback to numeric ID
         gid.to_string()
     }
-    
+
     #[cfg(windows)]
     fn resolve_user_name_system(uid: u32) -> String {
         // Try to get Windows user information
         if let Some(username) = Self::get_windows_username_from_sid(uid) {
             return username;
         }
-        
+
         // Fallback to whoami command
         if let Ok(output) = std::process::Command::new("whoami").output() {
             if output.status.success() {
@@ -301,13 +298,13 @@ impl UserGroupCache {
                 }
             }
         }
-        
+
         let mut result = MemoryEfficientStringBuilder::with_capacity(15);
         result.push_str("user");
         result.push_str(&uid.to_string());
         result.into_string()
     }
-    
+
     #[cfg(windows)]
     fn resolve_group_name_system(gid: u32) -> String {
         // Windows doesn't have traditional Unix-style groups
@@ -315,20 +312,20 @@ impl UserGroupCache {
         if let Some(groupname) = Self::get_windows_groupname_from_sid(gid) {
             return groupname;
         }
-        
+
         let mut result = MemoryEfficientStringBuilder::with_capacity(20);
         result.push_str("group");
         result.push_str(&gid.to_string());
         result.into_string()
     }
-    
+
     #[cfg(windows)]
     fn get_windows_username_from_sid(_uid: u32) -> Option<String> {
         // This would use Windows Security APIs like LookupAccountSid
         // For now, return None to fall back to whoami
         None
     }
-    
+
     #[cfg(windows)]
     fn get_windows_groupname_from_sid(_gid: u32) -> Option<String> {
         // This would use Windows Security APIs
@@ -389,7 +386,6 @@ fn resolve_group_name(gid: u32) -> Option<String> {
         Some(UserGroupCache::resolve_group_name_system(gid))
     }
 }
-
 
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
@@ -460,7 +456,8 @@ fn get_mode(_permissions: &std::fs::Permissions) -> u32 {
 #[cfg(unix)]
 fn get_ctime(metadata: &Metadata) -> SystemTime {
     use std::os::unix::fs::MetadataExt as _;
-    SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(metadata.ctime() as u64) 
+    SystemTime::UNIX_EPOCH
+        + std::time::Duration::from_secs(metadata.ctime() as u64)
         + std::time::Duration::from_nanos(metadata.ctime_nsec() as u64)
 }
 
@@ -479,7 +476,8 @@ fn get_ctime(metadata: &Metadata) -> SystemTime {
 #[cfg(unix)]
 fn get_atime(metadata: &Metadata) -> SystemTime {
     use std::os::unix::fs::MetadataExt as _;
-    SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(metadata.atime() as u64)
+    SystemTime::UNIX_EPOCH
+        + std::time::Duration::from_secs(metadata.atime() as u64)
         + std::time::Duration::from_nanos(metadata.atime_nsec() as u64)
 }
 
@@ -494,7 +492,7 @@ fn filetime_to_system_time(ft: filetime::FileTime) -> SystemTime {
     // filetime::FileTime::seconds() returns i64 (seconds since UNIX_EPOCH), can be negative.
     let secs = ft.seconds();
     let nanos = ft.nanoseconds();
-    
+
     if secs >= 0 {
         let mut time = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs as u64);
         if nanos > 0 {
@@ -629,16 +627,16 @@ pub fn ls_async(dir: Option<&str>) -> Result<()> {
 
 pub fn ls_cli(args: &[String]) -> Result<()> {
     let (options, paths) = parse_ls_args(args)?;
-    
+
     let paths = if paths.is_empty() {
         vec![PathBuf::from(".")]
     } else {
         paths.into_iter().map(PathBuf::from).collect()
     };
-    
+
     // Check if we should use colors
     let use_colors = should_use_colors(&options.color);
-    
+
     // Initialize git repository if needed
     let default_path = PathBuf::from(".");
     let git_repo = if options.git_status {
@@ -648,19 +646,19 @@ pub fn ls_cli(args: &[String]) -> Result<()> {
     } else {
         None
     };
-    
+
     for (i, path) in paths.iter().enumerate() {
         if i > 0 {
             println!();
         }
-        
+
         if paths.len() > 1 {
             println!("{}:", path.display());
         }
-        
+
         list_directory(path, &options, use_colors, git_repo.as_ref())?;
     }
-    
+
     Ok(())
 }
 
@@ -668,10 +666,10 @@ fn parse_ls_args(args: &[String]) -> Result<(LsOptions, Vec<String>)> {
     let mut options = LsOptions::default();
     let mut paths = Vec::new();
     let mut i = 0;
-    
+
     while i < args.len() {
         let arg = &args[i];
-        
+
         if arg.starts_with('-') && arg.len() > 1 {
             if arg.starts_with("--") {
                 // Long options
@@ -745,10 +743,10 @@ fn parse_ls_args(args: &[String]) -> Result<(LsOptions, Vec<String>)> {
         } else {
             paths.push(arg.clone());
         }
-        
+
         i += 1;
     }
-    
+
     Ok((options, paths))
 }
 
@@ -776,26 +774,24 @@ fn list_directory(
         }
         return Ok(());
     }
-    
+
     let entries = read_directory_sync(path, options, git_repo)?;
-    
+
     if entries.is_empty() {
         return Ok(());
     }
-    
+
     let mut sorted_entries = entries;
     sort_entries(&mut sorted_entries, options);
-    
+
     if options.long_format {
         print_long_format(&sorted_entries, options, use_colors)?;
     } else {
         print_short_format(&sorted_entries, options, use_colors)?;
     }
-    
+
     Ok(())
 }
-
-
 
 fn read_directory_sync(
     path: &Path,
@@ -803,11 +799,11 @@ fn read_directory_sync(
     git_repo: Option<&GitRepository>, // Reference to Git repository
 ) -> Result<Vec<FileInfo>> {
     let mut entries = Vec::new();
-    
+
     for entry in fs::read_dir(path)? {
         let entry = entry?;
         let file_name = entry.file_name().to_string_lossy().to_string();
-        
+
         // Skip hidden files unless requested
         if file_name.starts_with('.') {
             if !options.show_hidden && !options.show_almost_all {
@@ -817,30 +813,33 @@ fn read_directory_sync(
                 continue;
             }
         }
-        
+
         let file_info = get_file_info(&entry.path(), git_repo)?;
         entries.push(file_info);
     }
-    
+
     Ok(entries)
 }
 
 fn get_file_info(path: &Path, git_repo: Option<&GitRepository>) -> Result<FileInfo> {
     let metadata = fs::symlink_metadata(path)?;
     let is_symlink = metadata.file_type().is_symlink();
-    let name = path.file_name()
+    let name = path
+        .file_name()
         .unwrap_or(path.as_os_str())
         .to_string_lossy()
         .to_string();
-    
+
     let symlink_target = if is_symlink {
-        fs::read_link(path).ok().map(|p| p.to_string_lossy().to_string())
+        fs::read_link(path)
+            .ok()
+            .map(|p| p.to_string_lossy().to_string())
     } else {
         None
     };
-    
+
     let git_status = git_repo.map(|repo| get_git_status(repo, path));
-    
+
     Ok(FileInfo {
         name,
         path: path.to_path_buf(),
@@ -866,9 +865,11 @@ fn sort_entries(entries: &mut [FileInfo], options: &LsOptions) {
                 return b_is_dir.cmp(&a_is_dir);
             }
         }
-        
+
         let cmp = if options.sort_by_time {
-            b.metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH)
+            b.metadata
+                .modified()
+                .unwrap_or(SystemTime::UNIX_EPOCH)
                 .cmp(&a.metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH))
         } else if options.sort_by_size {
             b.metadata.len().cmp(&a.metadata.len())
@@ -884,7 +885,7 @@ fn sort_entries(entries: &mut [FileInfo], options: &LsOptions) {
             // Default: sort by name
             a.name.cmp(&b.name)
         };
-        
+
         if options.reverse_sort {
             cmp.reverse()
         } else {
@@ -899,12 +900,12 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
     }
 
     let formatter = TableFormatter::new();
-    
+
     // Show loading animation for large directories
     if entries.len() > 100 {
         Animation::spinner();
     }
-    
+
     // Configure advanced table options
     let _table_options = TableOptions {
         border_style: BorderStyle::Simple,
@@ -923,51 +924,51 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
         sort_by: None,
         filter: None,
     };
-    
+
     // Define table headers
     let mut headers = vec![];
-    
+
     if options.show_inode {
         headers.push("Inode".to_string());
     }
-    
+
     headers.push("Permissions".to_string());
     headers.push("Links".to_string());
-    
+
     if !options.long_no_owner {
         headers.push("Owner".to_string());
     }
-    
+
     if !options.long_no_group && !options.no_group {
         headers.push("Group".to_string());
     }
-    
+
     headers.push("Size".to_string());
     headers.push("Modified".to_string());
     headers.push("Name".to_string());
-    
+
     // Prepare table rows
     let mut rows = Vec::new();
-    
+
     for entry in entries {
         let mut row = Vec::new();
-        
+
         // Inode
         if options.show_inode {
             row.push(get_ino(&entry.metadata).to_string().muted());
         }
-        
+
         // Permissions
         #[cfg(unix)]
         let mode = entry.metadata.mode();
         #[cfg(windows)]
         let mode = 0o755; // Default for Windows
-        
+
         row.push(formatter.format_permissions(mode));
-        
+
         // Links
         row.push(get_nlink(&entry.metadata).to_string().info());
-        
+
         // Owner
         if !options.long_no_owner {
             let owner = if options.numeric_ids {
@@ -988,7 +989,7 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
             };
             row.push(owner.primary());
         }
-        
+
         // Group
         if !options.long_no_group && !options.no_group {
             let group = if options.numeric_ids {
@@ -1009,7 +1010,7 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
             };
             row.push(group.secondary());
         }
-        
+
         // Size
         let size_str = if entry.metadata.is_dir() {
             "-".muted()
@@ -1017,10 +1018,9 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
             formatter.format_size(entry.metadata.len())
         };
         row.push(size_str);
-        
+
         // Modified time
-        let modified_time = entry.metadata.modified()
-            .unwrap_or(SystemTime::UNIX_EPOCH);
+        let modified_time = entry.metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
         let datetime: DateTime<Local> = DateTime::from(modified_time);
         let time_str = if options.full_time {
             datetime.format("%Y-%m-%d %H:%M:%S %.3f %z").to_string()
@@ -1028,25 +1028,34 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
             datetime.format("%b %d %H:%M").to_string()
         };
         row.push(time_str.dim());
-        
+
         // Name with icon
-        let icon = formatter.get_file_icon(entry.path.file_name().unwrap_or_default().to_str().unwrap_or(""));
+        let icon = formatter.get_file_icon(
+            entry
+                .path
+                .file_name()
+                .unwrap_or_default()
+                .to_str()
+                .unwrap_or(""),
+        );
         let name_with_icon = if use_colors {
             let colored_name = format_file_name(entry, use_colors, false);
-            let mut result = MemoryEfficientStringBuilder::with_capacity(icon.len() + colored_name.len() + 1);
+            let mut result =
+                MemoryEfficientStringBuilder::with_capacity(icon.len() + colored_name.len() + 1);
             result.push_str(&icon);
             result.push(' ');
             result.push_str(&colored_name);
             result.into_string()
         } else {
             let filename = entry.path.file_name().unwrap_or_default().to_string_lossy();
-            let mut result = MemoryEfficientStringBuilder::with_capacity(icon.len() + filename.len() + 1);
+            let mut result =
+                MemoryEfficientStringBuilder::with_capacity(icon.len() + filename.len() + 1);
             result.push_str(&icon);
             result.push(' ');
             result.push_str(&filename);
             result.into_string()
         };
-        
+
         // Add classification suffix if requested
         let final_name = if options.classify {
             let suffix = if entry.metadata.is_dir() {
@@ -1058,21 +1067,22 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
             } else {
                 "".to_string()
             };
-            let mut result = MemoryEfficientStringBuilder::with_capacity(name_with_icon.len() + suffix.len());
+            let mut result =
+                MemoryEfficientStringBuilder::with_capacity(name_with_icon.len() + suffix.len());
             result.push_str(&name_with_icon);
             result.push_str(&suffix);
             result.into_string()
         } else {
             name_with_icon
         };
-        
+
         row.push(final_name);
         rows.push(row);
     }
-    
+
     // Print the beautiful advanced table
     print!("{}", formatter.create_advanced_table(&headers, &rows));
-    
+
     // Show summary for large directories
     if entries.len() > 50 {
         let mut msg = MemoryEfficientStringBuilder::with_capacity(20);
@@ -1081,7 +1091,7 @@ fn print_long_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool
         msg.push_str(" items");
         Notification::info(&msg.into_string());
     }
-    
+
     Ok(())
 }
 
@@ -1095,7 +1105,7 @@ fn print_long_entry(
     max_group: usize,
 ) -> Result<()> {
     let mut line = String::new();
-    
+
     // Inode number
     if options.show_inode {
         let inode_str = get_ino(&entry.metadata).to_string();
@@ -1108,7 +1118,7 @@ fn print_long_entry(
         inode_part.push(' ');
         line.push_str(&inode_part.into_string());
     }
-    
+
     // Block size
     if options.show_size_blocks {
         let blocks = get_blocks(&entry.metadata);
@@ -1122,10 +1132,10 @@ fn print_long_entry(
         blocks_part.push(' ');
         line.push_str(&blocks_part.into_string());
     }
-    
+
     // File type and permissions
     line.push_str(&format_permissions(&entry.metadata));
-    
+
     // Number of links
     let nlink = get_nlink(&entry.metadata);
     let nlink_str = nlink.to_string();
@@ -1137,7 +1147,7 @@ fn print_long_entry(
     }
     nlink_part.push_str(&nlink_str);
     line.push_str(&nlink_part.into_string());
-    
+
     // Owner
     if !options.long_no_owner {
         let owner = if options.numeric_ids {
@@ -1165,7 +1175,7 @@ fn print_long_entry(
         }
         line.push_str(&owner_part.into_string());
     }
-    
+
     // Group
     if !options.long_no_group && !options.no_group {
         let group = if options.numeric_ids {
@@ -1193,7 +1203,7 @@ fn print_long_entry(
         }
         line.push_str(&group_part.into_string());
     }
-    
+
     // File size
     let size_str = format_file_size(entry.metadata.len(), options.human_readable);
     let mut size_part = MemoryEfficientStringBuilder::with_capacity(max_size + 2);
@@ -1204,7 +1214,7 @@ fn print_long_entry(
     }
     size_part.push_str(&size_str);
     line.push_str(&size_part.into_string());
-    
+
     // Modification time
     let time_str = format_time(&entry.metadata, &options.time_style, options.full_time);
     // Pre-calculate capacity for optimal memory usage: 1 space + time string
@@ -1212,12 +1222,12 @@ fn print_long_entry(
     time_buf.push(' ');
     time_buf.push_str(&time_str);
     line.push_str(&time_buf.into_string());
-    
+
     // File name with colors and git status
     line.push(' ');
     let colored_name = format_file_name(entry, use_colors, options.classify);
     line.push_str(&colored_name);
-    
+
     // Symlink target
     if entry.is_symlink {
         if let Some(ref target) = entry.symlink_target {
@@ -1225,19 +1235,19 @@ fn print_long_entry(
             line.push_str(target);
         }
     }
-    
+
     println!("{line}");
-    
+
     Ok(())
 }
 
 fn print_short_format(entries: &[FileInfo], options: &LsOptions, use_colors: bool) -> Result<()> {
     let formatter = TableFormatter::new();
-    
+
     if options.one_per_line {
         for entry in entries {
             let mut line = String::new();
-            
+
             if options.show_inode {
                 // Pre-calculate capacity for optimal memory usage: inode number (up to 20 digits) + 1 space
                 let mut inode_buf = MemoryEfficientStringBuilder::new(25);
@@ -1245,7 +1255,7 @@ fn print_short_format(entries: &[FileInfo], options: &LsOptions, use_colors: boo
                 inode_buf.push(' ');
                 line.push_str(&inode_buf.into_string());
             }
-            
+
             if options.show_size_blocks {
                 let blocks = get_blocks(&entry.metadata);
                 // Pre-calculate capacity for optimal memory usage: blocks number (up to 20 digits) + 1 space
@@ -1254,19 +1264,26 @@ fn print_short_format(entries: &[FileInfo], options: &LsOptions, use_colors: boo
                 blocks_buf.push(' ');
                 line.push_str(&blocks_buf.into_string());
             }
-            
+
             // Add file icon
-            let icon = formatter.get_file_icon(entry.path.file_name().unwrap_or_default().to_str().unwrap_or(""));
+            let icon = formatter.get_file_icon(
+                entry
+                    .path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_str()
+                    .unwrap_or(""),
+            );
             // Pre-calculate capacity for optimal memory usage: icon (typically 1-4 chars) + 1 space
             let mut icon_buf = MemoryEfficientStringBuilder::new(6);
             icon_buf.push_str(&icon);
             icon_buf.push(' ');
             line.push_str(&icon_buf.into_string());
-            
+
             // Add colored file name
             let colored_name = format_file_name(entry, use_colors, options.classify);
             line.push_str(&colored_name);
-            
+
             println!("{line}");
         }
     } else {
@@ -1276,17 +1293,22 @@ fn print_short_format(entries: &[FileInfo], options: &LsOptions, use_colors: boo
             .unwrap_or(80);
         print_beautiful_columns(entries, options, use_colors, term_width)?;
     }
-    
+
     Ok(())
 }
 
-fn print_columns(entries: &[FileInfo], options: &LsOptions, use_colors: bool, term_width: usize) -> Result<()> {
+fn print_columns(
+    entries: &[FileInfo],
+    options: &LsOptions,
+    use_colors: bool,
+    term_width: usize,
+) -> Result<()> {
     let mut names = Vec::new();
     let mut max_width = 0;
-    
+
     for entry in entries {
         let mut name = String::new();
-        
+
         if options.show_inode {
             let inode_val = get_ino(&entry.metadata);
             // Pre-calculate capacity for optimal memory usage: inode number + 8 spaces padding
@@ -1297,7 +1319,7 @@ fn print_columns(entries: &[FileInfo], options: &LsOptions, use_colors: bool, te
             name.push_str(&formatted[..8.min(formatted.len())]);
             name.push(' ');
         }
-        
+
         if options.show_size_blocks {
             let blocks = get_blocks(&entry.metadata);
             // Pre-calculate capacity for optimal memory usage: blocks number + 6 spaces padding
@@ -1308,22 +1330,22 @@ fn print_columns(entries: &[FileInfo], options: &LsOptions, use_colors: bool, te
             name.push_str(&formatted[..6.min(formatted.len())]);
             name.push(' ');
         }
-        
+
         let colored_name = format_file_name(entry, use_colors, options.classify);
         name.push_str(&colored_name);
-        
+
         let display_width = unicode_width::UnicodeWidthStr::width(name.as_str());
         max_width = max_width.max(display_width);
         names.push(name);
     }
-    
+
     if max_width == 0 {
         return Ok(());
     }
-    
+
     let cols = (term_width / (max_width + 2)).max(1);
     let rows = names.len().div_ceil(cols);
-    
+
     for row in 0..rows {
         let mut line = String::new();
         for col in 0..cols {
@@ -1332,7 +1354,7 @@ fn print_columns(entries: &[FileInfo], options: &LsOptions, use_colors: bool, te
                 let name = &names[idx];
                 let width = unicode_width::UnicodeWidthStr::width(name.as_str());
                 line.push_str(name);
-                
+
                 if col < cols - 1 && idx + rows < names.len() {
                     for _ in width..max_width + 2 {
                         line.push(' ');
@@ -1342,19 +1364,24 @@ fn print_columns(entries: &[FileInfo], options: &LsOptions, use_colors: bool, te
         }
         println!("{line}");
     }
-    
+
     Ok(())
 }
 
-fn print_beautiful_columns(entries: &[FileInfo], options: &LsOptions, use_colors: bool, term_width: usize) -> Result<()> {
+fn print_beautiful_columns(
+    entries: &[FileInfo],
+    options: &LsOptions,
+    use_colors: bool,
+    term_width: usize,
+) -> Result<()> {
     let formatter = TableFormatter::new();
     let mut items = Vec::new();
     let mut max_width = 0;
-    
+
     for entry in entries {
         let mut item = String::new();
         let mut plain_item = String::new(); // For width calculation without ANSI codes
-        
+
         if options.show_inode {
             let inode_val = get_ino(&entry.metadata);
             // Pre-calculate capacity for optimal memory usage: inode number (up to 20 digits) + 1 space
@@ -1365,7 +1392,7 @@ fn print_beautiful_columns(entries: &[FileInfo], options: &LsOptions, use_colors
             item.push_str(&inode_str.clone().muted());
             plain_item.push_str(&inode_str);
         }
-        
+
         if options.show_size_blocks {
             let blocks = get_blocks(&entry.metadata);
             // Pre-calculate capacity for optimal memory usage: blocks number (up to 20 digits) + 1 space
@@ -1376,36 +1403,43 @@ fn print_beautiful_columns(entries: &[FileInfo], options: &LsOptions, use_colors
             item.push_str(&blocks_str.clone().dim());
             plain_item.push_str(&blocks_str);
         }
-        
+
         // Add beautiful icon
-        let icon = formatter.get_file_icon(entry.path.file_name().unwrap_or_default().to_str().unwrap_or(""));
+        let icon = formatter.get_file_icon(
+            entry
+                .path
+                .file_name()
+                .unwrap_or_default()
+                .to_str()
+                .unwrap_or(""),
+        );
         // Pre-calculate capacity for optimal memory usage: icon (typically 1-4 chars) + 1 space
         let mut icon_buf = MemoryEfficientStringBuilder::new(6);
         icon_buf.push_str(&icon);
         icon_buf.push(' ');
         item.push_str(&icon_buf.into_string());
         plain_item.push_str("🗎 "); // Use a consistent width placeholder for icons
-        
+
         let colored_name = format_file_name(entry, use_colors, options.classify);
         let plain_name = entry.path.file_name().unwrap_or_default().to_string_lossy();
         item.push_str(&colored_name);
         plain_item.push_str(&plain_name);
-        
+
         // Use unicode width for accurate measurement
         let display_width = unicode_width::UnicodeWidthStr::width(plain_item.as_str());
         max_width = max_width.max(display_width);
         items.push((item, display_width));
     }
-    
+
     if max_width == 0 {
         return Ok(());
     }
-    
+
     // Calculate optimal columns with padding
     let padding = 2; // Space between columns
     let cols = ((term_width + padding) / (max_width + padding)).max(1);
     let rows = items.len().div_ceil(cols);
-    
+
     for row in 0..rows {
         let mut line = String::new();
         for col in 0..cols {
@@ -1413,7 +1447,7 @@ fn print_beautiful_columns(entries: &[FileInfo], options: &LsOptions, use_colors
             if idx < items.len() {
                 let (item, width) = &items[idx];
                 line.push_str(item);
-                
+
                 // Add padding for alignment
                 if col < cols - 1 && idx + rows < items.len() {
                     let spaces_needed = max_width + padding - width;
@@ -1423,14 +1457,14 @@ fn print_beautiful_columns(entries: &[FileInfo], options: &LsOptions, use_colors
         }
         println!("{line}");
     }
-    
+
     Ok(())
 }
 
 fn format_permissions(metadata: &Metadata) -> String {
     let mode = get_mode(&metadata.permissions());
     let mut perms = String::with_capacity(10);
-    
+
     // File type
     #[cfg(unix)]
     {
@@ -1450,7 +1484,7 @@ fn format_permissions(metadata: &Metadata) -> String {
             perms.push('-');
         }
     }
-    
+
     #[cfg(not(unix))]
     {
         if metadata.is_dir() {
@@ -1459,22 +1493,22 @@ fn format_permissions(metadata: &Metadata) -> String {
             perms.push('-');
         }
     }
-    
+
     // Owner permissions
     perms.push(if mode & 0o400 != 0 { 'r' } else { '-' });
     perms.push(if mode & 0o200 != 0 { 'w' } else { '-' });
     perms.push(if mode & 0o100 != 0 { 'x' } else { '-' });
-    
+
     // Group permissions
     perms.push(if mode & 0o040 != 0 { 'r' } else { '-' });
     perms.push(if mode & 0o020 != 0 { 'w' } else { '-' });
     perms.push(if mode & 0o010 != 0 { 'x' } else { '-' });
-    
+
     // Other permissions
     perms.push(if mode & 0o004 != 0 { 'r' } else { '-' });
     perms.push(if mode & 0o002 != 0 { 'w' } else { '-' });
     perms.push(if mode & 0o001 != 0 { 'x' } else { '-' });
-    
+
     perms
 }
 
@@ -1489,11 +1523,11 @@ fn format_file_size(size: u64, human_readable: bool) -> String {
 fn format_time(metadata: &Metadata, time_style: &TimeStyle, full_time: bool) -> String {
     let mtime = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
     let datetime = DateTime::<Local>::from(mtime);
-    
+
     if full_time {
         return datetime.format("%Y-%m-%d %H:%M:%S.%9f %z").to_string();
     }
-    
+
     match time_style {
         TimeStyle::Iso => datetime.format("%m-%d %H:%M").to_string(),
         TimeStyle::LongIso => datetime.format("%Y-%m-%d %H:%M").to_string(),
@@ -1502,7 +1536,7 @@ fn format_time(metadata: &Metadata, time_style: &TimeStyle, full_time: bool) -> 
         TimeStyle::Default => {
             let now = Local::now();
             let six_months_ago = now - chrono::Duration::days(180);
-            
+
             if datetime > six_months_ago && datetime <= now {
                 datetime.format("%b %e %H:%M").to_string()
             } else {
@@ -1514,7 +1548,7 @@ fn format_time(metadata: &Metadata, time_style: &TimeStyle, full_time: bool) -> 
 
 fn format_file_name(entry: &FileInfo, use_colors: bool, classify: bool) -> String {
     let mut name = entry.name.clone();
-    
+
     // Add classification suffix
     if classify {
         if entry.metadata.is_dir() {
@@ -1525,14 +1559,14 @@ fn format_file_name(entry: &FileInfo, use_colors: bool, classify: bool) -> Strin
             name.push('*');
         }
     }
-    
+
     if !use_colors {
         return name;
     }
-    
+
     // Apply colors based on file type and git status
     let mut style = Style::new();
-    
+
     if entry.metadata.is_dir() {
         style = style.fg(NuColor::Blue).bold();
     } else if entry.is_symlink {
@@ -1562,7 +1596,7 @@ fn format_file_name(entry: &FileInfo, use_colors: bool, classify: bool) -> Strin
             }
         }
     }
-    
+
     // Add git status indicator
     if let Some(ref git_status) = entry.git_status {
         let git_indicator = match git_status {
@@ -1578,7 +1612,7 @@ fn format_file_name(entry: &FileInfo, use_colors: bool, classify: bool) -> Strin
             GitStatus::Ignored => "!",
             GitStatus::Conflicted => "U",
         };
-        
+
         let git_color = match git_status {
             GitStatus::None => NuColor::White,
             GitStatus::Clean => NuColor::Green,
@@ -1592,7 +1626,7 @@ fn format_file_name(entry: &FileInfo, use_colors: bool, classify: bool) -> Strin
             GitStatus::Ignored => NuColor::Fixed(8), // Dark gray
             GitStatus::Conflicted => NuColor::Red,
         };
-        
+
         // Pre-calculate capacity for optimal memory usage: git indicator + space + file name + classify char
         let file_name = entry.path.file_name().unwrap_or_default().to_string_lossy();
         let capacity = 4 + file_name.len() + 2; // git indicator + space + file name + classify char
@@ -1604,7 +1638,7 @@ fn format_file_name(entry: &FileInfo, use_colors: bool, classify: bool) -> Strin
         result.push_str(&style.paint(name).to_string());
         return result.into_string();
     }
-    
+
     style.paint(name).to_string()
 }
 
@@ -1615,7 +1649,7 @@ fn is_executable(_metadata: &Metadata) -> bool {
     {
         get_mode(&metadata.permissions()) & 0o111 != 0
     }
-    
+
     #[cfg(not(unix))]
     {
         false // Windows doesn't have the same concept
@@ -1627,11 +1661,17 @@ fn is_executable(_metadata: &Metadata) -> bool {
 fn get_windows_owner_group(path: &Path) -> Option<(String, String)> {
     // Cache fast‑path
     if let Ok(cache) = OWNER_GROUP_CACHE.lock() {
-        if let Some(v) = cache.get(path) { return Some(v.clone()); }
+        if let Some(v) = cache.get(path) {
+            return Some(v.clone());
+        }
     }
     unsafe {
         // Convert path to wide string
-        let widestr: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+        let widestr: Vec<u16> = path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
 
         // First call to get required security descriptor size
         let mut needed: u32 = 0;
@@ -1699,15 +1739,25 @@ fn get_windows_owner_group(path: &Path) -> Option<(String, String)> {
                 &mut domain_len,
                 &mut use_type,
             );
-            if name_len == 0 { return None; }
+            if name_len == 0 {
+                return None;
+            }
             let mut name_buf = vec![0u16; name_len as usize];
-            let mut domain_buf = if domain_len > 0 { vec![0u16; domain_len as usize] } else { Vec::new() };
+            let mut domain_buf = if domain_len > 0 {
+                vec![0u16; domain_len as usize]
+            } else {
+                Vec::new()
+            };
             if LookupAccountSidW(
                 std::ptr::null(),
                 sid,
                 name_buf.as_mut_ptr(),
                 &mut name_len,
-                if domain_len > 0 { domain_buf.as_mut_ptr() } else { std::ptr::null_mut() },
+                if domain_len > 0 {
+                    domain_buf.as_mut_ptr()
+                } else {
+                    std::ptr::null_mut()
+                },
                 &mut domain_len,
                 &mut use_type,
             ) == 0
@@ -1715,10 +1765,18 @@ fn get_windows_owner_group(path: &Path) -> Option<(String, String)> {
                 return None;
             }
             // Trim trailing NULs
-            while let Some(&0) = name_buf.last() { name_buf.pop(); }
-            while let Some(&0) = domain_buf.last() { domain_buf.pop(); }
+            while let Some(&0) = name_buf.last() {
+                name_buf.pop();
+            }
+            while let Some(&0) = domain_buf.last() {
+                domain_buf.pop();
+            }
             let name = String::from_utf16(&name_buf).ok()?;
-            let domain = if !domain_buf.is_empty() { Some(String::from_utf16(&domain_buf).ok()?) } else { None };
+            let domain = if !domain_buf.is_empty() {
+                Some(String::from_utf16(&domain_buf).ok()?)
+            } else {
+                None
+            };
             Some(match domain {
                 Some(d) if !d.is_empty() => {
                     // Pre-calculate capacity for optimal memory usage: domain + '\' + name
@@ -1745,7 +1803,10 @@ fn get_windows_owner_group(path: &Path) -> Option<(String, String)> {
 }
 
 /// Execute the ls builtin command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     match ls_cli(args) {
         Ok(_) => Ok(0),
         Err(e) => {
@@ -1754,7 +1815,3 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
         }
     }
 }
-
-
-
-

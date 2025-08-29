@@ -1,10 +1,10 @@
 #[tokio::test]
 async fn strict_json_roundtrip_for_status_timesync_and_statistics() {
-    use nxsh_builtins::timedatectl::{TimedatectlManager, TimedatectlConfig};
-    use std::sync::Arc;
+    use nxsh_builtins::timedatectl::{TimedatectlConfig, TimedatectlManager};
     use nxsh_core::i18n::I18nManager;
     use std::path::PathBuf;
-    
+    use std::sync::Arc;
+
     let i18n = Arc::new(I18nManager::new(PathBuf::from("i18n")));
     let mgr = TimedatectlManager::new(TimedatectlConfig::default(), i18n)
         .await
@@ -23,5 +23,3 @@ async fn strict_json_roundtrip_for_status_timesync_and_statistics() {
     let stats = mgr.show_statistics().await.expect("show statistics");
     assert!(!stats.stdout.is_empty());
 }
-
-

@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use nxsh_core::{ShellError, ErrorKind};
 use nxsh_core::error::RuntimeErrorKind;
+use nxsh_core::{ErrorKind, ShellError};
+use std::collections::HashMap;
 
 pub fn function_cli(args: &[String]) -> Result<(), ShellError> {
     if args.is_empty() || args.contains(&"--help".to_string()) {
@@ -10,30 +10,47 @@ pub fn function_cli(args: &[String]) -> Result<(), ShellError> {
 
     // Basic function definition implementation
     // This is a simplified version - full shell function would require complex parsing
-    
+
     if args.len() < 2 {
-        return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "function: missing function name or body"));
+        return Err(ShellError::new(
+            ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+            "function: missing function name or body",
+        ));
     }
 
     let function_name = &args[0];
-    
+
     // Validate function name
     if !is_valid_function_name(function_name) {
-        return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("function: '{function_name}': not a valid identifier")));
+        return Err(ShellError::new(
+            ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+            format!("function: '{function_name}': not a valid identifier"),
+        ));
     }
 
     // Find the opening brace
-    let brace_pos = args.iter().position(|arg| arg == "{")
-        .ok_or_else(|| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "function: missing opening brace '{'"))?;
-    
+    let brace_pos = args.iter().position(|arg| arg == "{").ok_or_else(|| {
+        ShellError::new(
+            ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+            "function: missing opening brace '{'",
+        )
+    })?;
+
     // Find the closing brace
-    let close_brace_pos = args.iter().rposition(|arg| arg == "}")
-        .ok_or_else(|| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "function: missing closing brace '}'"))?;
-    
+    let close_brace_pos = args.iter().rposition(|arg| arg == "}").ok_or_else(|| {
+        ShellError::new(
+            ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+            "function: missing closing brace '}'",
+        )
+    })?;
+
     if brace_pos >= close_brace_pos {
-        return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "function: invalid syntax - '{' must come before '}'"));
+        return Err(ShellError::new(
+            ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+            "function: invalid syntax - '{' must come before '}'",
+        ));
     }
-    
+
     let body_args = &args[brace_pos + 1..close_brace_pos];
     // Basic sanity checks on body_args: disallow stray braces and ensure non-empty commands
     if body_args.is_empty() {
@@ -48,12 +65,13 @@ pub fn function_cli(args: &[String]) -> Result<(), ShellError> {
             "function: body contains unmatched brace tokens",
         ));
     }
-    
+
     create_function(function_name, body_args)
 }
 
 fn print_help() {
-    println!("function - define shell function
+    println!(
+        "function - define shell function
 
 USAGE:
     function NAME {{ COMMANDS; }}
@@ -121,22 +139,25 @@ BUILT-IN VARIABLES:
 
 EXIT STATUS:
     0   Function defined successfully
-    1   Error in function definition");
+    1   Error in function definition"
+    );
 }
 
 fn is_valid_function_name(name: &str) -> bool {
     if name.is_empty() {
         return false;
     }
-    
+
     // Must start with letter or underscore
     let first_char = name.chars().next().unwrap();
     if !first_char.is_ascii_alphabetic() && first_char != '_' {
         return false;
     }
-    
+
     // Rest must be alphanumeric or underscore
-    name.chars().skip(1).all(|c| c.is_ascii_alphanumeric() || c == '_')
+    name.chars()
+        .skip(1)
+        .all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 fn create_function(name: &str, body: &[String]) -> Result<(), ShellError> {
@@ -145,21 +166,24 @@ fn create_function(name: &str, body: &[String]) -> Result<(), ShellError> {
         body: body.to_vec(),
         local_vars: HashMap::new(),
     };
-    
+
     // In a real shell, this would store the function in the global function table
     println!("Function '{}' defined with {} commands", name, body.len());
-    
+
     // Store in global function registry (simplified)
-    FUNCTION_REGISTRY.lock().unwrap().insert(name.to_string(), function);
-    
+    FUNCTION_REGISTRY
+        .lock()
+        .unwrap()
+        .insert(name.to_string(), function);
+
     Ok(())
 }
 
 // Global function registry (simplified)
-use std::sync::Mutex;
 use once_cell::sync::Lazy;
+use std::sync::Mutex;
 
-static FUNCTION_REGISTRY: Lazy<Mutex<HashMap<String, ShellFunction>>> = 
+static FUNCTION_REGISTRY: Lazy<Mutex<HashMap<String, ShellFunction>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug, Clone)]
@@ -177,13 +201,17 @@ impl ShellFunction {
             local_vars: HashMap::new(),
         }
     }
-    
+
     pub fn execute(&self, args: &[String]) -> Result<i32, ShellError> {
-        println!("Executing function '{}' with {} arguments", self.name, args.len());
-        
+        println!(
+            "Executing function '{}' with {} arguments",
+            self.name,
+            args.len()
+        );
+
         // Set up function environment
         let mut function_env = FunctionEnvironment::new(&self.name, args);
-        
+
         // Execute function body
         for command in &self.body {
             if let Err(e) = execute_function_command(command, &mut function_env) {
@@ -196,7 +224,7 @@ impl ShellFunction {
                 }
             }
         }
-        
+
         Ok(0) // Default exit status
     }
 }
@@ -215,7 +243,7 @@ impl FunctionEnvironment {
             local_vars: HashMap::new(),
         }
     }
-    
+
     pub fn get_positional_param(&self, index: usize) -> Option<&String> {
         if index == 0 {
             Some(&self.function_name)
@@ -225,27 +253,30 @@ impl FunctionEnvironment {
             None
         }
     }
-    
+
     pub fn get_param_count(&self) -> usize {
         self.args.len()
     }
-    
+
     pub fn set_local_var(&mut self, name: String, value: String) {
         self.local_vars.insert(name, value);
     }
-    
+
     pub fn get_local_var(&self, name: &str) -> Option<&String> {
         self.local_vars.get(name)
     }
 }
 
-fn execute_function_command(command: &str, env: &mut FunctionEnvironment) -> Result<(), ShellError> {
+fn execute_function_command(
+    command: &str,
+    env: &mut FunctionEnvironment,
+) -> Result<(), ShellError> {
     let parts: Vec<String> = command.split_whitespace().map(|s| s.to_string()).collect();
-    
+
     if parts.is_empty() {
         return Ok(());
     }
-    
+
     // Handle built-in commands
     match parts[0].as_str() {
         "local" => handle_local_command(&parts[1..], env),
@@ -255,13 +286,16 @@ fn execute_function_command(command: &str, env: &mut FunctionEnvironment) -> Res
             } else {
                 0
             };
-            Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("RETURN:{exit_code}")))
-        },
+            Err(ShellError::new(
+                ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+                format!("RETURN:{exit_code}"),
+            ))
+        }
         "echo" => {
             let output = expand_variables(&parts[1..].join(" "), env);
             println!("{output}");
             Ok(())
-        },
+        }
         _ => {
             // Execute other commands (simplified)
             println!("Executing in function: {command}");
@@ -286,7 +320,7 @@ fn handle_local_command(args: &[String], env: &mut FunctionEnvironment) -> Resul
 
 fn expand_variables(input: &str, env: &FunctionEnvironment) -> String {
     let mut result = input.to_string();
-    
+
     // Expand positional parameters
     for i in 0..=9 {
         let param = format!("${i}");
@@ -296,31 +330,37 @@ fn expand_variables(input: &str, env: &FunctionEnvironment) -> String {
             result = result.replace(&param, "");
         }
     }
-    
+
     // Expand $# (argument count)
     result = result.replace("$#", &env.get_param_count().to_string());
-    
+
     // Expand $@ and $* (all arguments)
     result = result.replace("$@", &env.args.join(" "));
     result = result.replace("$*", &env.args.join(" "));
-    
+
     // Expand local variables
     for (name, value) in &env.local_vars {
         result = result.replace(&format!("${name}"), value);
         result = result.replace(&format!("${{{name}}}"), value);
     }
-    
+
     result
 }
 
 // Public API for function management
 pub fn define_function(name: &str, body: &[String]) -> Result<(), ShellError> {
     if !is_valid_function_name(name) {
-        return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Invalid function name: {name}")));
+        return Err(ShellError::new(
+            ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+            format!("Invalid function name: {name}"),
+        ));
     }
-    
+
     let function = ShellFunction::new(name.to_string(), body.to_vec());
-    FUNCTION_REGISTRY.lock().unwrap().insert(name.to_string(), function);
+    FUNCTION_REGISTRY
+        .lock()
+        .unwrap()
+        .insert(name.to_string(), function);
     Ok(())
 }
 
@@ -329,10 +369,13 @@ pub fn call_function(name: &str, args: &[String]) -> Result<i32, ShellError> {
         let registry = FUNCTION_REGISTRY.lock().unwrap();
         registry.get(name).cloned()
     };
-    
+
     match function {
         Some(func) => func.execute(args),
-        None => Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Function '{name}' not defined"))),
+        None => Err(ShellError::new(
+            ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+            format!("Function '{name}' not defined"),
+        )),
     }
 }
 
@@ -367,7 +410,7 @@ mod tests {
         assert!(is_valid_function_name("_test"));
         assert!(is_valid_function_name("test123"));
         assert!(is_valid_function_name("Test_Function_2"));
-        
+
         assert!(!is_valid_function_name("123test"));
         assert!(!is_valid_function_name("test-func"));
         assert!(!is_valid_function_name("test.func"));
@@ -378,15 +421,14 @@ mod tests {
     fn test_function_environment() {
         let args = vec!["arg1".to_string(), "arg2".to_string()];
         let mut env = FunctionEnvironment::new("testfunc", &args);
-        
+
         assert_eq!(env.get_positional_param(0), Some(&"testfunc".to_string()));
         assert_eq!(env.get_positional_param(1), Some(&"arg1".to_string()));
         assert_eq!(env.get_positional_param(2), Some(&"arg2".to_string()));
         assert_eq!(env.get_positional_param(3), None);
         assert_eq!(env.get_param_count(), 2);
-        
+
         env.set_local_var("test".to_string(), "value".to_string());
         assert_eq!(env.get_local_var("test"), Some(&"value".to_string()));
     }
 }
-

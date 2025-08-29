@@ -12,7 +12,13 @@ pub struct OutputSection {
 
 impl OutputSection {
     pub fn new(title: impl Into<String>) -> Self {
-    Self { title: title.into(), lines: Vec::new(), content: None, collapsible: false, collapsed: false }
+        Self {
+            title: title.into(),
+            lines: Vec::new(),
+            content: None,
+            collapsible: false,
+            collapsed: false,
+        }
     }
 
     pub fn add_line(&mut self, line: impl Into<String>) {
@@ -24,10 +30,22 @@ impl OutputSection {
 #[derive(Debug, Clone)]
 pub enum CommandOutput {
     Text(String),
-    Error { message: String, details: Option<String>, code: Option<i32> },
-    KeyValue { pairs: Vec<(String, String)>, title: Option<String> },
-    MultiSection { sections: Vec<OutputSection> },
-    List { items: Vec<FileInfo>, title: Option<String> },
+    Error {
+        message: String,
+        details: Option<String>,
+        code: Option<i32>,
+    },
+    KeyValue {
+        pairs: Vec<(String, String)>,
+        title: Option<String>,
+    },
+    MultiSection {
+        sections: Vec<OutputSection>,
+    },
+    List {
+        items: Vec<FileInfo>,
+        title: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -55,7 +73,13 @@ pub enum FileType {
 pub struct UniversalFormatter;
 
 impl UniversalFormatter {
-    pub fn new() -> Result<Self, String> { Ok(UniversalFormatter) }
-    pub fn format(&self, _out: &CommandOutput) -> Result<String, String> { Ok(String::new()) }
-    pub fn format_file_listing(&self, _files: &[FileInfo]) -> Result<String, String> { Ok(String::new()) }
+    pub fn new() -> Result<Self, String> {
+        Ok(UniversalFormatter)
+    }
+    pub fn format(&self, _out: &CommandOutput) -> Result<String, String> {
+        Ok(String::new())
+    }
+    pub fn format_file_listing(&self, _files: &[FileInfo]) -> Result<String, String> {
+        Ok(String::new())
+    }
 }

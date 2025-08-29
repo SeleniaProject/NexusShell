@@ -19,12 +19,18 @@ pub fn eval_cli(args: &[String]) -> Result<()> {
     let status = Command::new("cmd").arg("/C").arg(&cmdline).status()?;
 
     if !status.success() {
-        return Err(anyhow!("eval: command exited with status {:?}", status.code()));
+        return Err(anyhow!(
+            "eval: command exited with status {:?}",
+            status.code()
+        ));
     }
     Ok(())
 }
 
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     match eval_cli(args) {
         Ok(()) => Ok(0),
         Err(e) => Err(crate::common::BuiltinError::Other(e.to_string())),
@@ -38,5 +44,4 @@ mod tests {
     fn eval_echo() {
         eval_cli(&["echo".into(), "ok".into()]).unwrap();
     }
-} 
-
+}

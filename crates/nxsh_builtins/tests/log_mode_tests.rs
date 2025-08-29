@@ -24,5 +24,3 @@ fn log_mode_pretty() {
 fn log_mode_prom() {
     assert!(run_with_mode("prom").is_ok());
 }
-
-

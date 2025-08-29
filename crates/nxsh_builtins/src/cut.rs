@@ -13,11 +13,10 @@
 //! Character mode (-c) extracts Unicode characters (UTF-8 aware).
 //! • Byte mode (-b) extracts raw bytes.
 
+use crate::common::TableFormatter;
 use anyhow::{anyhow, Context, Result};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
-use crate::common::TableFormatter;
-
 
 #[derive(Debug, Clone, Copy)]
 enum CutMode {
@@ -36,7 +35,7 @@ impl Range {
     fn new(start: usize, end: Option<usize>) -> Self {
         Self { start, end }
     }
-    
+
     fn contains(&self, index: usize) -> bool {
         match self.end {
             Some(end) => index >= self.start && index <= end,
@@ -74,13 +73,13 @@ pub fn cut(args: &[String]) -> Result<()> {
 
 pub fn cut_cli(args: &[String]) -> Result<()> {
     let options = parse_args(args)?;
-    
+
     if options.ranges.is_empty() {
         return Err(anyhow!("No fields specified"));
     }
-    
+
     let _formatter = TableFormatter::new();
-    
+
     // Process each file or stdin
     if options.files.is_empty() {
         process_reader(io::stdin().lock(), &options)?;
@@ -96,14 +95,14 @@ pub fn cut_cli(args: &[String]) -> Result<()> {
             }
         }
     }
-    
+
     Ok(())
 }
 
 fn parse_args(args: &[String]) -> Result<CutOptions> {
     let mut options = CutOptions::default();
     let mut i = 0;
-    
+
     while i < args.len() {
         match args[i].as_str() {
             "-f" | "--fields" => {
@@ -158,35 +157,39 @@ fn parse_args(args: &[String]) -> Result<CutOptions> {
             }
         }
     }
-    
+
     Ok(options)
 }
 
 fn parse_field_list(fields: &str) -> Result<Vec<Range>> {
     let mut ranges = Vec::new();
-    
+
     for part in fields.split(',') {
         let part = part.trim();
         if part.is_empty() {
             continue;
         }
-        
+
         if let Some(dash_pos) = part.find('-') {
             if dash_pos == 0 {
                 // -N format
-                let end: usize = part[1..].parse()
+                let end: usize = part[1..]
+                    .parse()
                     .with_context(|| format!("Invalid range: {part}"))?;
                 ranges.push(Range::new(1, Some(end)));
             } else if dash_pos == part.len() - 1 {
                 // N- format
-                let start: usize = part[..dash_pos].parse()
+                let start: usize = part[..dash_pos]
+                    .parse()
                     .with_context(|| format!("Invalid range: {part}"))?;
                 ranges.push(Range::new(start, None));
             } else {
                 // N-M format
-                let start: usize = part[..dash_pos].parse()
+                let start: usize = part[..dash_pos]
+                    .parse()
                     .with_context(|| format!("Invalid range start: {part}"))?;
-                let end: usize = part[dash_pos + 1..].parse()
+                let end: usize = part[dash_pos + 1..]
+                    .parse()
                     .with_context(|| format!("Invalid range end: {part}"))?;
                 if start > end {
                     return Err(anyhow!("Invalid range: start {} > end {}", start, end));
@@ -195,7 +198,8 @@ fn parse_field_list(fields: &str) -> Result<Vec<Range>> {
             }
         } else {
             // Single field
-            let field: usize = part.parse()
+            let field: usize = part
+                .parse()
                 .with_context(|| format!("Invalid field number: {part}"))?;
             if field == 0 {
                 return Err(anyhow!("Field numbers start from 1"));
@@ -203,7 +207,7 @@ fn parse_field_list(fields: &str) -> Result<Vec<Range>> {
             ranges.push(Range::new(field, None));
         }
     }
-    
+
     Ok(ranges)
 }
 
@@ -235,14 +239,14 @@ fn process_line(line: &str, options: &CutOptions) -> Result<()> {
 
 fn process_fields(line: &str, options: &CutOptions) -> Result<()> {
     let fields: Vec<&str> = line.split(options.delimiter).collect();
-    
+
     // Check if line has delimiter
     if options.suppress_no_delim && !line.contains(options.delimiter) {
         return Ok(());
     }
-    
+
     let mut selected_fields = Vec::new();
-    
+
     for range in &options.ranges {
         match range.end {
             Some(end) => {
@@ -259,11 +263,13 @@ fn process_fields(line: &str, options: &CutOptions) -> Result<()> {
             }
         }
     }
-    
+
     let default_delim = options.delimiter.to_string();
-    let output_delim = options.output_delimiter.as_deref()
+    let output_delim = options
+        .output_delimiter
+        .as_deref()
         .unwrap_or(&default_delim);
-    
+
     println!("{}", selected_fields.join(output_delim));
     Ok(())
 }
@@ -271,7 +277,7 @@ fn process_fields(line: &str, options: &CutOptions) -> Result<()> {
 fn process_characters(line: &str, options: &CutOptions) -> Result<()> {
     let chars: Vec<char> = line.chars().collect();
     let mut selected_chars = Vec::new();
-    
+
     for range in &options.ranges {
         match range.end {
             Some(end) => {
@@ -288,7 +294,7 @@ fn process_characters(line: &str, options: &CutOptions) -> Result<()> {
             }
         }
     }
-    
+
     println!("{}", selected_chars.iter().collect::<String>());
     Ok(())
 }
@@ -296,7 +302,7 @@ fn process_characters(line: &str, options: &CutOptions) -> Result<()> {
 fn process_bytes(line: &str, options: &CutOptions) -> Result<()> {
     let bytes = line.as_bytes();
     let mut selected_bytes = Vec::new();
-    
+
     for range in &options.ranges {
         match range.end {
             Some(end) => {
@@ -313,7 +319,7 @@ fn process_bytes(line: &str, options: &CutOptions) -> Result<()> {
             }
         }
     }
-    
+
     // Convert bytes back to string (may not be valid UTF-8)
     match String::from_utf8(selected_bytes.clone()) {
         Ok(s) => println!("{s}"),
@@ -323,16 +329,15 @@ fn process_bytes(line: &str, options: &CutOptions) -> Result<()> {
             println!("{s}");
         }
     }
-    
+
     Ok(())
 }
 
-
-
-
-
 /// Execute function stub
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    _args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     eprintln!("Command not yet implemented");
     Ok(1)
 }

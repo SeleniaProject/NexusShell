@@ -1,5 +1,5 @@
-use std::{fs, time::Duration, thread};
 use nxsh_builtins::logstats_builtin::logstats_cli;
+use std::{fs, thread, time::Duration};
 
 // Basic CLI behavior tests for logstats
 #[test]
@@ -38,5 +38,3 @@ fn logstats_rates_snapshot_smoke() {
     std::env::remove_var("NXSH_LOGSTATS_SNAPSHOT_PATH");
     let _ = fs::remove_file(&snap);
 }
-
-

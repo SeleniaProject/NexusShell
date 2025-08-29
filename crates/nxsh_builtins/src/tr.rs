@@ -1,6 +1,6 @@
+use crate::common::{BuiltinContext, BuiltinResult};
 use std::collections::HashMap;
 use std::io::{self, Read};
-use crate::common::{BuiltinResult, BuiltinContext};
 
 /// Translate or delete characters
 pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
@@ -13,7 +13,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
     let mut complement = false;
     let mut squeeze_repeats = false;
     let mut truncate_set1 = false;
-    
+
     let mut set2 = String::new();
     let mut positional_args = Vec::new();
 
@@ -85,7 +85,7 @@ fn expand_set(set: &str) -> Vec<char> {
             // Range like a-z
             let start = chars[i] as u8;
             let end = chars[i + 2] as u8;
-            
+
             if start <= end {
                 for c in start..=end {
                     expanded.push(c as char);
@@ -141,13 +141,16 @@ fn delete_characters(input: &str, set1: &str, complement: bool) -> String {
     let expanded_set1 = expand_set(&expand_escape_sequences(set1));
     let delete_set: std::collections::HashSet<char> = expanded_set1.into_iter().collect();
 
-    input.chars().filter(|&c| {
-        if complement {
-            delete_set.contains(&c)
-        } else {
-            !delete_set.contains(&c)
-        }
-    }).collect()
+    input
+        .chars()
+        .filter(|&c| {
+            if complement {
+                delete_set.contains(&c)
+            } else {
+                !delete_set.contains(&c)
+            }
+        })
+        .collect()
 }
 
 fn translate_characters(input: &str, set1: &str, set2: &str, truncate_set1: bool) -> String {
@@ -178,9 +181,10 @@ fn translate_characters(input: &str, set1: &str, set2: &str, truncate_set1: bool
         }
     }
 
-    input.chars().map(|c| {
-        translation_map.get(&c).copied().unwrap_or(c)
-    }).collect()
+    input
+        .chars()
+        .map(|c| translation_map.get(&c).copied().unwrap_or(c))
+        .collect()
 }
 
 fn squeeze_repeated_characters(input: &str, set: &str) -> String {
@@ -188,8 +192,9 @@ fn squeeze_repeated_characters(input: &str, set: &str) -> String {
         return input.to_string();
     }
 
-    let squeeze_set: std::collections::HashSet<char> = 
-        expand_set(&expand_escape_sequences(set)).into_iter().collect();
+    let squeeze_set: std::collections::HashSet<char> = expand_set(&expand_escape_sequences(set))
+        .into_iter()
+        .collect();
 
     let mut result = String::new();
     let mut prev_char: Option<char> = None;

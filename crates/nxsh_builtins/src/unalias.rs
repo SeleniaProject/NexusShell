@@ -3,7 +3,7 @@
 //!   unalias NAME ...  # remove specified aliases
 //!   unalias -a        # remove all aliases
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use nxsh_core::context::ShellContext;
 
 pub fn unalias_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
@@ -22,11 +22,13 @@ pub fn unalias_cli(args: &[String], ctx: &ShellContext) -> Result<()> {
         }
     }
     Ok(())
-} 
-
+}
 
 /// Execute function stub
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    _args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     eprintln!("Command not yet implemented");
     Ok(1)
 }

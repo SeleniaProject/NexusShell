@@ -17,5 +17,3 @@ fn logstats_prometheus_format_contains_headers_and_metrics() {
     // At least one metric line with nxsh_ prefix should appear
     assert!(s.contains("nxsh_"), "should contain nxsh_* metrics");
 }
-
-

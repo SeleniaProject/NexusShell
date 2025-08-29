@@ -1,5 +1,5 @@
+use crate::common::{BuiltinContext, BuiltinResult};
 use std::env;
-use crate::common::{BuiltinResult, BuiltinContext};
 
 /// Display system information
 pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
@@ -136,24 +136,30 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
 fn get_kernel_name() -> String {
     #[cfg(target_os = "linux")]
     return "Linux".to_string();
-    
+
     #[cfg(target_os = "windows")]
     return "Windows".to_string();
-    
+
     #[cfg(target_os = "macos")]
     return "Darwin".to_string();
-    
+
     #[cfg(target_os = "freebsd")]
     return "FreeBSD".to_string();
-    
+
     #[cfg(target_os = "openbsd")]
     return "OpenBSD".to_string();
-    
+
     #[cfg(target_os = "netbsd")]
     return "NetBSD".to_string();
-    
-    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos", 
-                  target_os = "freebsd", target_os = "openbsd", target_os = "netbsd")))]
+
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd"
+    )))]
     return "Unknown".to_string();
 }
 
@@ -162,11 +168,11 @@ fn get_nodename() -> String {
     if let Ok(hostname) = env::var("HOSTNAME") {
         return hostname;
     }
-    
+
     if let Ok(computername) = env::var("COMPUTERNAME") {
         return computername;
     }
-    
+
     // Fallback to a generic name
     "localhost".to_string()
 }
@@ -177,7 +183,7 @@ fn get_kernel_release() -> String {
         // On Windows, try to get version info
         "Unknown".to_string()
     }
-    
+
     #[cfg(not(target_os = "windows"))]
     {
         // On Unix-like systems, would typically read from /proc/version or uname syscall
@@ -191,7 +197,7 @@ fn get_kernel_version() -> String {
         // Would need Windows API calls to get detailed version
         "Unknown".to_string()
     }
-    
+
     #[cfg(not(target_os = "windows"))]
     {
         // Would typically parse /proc/version or use uname syscall
@@ -202,18 +208,22 @@ fn get_kernel_version() -> String {
 fn get_machine() -> String {
     #[cfg(target_arch = "x86_64")]
     return "x86_64".to_string();
-    
+
     #[cfg(target_arch = "x86")]
     return "i686".to_string();
-    
+
     #[cfg(target_arch = "aarch64")]
     return "aarch64".to_string();
-    
+
     #[cfg(target_arch = "arm")]
     return "arm".to_string();
-    
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "x86", 
-                  target_arch = "aarch64", target_arch = "arm")))]
+
+    #[cfg(not(any(
+        target_arch = "x86_64",
+        target_arch = "x86",
+        target_arch = "aarch64",
+        target_arch = "arm"
+    )))]
     return "unknown".to_string();
 }
 
@@ -230,13 +240,13 @@ fn get_hardware_platform() -> String {
 fn get_operating_system() -> String {
     #[cfg(target_os = "linux")]
     return "GNU/Linux".to_string();
-    
+
     #[cfg(target_os = "windows")]
     return "Windows".to_string();
-    
+
     #[cfg(target_os = "macos")]
     return "Darwin".to_string();
-    
+
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     return "Unknown".to_string();
 }

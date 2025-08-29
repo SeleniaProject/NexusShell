@@ -16,13 +16,13 @@
 // ===================== FULL IMPLEMENTATION =====================
 #[cfg(feature = "i18n")]
 mod full {
+    use anyhow::{anyhow, Result};
     use fluent::{FluentBundle, FluentResource};
     use fluent_bundle::FluentArgs;
-    use std::collections::HashMap;
-    use std::sync::{OnceLock, Arc};
-    use unic_langid::LanguageIdentifier;
-    use anyhow::{Result, anyhow};
     use parking_lot::Mutex;
+    use std::collections::HashMap;
+    use std::sync::{Arc, OnceLock};
+    use unic_langid::LanguageIdentifier;
 
     /// Supported languages in NexusShell
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -61,16 +61,27 @@ mod full {
                 .or_else(|_| std::env::var("LC_MESSAGES"))
                 .unwrap_or_else(|_| "en_US.UTF-8".to_string());
 
-            if lang.starts_with("ja") { Language::Japanese }
-            else if lang.starts_with("zh") { Language::Chinese }
-            else if lang.starts_with("ko") { Language::Korean }
-            else if lang.starts_with("es") { Language::Spanish }
-            else if lang.starts_with("fr") { Language::French }
-            else if lang.starts_with("de") { Language::German }
-            else if lang.starts_with("ru") { Language::Russian }
-            else if lang.starts_with("pt") { Language::Portuguese }
-            else if lang.starts_with("it") { Language::Italian }
-            else { Language::English }
+            if lang.starts_with("ja") {
+                Language::Japanese
+            } else if lang.starts_with("zh") {
+                Language::Chinese
+            } else if lang.starts_with("ko") {
+                Language::Korean
+            } else if lang.starts_with("es") {
+                Language::Spanish
+            } else if lang.starts_with("fr") {
+                Language::French
+            } else if lang.starts_with("de") {
+                Language::German
+            } else if lang.starts_with("ru") {
+                Language::Russian
+            } else if lang.starts_with("pt") {
+                Language::Portuguese
+            } else if lang.starts_with("it") {
+                Language::Italian
+            } else {
+                Language::English
+            }
         }
     }
 
@@ -95,10 +106,16 @@ mod full {
 
     static I18N: OnceLock<I18n> = OnceLock::new();
 
-    impl Default for I18n { fn default() -> Self { Self::new() } }
+    impl Default for I18n {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
 
     impl I18n {
-        pub fn new() -> Self { Self::global().clone() }
+        pub fn new() -> Self {
+            Self::global().clone()
+        }
         /// Idempotent initialization: load bundles into the existing global instance.
         pub fn init() -> Result<()> {
             let i18n = I18n::global();
@@ -107,14 +124,22 @@ mod full {
                 let mut bundles_guard = i18n.bundles.lock();
                 if bundles_guard.is_empty() {
                     for lang in [
-                        Language::English, Language::Japanese, Language::Chinese, Language::Korean,
-                        Language::Spanish, Language::French, Language::German, Language::Russian,
-                        Language::Portuguese, Language::Italian,
+                        Language::English,
+                        Language::Japanese,
+                        Language::Chinese,
+                        Language::Korean,
+                        Language::Spanish,
+                        Language::French,
+                        Language::German,
+                        Language::Russian,
+                        Language::Portuguese,
+                        Language::Italian,
                     ] {
                         let mut bundle = FluentBundle::new(vec![lang.lang_id()]);
                         let resource = I18n::load_language_resource(lang)?;
-                        bundle.add_resource(resource)
-                            .map_err(|_| anyhow!("Failed to add resource for language {:?}", lang))?;
+                        bundle.add_resource(resource).map_err(|_| {
+                            anyhow!("Failed to add resource for language {:?}", lang)
+                        })?;
                         bundles_guard.insert(lang, bundle);
                     }
                     // Set language from environment on first init
@@ -123,10 +148,12 @@ mod full {
             }
             Ok(())
         }
-        pub fn global() -> &'static I18n { I18N.get_or_init(|| I18n {
-            bundles: Arc::new(Mutex::new(HashMap::new())),
-            current_language: Arc::new(Mutex::new(Language::English)),
-        }) }
+        pub fn global() -> &'static I18n {
+            I18N.get_or_init(|| I18n {
+                bundles: Arc::new(Mutex::new(HashMap::new())),
+                current_language: Arc::new(Mutex::new(Language::English)),
+            })
+        }
         fn load_language_resource(lang: Language) -> Result<FluentResource> {
             let content = match lang {
                 Language::English => include_str!("../../locales/en-US.ftl"),
@@ -143,26 +170,35 @@ mod full {
             FluentResource::try_new(content.to_string())
                 .map_err(|_| anyhow!("Failed to parse fluent resource for {:?}", lang))
         }
-    pub fn get(&self, key: &str, args: Option<&FluentArgs>) -> String {
-        // Ensure bundles are available even if init() wasn't called explicitly.
-        let _ = I18n::init();
+        pub fn get(&self, key: &str, args: Option<&FluentArgs>) -> String {
+            // Ensure bundles are available even if init() wasn't called explicitly.
+            let _ = I18n::init();
             let current_lang = *self.current_language.lock();
             let bundles = self.bundles.lock();
-            let bundle = bundles.get(&current_lang).or_else(|| bundles.get(&Language::English));
+            let bundle = bundles
+                .get(&current_lang)
+                .or_else(|| bundles.get(&Language::English));
             if let Some(bundle) = bundle {
                 let msg = bundle.get_message(key).and_then(|m| m.value());
                 if let Some(pattern) = msg {
                     let mut errors = vec![];
                     let formatted = bundle.format_pattern(pattern, args, &mut errors);
-            if !errors.is_empty() { /* swallow formatting errors in release; key will be returned below if needed */ }
+                    if !errors.is_empty() { /* swallow formatting errors in release; key will be returned below if needed */
+                    }
                     return formatted.into_owned();
                 }
             }
             key.to_string()
         }
-        pub fn get_single(&self, key: &str) -> String { self.get(key, None) }
-        pub fn set_language(&self, lang: Language) { *self.current_language.lock() = lang; }
-        pub fn current_language(&self) -> Language { *self.current_language.lock() }
+        pub fn get_single(&self, key: &str) -> String {
+            self.get(key, None)
+        }
+        pub fn set_language(&self, lang: Language) {
+            *self.current_language.lock() = lang;
+        }
+        pub fn current_language(&self) -> Language {
+            *self.current_language.lock()
+        }
         pub fn current_locale(&self) -> String {
             match self.current_language() {
                 Language::English => "en-US",
@@ -175,7 +211,8 @@ mod full {
                 Language::Korean => "ko-KR",
                 Language::Portuguese => "pt-BR",
                 Language::Italian => "it-IT",
-            }.to_string()
+            }
+            .to_string()
         }
     }
 
@@ -189,9 +226,15 @@ mod full {
         }};
     }
 
-    pub fn init_i18n() -> Result<()> { I18n::init() }
-    pub fn t(key: &str) -> String { I18n::global().get(key, None) }
-    pub fn t_args(key: &str, args: &FluentArgs) -> String { I18n::global().get(key, Some(args)) }
+    pub fn init_i18n() -> Result<()> {
+        I18n::init()
+    }
+    pub fn t(key: &str) -> String {
+        I18n::global().get(key, None)
+    }
+    pub fn t_args(key: &str, args: &FluentArgs) -> String {
+        I18n::global().get(key, Some(args))
+    }
 
     #[cfg(test)]
     mod tests {
@@ -210,11 +253,13 @@ mod full {
 // ===================== STUB IMPLEMENTATION =====================
 #[cfg(not(feature = "i18n"))]
 mod stub {
-    use std::sync::OnceLock;
     use anyhow::Result;
+    use std::sync::OnceLock;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub enum Language { English }
+    pub enum Language {
+        English,
+    }
 
     #[derive(Clone, Debug)]
     pub struct I18n;
@@ -226,19 +271,42 @@ mod stub {
     }
 
     impl I18n {
-        pub fn init() -> Result<()> { Ok(()) }
-        pub fn global() -> &'static I18n { I18N.get_or_init(|| I18n) }
-        pub fn new() -> I18n { I18n }
-        pub fn get(&self, key:&str, _args: Option<&FluentArgs>) -> String { key.to_string() }
-        pub fn current_locale(&self) -> String { "en-US".to_string() }
+        pub fn init() -> Result<()> {
+            Ok(())
+        }
+        pub fn global() -> &'static I18n {
+            I18N.get_or_init(|| I18n)
+        }
+        pub fn new() -> I18n {
+            I18n
+        }
+        pub fn get(&self, key: &str, _args: Option<&FluentArgs>) -> String {
+            key.to_string()
+        }
+        pub fn current_locale(&self) -> String {
+            "en-US".to_string()
+        }
     }
 
     #[macro_export]
-    macro_rules! t { ($key:expr) => { $key }; ($key:expr, $($name:expr => $value:expr),+ ) => { $key }; }
+    macro_rules! t {
+        ($key:expr) => {
+            $key
+        };
+        ($key:expr, $($name:expr => $value:expr),+ ) => {
+            $key
+        };
+    }
 
-    pub fn init_i18n() -> Result<()> { Ok(()) }
-    pub fn t(key:&str) -> String { key.to_string() }
-    pub fn t_args(key:&str, _args: &FluentArgs) -> String { key.to_string() }
+    pub fn init_i18n() -> Result<()> {
+        Ok(())
+    }
+    pub fn t(key: &str) -> String {
+        key.to_string()
+    }
+    pub fn t_args(key: &str, _args: &FluentArgs) -> String {
+        key.to_string()
+    }
 
     // Dummy type so call sites using FluentArgs behind feature gates can still compile if they accidentally import it.
     pub struct FluentArgs; // zero sized placeholder
@@ -250,4 +318,4 @@ mod stub {
 #[cfg(feature = "i18n")]
 pub use full::*;
 #[cfg(not(feature = "i18n"))]
-pub use stub::{I18n, Language, FluentArgs, init_i18n, t, t_args};
+pub use stub::{init_i18n, t, t_args, FluentArgs, I18n, Language};

@@ -12,13 +12,21 @@ pub struct FullZstdOptions {
 
 impl Default for FullZstdOptions {
     fn default() -> Self {
-        Self { level: 3, checksum: false, window_log: 20 }
+        Self {
+            level: 3,
+            checksum: false,
+            window_log: 20,
+        }
     }
 }
 
 /// Placeholder full encoder entry. Currently emits a single RAW block via higher layer.
 /// Will be extended to output Compressed blocks with literals and sequences using Huffman/FSE.
-pub fn compress_reader_to_writer<R: Read, W: Write>(mut r: R, mut w: W, _opt: FullZstdOptions) -> io::Result<()> {
+pub fn compress_reader_to_writer<R: Read, W: Write>(
+    mut r: R,
+    mut w: W,
+    _opt: FullZstdOptions,
+) -> io::Result<()> {
     let mut data = Vec::new();
     r.read_to_end(&mut data)?;
     // For now, just passthrough to caller; higher-level frame writer decides block type.

@@ -16,9 +16,11 @@ fn tar_zstd_store_mode_roundtrip() {
     let archive = work.join("arch.tar.zst");
     let args_create = vec![
         "-c".to_string(),
-        "-f".to_string(), archive.to_string_lossy().to_string(),
+        "-f".to_string(),
+        archive.to_string_lossy().to_string(),
         "--zstd".to_string(),
-        "-C".to_string(), work.to_string_lossy().to_string(),
+        "-C".to_string(),
+        work.to_string_lossy().to_string(),
         "a.txt".to_string(),
         "b.txt".to_string(),
     ];
@@ -30,9 +32,11 @@ fn tar_zstd_store_mode_roundtrip() {
     std::fs::create_dir_all(&out_dir).unwrap();
     let args_extract = vec![
         "-x".to_string(),
-        "-f".to_string(), archive.to_string_lossy().to_string(),
+        "-f".to_string(),
+        archive.to_string_lossy().to_string(),
         "--zstd".to_string(),
-        "-C".to_string(), out_dir.to_string_lossy().to_string(),
+        "-C".to_string(),
+        out_dir.to_string_lossy().to_string(),
     ];
     assert!(tar_cli(&args_extract).is_ok());
 
@@ -42,5 +46,3 @@ fn tar_zstd_store_mode_roundtrip() {
     assert_eq!(ra, b"alpha-123");
     assert_eq!(rb, b"beta-456");
 }
-
-

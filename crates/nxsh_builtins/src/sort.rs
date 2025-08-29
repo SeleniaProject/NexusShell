@@ -9,12 +9,12 @@ use std::io::{BufRead, BufReader, Write};
 /// Execute the sort command
 pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
     let config = parse_args(args)?;
-    
+
     if config.help {
         print_help();
         return Ok(0);
     }
-    
+
     let lines = if config.files.is_empty() {
         // Read from stdin
         read_stdin_lines()?
@@ -22,14 +22,14 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
         // Read from files
         read_file_lines(&config.files)?
     };
-    
+
     let sorted_lines = sort_lines(lines, &config)?;
-    
+
     // Output sorted lines
     for line in sorted_lines {
         println!("{line}");
     }
-    
+
     Ok(0)
 }
 
@@ -46,7 +46,7 @@ struct SortConfig {
 fn parse_args(args: &[String]) -> BuiltinResult<SortConfig> {
     let mut config = SortConfig::default();
     let mut i = 0;
-    
+
     while i < args.len() {
         match args[i].as_str() {
             "--help" | "-h" => config.help = true,
@@ -55,20 +55,22 @@ fn parse_args(args: &[String]) -> BuiltinResult<SortConfig> {
             "--unique" | "-u" => config.unique = true,
             "--ignore-case" | "-f" => config.ignore_case = true,
             arg if arg.starts_with('-') => {
-                return Err(BuiltinError::InvalidArgument(format!("Unknown option: {arg}")));
+                return Err(BuiltinError::InvalidArgument(format!(
+                    "Unknown option: {arg}"
+                )));
             }
             file => config.files.push(file.to_string()),
         }
         i += 1;
     }
-    
+
     Ok(config)
 }
 
 fn read_stdin_lines() -> BuiltinResult<Vec<String>> {
     let stdin = std::io::stdin();
     let reader = stdin.lock();
-    
+
     reader
         .lines()
         .collect::<Result<Vec<_>, _>>()
@@ -77,20 +79,19 @@ fn read_stdin_lines() -> BuiltinResult<Vec<String>> {
 
 fn read_file_lines(files: &[String]) -> BuiltinResult<Vec<String>> {
     let mut all_lines = Vec::new();
-    
+
     for file_path in files {
-        let file = std::fs::File::open(file_path)
-            .map_err(BuiltinError::IoError)?;
-        
+        let file = std::fs::File::open(file_path).map_err(BuiltinError::IoError)?;
+
         let reader = BufReader::new(file);
         let lines: Result<Vec<_>, _> = reader.lines().collect();
-        
+
         match lines {
             Ok(mut file_lines) => all_lines.append(&mut file_lines),
             Err(e) => return Err(BuiltinError::IoError(e)),
         }
     }
-    
+
     Ok(all_lines)
 }
 
@@ -108,18 +109,18 @@ fn sort_lines(mut lines: Vec<String>, config: &SortConfig) -> BuiltinResult<Vec<
             // Regular lexicographic sort
             a.cmp(b)
         };
-        
+
         if config.reverse {
             ordering.reverse()
         } else {
             ordering
         }
     });
-    
+
     if config.unique {
         lines.dedup();
     }
-    
+
     Ok(lines)
 }
 
@@ -147,11 +148,11 @@ fn print_help() {
 mod tests {
     use super::*;
     use crate::common::BuiltinContext;
-    
+
     #[test]
     fn test_sort_basic() {
         // 標準入力に依存しない形で基本動作を検証
-    let lines = vec![
+        let lines = vec![
             "banana".to_string(),
             "Apple".to_string(),
             "cherry".to_string(),
@@ -171,7 +172,7 @@ mod tests {
         let out_rev = sort_lines(lines.clone(), &cfg).unwrap();
         assert_eq!(out_rev, vec!["cherry", "banana", "Apple"]);
     }
-    
+
     #[test]
     fn test_sort_help() {
         let context = BuiltinContext::new();

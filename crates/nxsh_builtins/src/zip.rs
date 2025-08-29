@@ -9,29 +9,35 @@
 //! Unsupported options in fallback mode yield an error.
 
 use anyhow::{anyhow, Context, Result};
-use std::process::Command;
-use which::which;
-use std::{fs::File, path::Path};
-use zip::{write::FileOptions, ZipWriter};
 use std::io::{self};
+use std::process::Command;
+use std::{fs::File, path::Path};
+use which::which;
+use zip::{write::FileOptions, ZipWriter};
 
 pub fn zip_cli(args: &[String]) -> Result<()> {
     // Try system binary first
     if let Ok(path) = which("zip") {
-        let status = Command::new(path).args(args).status().map_err(|e| anyhow!("zip: failed to launch backend: {e}"))?;
+        let status = Command::new(path)
+            .args(args)
+            .status()
+            .map_err(|e| anyhow!("zip: failed to launch backend: {e}"))?;
         std::process::exit(status.code().unwrap_or(1));
     }
 
     // Fallback simple implementation: zip ARCHIVE.zip FILE...
     if args.len() < 2 {
-        return Err(anyhow!("zip: system binary missing; fallback supports 'zip ARCHIVE.zip FILE...'"));
+        return Err(anyhow!(
+            "zip: system binary missing; fallback supports 'zip ARCHIVE.zip FILE...'"
+        ));
     }
     let archive = &args[0];
     if !archive.ends_with(".zip") {
         return Err(anyhow!("zip: fallback expects output to end with .zip"));
     }
 
-    let archive_file = File::create(archive).with_context(|| format!("zip: cannot create {archive}"))?;
+    let archive_file =
+        File::create(archive).with_context(|| format!("zip: cannot create {archive}"))?;
     let mut zip = ZipWriter::new(archive_file);
     let opts = FileOptions::default().compression_method(zip::CompressionMethod::Stored);
 
@@ -40,7 +46,8 @@ pub fn zip_cli(args: &[String]) -> Result<()> {
         if !path.is_file() {
             return Err(anyhow!("zip: fallback supports only regular files: {file}"));
         }
-        let file_name = path.file_name()
+        let file_name = path
+            .file_name()
             .ok_or_else(|| anyhow!("zip: invalid file path: {file}"))?
             .to_string_lossy();
         zip.start_file(file_name, opts)
@@ -70,16 +77,18 @@ pub fn unzip_cli(args: &[String]) -> Result<()> {
 
     let archive_name = &args[0];
     let dest_dir = if args.len() > 1 { &args[1] } else { "." };
-    
+
     println!("unzip: ZIP extraction utility (external unzip binary not found)");
     println!("unzip: would extract '{archive_name}' to '{dest_dir}'");
-    
+
     Ok(())
 }
 
-
 /// Execute function stub
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    _args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     eprintln!("Command not yet implemented");
     Ok(1)
 }

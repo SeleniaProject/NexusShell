@@ -35,24 +35,24 @@ pub fn chmod_cli(args: &[String]) -> Result<()> {
         .map_err(|_| anyhow!("chmod: fallback supports only octal modes (e.g., 644)"))?;
     for file in &args[1..] {
         let path = Path::new(file);
-        let metadata = fs::metadata(path)
-            .with_context(|| format!("chmod: cannot access '{file}'"))?;
+        let metadata =
+            fs::metadata(path).with_context(|| format!("chmod: cannot access '{file}'"))?;
         let mut perms = metadata.permissions();
-        
+
         // Platform-specific permission setting
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             perms.set_mode(mode);
         }
-        
+
         #[cfg(windows)]
         {
             // On Windows, we can only set read-only attribute
             // Setting execute/write permissions is more complex
             perms.set_readonly((mode & 0o200) == 0);
         }
-        
+
         fs::set_permissions(path, perms)
             .with_context(|| format!("chmod: failed to set permissions for '{file}'"))?;
     }
@@ -60,7 +60,10 @@ pub fn chmod_cli(args: &[String]) -> Result<()> {
 }
 
 /// Execute function for chmod command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     match chmod_cli(args) {
         Ok(_) => Ok(0),
         Err(e) => {
@@ -69,4 +72,3 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
         }
     }
 }
-

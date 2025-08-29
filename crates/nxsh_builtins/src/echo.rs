@@ -1,6 +1,6 @@
 //! Stylish echo command for NexusShell
 
-use crate::common::{BuiltinResult, BuiltinError, BuiltinContext};
+use crate::common::{BuiltinContext, BuiltinError, BuiltinResult};
 
 /// Execute the echo command with stylish output
 pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
@@ -30,7 +30,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
 
     let message = text_parts.join(" ");
     let mut suppress_newline = no_newline;
-    
+
     if colorful {
         print_colorful_message(&message);
     } else if interpret_escapes {
@@ -61,15 +61,15 @@ fn print_stylish_message(message: &str) {
 /// Print message with colorful ANSI codes
 fn print_colorful_message(message: &str) {
     // Use our cyberpunk theme colors
-    let cyan = "\x1b[38;2;0;245;255m";     // #00f5ff
-    let purple = "\x1b[38;2;153;69;255m";  // #9945ff
-    let coral = "\x1b[38;2;255;71;87m";    // #ff4757
+    let cyan = "\x1b[38;2;0;245;255m"; // #00f5ff
+    let purple = "\x1b[38;2;153;69;255m"; // #9945ff
+    let coral = "\x1b[38;2;255;71;87m"; // #ff4757
     let reset = "\x1b[0m";
 
     // Alternate colors for each word
     let words: Vec<&str> = message.split_whitespace().collect();
     let colors = [cyan, purple, coral];
-    
+
     for (i, word) in words.iter().enumerate() {
         let color = colors[i % colors.len()];
         print!("{color}{word}{reset}");
@@ -85,7 +85,7 @@ fn print_with_escapes(message: &str) -> bool {
     let mut chars = message.chars().peekable();
     let mut result = String::new();
     let mut suppress_newline = false;
-    
+
     while let Some(c) = chars.next() {
         if c == '\\' {
             if let Some(&next_char) = chars.peek() {
@@ -137,7 +137,7 @@ fn print_with_escapes(message: &str) -> bool {
                         let mut octal = String::new();
                         octal.push(next_char);
                         chars.next();
-                        
+
                         // Read up to 2 more octal digits
                         for _ in 0..2 {
                             if let Some(&digit) = chars.peek() {
@@ -149,7 +149,7 @@ fn print_with_escapes(message: &str) -> bool {
                                 }
                             }
                         }
-                        
+
                         if let Ok(value) = u8::from_str_radix(&octal, 8) {
                             result.push(value as char);
                         } else {
@@ -161,7 +161,7 @@ fn print_with_escapes(message: &str) -> bool {
                         // Hexadecimal escape sequence \xHH
                         chars.next(); // consume 'x'
                         let mut hex = String::new();
-                        
+
                         // Read up to 2 hex digits
                         for _ in 0..2 {
                             if let Some(&digit) = chars.peek() {
@@ -173,7 +173,7 @@ fn print_with_escapes(message: &str) -> bool {
                                 }
                             }
                         }
-                        
+
                         if !hex.is_empty() {
                             if let Ok(value) = u8::from_str_radix(&hex, 16) {
                                 result.push(value as char);
@@ -200,7 +200,7 @@ fn print_with_escapes(message: &str) -> bool {
             result.push(c);
         }
     }
-    
+
     print!("{result}");
     suppress_newline
 }
@@ -242,11 +242,11 @@ mod tests {
     fn capture_echo_output(args: &[String]) -> (i32, String) {
         // Use a more sophisticated capture mechanism
         let context = BuiltinContext::default();
-        
+
         // Mock stdout capture using a test approach
         // For now, we'll test the core logic without direct stdout capture
         let result = execute(args, &context).unwrap_or(-1);
-        
+
         // For testing purposes, simulate the expected output
         let expected_output = if args.is_empty() {
             "\n".to_string()
@@ -260,7 +260,7 @@ mod tests {
                     "-n" => no_newline = true,
                     "-e" => interpret_escapes = true,
                     "-E" => interpret_escapes = false,
-                    "--color" => {}, // Color output for testing
+                    "--color" => {} // Color output for testing
                     _ if !arg.starts_with("-") => {
                         text_parts.push(arg.clone());
                     }
@@ -290,7 +290,7 @@ mod tests {
     fn process_escapes(message: &str) -> String {
         let mut chars = message.chars().peekable();
         let mut result = String::new();
-        
+
         while let Some(c) = chars.next() {
             if c == '\\' {
                 if let Some(&next_char) = chars.peek() {
@@ -340,7 +340,7 @@ mod tests {
                             let mut octal = String::new();
                             octal.push(next_char);
                             chars.next();
-                            
+
                             // Read up to 2 more octal digits
                             for _ in 0..2 {
                                 if let Some(&digit) = chars.peek() {
@@ -352,7 +352,7 @@ mod tests {
                                     }
                                 }
                             }
-                            
+
                             if let Ok(value) = u8::from_str_radix(&octal, 8) {
                                 result.push(value as char);
                             } else {
@@ -364,7 +364,7 @@ mod tests {
                             // Hexadecimal escape sequence \xHH
                             chars.next(); // consume 'x'
                             let mut hex = String::new();
-                            
+
                             // Read up to 2 hex digits
                             for _ in 0..2 {
                                 if let Some(&digit) = chars.peek() {
@@ -376,7 +376,7 @@ mod tests {
                                     }
                                 }
                             }
-                            
+
                             if !hex.is_empty() {
                                 if let Ok(value) = u8::from_str_radix(&hex, 16) {
                                     result.push(value as char);
@@ -403,7 +403,7 @@ mod tests {
                 result.push(c);
             }
         }
-        
+
         result
     }
 
@@ -449,7 +449,11 @@ mod tests {
 
     #[test]
     fn test_combined_options() {
-        let args = vec!["-n".to_string(), "-e".to_string(), "Hello\\tWorld".to_string()];
+        let args = vec![
+            "-n".to_string(),
+            "-e".to_string(),
+            "Hello\\tWorld".to_string(),
+        ];
         let (result, output) = capture_echo_output(&args);
         assert_eq!(result, 0);
         assert_eq!(output, "Hello\tWorld");
@@ -465,7 +469,10 @@ mod tests {
 
     #[test]
     fn test_special_escape_sequences() {
-        let args = vec!["-e".to_string(), "Bell\\aBackspace\\bFormfeed\\fVertical\\vtab".to_string()];
+        let args = vec![
+            "-e".to_string(),
+            "Bell\\aBackspace\\bFormfeed\\fVertical\\vtab".to_string(),
+        ];
         let (result, output) = capture_echo_output(&args);
         assert_eq!(result, 0);
         assert_eq!(output, "Bell\x07Backspace\x08Formfeed\x0CVertical\x0Btab\n");
@@ -514,7 +521,11 @@ mod tests {
 
     #[test]
     fn test_color_option() {
-        let args = vec!["--color".to_string(), "Colorful".to_string(), "Message".to_string()];
+        let args = vec![
+            "--color".to_string(),
+            "Colorful".to_string(),
+            "Message".to_string(),
+        ];
         let (result, _output) = capture_echo_output(&args);
         assert_eq!(result, 0);
         // Color output testing would require more sophisticated capture mechanism
@@ -529,7 +540,7 @@ mod tests {
             "Text".to_string(),
             "--color".to_string(),
             "More".to_string(),
-            "Text".to_string()
+            "Text".to_string(),
         ];
         let (result, output) = capture_echo_output(&args);
         assert_eq!(result, 0);
@@ -538,9 +549,15 @@ mod tests {
 
     #[test]
     fn test_comprehensive_escapes() {
-        let args = vec!["-e".to_string(), "Line1\\nTab\\tCR\\rBell\\aBS\\bFF\\fVT\\vESC\\e".to_string()];
+        let args = vec![
+            "-e".to_string(),
+            "Line1\\nTab\\tCR\\rBell\\aBS\\bFF\\fVT\\vESC\\e".to_string(),
+        ];
         let (result, output) = capture_echo_output(&args);
         assert_eq!(result, 0);
-        assert_eq!(output, "Line1\nTab\tCR\rBell\x07BS\x08FF\x0CVT\x0BESC\x1B\n");
+        assert_eq!(
+            output,
+            "Line1\nTab\tCR\rBell\x07BS\x08FF\x0CVT\x0BESC\x1B\n"
+        );
     }
 }

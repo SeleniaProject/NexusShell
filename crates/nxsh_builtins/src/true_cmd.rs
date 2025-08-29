@@ -18,4 +18,3 @@ mod tests {
         assert_eq!(execute(&["any".to_string(), "args".to_string()]), Ok(0));
     }
 }
-

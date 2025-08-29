@@ -1,6 +1,6 @@
+use crate::common::{BuiltinContext, BuiltinResult};
 use std::env;
 use std::path::{Path, PathBuf};
-use crate::common::{BuiltinResult, BuiltinContext};
 
 /// Locate a command in the PATH
 pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
@@ -37,7 +37,7 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
     let mut exit_code = 0;
     for &command in &commands {
         let found_paths = find_command(command, show_all);
-        
+
         if found_paths.is_empty() {
             eprintln!("which: no {command} in PATH");
             exit_code = 1;
@@ -97,7 +97,7 @@ fn find_command(command: &str, find_all: bool) -> Vec<PathBuf> {
             } else {
                 format!("{command}{extension}")
             };
-            
+
             command_path.push(&command_with_ext);
 
             if command_path.exists() && is_executable(&command_path) {
@@ -146,7 +146,7 @@ fn is_executable(path: &Path) -> bool {
             let ext = extension.to_string_lossy().to_uppercase();
             return matches!(ext.as_str(), "EXE" | "COM" | "BAT" | "CMD" | "MSI");
         }
-        
+
         // Also check PATHEXT environment variable
         if let Ok(pathext) = env::var("PATHEXT") {
             if let Some(extension) = path.extension() {
@@ -154,7 +154,7 @@ fn is_executable(path: &Path) -> bool {
                 return pathext.to_uppercase().contains(&ext);
             }
         }
-        
+
         false
     }
 

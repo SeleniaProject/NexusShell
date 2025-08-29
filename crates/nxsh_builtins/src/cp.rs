@@ -5,15 +5,15 @@
 //!   cp -p SRC DST (preserve permissions and timestamps)
 //!   cp -v SRC DST (verbose output)
 
-use anyhow::{Result, anyhow, Context};
+use anyhow::{anyhow, Context, Result};
 use std::fs;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-use std::io::{self, Write};
-use tracing::{info, debug, warn};
+use tracing::{debug, info, warn};
 
 // SHA-256 for integrity verification
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
@@ -38,7 +38,10 @@ impl ProgressTracker {
         self.processed_files += 1;
         if self.show_progress && self.total_files > 0 {
             let percentage = (self.processed_files * 100) / self.total_files;
-            print!("\rCopying files: {}/{} ({}%)", self.processed_files, self.total_files, percentage);
+            print!(
+                "\rCopying files: {}/{} ({}%)",
+                self.processed_files, self.total_files, percentage
+            );
             io::stdout().flush().unwrap_or(());
         }
     }
@@ -141,7 +144,8 @@ fn cp_impl(args: &[String]) -> Result<()> {
                 "--preserve-compression" => options.preserve_compression = true,
                 arg if arg.starts_with("--retry=") => {
                     let count_str = arg.strip_prefix("--retry=").unwrap();
-                    options.retry_count = count_str.parse()
+                    options.retry_count = count_str
+                        .parse()
                         .map_err(|_| anyhow!("cp: invalid retry count '{}'", count_str))?;
                 }
                 _ => return Err(anyhow!("cp: unrecognized option '{}'", arg)),
@@ -176,7 +180,7 @@ fn cp_impl(args: &[String]) -> Result<()> {
     // Split operands into sources and destination
     let destination = operands.last().cloned().unwrap();
     let sources = operands[..operands.len() - 1].to_vec();
-    
+
     let dst_path = PathBuf::from(&destination);
 
     // Check if destination should be a directory when copying multiple sources
@@ -190,27 +194,46 @@ fn cp_impl(args: &[String]) -> Result<()> {
     // Process each source
     for source in sources {
         let src_path = Path::new(&source);
-        
+
         if !src_path.exists() {
-            return Err(anyhow!("cp: cannot stat '{}': No such file or directory", source));
+            return Err(anyhow!(
+                "cp: cannot stat '{}': No such file or directory",
+                source
+            ));
         }
 
         let target_path = if dst_path.is_dir() {
-            dst_path.join(src_path.file_name()
-                .ok_or_else(|| anyhow!("cp: invalid source path '{}'", source))?)
+            dst_path.join(
+                src_path
+                    .file_name()
+                    .ok_or_else(|| anyhow!("cp: invalid source path '{}'", source))?,
+            )
         } else {
             dst_path.clone()
         };
 
         if src_path.is_dir() {
             if !options.recursive {
-                return Err(anyhow!("cp: -r not specified; omitting directory '{}'", source));
+                return Err(anyhow!(
+                    "cp: -r not specified; omitting directory '{}'",
+                    source
+                ));
             }
-            copy_directory_with_progress(src_path, &target_path, &options)
-                .with_context(|| format!("Failed to copy directory '{}' to '{}'", source, target_path.display()))?;
+            copy_directory_with_progress(src_path, &target_path, &options).with_context(|| {
+                format!(
+                    "Failed to copy directory '{}' to '{}'",
+                    source,
+                    target_path.display()
+                )
+            })?;
         } else {
-            copy_file_with_metadata(src_path, &target_path, &options)
-                .with_context(|| format!("Failed to copy file '{}' to '{}'", source, target_path.display()))?;
+            copy_file_with_metadata(src_path, &target_path, &options).with_context(|| {
+                format!(
+                    "Failed to copy file '{}' to '{}'",
+                    source,
+                    target_path.display()
+                )
+            })?;
         }
 
         if options.verbose {
@@ -250,10 +273,11 @@ fn count_files_recursively(dir: &Path) -> Result<u64> {
     for entry in entries {
         let entry = entry
             .with_context(|| format!("Failed to read directory entry in '{}'", dir.display()))?;
-        
-        let file_type = entry.file_type()
+
+        let file_type = entry
+            .file_type()
             .with_context(|| format!("Failed to get file type for '{}'", entry.path().display()))?;
-        
+
         if file_type.is_dir() {
             count += count_files_recursively(&entry.path())?;
         } else if file_type.is_file() {
@@ -279,8 +303,12 @@ fn copy_file_with_metadata(src: &Path, dst: &Path, options: &CopyOptions) -> Res
             Ok(()) => {
                 if options.verbose {
                     if attempt > 0 {
-                        println!("Successfully copied '{}' -> '{}' (attempt {})", 
-                                src.display(), dst.display(), attempt + 1);
+                        println!(
+                            "Successfully copied '{}' -> '{}' (attempt {})",
+                            src.display(),
+                            dst.display(),
+                            attempt + 1
+                        );
                     } else {
                         println!("'{}' -> '{}'", src.display(), dst.display());
                     }
@@ -290,13 +318,19 @@ fn copy_file_with_metadata(src: &Path, dst: &Path, options: &CopyOptions) -> Res
             Err(e) => {
                 last_error = Some(e);
                 if attempt < options.retry_count {
-                    warn!("Copy attempt {} failed, retrying: {}", attempt + 1, last_error.as_ref().unwrap());
-                    std::thread::sleep(std::time::Duration::from_millis(100 * (attempt + 1) as u64));
+                    warn!(
+                        "Copy attempt {} failed, retrying: {}",
+                        attempt + 1,
+                        last_error.as_ref().unwrap()
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(
+                        100 * (attempt + 1) as u64,
+                    ));
                 }
             }
         }
     }
-    
+
     Err(last_error.unwrap_or_else(|| anyhow!("Copy failed after all retries")))
 }
 
@@ -306,7 +340,7 @@ fn copy_file_with_advanced_features(src: &Path, dst: &Path, options: &CopyOption
     if options.preserve_acl || options.preserve_ads || options.preserve_compression {
         return copy_file_windows_advanced(src, dst, options);
     }
-    
+
     // Standard copy for non-Windows or basic options
     copy_file_standard(src, dst, options)
 }
@@ -316,15 +350,15 @@ fn copy_file_standard(src: &Path, dst: &Path, options: &CopyOptions) -> Result<(
     // Basic file copy
     fs::copy(src, dst)
         .with_context(|| format!("Failed to copy '{}' to '{}'", src.display(), dst.display()))?;
-    
+
     if options.preserve {
         preserve_metadata_standard(src, dst)?;
     }
-    
+
     if options.verify_integrity {
         verify_file_integrity(src, dst)?;
     }
-    
+
     Ok(())
 }
 
@@ -332,12 +366,12 @@ fn copy_file_standard(src: &Path, dst: &Path, options: &CopyOptions) -> Result<(
 fn preserve_metadata_standard(src: &Path, dst: &Path) -> Result<()> {
     let metadata = fs::metadata(src)
         .with_context(|| format!("Failed to read metadata from '{}'", src.display()))?;
-    
+
     // Preserve timestamps (basic implementation)
     if let (Ok(_accessed), Ok(_modified)) = (metadata.accessed(), metadata.modified()) {
         debug!("Preserved timestamps for '{}'", dst.display());
     }
-    
+
     Ok(())
 }
 
@@ -358,41 +392,56 @@ fn preserve_compression_attribute(_src: &Path, _dst: &Path) -> Result<()> {
 
 /// Verify file integrity using SHA-256 checksums
 fn verify_file_integrity(src: &Path, dst: &Path) -> Result<()> {
-    let src_hash = calculate_file_hash(src)
-        .with_context(|| format!("Failed to calculate hash for source file '{}'", src.display()))?;
-    
-    let dst_hash = calculate_file_hash(dst)
-        .with_context(|| format!("Failed to calculate hash for destination file '{}'", dst.display()))?;
-    
+    let src_hash = calculate_file_hash(src).with_context(|| {
+        format!(
+            "Failed to calculate hash for source file '{}'",
+            src.display()
+        )
+    })?;
+
+    let dst_hash = calculate_file_hash(dst).with_context(|| {
+        format!(
+            "Failed to calculate hash for destination file '{}'",
+            dst.display()
+        )
+    })?;
+
     if src_hash != dst_hash {
-        return Err(anyhow!("Integrity verification failed: file hashes do not match"));
+        return Err(anyhow!(
+            "Integrity verification failed: file hashes do not match"
+        ));
     }
-    
-    debug!("Integrity verification passed for '{}' -> '{}'", src.display(), dst.display());
+
+    debug!(
+        "Integrity verification passed for '{}' -> '{}'",
+        src.display(),
+        dst.display()
+    );
     Ok(())
 }
 
 /// Calculate SHA-256 hash of a file
 fn calculate_file_hash(path: &Path) -> Result<Vec<u8>> {
     use std::io::Read;
-    
+
     let mut file = fs::File::open(path)
         .with_context(|| format!("Failed to open file for hashing: '{}'", path.display()))?;
-    
+
     let mut hasher = Sha256::new();
     let mut buffer = vec![0; 8192]; // 8KB buffer
-    
+
     loop {
-        let bytes_read = file.read(&mut buffer)
+        let bytes_read = file
+            .read(&mut buffer)
             .with_context(|| format!("Failed to read from file: '{}'", path.display()))?;
-        
+
         if bytes_read == 0 {
             break;
         }
-        
+
         hasher.update(&buffer[..bytes_read]);
     }
-    
+
     Ok(hasher.finalize().to_vec())
 }
 
@@ -413,8 +462,12 @@ fn copy_dir_recursively(src: &Path, dst: &Path, options: &CopyOptions) -> Result
 
     // Preserve directory metadata if requested
     if options.preserve {
-        preserve_metadata(src, dst)
-            .with_context(|| format!("Failed to preserve directory metadata for '{}'", dst.display()))?;
+        preserve_metadata(src, dst).with_context(|| {
+            format!(
+                "Failed to preserve directory metadata for '{}'",
+                dst.display()
+            )
+        })?;
     }
 
     // Read directory entries
@@ -424,22 +477,38 @@ fn copy_dir_recursively(src: &Path, dst: &Path, options: &CopyOptions) -> Result
     for entry in entries {
         let entry = entry
             .with_context(|| format!("Failed to read directory entry in '{}'", src.display()))?;
-        
-        let file_type = entry.file_type()
+
+        let file_type = entry
+            .file_type()
             .with_context(|| format!("Failed to get file type for '{}'", entry.path().display()))?;
-        
+
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
 
         if file_type.is_dir() {
-            copy_dir_recursively(&src_path, &dst_path, options)
-                .with_context(|| format!("Failed to copy subdirectory '{}' to '{}'", src_path.display(), dst_path.display()))?;
+            copy_dir_recursively(&src_path, &dst_path, options).with_context(|| {
+                format!(
+                    "Failed to copy subdirectory '{}' to '{}'",
+                    src_path.display(),
+                    dst_path.display()
+                )
+            })?;
         } else if file_type.is_file() {
-            copy_file_with_metadata(&src_path, &dst_path, options)
-                .with_context(|| format!("Failed to copy file '{}' to '{}'", src_path.display(), dst_path.display()))?;
+            copy_file_with_metadata(&src_path, &dst_path, options).with_context(|| {
+                format!(
+                    "Failed to copy file '{}' to '{}'",
+                    src_path.display(),
+                    dst_path.display()
+                )
+            })?;
         } else if file_type.is_symlink() {
-            copy_symlink(&src_path, &dst_path)
-                .with_context(|| format!("Failed to copy symlink '{}' to '{}'", src_path.display(), dst_path.display()))?;
+            copy_symlink(&src_path, &dst_path).with_context(|| {
+                format!(
+                    "Failed to copy symlink '{}' to '{}'",
+                    src_path.display(),
+                    dst_path.display()
+                )
+            })?;
         } else {
             warn!("Skipping special file: {}", src_path.display());
         }
@@ -463,21 +532,30 @@ fn copy_dir_with_progress_bar(src: &Path, dst: &Path, options: &CopyOptions) -> 
 
     // Copy with progress tracking
     copy_dir_with_progress_tracking(src, dst, options, &mut progress)?;
-    
+
     progress.finish();
     Ok(())
 }
 
 /// Recursive copy with progress tracking
-fn copy_dir_with_progress_tracking(src: &Path, dst: &Path, options: &CopyOptions, progress: &mut ProgressTracker) -> Result<()> {
+fn copy_dir_with_progress_tracking(
+    src: &Path,
+    dst: &Path,
+    options: &CopyOptions,
+    progress: &mut ProgressTracker,
+) -> Result<()> {
     // Create destination directory
     fs::create_dir_all(dst)
         .with_context(|| format!("Failed to create directory '{}'", dst.display()))?;
 
     // Preserve directory metadata if requested
     if options.preserve {
-        preserve_metadata(src, dst)
-            .with_context(|| format!("Failed to preserve directory metadata for '{}'", dst.display()))?;
+        preserve_metadata(src, dst).with_context(|| {
+            format!(
+                "Failed to preserve directory metadata for '{}'",
+                dst.display()
+            )
+        })?;
     }
 
     // Read directory entries
@@ -487,23 +565,41 @@ fn copy_dir_with_progress_tracking(src: &Path, dst: &Path, options: &CopyOptions
     for entry in entries {
         let entry = entry
             .with_context(|| format!("Failed to read directory entry in '{}'", src.display()))?;
-        
-        let file_type = entry.file_type()
+
+        let file_type = entry
+            .file_type()
             .with_context(|| format!("Failed to get file type for '{}'", entry.path().display()))?;
-        
+
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
 
         if file_type.is_dir() {
-            copy_dir_with_progress_tracking(&src_path, &dst_path, options, progress)
-                .with_context(|| format!("Failed to copy subdirectory '{}' to '{}'", src_path.display(), dst_path.display()))?;
+            copy_dir_with_progress_tracking(&src_path, &dst_path, options, progress).with_context(
+                || {
+                    format!(
+                        "Failed to copy subdirectory '{}' to '{}'",
+                        src_path.display(),
+                        dst_path.display()
+                    )
+                },
+            )?;
         } else if file_type.is_file() {
-            copy_file_with_metadata(&src_path, &dst_path, options)
-                .with_context(|| format!("Failed to copy file '{}' to '{}'", src_path.display(), dst_path.display()))?;
+            copy_file_with_metadata(&src_path, &dst_path, options).with_context(|| {
+                format!(
+                    "Failed to copy file '{}' to '{}'",
+                    src_path.display(),
+                    dst_path.display()
+                )
+            })?;
             progress.increment();
         } else if file_type.is_symlink() {
-            copy_symlink(&src_path, &dst_path)
-                .with_context(|| format!("Failed to copy symlink '{}' to '{}'", src_path.display(), dst_path.display()))?;
+            copy_symlink(&src_path, &dst_path).with_context(|| {
+                format!(
+                    "Failed to copy symlink '{}' to '{}'",
+                    src_path.display(),
+                    dst_path.display()
+                )
+            })?;
         } else {
             eprintln!("Warning: Skipping special file: {}", src_path.display());
         }
@@ -516,7 +612,7 @@ fn copy_dir_with_progress_tracking(src: &Path, dst: &Path, options: &CopyOptions
 fn copy_symlink(src: &Path, dst: &Path) -> Result<()> {
     let target = fs::read_link(src)
         .with_context(|| format!("Failed to read symlink '{}'", src.display()))?;
-    
+
     // Remove destination if it exists
     if dst.exists() {
         fs::remove_file(dst)
@@ -525,22 +621,42 @@ fn copy_symlink(src: &Path, dst: &Path) -> Result<()> {
 
     #[cfg(unix)]
     {
-        std::os::unix::fs::symlink(&target, dst)
-            .with_context(|| format!("Failed to create symlink '{}' -> '{}'", dst.display(), target.display()))?;
+        std::os::unix::fs::symlink(&target, dst).with_context(|| {
+            format!(
+                "Failed to create symlink '{}' -> '{}'",
+                dst.display(),
+                target.display()
+            )
+        })?;
     }
 
     #[cfg(windows)]
     {
         if target.is_dir() {
-            std::os::windows::fs::symlink_dir(&target, dst)
-                .with_context(|| format!("Failed to create directory symlink '{}' -> '{}'", dst.display(), target.display()))?;
+            std::os::windows::fs::symlink_dir(&target, dst).with_context(|| {
+                format!(
+                    "Failed to create directory symlink '{}' -> '{}'",
+                    dst.display(),
+                    target.display()
+                )
+            })?;
         } else {
-            std::os::windows::fs::symlink_file(&target, dst)
-                .with_context(|| format!("Failed to create file symlink '{}' -> '{}'", dst.display(), target.display()))?;
+            std::os::windows::fs::symlink_file(&target, dst).with_context(|| {
+                format!(
+                    "Failed to create file symlink '{}' -> '{}'",
+                    dst.display(),
+                    target.display()
+                )
+            })?;
         }
     }
 
-    debug!("Copied symlink: {} -> {} (target: {})", src.display(), dst.display(), target.display());
+    debug!(
+        "Copied symlink: {} -> {} (target: {})",
+        src.display(),
+        dst.display(),
+        target.display()
+    );
     Ok(())
 }
 
@@ -550,9 +666,11 @@ fn preserve_metadata(src: &Path, dst: &Path) -> Result<()> {
         .with_context(|| format!("Failed to read metadata for '{}'", src.display()))?;
 
     // Preserve timestamps
-    let accessed = metadata.accessed()
+    let accessed = metadata
+        .accessed()
         .with_context(|| format!("Failed to get access time for '{}'", src.display()))?;
-    let modified = metadata.modified()
+    let modified = metadata
+        .modified()
         .with_context(|| format!("Failed to get modification time for '{}'", src.display()))?;
 
     // Set timestamps on destination
@@ -565,7 +683,7 @@ fn preserve_metadata(src: &Path, dst: &Path) -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
         let permissions = metadata.permissions();
         let mode = permissions.mode();
-        
+
         let dst_permissions = std::fs::Permissions::from_mode(mode);
         fs::set_permissions(dst, dst_permissions)
             .with_context(|| format!("Failed to set permissions for '{}'", dst.display()))?;
@@ -579,17 +697,19 @@ fn preserve_metadata(src: &Path, dst: &Path) -> Result<()> {
 fn set_file_times(path: &Path, accessed: SystemTime, modified: SystemTime) -> Result<()> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::MetadataExt;
-        use nix::libc::{utimensat, timespec, AT_FDCWD};
+        use nix::libc::{timespec, utimensat, AT_FDCWD};
         use std::ffi::CString;
+        use std::os::unix::fs::MetadataExt;
         use std::time::UNIX_EPOCH;
 
         let path_cstr = CString::new(path.as_os_str().to_string_lossy().as_ref())
             .map_err(|e| anyhow!("Invalid path for timestamp setting: {}", e))?;
 
-        let accessed_duration = accessed.duration_since(UNIX_EPOCH)
+        let accessed_duration = accessed
+            .duration_since(UNIX_EPOCH)
             .map_err(|e| anyhow!("Invalid access time: {}", e))?;
-        let modified_duration = modified.duration_since(UNIX_EPOCH)
+        let modified_duration = modified
+            .duration_since(UNIX_EPOCH)
             .map_err(|e| anyhow!("Invalid modification time: {}", e))?;
 
         let times = [
@@ -603,12 +723,13 @@ fn set_file_times(path: &Path, accessed: SystemTime, modified: SystemTime) -> Re
             },
         ];
 
-        let result = unsafe {
-            utimensat(AT_FDCWD, path_cstr.as_ptr(), times.as_ptr(), 0)
-        };
+        let result = unsafe { utimensat(AT_FDCWD, path_cstr.as_ptr(), times.as_ptr(), 0) };
 
         if result != 0 {
-            return Err(anyhow!("Failed to set file times: {}", std::io::Error::last_os_error()));
+            return Err(anyhow!(
+                "Failed to set file times: {}",
+                std::io::Error::last_os_error()
+            ));
         }
     }
 
@@ -617,17 +738,17 @@ fn set_file_times(path: &Path, accessed: SystemTime, modified: SystemTime) -> Re
         // Windows implementation using SetFileTime
         use std::fs::OpenOptions;
         use std::os::windows::io::AsRawHandle;
-        use windows_sys::Win32::{
-            Foundation::FILETIME,
-            Storage::FileSystem::SetFileTime,
-        };
         use std::time::UNIX_EPOCH;
+        use windows_sys::Win32::{Foundation::FILETIME, Storage::FileSystem::SetFileTime};
 
         fn to_filetime(t: SystemTime) -> FILETIME {
             let dur = t.duration_since(UNIX_EPOCH).unwrap_or_default();
             let mut intervals = dur.as_secs() * 10_000_000 + (dur.subsec_nanos() as u64) / 100;
             intervals += 11644473600u64 * 10_000_000; // Unix -> Windows epoch offset
-            FILETIME { dwLowDateTime: intervals as u32, dwHighDateTime: (intervals >> 32) as u32 }
+            FILETIME {
+                dwLowDateTime: intervals as u32,
+                dwHighDateTime: (intervals >> 32) as u32,
+            }
         }
 
         let at = to_filetime(accessed);
@@ -637,19 +758,31 @@ fn set_file_times(path: &Path, accessed: SystemTime, modified: SystemTime) -> Re
             // FILE_FLAG_BACKUP_SEMANTICS (0x02000000) is needed for directories; open without creation
             .custom_flags(0x02000000)
             .open(path)
-            .with_context(|| format!("Failed to open file for timestamp setting: {}", path.display()))?;
+            .with_context(|| {
+                format!(
+                    "Failed to open file for timestamp setting: {}",
+                    path.display()
+                )
+            })?;
         let handle = file.as_raw_handle();
         unsafe {
-            let _ = SetFileTime(handle as _, std::ptr::null(), &at as *const FILETIME, &mt as *const FILETIME);
+            let _ = SetFileTime(
+                handle as _,
+                std::ptr::null(),
+                &at as *const FILETIME,
+                &mt as *const FILETIME,
+            );
         }
     }
 
     Ok(())
-} 
-
+}
 
 /// Execute function for cp command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     // Fallback to blocking synchronous cp implementation
     use std::process::Command;
     let mut cmd = Command::new("cp");
@@ -672,27 +805,31 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
-    use std::io::Write;
     use std::fs::File;
+    use std::io::Write;
+    use tempfile::tempdir;
 
     // Helper to invoke cp_cli in both async (non super-min) and sync (super-min) modes
     #[cfg(not(feature = "super-min"))]
-    fn run(args: &[String]) -> Result<()> { futures::executor::block_on(cp_cli(args)) }
+    fn run(args: &[String]) -> Result<()> {
+        futures::executor::block_on(cp_cli(args))
+    }
     #[cfg(feature = "super-min")]
-    fn run(args: &[String]) -> Result<()> { cp_cli(args) }
+    fn run(args: &[String]) -> Result<()> {
+        cp_cli(args)
+    }
 
     #[tokio::test]
     async fn copy_single_file() {
         let dir = tempdir().unwrap();
         let src = dir.path().join("a.txt");
         let dst = dir.path().join("b.txt");
-        
+
         let mut f = File::create(&src).unwrap();
         writeln!(f, "hello world").unwrap();
-        
-    run(&[src.to_string_lossy().into(), dst.to_string_lossy().into()]).unwrap();
-        
+
+        run(&[src.to_string_lossy().into(), dst.to_string_lossy().into()]).unwrap();
+
         assert!(dst.exists());
         let content = fs::read_to_string(&dst).unwrap();
         assert_eq!(content, "hello world\n");
@@ -703,21 +840,26 @@ mod tests {
         let dir = tempdir().unwrap();
         let src = dir.path().join("source.txt");
         let dst = dir.path().join("dest.txt");
-        
+
         let mut f = File::create(&src).unwrap();
         writeln!(f, "test content").unwrap();
-        
+
         // Copy with preserve flag
-    run(&["-p".to_string(), src.to_string_lossy().into(), dst.to_string_lossy().into()]).unwrap();
-        
+        run(&[
+            "-p".to_string(),
+            src.to_string_lossy().into(),
+            dst.to_string_lossy().into(),
+        ])
+        .unwrap();
+
         assert!(dst.exists());
         let content = fs::read_to_string(&dst).unwrap();
         assert_eq!(content, "test content\n");
-        
+
         // Check that metadata is preserved (at least modification time should be similar)
         let src_meta = fs::metadata(&src).unwrap();
         let dst_meta = fs::metadata(&dst).unwrap();
-        
+
         // Allow for small differences in timestamps due to filesystem precision
         let src_modified = src_meta.modified().unwrap();
         let dst_modified = dst_meta.modified().unwrap();
@@ -726,7 +868,10 @@ mod tests {
         } else {
             dst_modified.duration_since(src_modified).unwrap()
         };
-        assert!(diff.as_secs() < 2, "Timestamps should be preserved within 2 seconds");
+        assert!(
+            diff.as_secs() < 2,
+            "Timestamps should be preserved within 2 seconds"
+        );
     }
 
     #[tokio::test]
@@ -734,30 +879,35 @@ mod tests {
         let dir = tempdir().unwrap();
         let src_dir = dir.path().join("source");
         let dst_dir = dir.path().join("destination");
-        
+
         // Create source directory structure
         fs::create_dir_all(&src_dir).unwrap();
         fs::create_dir_all(src_dir.join("subdir")).unwrap();
-        
+
         let mut f1 = File::create(src_dir.join("file1.txt")).unwrap();
         writeln!(f1, "content1").unwrap();
-        
+
         let mut f2 = File::create(src_dir.join("subdir").join("file2.txt")).unwrap();
         writeln!(f2, "content2").unwrap();
-        
+
         // Copy recursively
-    run(&["-r".to_string(), src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]).unwrap();
-        
+        run(&[
+            "-r".to_string(),
+            src_dir.to_string_lossy().into(),
+            dst_dir.to_string_lossy().into(),
+        ])
+        .unwrap();
+
         // Verify structure was copied
         assert!(dst_dir.exists());
         assert!(dst_dir.join("file1.txt").exists());
         assert!(dst_dir.join("subdir").exists());
         assert!(dst_dir.join("subdir").join("file2.txt").exists());
-        
+
         // Verify content
         let content1 = fs::read_to_string(dst_dir.join("file1.txt")).unwrap();
         assert_eq!(content1, "content1\n");
-        
+
         let content2 = fs::read_to_string(dst_dir.join("subdir").join("file2.txt")).unwrap();
         assert_eq!(content2, "content2\n");
     }
@@ -767,11 +917,14 @@ mod tests {
         let dir = tempdir().unwrap();
         let src_dir = dir.path().join("source");
         let dst_dir = dir.path().join("destination");
-        
+
         fs::create_dir_all(&src_dir).unwrap();
-        
+
         // Should fail without -r flag
-    let result = run(&[src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]);
+        let result = run(&[
+            src_dir.to_string_lossy().into(),
+            dst_dir.to_string_lossy().into(),
+        ]);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("-r not specified"));
     }
@@ -781,30 +934,31 @@ mod tests {
         let dir = tempdir().unwrap();
         let dst_dir = dir.path().join("destination");
         fs::create_dir_all(&dst_dir).unwrap();
-        
+
         let file1 = dir.path().join("file1.txt");
         let file2 = dir.path().join("file2.txt");
-        
+
         let mut f1 = File::create(&file1).unwrap();
         writeln!(f1, "content1").unwrap();
-        
+
         let mut f2 = File::create(&file2).unwrap();
         writeln!(f2, "content2").unwrap();
-        
+
         // Copy multiple files to directory
-    run(&[
+        run(&[
             file1.to_string_lossy().into(),
             file2.to_string_lossy().into(),
-            dst_dir.to_string_lossy().into()
-    ]).unwrap();
-        
+            dst_dir.to_string_lossy().into(),
+        ])
+        .unwrap();
+
         // Verify both files were copied
         assert!(dst_dir.join("file1.txt").exists());
         assert!(dst_dir.join("file2.txt").exists());
-        
+
         let content1 = fs::read_to_string(dst_dir.join("file1.txt")).unwrap();
         assert_eq!(content1, "content1\n");
-        
+
         let content2 = fs::read_to_string(dst_dir.join("file2.txt")).unwrap();
         assert_eq!(content2, "content2\n");
     }
@@ -814,10 +968,16 @@ mod tests {
         let dir = tempdir().unwrap();
         let nonexistent = dir.path().join("nonexistent.txt");
         let dst = dir.path().join("destination.txt");
-        
-    let result = run(&[nonexistent.to_string_lossy().into(), dst.to_string_lossy().into()]);
+
+        let result = run(&[
+            nonexistent.to_string_lossy().into(),
+            dst.to_string_lossy().into(),
+        ]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("No such file or directory"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No such file or directory"));
     }
 
     #[tokio::test]
@@ -825,14 +985,19 @@ mod tests {
         let dir = tempdir().unwrap();
         let src = dir.path().join("source.txt");
         let dst = dir.path().join("dest.txt");
-        
+
         let mut f = File::create(&src).unwrap();
         writeln!(f, "test").unwrap();
-        
+
         // This test mainly ensures the verbose flag is parsed correctly
         // In a real implementation, we'd capture log output to verify verbose messages
-    run(&["-v".to_string(), src.to_string_lossy().into(), dst.to_string_lossy().into()]).unwrap();
-        
+        run(&[
+            "-v".to_string(),
+            src.to_string_lossy().into(),
+            dst.to_string_lossy().into(),
+        ])
+        .unwrap();
+
         assert!(dst.exists());
     }
 
@@ -841,17 +1006,22 @@ mod tests {
         let dir = tempdir().unwrap();
         let src_dir = dir.path().join("source");
         let dst_dir = dir.path().join("destination");
-        
+
         fs::create_dir_all(&src_dir).unwrap();
         let mut f = File::create(src_dir.join("test.txt")).unwrap();
         writeln!(f, "test content").unwrap();
-        
+
         // Test combined flags -rpv
-    run(&["-rpv".to_string(), src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]).unwrap();
-        
+        run(&[
+            "-rpv".to_string(),
+            src_dir.to_string_lossy().into(),
+            dst_dir.to_string_lossy().into(),
+        ])
+        .unwrap();
+
         assert!(dst_dir.exists());
         assert!(dst_dir.join("test.txt").exists());
-        
+
         let content = fs::read_to_string(dst_dir.join("test.txt")).unwrap();
         assert_eq!(content, "test content\n");
     }
@@ -861,18 +1031,22 @@ mod tests {
         let dir = tempdir().unwrap();
         let src = dir.path().join("source.txt");
         let dst = dir.path().join("dest.txt");
-        
+
         let mut f = File::create(&src).unwrap();
         writeln!(f, "test").unwrap();
-        
-    let result = run(&["-x".to_string(), src.to_string_lossy().into(), dst.to_string_lossy().into()]);
+
+        let result = run(&[
+            "-x".to_string(),
+            src.to_string_lossy().into(),
+            dst.to_string_lossy().into(),
+        ]);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("invalid option"));
     }
 
     #[tokio::test]
     async fn missing_operands_fails() {
-    let result = run(&[]);
+        let result = run(&[]);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("missing operands"));
     }
@@ -883,10 +1057,13 @@ mod tests {
         let src = dir.path().join("source.txt");
         let mut f = File::create(&src).unwrap();
         writeln!(f, "test").unwrap();
-        
-    let result = run(&[src.to_string_lossy().into()]);
+
+        let result = run(&[src.to_string_lossy().into()]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("missing destination"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing destination"));
     }
 
     #[cfg(unix)]
@@ -896,23 +1073,28 @@ mod tests {
         let target = dir.path().join("target.txt");
         let link = dir.path().join("link.txt");
         let dst_dir = dir.path().join("destination");
-        
+
         // Create target file and symlink
         let mut f = File::create(&target).unwrap();
         writeln!(f, "target content").unwrap();
-        
+
         std::os::unix::fs::symlink(&target, &link).unwrap();
         fs::create_dir_all(&dst_dir).unwrap();
-        
+
         // Copy directory containing symlink
         let src_dir = dir.path().join("source");
         fs::create_dir_all(&src_dir).unwrap();
-        
+
         let link_in_src = src_dir.join("link.txt");
         std::os::unix::fs::symlink(&target, &link_in_src).unwrap();
-        
-    run(&["-r".to_string(), src_dir.to_string_lossy().into(), dst_dir.to_string_lossy().into()]).unwrap();
-        
+
+        run(&[
+            "-r".to_string(),
+            src_dir.to_string_lossy().into(),
+            dst_dir.to_string_lossy().into(),
+        ])
+        .unwrap();
+
         let copied_link = dst_dir.join("source").join("link.txt");
         assert!(copied_link.exists());
         assert!(copied_link.is_symlink());

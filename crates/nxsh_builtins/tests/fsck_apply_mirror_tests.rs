@@ -12,7 +12,10 @@ use std::io::{Read, Seek, SeekFrom, Write};
 #[cfg(unix)]
 fn compute_fat_hashes(image_path: &str) -> (String, String) {
     use sha2::{Digest, Sha256};
-    let mut f = std::fs::OpenOptions::new().read(true).open(image_path).unwrap();
+    let mut f = std::fs::OpenOptions::new()
+        .read(true)
+        .open(image_path)
+        .unwrap();
     let mut bpb = [0u8; 512];
     f.read_exact(&mut bpb).unwrap();
     let bps = u16::from_le_bytes([bpb[11], bpb[12]]) as u64;
@@ -33,7 +36,9 @@ fn compute_fat_hashes(image_path: &str) -> (String, String) {
         while remaining > 0 {
             let to_read = std::cmp::min(remaining, buf.len() as u64) as usize;
             let n = f.read(&mut buf[..to_read]).unwrap();
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
             hasher.update(&buf[..n]);
             remaining -= n as u64;
         }
@@ -61,13 +66,20 @@ async fn fsck_apply_sync_fat_mirrors_commits_on_shadow() {
     }
 
     // Format as FAT32
-    mkfs_cli(&vec!["-t".into(), "fat32".into(), img_path.to_string_lossy().to_string()])
-        
-        .expect("mkfs should succeed");
+    mkfs_cli(&vec![
+        "-t".into(),
+        "fat32".into(),
+        img_path.to_string_lossy().to_string(),
+    ])
+    .expect("mkfs should succeed");
 
     // Corrupt the second FAT mirror to ensure mismatch
     {
-        let mut f = std::fs::OpenOptions::new().read(true).write(true).open(&img_path).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&img_path)
+            .unwrap();
         let mut bpb = [0u8; 512];
         f.read_exact(&mut bpb).unwrap();
         let bps = u16::from_le_bytes([bpb[11], bpb[12]]) as u64;
@@ -112,7 +124,6 @@ async fn fsck_apply_sync_fat_mirrors_commits_on_shadow() {
         img_path.to_string_lossy().to_string(),
         "--commit".into(),
     ])
-    
     .expect("apply-journal --commit should succeed");
 
     // After commit, FAT0 and FAT1 hashes should match
@@ -124,8 +135,10 @@ async fn fsck_apply_sync_fat_mirrors_commits_on_shadow() {
 #[tokio::test]
 async fn fsck_apply_commit_not_supported_on_non_unix() {
     // On non-Unix platforms, commit is not supported and should error
-    let res =     fsck_cli(&["apply-journal".into(), "dummy.json".into(), "--commit".into()]);
+    let res = fsck_cli(&[
+        "apply-journal".into(),
+        "dummy.json".into(),
+        "--commit".into(),
+    ]);
     assert!(res.is_err());
 }
-
-

@@ -1,21 +1,21 @@
-pub mod logging;
+pub mod crash_diagnosis;
 #[cfg(feature = "i18n")]
 pub mod i18n; // full implementation
 #[cfg(not(feature = "i18n"))]
 pub mod i18n; // stub (same file exports stub when feature off)
+pub mod locale_format;
+pub mod logging;
 #[cfg(feature = "async-runtime")]
 pub mod metrics;
 #[cfg(not(feature = "async-runtime"))]
 pub mod metrics; // stub when async runtime disabled
-pub mod crash_diagnosis; 
+pub mod process_utils;
+pub mod resource_monitor;
+pub mod sed_utils;
 #[cfg(feature = "async-runtime")]
-pub mod update_system; 
+pub mod update_system;
 #[cfg(not(feature = "async-runtime"))]
 pub mod update_system; // stub
-pub mod sed_utils;
-pub mod process_utils; 
-pub mod resource_monitor;
-pub mod locale_format;
 
 use std::collections::HashMap;
 use std::env;
@@ -30,37 +30,37 @@ pub type BuiltinResult<T> = Result<T, BuiltinError>;
 pub enum BuiltinError {
     #[error("Unknown command: {0}")]
     UnknownCommand(String),
-    
+
     #[error("Invalid argument: {0}")]
     InvalidArgument(String),
-    
+
     #[error("Missing required argument: {0}")]
     MissingArgument(String),
-    
+
     #[error("Permission denied: {0}")]
     PermissionDenied(String),
-    
+
     #[error("File not found: {0}")]
     FileNotFound(String),
-    
+
     #[error("Directory not found: {0}")]
     DirectoryNotFound(String),
-    
+
     #[error("I/O error: {0}")]
     IoError(#[from] io::Error),
-    
+
     #[error("Environment error: {0}")]
     EnvironmentError(String),
-    
+
     #[error("Command failed with exit code: {0}")]
     CommandFailed(i32),
-    
+
     #[error("Internal error: {0}")]
     Internal(String),
-    
+
     #[error("Not implemented: {0}")]
     NotImplemented(String),
-    
+
     #[error("Other error: {0}")]
     Other(String),
 }
@@ -82,19 +82,19 @@ impl From<&str> for BuiltinError {
 pub struct BuiltinContext {
     /// Current working directory
     pub current_dir: PathBuf,
-    
+
     /// Environment variables
     pub environment: HashMap<String, String>,
-    
+
     /// Whether to use colored output
     pub use_colors: bool,
-    
+
     /// Whether to show verbose output
     pub verbose: bool,
-    
+
     /// Whether to show debug information
     pub debug: bool,
-    
+
     /// Shell options
     pub shell_options: HashMap<String, bool>,
 }
@@ -117,22 +117,22 @@ impl BuiltinContext {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     /// Get an environment variable
     pub fn get_env(&self, key: &str) -> Option<&String> {
         self.environment.get(key)
     }
-    
+
     /// Set an environment variable
     pub fn set_env(&mut self, key: String, value: String) {
         self.environment.insert(key, value);
     }
-    
+
     /// Get a shell option
     pub fn get_option(&self, key: &str) -> bool {
         self.shell_options.get(key).copied().unwrap_or(false)
     }
-    
+
     /// Set a shell option
     pub fn set_option(&mut self, key: String, value: bool) {
         self.shell_options.insert(key, value);
@@ -217,7 +217,7 @@ impl TableFormatter {
 
     pub fn create_table(&self, headers: &[String], rows: &[Vec<String>]) -> String {
         let mut output = String::new();
-        
+
         // Print headers
         for (i, header) in headers.iter().enumerate() {
             if i > 0 {
@@ -226,7 +226,7 @@ impl TableFormatter {
             output.push_str(&format!("{header:<12}"));
         }
         output.push('\n');
-        
+
         // Print separator
         for (i, _) in headers.iter().enumerate() {
             if i > 0 {
@@ -235,7 +235,7 @@ impl TableFormatter {
             output.push_str(&"-".repeat(12));
         }
         output.push('\n');
-        
+
         // Print rows
         for row in rows {
             for (i, cell) in row.iter().enumerate() {
@@ -246,7 +246,7 @@ impl TableFormatter {
             }
             output.push('\n');
         }
-        
+
         output
     }
 
@@ -256,15 +256,15 @@ impl TableFormatter {
         {
             use std::os::unix::fs::PermissionsExt;
             let mode = permissions.mode();
-            let user = if mode & 0o400 != 0 { "r" } else { "-" }.to_string() +
-                      if mode & 0o200 != 0 { "w" } else { "-" } +
-                      if mode & 0o100 != 0 { "x" } else { "-" };
-            let group = if mode & 0o040 != 0 { "r" } else { "-" }.to_string() +
-                       if mode & 0o020 != 0 { "w" } else { "-" } +
-                       if mode & 0o010 != 0 { "x" } else { "-" };
-            let other = if mode & 0o004 != 0 { "r" } else { "-" }.to_string() +
-                       if mode & 0o002 != 0 { "w" } else { "-" } +
-                       if mode & 0o001 != 0 { "x" } else { "-" };
+            let user = if mode & 0o400 != 0 { "r" } else { "-" }.to_string()
+                + if mode & 0o200 != 0 { "w" } else { "-" }
+                + if mode & 0o100 != 0 { "x" } else { "-" };
+            let group = if mode & 0o040 != 0 { "r" } else { "-" }.to_string()
+                + if mode & 0o020 != 0 { "w" } else { "-" }
+                + if mode & 0o010 != 0 { "x" } else { "-" };
+            let other = if mode & 0o004 != 0 { "r" } else { "-" }.to_string()
+                + if mode & 0o002 != 0 { "w" } else { "-" }
+                + if mode & 0o001 != 0 { "x" } else { "-" };
             format!("{}{}{}", user, group, other)
         }
         #[cfg(windows)]
@@ -315,10 +315,10 @@ impl TableFormatter {
         if data.is_empty() {
             return String::new();
         }
-        
+
         let headers = &data[0];
         let rows = &data[1..];
-        
+
         self.create_table(headers, rows)
     }
 
@@ -327,12 +327,12 @@ impl TableFormatter {
         const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
         let mut size_f = size as f64;
         let mut unit_index = 0;
-        
+
         while size_f >= 1024.0 && unit_index < UNITS.len() - 1 {
             size_f /= 1024.0;
             unit_index += 1;
         }
-        
+
         if unit_index == 0 {
             format!("{} {}", size, UNITS[unit_index])
         } else {

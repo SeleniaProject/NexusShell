@@ -11,7 +11,10 @@ use std::io::{Read, Seek, SeekFrom, Write};
 
 #[cfg(unix)]
 fn read_fat_entry_generic(image_path: &str, cl: u32, entry_bytes: u8) -> u32 {
-    let mut f = std::fs::OpenOptions::new().read(true).open(image_path).unwrap();
+    let mut f = std::fs::OpenOptions::new()
+        .read(true)
+        .open(image_path)
+        .unwrap();
     let mut bpb = [0u8; 512];
     f.read_exact(&mut bpb).unwrap();
     let bps = u16::from_le_bytes([bpb[11], bpb[12]]) as u64;
@@ -30,7 +33,11 @@ fn read_fat_entry_generic(image_path: &str, cl: u32, entry_bytes: u8) -> u32 {
 
 #[cfg(unix)]
 fn allocate_one_cluster_by_hand(image_path: &str, entry_bytes: u8) -> u32 {
-    let mut f = std::fs::OpenOptions::new().read(true).write(true).open(image_path).unwrap();
+    let mut f = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(image_path)
+        .unwrap();
     let mut bpb = [0u8; 512];
     f.read_exact(&mut bpb).unwrap();
     let bps = u16::from_le_bytes([bpb[11], bpb[12]]) as u64;
@@ -47,9 +54,16 @@ fn allocate_one_cluster_by_hand(image_path: &str, entry_bytes: u8) -> u32 {
         let dst_off = base0 + fat_idx * fat_bytes + (cl as u64) * (entry_bytes as u64);
         f.seek(SeekFrom::Start(dst_off)).unwrap();
         match entry_bytes {
-            2 => { f.write_all(&[0xFF, 0xFF]).unwrap(); }
-            4 => { f.write_all(&[0xFF, 0xFF, 0x0F, 0x00]).unwrap(); }
-            _ => { /* 12-bit handled via fsck later; we just set both bytes to non-zero */ f.write_all(&[0xFF, 0x0F]).unwrap(); }
+            2 => {
+                f.write_all(&[0xFF, 0xFF]).unwrap();
+            }
+            4 => {
+                f.write_all(&[0xFF, 0xFF, 0x0F, 0x00]).unwrap();
+            }
+            _ => {
+                /* 12-bit handled via fsck later; we just set both bytes to non-zero */
+                f.write_all(&[0xFF, 0x0F]).unwrap();
+            }
         }
     }
     cl
@@ -60,10 +74,21 @@ async fn run_free_cluster_case(ftype: &str, entry_bytes: u8) {
     let dir = tempfile::tempdir().unwrap();
     let img_path = dir.path().join(format!("fsck_free_{}.img", ftype));
     {
-        let file = std::fs::OpenOptions::new().create(true).read(true).write(true).truncate(true).open(&img_path).unwrap();
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(true)
+            .open(&img_path)
+            .unwrap();
         file.set_len(2 * 1024 * 1024).unwrap();
     }
-    mkfs_cli(&vec!["-t".into(), ftype.into(), img_path.to_string_lossy().to_string()]).expect("mkfs should succeed");
+    mkfs_cli(&vec![
+        "-t".into(),
+        ftype.into(),
+        img_path.to_string_lossy().to_string(),
+    ])
+    .expect("mkfs should succeed");
 
     let cl = allocate_one_cluster_by_hand(&img_path.to_string_lossy(), entry_bytes);
     let before = read_fat_entry_generic(&img_path.to_string_lossy(), cl, entry_bytes);
@@ -86,7 +111,14 @@ async fn run_free_cluster_case(ftype: &str, entry_bytes: u8) {
     let journal_path = dir.path().join("report_free.json");
     std::fs::write(&journal_path, serde_json::to_vec_pretty(&journal).unwrap()).unwrap();
 
-    fsck_cli(&vec!["apply-journal".into(), journal_path.to_string_lossy().to_string(), "--shadow".into(), img_path.to_string_lossy().to_string(), "--commit".into()]).expect("apply commit");
+    fsck_cli(&vec![
+        "apply-journal".into(),
+        journal_path.to_string_lossy().to_string(),
+        "--shadow".into(),
+        img_path.to_string_lossy().to_string(),
+        "--commit".into(),
+    ])
+    .expect("apply commit");
 
     let after = read_fat_entry_generic(&img_path.to_string_lossy(), cl, entry_bytes);
     assert_eq!(after & 0xFFFF, 0);
@@ -94,17 +126,23 @@ async fn run_free_cluster_case(ftype: &str, entry_bytes: u8) {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn fsck_free_cluster_fat16() { run_free_cluster_case("fat16", 2); }
+async fn fsck_free_cluster_fat16() {
+    run_free_cluster_case("fat16", 2);
+}
 
 #[cfg(unix)]
 #[tokio::test]
-async fn fsck_free_cluster_fat12() { run_free_cluster_case("fat12", 2); }
+async fn fsck_free_cluster_fat12() {
+    run_free_cluster_case("fat12", 2);
+}
 
 #[cfg(not(unix))]
 #[tokio::test]
 async fn fsck_free_clusters_commit_not_supported_on_non_unix_fat12_16() {
-    let res = fsck_cli(&["apply-journal".into(), "dummy.json".into(), "--commit".into()]);
+    let res = fsck_cli(&[
+        "apply-journal".into(),
+        "dummy.json".into(),
+        "--commit".into(),
+    ]);
     assert!(res.is_err());
 }
-
-

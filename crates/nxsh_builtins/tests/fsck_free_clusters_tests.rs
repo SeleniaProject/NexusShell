@@ -11,7 +11,10 @@ use std::io::{Read, Seek, SeekFrom, Write};
 
 #[cfg(unix)]
 fn read_fat32_entry(image_path: &str, cluster: u32) -> u32 {
-    let mut f = std::fs::OpenOptions::new().read(true).open(image_path).unwrap();
+    let mut f = std::fs::OpenOptions::new()
+        .read(true)
+        .open(image_path)
+        .unwrap();
     let mut bpb = [0u8; 512];
     f.read_exact(&mut bpb).unwrap();
     let bps = u16::from_le_bytes([bpb[11], bpb[12]]) as u64;
@@ -30,10 +33,13 @@ fn read_fat32_entry(image_path: &str, cluster: u32) -> u32 {
 
 #[cfg(unix)]
 fn find_allocated_cluster(image_path: &str) -> Option<u32> {
-    let mut f = std::fs::OpenOptions::new().read(true).open(image_path).unwrap();
+    let mut f = std::fs::OpenOptions::new()
+        .read(true)
+        .open(image_path)
+        .unwrap();
     let mut bpb = [0u8; 512];
-    use std::cmp::min;
     use sha2::{Digest, Sha256};
+    use std::cmp::min;
     f.read_exact(&mut bpb).unwrap();
     let bps = u16::from_le_bytes([bpb[11], bpb[12]]) as u64;
     let rsvd = u16::from_le_bytes([bpb[14], bpb[15]]) as u64;
@@ -48,13 +54,18 @@ fn find_allocated_cluster(image_path: &str) -> Option<u32> {
         use std::io::Seek;
         f.seek(SeekFrom::Start(base0 + offset)).unwrap();
         let n = f.read(&mut buf[..to_read]).unwrap();
-        if n == 0 { break; }
+        if n == 0 {
+            break;
+        }
         for i in (0..n).step_by(4) {
             if i + 4 <= n {
-                let val = u32::from_le_bytes([buf[i], buf[i+1], buf[i+2], buf[i+3]]);
-                if val != 0 { // allocated or EOC
+                let val = u32::from_le_bytes([buf[i], buf[i + 1], buf[i + 2], buf[i + 3]]);
+                if val != 0 {
+                    // allocated or EOC
                     let cl = (offset / 4) as u32 + (i as u32 / 4);
-                    if cl >= 2 { return Some(cl); }
+                    if cl >= 2 {
+                        return Some(cl);
+                    }
                 }
             }
         }
@@ -81,15 +92,23 @@ async fn fsck_apply_free_clusters_commits_on_shadow() {
     }
 
     // Format FAT32
-    mkfs_cli(&vec!["-t".into(), "fat32".into(), img_path.to_string_lossy().to_string()])
-        .await
-        .expect("mkfs should succeed");
+    mkfs_cli(&vec![
+        "-t".into(),
+        "fat32".into(),
+        img_path.to_string_lossy().to_string(),
+    ])
+    .await
+    .expect("mkfs should succeed");
 
     // Allocate clusters by writing a file using fatfs
     {
-        use fscommon::BufStream;
         use fatfs::{FileSystem, FsOptions};
-        let f = std::fs::OpenOptions::new().read(true).write(true).open(&img_path).unwrap();
+        use fscommon::BufStream;
+        let f = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&img_path)
+            .unwrap();
         let buf = BufStream::new(f);
         let fs = FileSystem::new(buf, FsOptions::new()).unwrap();
         let root = fs.root_dir();
@@ -100,7 +119,8 @@ async fn fsck_apply_free_clusters_commits_on_shadow() {
     }
 
     // Find an allocated cluster
-    let cl = find_allocated_cluster(&img_path.to_string_lossy()).expect("allocated cluster not found");
+    let cl =
+        find_allocated_cluster(&img_path.to_string_lossy()).expect("allocated cluster not found");
     assert!(cl >= 2);
     let before = read_fat32_entry(&img_path.to_string_lossy(), cl);
     assert_ne!(before, 0);
@@ -142,8 +162,10 @@ async fn fsck_apply_free_clusters_commits_on_shadow() {
 #[cfg(not(unix))]
 #[tokio::test]
 async fn fsck_free_clusters_commit_not_supported_on_non_unix() {
-    let res =     fsck_cli(&["apply-journal".into(), "dummy.json".into(), "--commit".into()]);
+    let res = fsck_cli(&[
+        "apply-journal".into(),
+        "dummy.json".into(),
+        "--commit".into(),
+    ]);
     assert!(res.is_err());
 }
-
-

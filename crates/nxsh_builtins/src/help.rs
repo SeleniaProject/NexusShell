@@ -9,7 +9,10 @@ impl fmt::Display for HelpCommand {
 }
 
 // Note: use the common types defined in crate::common
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> Result<i32, crate::common::BuiltinError> {
+pub fn execute(
+    args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> Result<i32, crate::common::BuiltinError> {
     if args.is_empty() {
         show_stylish_general_help();
     } else {
@@ -20,18 +23,18 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> Res
 
 fn show_stylish_general_help() {
     // Beautiful color scheme
-    let cyan = "\x1b[38;2;0;245;255m";     // #00f5ff - Bright cyan
-    let purple = "\x1b[38;2;153;69;255m";  // #9945ff - Electric purple  
-    let coral = "\x1b[38;2;255;71;87m";    // #ff4757 - Coral red
-    let green = "\x1b[38;2;46;213;115m";   // #2ed573 - Mint green
-    let yellow = "\x1b[38;2;255;190;11m";  // #ffbe0b - Golden yellow
-    let blue = "\x1b[38;2;116;185;255m";   // #74b9ff - Sky blue
-    let orange = "\x1b[38;2;255;159;67m";  // #ff9f43 - Orange
-    let pink = "\x1b[38;2;255;107;129m";   // #ff6b81 - Pink
-    let lime = "\x1b[38;2;129;236;236m";   // #81ecec - Lime
+    let cyan = "\x1b[38;2;0;245;255m"; // #00f5ff - Bright cyan
+    let purple = "\x1b[38;2;153;69;255m"; // #9945ff - Electric purple
+    let coral = "\x1b[38;2;255;71;87m"; // #ff4757 - Coral red
+    let green = "\x1b[38;2;46;213;115m"; // #2ed573 - Mint green
+    let yellow = "\x1b[38;2;255;190;11m"; // #ffbe0b - Golden yellow
+    let blue = "\x1b[38;2;116;185;255m"; // #74b9ff - Sky blue
+    let orange = "\x1b[38;2;255;159;67m"; // #ff9f43 - Orange
+    let pink = "\x1b[38;2;255;107;129m"; // #ff6b81 - Pink
+    let lime = "\x1b[38;2;129;236;236m"; // #81ecec - Lime
     let lavender = "\x1b[38;2;116;125;140m"; // #747d8c - Lavender
     let reset = "\x1b[0m";
-    
+
     println!();
     println!("{cyan}╔══════════════════════════════════════════════════════════════════════════════╗{reset}");
     println!("{cyan}║{purple}                    🚀 NEXUSSHELL COMPLETE COMMAND SUITE 🚀                   {cyan}║{reset}");
@@ -176,11 +179,11 @@ fn show_stylish_general_help() {
 
     println!("{lavender}💡 TIPS:{reset}");
     println!("  • Type {yellow}help <command>{reset} for detailed information");
-    println!("  • Use {yellow}Tab{reset} for command completion"); 
+    println!("  • Use {yellow}Tab{reset} for command completion");
     println!("  • Press {yellow}Ctrl+C{reset} to interrupt commands");
     println!("  • Use {yellow}man <command>{reset} for full manual pages");
     println!();
-    
+
     println!("{cyan}🎨 UI Features:{reset}");
     println!("  • {green}Syntax highlighting{reset} for commands");
     println!("  • {blue}Smart completion{reset} with context");
@@ -215,7 +218,7 @@ fn show_stylish_command_help(command: &str) {
             println!("  {blue}--color{reset}        Colorize output");
             println!("  {blue}--icons{reset}        Show file type icons");
         }
-        
+
         "cat" => {
             println!("{cyan}📖 cat - Display File Contents{reset}");
             println!("{yellow}Usage:{reset} cat [OPTIONS] [FILE...]{reset}");
@@ -426,9 +429,11 @@ fn show_stylish_command_help(command: &str) {
         _ => {
             // Attempt to delegate to builtin's own --help if available
             let known_simple = [
-                "ls","cp","mv","rm","mkdir","rmdir","touch","grep","find","head","tail","wc","cut","tr","uniq",
-                "ps","kill","free","uptime","uname","ping","wget","curl","zip","unzip","xz","bzip2","zstd","unzstd",
-                "alias","unalias","export","unset","history","which","date","cal","echo","cat","stat","du","df"
+                "ls", "cp", "mv", "rm", "mkdir", "rmdir", "touch", "grep", "find", "head", "tail",
+                "wc", "cut", "tr", "uniq", "ps", "kill", "free", "uptime", "uname", "ping", "wget",
+                "curl", "zip", "unzip", "xz", "bzip2", "zstd", "unzstd", "alias", "unalias",
+                "export", "unset", "history", "which", "date", "cal", "echo", "cat", "stat", "du",
+                "df",
             ];
             if known_simple.contains(&command) {
                 // Reuse central dispatcher so behavior matches actual command
@@ -440,7 +445,9 @@ fn show_stylish_command_help(command: &str) {
             }
 
             // Generic fallback list
-            println!("{coral}❓ Command '{yellow}{command}{coral}' - No detailed help available{reset}");
+            println!(
+                "{coral}❓ Command '{yellow}{command}{coral}' - No detailed help available{reset}"
+            );
             println!();
             println!("{green}📚 Available commands with detailed help:{reset}");
             println!();

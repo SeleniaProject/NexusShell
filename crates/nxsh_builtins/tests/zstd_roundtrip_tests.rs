@@ -14,9 +14,12 @@ fn zstd_roundtrip_external_when_available() {
     assert!(zst_path.exists());
 
     // Decompress back to roundtrip.txt, forcing overwrite if necessary
-    assert!(zstd_cli(&["-d".into(), "-f".into(), zst_path.to_string_lossy().to_string()]).is_ok());
+    assert!(zstd_cli(&[
+        "-d".into(),
+        "-f".into(),
+        zst_path.to_string_lossy().to_string()
+    ])
+    .is_ok());
     let round = std::fs::read_to_string(&input_path).unwrap();
     assert_eq!(round, original);
 }
-
-

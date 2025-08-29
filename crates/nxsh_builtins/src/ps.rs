@@ -1,4 +1,4 @@
-use crate::common::{BuiltinResult, BuiltinContext};
+use crate::common::{BuiltinContext, BuiltinResult};
 
 /// Display information about running processes
 pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
@@ -50,7 +50,13 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
         i += 1;
     }
 
-    match get_process_info(show_all, show_full, show_threads, show_user_format, pid_filter) {
+    match get_process_info(
+        show_all,
+        show_full,
+        show_threads,
+        show_user_format,
+        pid_filter,
+    ) {
         Ok(processes) => {
             display_processes(&processes, show_full, show_user_format);
             Ok(0)
@@ -79,7 +85,13 @@ struct ProcessInfo {
     nice: i32,
 }
 
-fn get_process_info(show_all: bool, _show_full: bool, _show_threads: bool, _show_user_format: bool, pid_filter: Option<u32>) -> Result<Vec<ProcessInfo>, Box<dyn std::error::Error>> {
+fn get_process_info(
+    show_all: bool,
+    _show_full: bool,
+    _show_threads: bool,
+    _show_user_format: bool,
+    pid_filter: Option<u32>,
+) -> Result<Vec<ProcessInfo>, Box<dyn std::error::Error>> {
     let processes;
 
     #[cfg(target_os = "linux")]
@@ -107,7 +119,10 @@ fn get_process_info(show_all: bool, _show_full: bool, _show_threads: bool, _show
 }
 
 #[cfg(target_os = "linux")]
-fn get_linux_processes(show_all: bool, pid_filter: Option<u32>) -> Result<Vec<ProcessInfo>, Box<dyn std::error::Error>> {
+fn get_linux_processes(
+    show_all: bool,
+    pid_filter: Option<u32>,
+) -> Result<Vec<ProcessInfo>, Box<dyn std::error::Error>> {
     let mut processes = Vec::new();
     let proc_dir = Path::new("/proc");
 
@@ -165,7 +180,13 @@ fn parse_linux_process(pid: u32) -> Result<ProcessInfo, Box<dyn std::error::Erro
         .to_string();
 
     let command = if cmdline.is_empty() {
-        format!("[{}]", stat_fields.get(1).unwrap_or(&"unknown").trim_matches(['(', ')']))
+        format!(
+            "[{}]",
+            stat_fields
+                .get(1)
+                .unwrap_or(&"unknown")
+                .trim_matches(['(', ')'])
+        )
     } else {
         cmdline
     };
@@ -188,7 +209,7 @@ fn parse_linux_process(pid: u32) -> Result<ProcessInfo, Box<dyn std::error::Erro
         resident_size,
         state,
         start_time: "?".to_string(), // Would need boot time calculation
-        tty: "?".to_string(), // Would need tty parsing
+        tty: "?".to_string(),        // Would need tty parsing
         priority,
         nice,
     })
@@ -210,13 +231,16 @@ fn parse_user_from_status(content: &str) -> Option<String> {
 }
 
 #[cfg(target_os = "windows")]
-fn get_windows_processes(_show_all: bool, pid_filter: Option<u32>) -> Result<Vec<ProcessInfo>, Box<dyn std::error::Error>> {
+fn get_windows_processes(
+    _show_all: bool,
+    pid_filter: Option<u32>,
+) -> Result<Vec<ProcessInfo>, Box<dyn std::error::Error>> {
     let mut processes = Vec::new();
-    
+
     // Simplified Windows implementation
     // In a real implementation, would use Windows APIs like EnumProcesses
     let current_pid = std::process::id();
-    
+
     if let Some(filter_pid) = pid_filter {
         if filter_pid == current_pid {
             processes.push(create_current_process_info());
@@ -224,19 +248,28 @@ fn get_windows_processes(_show_all: bool, pid_filter: Option<u32>) -> Result<Vec
     } else {
         processes.push(create_current_process_info());
     }
-    
+
     Ok(processes)
 }
 
-#[cfg(any(target_os = "macos", not(any(target_os = "linux", target_os = "windows"))))]
-fn get_macos_processes(_show_all: bool, pid_filter: Option<u32>) -> Result<Vec<ProcessInfo>, Box<dyn std::error::Error>> {
+#[cfg(any(
+    target_os = "macos",
+    not(any(target_os = "linux", target_os = "windows"))
+))]
+fn get_macos_processes(
+    _show_all: bool,
+    pid_filter: Option<u32>,
+) -> Result<Vec<ProcessInfo>, Box<dyn std::error::Error>> {
     get_fallback_processes(_show_all, pid_filter)
 }
 
-fn get_fallback_processes(_show_all: bool, pid_filter: Option<u32>) -> Result<Vec<ProcessInfo>, Box<dyn std::error::Error>> {
+fn get_fallback_processes(
+    _show_all: bool,
+    pid_filter: Option<u32>,
+) -> Result<Vec<ProcessInfo>, Box<dyn std::error::Error>> {
     let mut processes = Vec::new();
     let current_pid = std::process::id();
-    
+
     if let Some(filter_pid) = pid_filter {
         if filter_pid == current_pid {
             processes.push(create_current_process_info());
@@ -244,7 +277,7 @@ fn get_fallback_processes(_show_all: bool, pid_filter: Option<u32>) -> Result<Ve
     } else {
         processes.push(create_current_process_info());
     }
-    
+
     Ok(processes)
 }
 
@@ -270,8 +303,10 @@ fn create_current_process_info() -> ProcessInfo {
 
 fn display_processes(processes: &[ProcessInfo], show_full: bool, show_user_format: bool) {
     if show_user_format {
-        println!("{:<8} {:>5} {:>4} {:>4} {:>6} {:>6} {:<8} {:<1} {:>8} {:>8} COMMAND", 
-                 "USER", "PID", "%CPU", "%MEM", "VSZ", "RSS", "TTY", "STAT", "START", "TIME");
+        println!(
+            "{:<8} {:>5} {:>4} {:>4} {:>6} {:>6} {:<8} {:<1} {:>8} {:>8} COMMAND",
+            "USER", "PID", "%CPU", "%MEM", "VSZ", "RSS", "TTY", "STAT", "START", "TIME"
+        );
     } else {
         println!("{:>5} {:<8} {:>8} CMD", "PID", "TTY", "TIME");
     }
@@ -282,35 +317,46 @@ fn display_processes(processes: &[ProcessInfo], show_full: bool, show_user_forma
                 &process.command
             } else {
                 // Show just the command name
-                process.command.split_whitespace().next().unwrap_or(&process.command)
+                process
+                    .command
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or(&process.command)
             };
 
-            println!("{:<8} {:>5} {:>4.1} {:>4.1} {:>6} {:>6} {:<8} {:<1} {:>8} {:>8} {}", 
-                     truncate_string(&process.user, 8),
-                     process.pid,
-                     process.cpu_percent,
-                     process.mem_percent,
-                     format_size(process.virtual_size),
-                     format_size(process.resident_size),
-                     truncate_string(&process.tty, 8),
-                     process.state,
-                     process.start_time,
-                     "00:00:00", // Time would need calculation
-                     command);
+            println!(
+                "{:<8} {:>5} {:>4.1} {:>4.1} {:>6} {:>6} {:<8} {:<1} {:>8} {:>8} {}",
+                truncate_string(&process.user, 8),
+                process.pid,
+                process.cpu_percent,
+                process.mem_percent,
+                format_size(process.virtual_size),
+                format_size(process.resident_size),
+                truncate_string(&process.tty, 8),
+                process.state,
+                process.start_time,
+                "00:00:00", // Time would need calculation
+                command
+            );
         } else {
             let command = if show_full {
                 &process.command
             } else {
-                process.command.split('/').next_back()
+                process
+                    .command
+                    .split('/')
+                    .next_back()
                     .or_else(|| process.command.split('\\').next_back())
                     .unwrap_or(&process.command)
             };
 
-            println!("{:>5} {:<8} {:>8} {}", 
-                     process.pid,
-                     truncate_string(&process.tty, 8),
-                     "00:00:00",
-                     command);
+            println!(
+                "{:>5} {:<8} {:>8} {}",
+                process.pid,
+                truncate_string(&process.tty, 8),
+                "00:00:00",
+                command
+            );
         }
     }
 }
@@ -319,7 +365,7 @@ fn truncate_string(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.to_string()
     } else {
-        format!("{}+", &s[..max_len-1])
+        format!("{}+", &s[..max_len - 1])
     }
 }
 

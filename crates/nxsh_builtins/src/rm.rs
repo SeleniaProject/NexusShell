@@ -2,14 +2,12 @@
 
 use anyhow::{anyhow, Result};
 use std::fs;
-use std::path::Path;
 use std::io::{self, Write};
+use std::path::Path;
 
 // Beautiful CUI design
-use crate::ui_design::{
-    ColorPalette, Icons, Colorize
-};
-use crate::common::{BuiltinResult, BuiltinContext};
+use crate::common::{BuiltinContext, BuiltinResult};
+use crate::ui_design::{ColorPalette, Colorize, Icons};
 
 /// Options for rm command
 #[derive(Debug, Clone)]
@@ -48,7 +46,10 @@ impl Default for RmOptions {
 fn remove_file(path: &Path, options: &RmOptions) -> Result<()> {
     if !path.exists() {
         if !options.force {
-            return Err(anyhow!("cannot remove '{}': No such file or directory", path.display()));
+            return Err(anyhow!(
+                "cannot remove '{}': No such file or directory",
+                path.display()
+            ));
         }
         return Ok(());
     }
@@ -68,8 +69,9 @@ fn remove_file(path: &Path, options: &RmOptions) -> Result<()> {
         Ok(()) => {
             if options.verbose {
                 let palette = ColorPalette::new();
-                println!("{} {} {}", 
-                    Icons::FOLDER, 
+                println!(
+                    "{} {} {}",
+                    Icons::FOLDER,
                     "Removed file:".colorize(&palette.warning),
                     path.display().to_string().colorize(&palette.primary)
                 );
@@ -86,13 +88,19 @@ fn remove_file(path: &Path, options: &RmOptions) -> Result<()> {
 fn remove_directory(path: &Path, options: &RmOptions) -> Result<()> {
     if !path.exists() {
         if !options.force {
-            return Err(anyhow!("cannot remove '{}': No such file or directory", path.display()));
+            return Err(anyhow!(
+                "cannot remove '{}': No such file or directory",
+                path.display()
+            ));
         }
         return Ok(());
     }
 
     if !options.recursive && !options.dir {
-        return Err(anyhow!("cannot remove '{}': Is a directory", path.display()));
+        return Err(anyhow!(
+            "cannot remove '{}': Is a directory",
+            path.display()
+        ));
     }
 
     // Recursive removal
@@ -100,7 +108,7 @@ fn remove_directory(path: &Path, options: &RmOptions) -> Result<()> {
         for entry in fs::read_dir(path)? {
             let entry = entry?;
             let entry_path = entry.path();
-            
+
             if entry_path.is_dir() {
                 remove_directory(&entry_path, options)?;
             } else {
@@ -114,15 +122,20 @@ fn remove_directory(path: &Path, options: &RmOptions) -> Result<()> {
         Ok(()) => {
             if options.verbose {
                 let palette = ColorPalette::new();
-                println!("{} {} {}", 
-                    Icons::FOLDER, 
+                println!(
+                    "{} {} {}",
+                    Icons::FOLDER,
                     "Removed directory:".colorize(&palette.warning),
                     path.display().to_string().colorize(&palette.primary)
                 );
             }
         }
         Err(e) => {
-            return Err(anyhow!("cannot remove directory '{}': {}", path.display(), e));
+            return Err(anyhow!(
+                "cannot remove directory '{}': {}",
+                path.display(),
+                e
+            ));
         }
     }
     Ok(())
@@ -163,7 +176,8 @@ fn parse_args(args: &[String]) -> Result<(RmOptions, Vec<String>)> {
 
 /// Print help message
 fn print_help() {
-    println!("rm - remove files and directories
+    println!(
+        "rm - remove files and directories
 
 USAGE:
     rm [OPTIONS] FILE...
@@ -183,7 +197,8 @@ EXAMPLES:
     rm -r directory/          Remove directory recursively
     rm -rf temp/              Force remove directory
     rm -i *.txt               Interactive removal
-    rm -v file1 file2         Verbose removal");
+    rm -v file1 file2         Verbose removal"
+    );
 }
 
 /// Execute the rm builtin command
@@ -207,14 +222,16 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
         io::stdout().flush().unwrap_or(());
         let mut input = String::new();
         if io::stdin().read_line(&mut input).is_ok()
-            && !input.trim().starts_with('y') && !input.trim().starts_with('Y') {
-                return Ok(0);
-            }
+            && !input.trim().starts_with('y')
+            && !input.trim().starts_with('Y')
+        {
+            return Ok(0);
+        }
     }
 
     for file in files {
         let path = Path::new(&file);
-        
+
         // Root protection
         if options.preserve_root && path == Path::new("/") {
             eprintln!("rm: it is dangerous to operate recursively on '/'");

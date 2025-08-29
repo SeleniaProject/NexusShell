@@ -2,27 +2,29 @@
 //!
 //! Full uniq implementation with various filtering and counting options
 
-use std::io::Write;
-use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError};
+use nxsh_core::{Builtin, ExecutionResult, ShellContext, ShellError, ShellResult};
 use std::fs::File;
+use std::io::Write;
 use std::io::{BufRead, BufReader, BufWriter};
 
 // Beautiful CUI design
-use crate::ui_design::{ColorPalette};
+use crate::ui_design::ColorPalette;
 
 // Helper function to create runtime errors more concisely
 fn runtime_error(msg: &str) -> ShellError {
     ShellError::new(
-        nxsh_core::error::ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument),
-        msg
+        nxsh_core::error::ErrorKind::RuntimeError(
+            nxsh_core::error::RuntimeErrorKind::InvalidArgument,
+        ),
+        msg,
     )
 }
 
-// Helper function to create IO errors more concisely  
+// Helper function to create IO errors more concisely
 fn io_error(msg: &str) -> ShellError {
     ShellError::new(
         nxsh_core::error::ErrorKind::IoError(nxsh_core::error::IoErrorKind::Other),
-        msg
+        msg,
     )
 }
 
@@ -51,7 +53,7 @@ impl Builtin for UniqBuiltin {
         process_uniq(&options)?;
         Ok(ExecutionResult::success(0))
     }
-    
+
     fn name(&self) -> &'static str {
         "uniq"
     }
@@ -118,7 +120,7 @@ fn parse_uniq_args(args: &[String]) -> ShellResult<UniqOptions> {
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
-        
+
         match arg.as_str() {
             "-c" | "--count" => options.count = true,
             "-d" | "--repeated" => options.repeated = true,
@@ -132,7 +134,8 @@ fn parse_uniq_args(args: &[String]) -> ShellResult<UniqOptions> {
                 if i >= args.len() {
                     return Err(runtime_error("Option -f requires an argument"));
                 }
-                options.skip_fields = args[i].parse()
+                options.skip_fields = args[i]
+                    .parse()
                     .map_err(|_| runtime_error("Invalid field count"))?;
             }
             "-s" | "--skip-chars" => {
@@ -140,7 +143,8 @@ fn parse_uniq_args(args: &[String]) -> ShellResult<UniqOptions> {
                 if i >= args.len() {
                     return Err(runtime_error("Option -s requires an argument"));
                 }
-                options.skip_chars = args[i].parse()
+                options.skip_chars = args[i]
+                    .parse()
                     .map_err(|_| runtime_error("Invalid character count"))?;
             }
             "-w" | "--check-chars" => {
@@ -148,21 +152,29 @@ fn parse_uniq_args(args: &[String]) -> ShellResult<UniqOptions> {
                 if i >= args.len() {
                     return Err(runtime_error("Option -w requires an argument"));
                 }
-                options.check_chars = Some(args[i].parse()
-                    .map_err(|_| runtime_error("Invalid character count"))?);
+                options.check_chars = Some(
+                    args[i]
+                        .parse()
+                        .map_err(|_| runtime_error("Invalid character count"))?,
+                );
             }
             "--help" => return Err(runtime_error("Help requested")),
             _ if arg.starts_with("-f") => {
-                options.skip_fields = arg[2..].parse()
+                options.skip_fields = arg[2..]
+                    .parse()
                     .map_err(|_| runtime_error("Invalid field count"))?;
             }
             _ if arg.starts_with("-s") => {
-                options.skip_chars = arg[2..].parse()
+                options.skip_chars = arg[2..]
+                    .parse()
                     .map_err(|_| runtime_error("Invalid character count"))?;
             }
             _ if arg.starts_with("-w") => {
-                options.check_chars = Some(arg[2..].parse()
-                    .map_err(|_| runtime_error("Invalid character count"))?);
+                options.check_chars = Some(
+                    arg[2..]
+                        .parse()
+                        .map_err(|_| runtime_error("Invalid character count"))?,
+                );
             }
             _ if arg.starts_with("-") => {
                 // Handle combined short options
@@ -196,8 +208,12 @@ fn parse_uniq_args(args: &[String]) -> ShellResult<UniqOptions> {
 }
 
 fn process_uniq(options: &UniqOptions) -> ShellResult<()> {
-    let separator = if options.zero_terminated { b'\0' } else { b'\n' };
-    
+    let separator = if options.zero_terminated {
+        b'\0'
+    } else {
+        b'\n'
+    };
+
     // Open input
     let input: Box<dyn BufRead> = if let Some(ref input_file) = options.input_file {
         let file = File::open(input_file)
@@ -235,7 +251,7 @@ fn process_uniq_stream<R: BufRead, W: Write>(
     loop {
         current_line.clear();
         let bytes_read = reader.read_until(separator, &mut current_line)?;
-        
+
         if bytes_read == 0 {
             // End of input - process the last group
             if current_count > 0 {
@@ -260,7 +276,7 @@ fn process_uniq_stream<R: BufRead, W: Write>(
         } else {
             // New group - process the previous group
             process_group(&group_lines, current_count, &mut writer, options, separator)?;
-            
+
             // Start new group
             group_lines.clear();
             group_lines.push(line_str.clone());
@@ -360,7 +376,7 @@ fn process_group<W: Write>(
                 write!(writer, "{line}")?;
             }
             writer.write_all(&[separator])?;
-            
+
             // Add separator between groups (except for the last group)
             if options.group && i == group_lines.len() - 1 && is_duplicate {
                 writer.write_all(&[separator])?;
@@ -369,7 +385,7 @@ fn process_group<W: Write>(
     } else {
         // Output only the first line of the group
         let line = &group_lines[0];
-        
+
         if options.count {
             let count_str = if options.no_color {
                 format!("{count:7}")
@@ -386,7 +402,7 @@ fn process_group<W: Write>(
             write!(writer, "{line}")?;
         }
         writer.write_all(&[separator])?;
-        
+
         // Add separator between groups
         if options.group && is_duplicate {
             writer.write_all(&[separator])?;
@@ -403,12 +419,13 @@ pub fn uniq_cli(args: &[String]) -> anyhow::Result<()> {
         Ok(_) => Ok(()),
         Err(e) => Err(anyhow::anyhow!("uniq command failed: {}", e)),
     }
-} 
-
-
+}
 
 /// Execute function stub
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    _args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     eprintln!("Command not yet implemented");
     Ok(1)
 }
@@ -436,26 +453,35 @@ mod tests {
             no_color: false,
         };
 
-        assert_eq!(extract_comparison_key("hello world", &options), "hello world");
-        
+        assert_eq!(
+            extract_comparison_key("hello world", &options),
+            "hello world"
+        );
+
         let mut options_skip_fields = options.clone();
         options_skip_fields.skip_fields = 1;
-        assert_eq!(extract_comparison_key("hello world test", &options_skip_fields), "world test");
-        
+        assert_eq!(
+            extract_comparison_key("hello world test", &options_skip_fields),
+            "world test"
+        );
+
         let mut options_skip_chars = options.clone();
         options_skip_chars.skip_chars = 2;
         assert_eq!(extract_comparison_key("hello", &options_skip_chars), "llo");
-        
+
         let mut options_ignore_case = options.clone();
         options_ignore_case.ignore_case = true;
-        assert_eq!(extract_comparison_key("HELLO", &options_ignore_case), "hello");
+        assert_eq!(
+            extract_comparison_key("HELLO", &options_ignore_case),
+            "hello"
+        );
     }
 
     #[test]
     fn test_uniq_basic() {
         let input = "line1\nline1\nline2\nline2\nline2\nline3\n";
         let expected = "line1\nline2\nline3\n";
-        
+
         let options = UniqOptions {
             count: false,
             repeated: false,
@@ -473,12 +499,7 @@ mod tests {
         };
 
         let mut output = Vec::new();
-        process_uniq_stream(
-            Cursor::new(input.as_bytes()),
-            &mut output,
-            &options,
-            b'\n'
-        ).unwrap();
+        process_uniq_stream(Cursor::new(input.as_bytes()), &mut output, &options, b'\n').unwrap();
 
         assert_eq!(String::from_utf8(output).unwrap(), expected);
     }
@@ -487,7 +508,7 @@ mod tests {
     fn test_uniq_count() {
         let input = "line1\nline1\nline2\nline2\nline2\nline3\n";
         let expected = "      2 line1\n      3 line2\n      1 line3\n";
-        
+
         let options = UniqOptions {
             count: true,
             repeated: false,
@@ -505,12 +526,7 @@ mod tests {
         };
 
         let mut output = Vec::new();
-        process_uniq_stream(
-            Cursor::new(input.as_bytes()),
-            &mut output,
-            &options,
-            b'\n'
-        ).unwrap();
+        process_uniq_stream(Cursor::new(input.as_bytes()), &mut output, &options, b'\n').unwrap();
 
         assert_eq!(String::from_utf8(output).unwrap(), expected);
     }

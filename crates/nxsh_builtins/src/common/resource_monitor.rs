@@ -16,7 +16,7 @@ pub struct BasicUsage {
 
 #[cfg(all(feature = "async-runtime", feature = "system-info"))]
 pub fn spawn_basic_monitor(pid: u32) -> tokio::task::JoinHandle<BasicUsage> {
-    use sysinfo::{SystemExt, ProcessExt, NetworksExt, NetworkExt, PidExt};
+    use sysinfo::{NetworkExt, NetworksExt, PidExt, ProcessExt, SystemExt};
     use tokio::time::{sleep, Duration as TokioDuration};
 
     tokio::spawn(async move {
@@ -71,5 +71,3 @@ pub fn spawn_basic_monitor(_pid: u32) -> tokio::task::JoinHandle<BasicUsage> {
 pub fn spawn_basic_monitor(_pid: u32) -> BasicUsage {
     BasicUsage::default()
 }
-
-

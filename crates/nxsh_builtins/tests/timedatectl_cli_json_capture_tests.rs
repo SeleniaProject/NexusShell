@@ -1,4 +1,3 @@
-
 #[tokio::test]
 async fn capture_timesync_status_show_timesync_json() {
     use nxsh_builtins::timedatectl::timedatectl_cli;
@@ -14,5 +13,3 @@ async fn capture_status_show_json() {
     let res = timedatectl_cli(&["show".into()]);
     assert!(res.is_ok());
 }
-
-

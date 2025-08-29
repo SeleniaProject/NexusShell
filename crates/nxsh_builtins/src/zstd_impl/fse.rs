@@ -15,11 +15,13 @@ pub fn write_nb_sequences_varint<W: Write>(mut w: W, nb: usize) -> io::Result<us
         w.write_all(&[0])?;
         return Ok(1);
     }
-    if nb <= 0x7F { // 1 byte
+    if nb <= 0x7F {
+        // 1 byte
         w.write_all(&[nb as u8])?;
         return Ok(1);
     }
-    if nb <= 0x7EFF { // 2 bytes
+    if nb <= 0x7EFF {
+        // 2 bytes
         let b0 = ((nb >> 8) as u8) + 0x80; // 0b10xxxxxx with high bits per spec
         let b1 = (nb & 0xFF) as u8;
         w.write_all(&[b0, b1])?;
@@ -32,8 +34,19 @@ pub fn write_nb_sequences_varint<W: Write>(mut w: W, nb: usize) -> io::Result<us
 }
 
 /// Build Symbol_Compression_Modes byte (LL,OF,ML). Bits: 0-1:LL, 2-3:OF, 4-5:ML.
-pub fn pack_symbol_compression_modes(ll: CompressionMode, of: CompressionMode, ml: CompressionMode) -> u8 {
-    fn m(v: CompressionMode) -> u8 { match v { CompressionMode::Rle=>0, CompressionMode::Predefined=>1, CompressionMode::FseCompressed=>2, CompressionMode::Repeat=>3 } }
+pub fn pack_symbol_compression_modes(
+    ll: CompressionMode,
+    of: CompressionMode,
+    ml: CompressionMode,
+) -> u8 {
+    fn m(v: CompressionMode) -> u8 {
+        match v {
+            CompressionMode::Rle => 0,
+            CompressionMode::Predefined => 1,
+            CompressionMode::FseCompressed => 2,
+            CompressionMode::Repeat => 3,
+        }
+    }
     (m(ll) & 3) | ((m(of) & 3) << 2) | ((m(ml) & 3) << 4)
 }
 
@@ -47,16 +60,29 @@ mod tests {
     #[test]
     fn test_nb_sequences_varint_encoding() {
         let mut b = Vec::new();
-        assert_eq!(write_nb_sequences_varint(&mut b, 0).unwrap(), 1); assert_eq!(b, vec![0]); b.clear();
-        assert_eq!(write_nb_sequences_varint(&mut b, 127).unwrap(), 1); assert_eq!(b, vec![127]); b.clear();
-        assert_eq!(write_nb_sequences_varint(&mut b, 128).unwrap(), 2); assert_eq!(b, vec![128,128]); b.clear();
-        assert_eq!(write_nb_sequences_varint(&mut b, 0x7EFF).unwrap(), 2); assert_eq!(b, vec![254, 0xFF]); b.clear();
-        assert_eq!(write_nb_sequences_varint(&mut b, 0xFF00).unwrap(), 3); assert_eq!(b, vec![255, 0x00, 0x80]);
+        assert_eq!(write_nb_sequences_varint(&mut b, 0).unwrap(), 1);
+        assert_eq!(b, vec![0]);
+        b.clear();
+        assert_eq!(write_nb_sequences_varint(&mut b, 127).unwrap(), 1);
+        assert_eq!(b, vec![127]);
+        b.clear();
+        assert_eq!(write_nb_sequences_varint(&mut b, 128).unwrap(), 2);
+        assert_eq!(b, vec![128, 128]);
+        b.clear();
+        assert_eq!(write_nb_sequences_varint(&mut b, 0x7EFF).unwrap(), 2);
+        assert_eq!(b, vec![254, 0xFF]);
+        b.clear();
+        assert_eq!(write_nb_sequences_varint(&mut b, 0xFF00).unwrap(), 3);
+        assert_eq!(b, vec![255, 0x00, 0x80]);
     }
 
     #[test]
     fn test_pack_symbol_modes_bits() {
-        let v = pack_symbol_compression_modes(CompressionMode::Predefined, CompressionMode::FseCompressed, CompressionMode::Repeat);
+        let v = pack_symbol_compression_modes(
+            CompressionMode::Predefined,
+            CompressionMode::FseCompressed,
+            CompressionMode::Repeat,
+        );
         assert_eq!(v & 0x03, 1);
         assert_eq!((v >> 2) & 0x03, 2);
         assert_eq!((v >> 4) & 0x03, 3);

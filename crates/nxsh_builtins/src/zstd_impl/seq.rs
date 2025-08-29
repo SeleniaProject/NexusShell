@@ -19,6 +19,8 @@ pub fn tokenize_full(input: &[u8]) -> (Vec<u8>, Vec<u8>) {
 
 /// Return one minimal "sequence" candidate and the literals stream; used for fallbacks.
 pub fn tokenize_first(input: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
-    if input.is_empty() { return None; }
+    if input.is_empty() {
+        return None;
+    }
     Some((vec![0u8], input.to_vec()))
 }

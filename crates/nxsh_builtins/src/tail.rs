@@ -1,8 +1,8 @@
+use crate::common::{BuiltinContext, BuiltinResult};
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
-use crate::common::{BuiltinResult, BuiltinContext};
 
 /// Display the last part of files
 pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
@@ -92,7 +92,14 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
             if index > 0 {
                 println!();
             }
-            println!("==> {} <==", if filename == "-" { "standard input" } else { filename });
+            println!(
+                "==> {} <==",
+                if filename == "-" {
+                    "standard input"
+                } else {
+                    filename
+                }
+            );
         }
 
         let result = if filename == "-" {
@@ -115,7 +122,11 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
     Ok(exit_code)
 }
 
-fn read_from_file(filename: &str, line_count: i64, byte_count: Option<u64>) -> Result<(), Box<dyn std::error::Error>> {
+fn read_from_file(
+    filename: &str,
+    line_count: i64,
+    byte_count: Option<u64>,
+) -> Result<(), Box<dyn std::error::Error>> {
     if !Path::new(filename).exists() {
         return Err("No such file or directory".to_string().into());
     }
@@ -132,20 +143,23 @@ fn read_from_file(filename: &str, line_count: i64, byte_count: Option<u64>) -> R
     Ok(())
 }
 
-fn read_from_stdin(line_count: i64, byte_count: Option<u64>) -> Result<(), Box<dyn std::error::Error>> {
+fn read_from_stdin(
+    line_count: i64,
+    byte_count: Option<u64>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let stdin = std::io::stdin();
 
     if let Some(bytes) = byte_count {
         // For stdin with byte count, we need to read all and keep last N bytes
         let mut buffer = Vec::new();
         stdin.lock().read_to_end(&mut buffer)?;
-        
+
         let start = if buffer.len() > bytes as usize {
             buffer.len() - bytes as usize
         } else {
             0
         };
-        
+
         std::io::Write::write_all(&mut std::io::stdout(), &buffer[start..])?;
     } else {
         read_last_lines(stdin.lock(), line_count)?;
@@ -154,7 +168,10 @@ fn read_from_stdin(line_count: i64, byte_count: Option<u64>) -> Result<(), Box<d
     Ok(())
 }
 
-fn read_last_lines<R: BufRead>(reader: R, line_count: i64) -> Result<(), Box<dyn std::error::Error>> {
+fn read_last_lines<R: BufRead>(
+    reader: R,
+    line_count: i64,
+) -> Result<(), Box<dyn std::error::Error>> {
     if line_count <= 0 {
         return Ok(());
     }
@@ -164,7 +181,7 @@ fn read_last_lines<R: BufRead>(reader: R, line_count: i64) -> Result<(), Box<dyn
 
     for line in reader.lines() {
         let line = line?;
-        
+
         if lines.len() >= max_lines {
             lines.pop_front();
         }
@@ -180,11 +197,11 @@ fn read_last_lines<R: BufRead>(reader: R, line_count: i64) -> Result<(), Box<dyn
 
 fn read_last_bytes(file: &mut File, byte_count: u64) -> Result<(), Box<dyn std::error::Error>> {
     let file_size = file.metadata()?.len();
-    
+
     let start_pos = file_size.saturating_sub(byte_count);
 
     file.seek(SeekFrom::Start(start_pos))?;
-    
+
     let mut buffer = vec![0; 8192];
     loop {
         let bytes_read = file.read(&mut buffer)?;

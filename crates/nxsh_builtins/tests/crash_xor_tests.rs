@@ -1,7 +1,9 @@
+use chrono::Utc;
+use nxsh_builtins::common::crash_diagnosis::{
+    CrashDiagnosisConfig, CrashReport, MemoryInfo, ProcessInfo, ShellState, SystemInfo,
+};
 use std::fs;
 use std::path::PathBuf;
-use nxsh_builtins::common::crash_diagnosis::{CrashDiagnosisConfig, CrashReport, SystemInfo, ProcessInfo, MemoryInfo, ShellState};
-use chrono::Utc;
 
 fn sample_report() -> CrashReport {
     CrashReport {
@@ -10,14 +12,37 @@ fn sample_report() -> CrashReport {
         panic_message: "panic! test".to_string(),
         backtrace: "bt".to_string(),
         system_info: SystemInfo {
-            os: "test".to_string(), arch: "x86_64".to_string(), hostname: "host".to_string(), uptime: 1, load_average: None
+            os: "test".to_string(),
+            arch: "x86_64".to_string(),
+            hostname: "host".to_string(),
+            uptime: 1,
+            load_average: None,
         },
         process_info: ProcessInfo {
-            pid: 1, ppid: None, command_line: vec!["nxsh".to_string()], working_directory: ".".to_string(), process_uptime: 1, memory_usage: 1, cpu_usage: 0.0
+            pid: 1,
+            ppid: None,
+            command_line: vec!["nxsh".to_string()],
+            working_directory: ".".to_string(),
+            process_uptime: 1,
+            memory_usage: 1,
+            cpu_usage: 0.0,
         },
         environment: None,
-        memory_info: Some(MemoryInfo { total_memory: 1, available_memory: 1, used_memory: 1, swap_total: 0, swap_used: 0 }),
-        shell_state: ShellState { current_command: None, last_commands: vec![], active_jobs: vec![], environment_vars: Default::default(), aliases: Default::default(), functions: vec![] },
+        memory_info: Some(MemoryInfo {
+            total_memory: 1,
+            available_memory: 1,
+            used_memory: 1,
+            swap_total: 0,
+            swap_used: 0,
+        }),
+        shell_state: ShellState {
+            current_command: None,
+            last_commands: vec![],
+            active_jobs: vec![],
+            environment_vars: Default::default(),
+            aliases: Default::default(),
+            functions: vec![],
+        },
     }
 }
 
@@ -52,5 +77,3 @@ fn crash_xor_encryption_creates_encrypted_file() {
     let s = String::from_utf8_lossy(&bytes);
     assert!(!s.contains("panic! test"));
 }
-
-

@@ -67,7 +67,15 @@ mod tests {
 
     #[test]
     fn test_smart_alias_create() {
-        assert_eq!(execute(&["create".to_string(), "ll".to_string(), "ls".to_string(), "-la".to_string()]), Ok(0));
+        assert_eq!(
+            execute(&[
+                "create".to_string(),
+                "ll".to_string(),
+                "ls".to_string(),
+                "-la".to_string()
+            ]),
+            Ok(0)
+        );
     }
 
     #[test]

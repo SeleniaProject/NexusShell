@@ -1,5 +1,5 @@
-use tabled::{Table, Tabled};
 use serde_json::json;
+use tabled::{Table, Tabled};
 
 #[derive(Tabled)]
 struct Row<'a> {
@@ -28,14 +28,15 @@ fn json_table_roundtrip() {
 
     // Debug the table output
     println!("Table output:\n{table_str}");
-    
+
     // Parse table back (more robust parsing)
     let lines: Vec<&str> = table_str.lines().collect();
     let mut parsed = Vec::new();
-    
+
     // Skip header lines and borders
-    for line in lines.iter().skip(2) { // Skip top border and header
-        if line.starts_with('+') || !line.starts_with('|') { 
+    for line in lines.iter().skip(2) {
+        // Skip top border and header
+        if line.starts_with('+') || !line.starts_with('|') {
             continue; // Skip border lines and empty lines
         }
         let cols: Vec<&str> = line.split('|').collect();
@@ -48,6 +49,6 @@ fn json_table_roundtrip() {
             }
         }
     }
-    
+
     assert_eq!(data, json!(parsed));
-} 
+}

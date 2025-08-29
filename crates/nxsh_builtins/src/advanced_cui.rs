@@ -9,7 +9,9 @@ impl Default for AdvancedCUI {
 }
 
 impl AdvancedCUI {
-    pub fn new() -> Self { AdvancedCUI }
+    pub fn new() -> Self {
+        AdvancedCUI
+    }
     pub fn render(&self, _content: &str) {
         // minimal rendering stub
         println!("[AdvancedCUI render]");

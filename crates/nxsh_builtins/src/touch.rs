@@ -14,15 +14,15 @@
 //!   --help                    - Display help and exit
 //!   --version                 - Output version information and exit
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
+use chrono::{Datelike, Local, NaiveDateTime, TimeZone, Utc};
+use filetime::{set_file_times, set_symlink_file_times, FileTime};
 use std::fs::{self, File};
 #[cfg(unix)]
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, Duration};
-use chrono::{Local, NaiveDateTime, TimeZone, Utc, Datelike};
-use filetime::{FileTime, set_file_times, set_symlink_file_times};
+use std::time::{Duration, SystemTime};
 
 #[derive(Debug, Clone)]
 pub struct TouchOptions {
@@ -68,34 +68,34 @@ pub struct TouchTime {
 
 pub fn touch_cli(args: &[String]) -> Result<()> {
     let options = parse_touch_args(args)?;
-    
+
     if options.files.is_empty() {
         return Err(anyhow!("touch: missing file operand"));
     }
-    
+
     // Determine the timestamps to use
     let touch_time = determine_touch_time(&options)?;
-    
+
     // Process each file
     for file in &options.files {
         let path = PathBuf::from(file);
-        
+
         if let Err(e) = update_file_timestamps(&path, &touch_time, &options) {
             eprintln!("touch: {e}");
             // Continue with other files
         }
     }
-    
+
     Ok(())
 }
 
 fn parse_touch_args(args: &[String]) -> Result<TouchOptions> {
     let mut options = TouchOptions::default();
     let mut i = 0;
-    
+
     while i < args.len() {
         let arg = &args[i];
-        
+
         match arg.as_str() {
             "-a" => {
                 options.access_only = true;
@@ -172,7 +172,7 @@ fn parse_touch_args(args: &[String]) -> Result<TouchOptions> {
                             options.time_type = TimeType::Access;
                         }
                         'c' => options.no_create = true,
-                        'f' => {}, // Ignored
+                        'f' => {} // Ignored
                         'h' => options.no_dereference = true,
                         'm' => {
                             options.modify_only = true;
@@ -190,35 +190,38 @@ fn parse_touch_args(args: &[String]) -> Result<TouchOptions> {
         }
         i += 1;
     }
-    
+
     Ok(options)
 }
 
 fn determine_touch_time(options: &TouchOptions) -> Result<TouchTime> {
     let now = SystemTime::now();
-    
+
     // If reference file is specified, use its timestamps
     if let Some(ref ref_file) = options.reference_file {
         let ref_path = Path::new(ref_file);
         if !ref_path.exists() {
-            return Err(anyhow!("touch: failed to get attributes of '{}': No such file or directory", ref_file));
+            return Err(anyhow!(
+                "touch: failed to get attributes of '{}': No such file or directory",
+                ref_file
+            ));
         }
-        
+
         let metadata = if options.no_dereference {
             fs::symlink_metadata(ref_path)?
         } else {
             fs::metadata(ref_path)?
         };
-        
+
         let access_time = metadata.accessed().ok();
         let modify_time = metadata.modified().ok();
-        
+
         return Ok(TouchTime {
             access_time,
             modify_time,
         });
     }
-    
+
     // If timestamp is specified, parse it
     if let Some(ref timestamp) = options.timestamp {
         let parsed_time = parse_timestamp(timestamp)?;
@@ -227,7 +230,7 @@ fn determine_touch_time(options: &TouchOptions) -> Result<TouchTime> {
             modify_time: Some(parsed_time),
         });
     }
-    
+
     // If date string is specified, parse it
     if let Some(ref date_str) = options.date_string {
         let parsed_time = parse_date_string(date_str)?;
@@ -236,7 +239,7 @@ fn determine_touch_time(options: &TouchOptions) -> Result<TouchTime> {
             modify_time: Some(parsed_time),
         });
     }
-    
+
     // Default to current time
     Ok(TouchTime {
         access_time: Some(now),
@@ -247,14 +250,14 @@ fn determine_touch_time(options: &TouchOptions) -> Result<TouchTime> {
 fn parse_timestamp(timestamp: &str) -> Result<SystemTime> {
     // Format: [[CC]YY]MMDDhhmm[.ss]
     let len = timestamp.len();
-    
+
     if !(8..=15).contains(&len) {
         return Err(anyhow!("touch: invalid date format '{}'", timestamp));
     }
-    
+
     let mut chars: Vec<char> = timestamp.chars().collect();
     let _pos = 0; // placeholder for future offset handling
-    
+
     // Parse seconds if present (after the dot)
     let seconds = if let Some(dot_pos) = timestamp.find('.') {
         if dot_pos + 3 != len {
@@ -262,14 +265,16 @@ fn parse_timestamp(timestamp: &str) -> Result<SystemTime> {
         }
         let sec_str: String = chars[dot_pos + 1..].iter().collect();
         chars.truncate(dot_pos);
-        sec_str.parse::<u32>().map_err(|_| anyhow!("touch: invalid seconds '{}'", sec_str))?
+        sec_str
+            .parse::<u32>()
+            .map_err(|_| anyhow!("touch: invalid seconds '{}'", sec_str))?
     } else {
         0
     };
-    
+
     let remaining: String = chars.iter().collect();
     let len = remaining.len();
-    
+
     let (year, month, day, hour, minute) = match len {
         8 => {
             // MMDDhhmm
@@ -301,7 +306,7 @@ fn parse_timestamp(timestamp: &str) -> Result<SystemTime> {
         }
         _ => return Err(anyhow!("touch: invalid date format '{}'", timestamp)),
     };
-    
+
     // Validate ranges
     if !(1..=12).contains(&month) {
         return Err(anyhow!("touch: invalid month '{}'", month));
@@ -318,13 +323,14 @@ fn parse_timestamp(timestamp: &str) -> Result<SystemTime> {
     if seconds > 59 {
         return Err(anyhow!("touch: invalid seconds '{}'", seconds));
     }
-    
+
     // Create datetime
-    let dt = Local.with_ymd_and_hms(year, month, day, hour, minute, seconds)
+    let dt = Local
+        .with_ymd_and_hms(year, month, day, hour, minute, seconds)
         .single()
         .ok_or_else(|| anyhow::anyhow!("Invalid date/time"))?;
     let system_time = SystemTime::UNIX_EPOCH + Duration::from_secs(dt.timestamp() as u64);
-    
+
     Ok(system_time)
 }
 
@@ -344,17 +350,18 @@ fn parse_date_string(date_str: &str) -> Result<SystemTime> {
         "%Y%m%d %H:%M",
         "%Y%m%d",
     ];
-    
+
     for format in &formats {
         if let Ok(dt) = NaiveDateTime::parse_from_str(date_str, format) {
             let local_dt = Local.from_local_datetime(&dt).single();
             if let Some(local_dt) = local_dt {
-                let system_time = SystemTime::UNIX_EPOCH + Duration::from_secs(local_dt.timestamp() as u64);
+                let system_time =
+                    SystemTime::UNIX_EPOCH + Duration::from_secs(local_dt.timestamp() as u64);
                 return Ok(system_time);
             }
         }
     }
-    
+
     // Try parsing as relative time (like "now", "1 hour ago", etc.)
     match date_str.to_lowercase().as_str() {
         "now" => Ok(SystemTime::now()),
@@ -362,40 +369,49 @@ fn parse_date_string(date_str: &str) -> Result<SystemTime> {
     }
 }
 
-fn update_file_timestamps(path: &Path, touch_time: &TouchTime, options: &TouchOptions) -> Result<()> {
+fn update_file_timestamps(
+    path: &Path,
+    touch_time: &TouchTime,
+    options: &TouchOptions,
+) -> Result<()> {
     // Check if file exists
     let file_exists = if options.no_dereference {
         path.symlink_metadata().is_ok()
     } else {
         path.metadata().is_ok()
     };
-    
+
     // Create file if it doesn't exist and creation is allowed
     if !file_exists {
         if options.no_create {
             return Ok(());
         }
-        
+
         // Create empty file
         File::create(path)
             .map_err(|e| anyhow!("touch: cannot touch '{}': {}", path.display(), e))?;
     }
-    
+
     // Update timestamps using filetime crate
     update_timestamps_safe(path, touch_time, options)
 }
 
-fn update_timestamps_safe(path: &Path, touch_time: &TouchTime, options: &TouchOptions) -> Result<()> {
+fn update_timestamps_safe(
+    path: &Path,
+    touch_time: &TouchTime,
+    options: &TouchOptions,
+) -> Result<()> {
     // Get current file times
     let metadata = if options.no_dereference {
         path.symlink_metadata()
     } else {
         path.metadata()
-    }.map_err(|e| anyhow!("touch: cannot stat '{}': {}", path.display(), e))?;
-    
+    }
+    .map_err(|e| anyhow!("touch: cannot stat '{}': {}", path.display(), e))?;
+
     let current_atime = FileTime::from_last_access_time(&metadata);
     let current_mtime = FileTime::from_last_modification_time(&metadata);
-    
+
     // Determine new times
     let new_atime = if should_update_access_time(options) {
         if let Some(access_time) = touch_time.access_time {
@@ -406,7 +422,7 @@ fn update_timestamps_safe(path: &Path, touch_time: &TouchTime, options: &TouchOp
     } else {
         current_atime
     };
-    
+
     let new_mtime = if should_update_modify_time(options) {
         if let Some(modify_time) = touch_time.modify_time {
             FileTime::from_system_time(modify_time)
@@ -416,7 +432,7 @@ fn update_timestamps_safe(path: &Path, touch_time: &TouchTime, options: &TouchOp
     } else {
         current_mtime
     };
-    
+
     // Apply timestamp changes
     if options.no_dereference {
         set_symlink_file_times(path, new_atime, new_mtime)
@@ -425,7 +441,7 @@ fn update_timestamps_safe(path: &Path, touch_time: &TouchTime, options: &TouchOp
         set_file_times(path, new_atime, new_mtime)
             .map_err(|e| anyhow!("touch: setting times of '{}': {}", path.display(), e))?;
     }
-    
+
     Ok(())
 }
 
@@ -487,11 +503,13 @@ fn print_help() {
     println!("  touch -m file.txt                 Update only modification time");
     println!();
     println!("Report touch bugs to <bug-reports@nexusshell.org>");
-} 
-
+}
 
 /// Execute function for touch command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     match touch_cli(args) {
         Ok(_) => Ok(0),
         Err(e) => {
@@ -504,45 +522,46 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
 #[cfg(test)]
 mod tests {
     use super::*;
-    
-    
-    
-    
+
     use std::time::UNIX_EPOCH;
-    
+
     #[test]
     fn test_parse_args() {
         let args = vec!["-am".to_string(), "file.txt".to_string()];
         let options = parse_touch_args(&args).unwrap();
-        
+
         // Note: -am would set both, but the last one wins in our implementation
         assert_eq!(options.files, vec!["file.txt"]);
     }
-    
+
     #[test]
     fn test_no_create_option() {
         let args = vec!["-c".to_string(), "nonexistent.txt".to_string()];
         let options = parse_touch_args(&args).unwrap();
-        
+
         assert!(options.no_create);
         assert_eq!(options.files, vec!["nonexistent.txt"]);
     }
-    
+
     #[test]
     fn test_reference_option() {
-        let args = vec!["-r".to_string(), "ref.txt".to_string(), "target.txt".to_string()];
+        let args = vec![
+            "-r".to_string(),
+            "ref.txt".to_string(),
+            "target.txt".to_string(),
+        ];
         let options = parse_touch_args(&args).unwrap();
-        
+
         assert_eq!(options.reference_file, Some("ref.txt".to_string()));
         assert_eq!(options.files, vec!["target.txt"]);
     }
-    
+
     #[test]
     fn test_parse_timestamp() {
         // Test CCYYMMDDHHMMSS format
         let timestamp = "202301011200.30";
         let result = parse_timestamp(timestamp).unwrap();
-        
+
         // Should parse to Jan 1, 2023 12:00:30
         let duration = result.duration_since(UNIX_EPOCH).unwrap();
         let expected = Local
@@ -552,29 +571,29 @@ mod tests {
             .timestamp() as u64;
         assert_eq!(duration.as_secs(), expected);
     }
-    
+
     #[test]
     fn test_parse_date_string() {
         let date_str = "2023-01-01 12:00:00";
         let result = parse_date_string(date_str).unwrap();
-        
+
         // Should parse correctly
         assert!(result > UNIX_EPOCH);
     }
-    
+
     #[test]
     fn test_should_update_times() {
         let mut options = TouchOptions::default();
-        
+
         // Default: update both
         assert!(should_update_access_time(&options));
         assert!(should_update_modify_time(&options));
-        
+
         // Access only
         options.time_type = TimeType::Access;
         assert!(should_update_access_time(&options));
         assert!(!should_update_modify_time(&options));
-        
+
         // Modify only
         options.time_type = TimeType::Modify;
         assert!(!should_update_access_time(&options));

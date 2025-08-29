@@ -7,7 +7,7 @@ pub fn export_cli(args: &[String]) -> Result<()> {
         println!("export - set environment variable");
         println!("Usage: export [NAME[=VALUE]]...");
         println!("  -h, --help     display this help and exit");
-        
+
         if args.is_empty() {
             // Show all environment variables
             for (key, value) in env::vars() {
@@ -16,13 +16,13 @@ pub fn export_cli(args: &[String]) -> Result<()> {
         }
         return Ok(());
     }
-    
+
     for arg in args {
         if arg.starts_with('-') && arg != "--help" && arg != "-h" {
             eprintln!("export: unrecognized option '{arg}'");
             continue;
         }
-        
+
         if let Some(equals_pos) = arg.find('=') {
             let name = &arg[..equals_pos];
             let value = &arg[equals_pos + 1..];
@@ -39,7 +39,6 @@ pub fn export_cli(args: &[String]) -> Result<()> {
             }
         }
     }
-    
+
     Ok(())
 }
-

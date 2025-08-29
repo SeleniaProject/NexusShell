@@ -1,14 +1,12 @@
-use std::collections::HashMap;
-use nxsh_core::Job;
 use anyhow::Result;
-use tabled::{Table, Tabled};
-use std::sync::{Arc, Mutex};
+use nxsh_core::Job;
 use once_cell::sync::Lazy;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use tabled::{Table, Tabled};
 
-
-static JOB_TABLE: Lazy<Arc<Mutex<HashMap<u32, Job>>>> = Lazy::new(|| {
-    Arc::new(Mutex::new(HashMap::new()))
-});
+static JOB_TABLE: Lazy<Arc<Mutex<HashMap<u32, Job>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 #[derive(Tabled)]
 struct JobRow {
@@ -21,16 +19,16 @@ struct JobRow {
 pub fn fg(id: Option<u32>) -> Result<()> {
     let id = id.unwrap_or(0);
     if let Ok(jobs) = JOB_TABLE.lock() {
-    if let Some(_job) = jobs.get(&id) {
-        #[cfg(unix)]
-        {
-            use nix::sys::signal::{kill, Signal};
-            use nix::unistd::Pid;
-            kill(Pid::from_raw(job.pid as i32), Signal::SIGCONT)?;
-            // Wait for completion (simplified)
-            nix::sys::wait::waitpid(Pid::from_raw(job.pid as i32), None)?;
-        }
-        println!("Job {id} brought to foreground");
+        if let Some(_job) = jobs.get(&id) {
+            #[cfg(unix)]
+            {
+                use nix::sys::signal::{kill, Signal};
+                use nix::unistd::Pid;
+                kill(Pid::from_raw(job.pid as i32), Signal::SIGCONT)?;
+                // Wait for completion (simplified)
+                nix::sys::wait::waitpid(Pid::from_raw(job.pid as i32), None)?;
+            }
+            println!("Job {id} brought to foreground");
         } else {
             println!("No such job {id}");
         }
@@ -43,7 +41,7 @@ pub fn fg(id: Option<u32>) -> Result<()> {
 pub fn bg(id: Option<u32>) -> Result<()> {
     let id = id.unwrap_or(0);
     if let Ok(jobs) = JOB_TABLE.lock() {
-    if let Some(_job) = jobs.get(&id) {
+        if let Some(_job) = jobs.get(&id) {
             #[cfg(unix)]
             {
                 use nix::sys::signal::{kill, Signal};
@@ -80,11 +78,11 @@ pub fn jobs_cli() {
 pub fn wait_cli(arg: Option<u32>) -> Result<()> {
     let id = arg.unwrap_or(0);
     if let Ok(jobs) = JOB_TABLE.lock() {
-    if let Some(_job) = jobs.get(&id) {
+        if let Some(_job) = jobs.get(&id) {
             #[cfg(unix)]
             {
-                use nix::unistd::Pid;
                 use nix::sys::wait::waitpid;
+                use nix::unistd::Pid;
                 if let Some(pid) = job.pid {
                     waitpid(Pid::from_raw(pid as i32), None)?;
                 }
@@ -108,12 +106,13 @@ pub fn disown_cli(all: bool, id: Option<u32>) {
             println!("Job {i} disowned");
         }
     }
-} 
-
-
+}
 
 /// Execute function stub
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    _args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     eprintln!("Command not yet implemented");
     Ok(1)
 }

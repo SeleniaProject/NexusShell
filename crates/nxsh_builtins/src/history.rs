@@ -1,8 +1,8 @@
 //! `history` builtin command - manage command history
 
+use nxsh_core::error::{ErrorKind, InternalErrorKind, IoErrorKind, RuntimeErrorKind, ShellError};
+use nxsh_core::{context::ShellContext, Builtin, ExecutionResult, ShellResult};
 use std::io::Write;
-use nxsh_core::{ShellResult, ExecutionResult, context::ShellContext, Builtin};
-use nxsh_core::error::{ShellError, ErrorKind, RuntimeErrorKind, IoErrorKind, InternalErrorKind};
 
 /// The `history` builtin command implementation
 pub struct HistoryCommand;
@@ -40,7 +40,7 @@ impl Builtin for HistoryCommand {
                     if i + 1 >= args.len() {
                         return Err(ShellError::new(
                             ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
-                            "history: -d requires an offset argument"
+                            "history: -d requires an offset argument",
                         ));
                     }
                     i += 1;
@@ -49,7 +49,7 @@ impl Builtin for HistoryCommand {
                         Err(_) => {
                             return Err(ShellError::new(
                                 ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
-                                format!("history: invalid offset '{}'", args[i])
+                                format!("history: invalid offset '{}'", args[i]),
                             ));
                         }
                     }
@@ -60,7 +60,7 @@ impl Builtin for HistoryCommand {
                 arg if arg.starts_with('-') => {
                     return Err(ShellError::new(
                         ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
-                        format!("history: unknown option '{arg}'")
+                        format!("history: unknown option '{arg}'"),
                     ));
                 }
                 _ => {
@@ -70,7 +70,7 @@ impl Builtin for HistoryCommand {
                         Err(_) => {
                             return Err(ShellError::new(
                                 ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
-                                format!("history: invalid count '{}'", args[i])
+                                format!("history: invalid count '{}'", args[i]),
                             ));
                         }
                     }
@@ -95,18 +95,24 @@ impl Builtin for HistoryCommand {
 
 impl HistoryCommand {
     /// Show command history
-    fn show_history(&self, count: Option<usize>, ctx: &mut ShellContext) -> ShellResult<ExecutionResult> {
+    fn show_history(
+        &self,
+        count: Option<usize>,
+        ctx: &mut ShellContext,
+    ) -> ShellResult<ExecutionResult> {
         if let Ok(history) = ctx.history.lock() {
             let entries: Vec<String> = if let Some(n) = count {
                 // Show last n entries
-                history.iter()
+                history
+                    .iter()
                     .enumerate()
                     .skip(history.len().saturating_sub(n))
                     .map(|(i, entry)| format!("{:4}  {}", i + 1, entry))
                     .collect()
             } else {
                 // Show all entries with line numbers
-                history.iter()
+                history
+                    .iter()
                     .enumerate()
                     .map(|(i, entry)| format!("{:4}  {}", i + 1, entry))
                     .collect()
@@ -117,14 +123,18 @@ impl HistoryCommand {
                 output.push('\n');
             }
 
-            ctx.stdout.write(output.as_bytes())
-                .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::FileWriteError), format!("Failed to write output: {e}")))?;
+            ctx.stdout.write(output.as_bytes()).map_err(|e| {
+                ShellError::new(
+                    ErrorKind::IoError(IoErrorKind::FileWriteError),
+                    format!("Failed to write output: {e}"),
+                )
+            })?;
 
             Ok(ExecutionResult::success(0))
         } else {
             Err(ShellError::new(
                 ErrorKind::InternalError(InternalErrorKind::LockError),
-                "Failed to lock history"
+                "Failed to lock history",
             ))
         }
     }
@@ -151,8 +161,12 @@ EXAMPLES:
     history -d 5    Delete entry number 5
 "#;
 
-        ctx.stdout.write(help_text.as_bytes())
-            .map_err(|e| ShellError::new(ErrorKind::IoError(IoErrorKind::FileWriteError), format!("Failed to write help: {e}")))?;
+        ctx.stdout.write(help_text.as_bytes()).map_err(|e| {
+            ShellError::new(
+                ErrorKind::IoError(IoErrorKind::FileWriteError),
+                format!("Failed to write help: {e}"),
+            )
+        })?;
 
         Ok(ExecutionResult::success(0))
     }
@@ -164,7 +178,7 @@ EXAMPLES:
         } else {
             return Err(ShellError::new(
                 ErrorKind::InternalError(InternalErrorKind::LockError),
-                "Failed to lock history for clearing"
+                "Failed to lock history for clearing",
             ));
         }
 
@@ -172,11 +186,15 @@ EXAMPLES:
     }
 
     /// Delete a specific history entry
-    fn delete_history_entry(&self, offset: usize, ctx: &mut ShellContext) -> ShellResult<ExecutionResult> {
+    fn delete_history_entry(
+        &self,
+        offset: usize,
+        ctx: &mut ShellContext,
+    ) -> ShellResult<ExecutionResult> {
         if offset == 0 {
             return Err(ShellError::new(
                 ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
-                "history: offset must be greater than 0"
+                "history: offset must be greater than 0",
             ));
         }
 
@@ -187,7 +205,7 @@ EXAMPLES:
             if index >= history.len() {
                 return Err(ShellError::new(
                     ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
-                    format!("history: offset {offset} out of range")
+                    format!("history: offset {offset} out of range"),
                 ));
             }
 
@@ -196,7 +214,7 @@ EXAMPLES:
         } else {
             Err(ShellError::new(
                 ErrorKind::InternalError(InternalErrorKind::LockError),
-                "Failed to lock history for deletion"
+                "Failed to lock history for deletion",
             ))
         }
     }
@@ -208,22 +226,27 @@ pub async fn history_cli(args: &[String]) -> anyhow::Result<()> {
 
     let mut context = ShellContext::new();
     let cmd = HistoryCommand;
-    
+
     match cmd.execute(&mut context, args) {
         Ok(result) => {
             if result.exit_code == 0 {
                 Ok(())
             } else {
-                Err(anyhow::anyhow!("history failed with exit code {}", result.exit_code))
+                Err(anyhow::anyhow!(
+                    "history failed with exit code {}",
+                    result.exit_code
+                ))
             }
         }
-        Err(e) => Err(anyhow::anyhow!("history error: {}", e))
+        Err(e) => Err(anyhow::anyhow!("history error: {}", e)),
     }
 }
 
-
 /// Execute function stub
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    _args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     eprintln!("Command not yet implemented");
     Ok(1)
 }

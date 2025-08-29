@@ -1,5 +1,5 @@
+use crate::command::{CommandInfo, CommandResult, CommandType, ShellState};
 use std::env;
-use crate::command::{CommandInfo, CommandResult, ShellState, CommandType};
 
 /// Environment variable management command
 pub struct EnvCommand;
@@ -166,7 +166,10 @@ impl Default for EnvCommand {
 }
 
 /// Execute function stub
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    _args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     eprintln!("Command not yet implemented");
     Ok(1)
 }

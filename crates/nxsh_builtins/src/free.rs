@@ -2,7 +2,7 @@
 //!
 //! Full free implementation with various formatting options and memory statistics
 
-use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError};
+use nxsh_core::{Builtin, ExecutionResult, ShellContext, ShellError, ShellResult};
 use std::thread;
 use std::time::Duration;
 
@@ -98,13 +98,13 @@ impl Builtin for FreeBuiltin {
 
     fn execute(&self, _ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
         let options = parse_free_args(args)?;
-        
+
         if options.continuous {
             run_continuous_mode(&options)?;
         } else {
             display_memory_info(&options)?;
         }
-        
+
         Ok(ExecutionResult::success(0))
     }
 
@@ -164,7 +164,7 @@ fn parse_free_args(args: &[String]) -> ShellResult<FreeOptions> {
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
-        
+
         match arg.as_str() {
             "-b" | "--bytes" => {
                 options.bytes = true;
@@ -222,9 +222,12 @@ fn parse_free_args(args: &[String]) -> ShellResult<FreeOptions> {
             "-s" | "--seconds" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::command_not_found("Option -s requires an argument"));
+                    return Err(ShellError::command_not_found(
+                        "Option -s requires an argument",
+                    ));
                 }
-                let interval = args[i].parse::<u64>()
+                let interval = args[i]
+                    .parse::<u64>()
                     .map_err(|_| ShellError::command_not_found("Invalid interval value"))?;
                 options.interval = Some(interval);
                 options.continuous = true;
@@ -232,16 +235,27 @@ fn parse_free_args(args: &[String]) -> ShellResult<FreeOptions> {
             "-c" | "--count" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::command_not_found("Option -c requires an argument"));
+                    return Err(ShellError::command_not_found(
+                        "Option -c requires an argument",
+                    ));
                 }
-                options.count = Some(args[i].parse::<u32>()
-                    .map_err(|_| ShellError::command_not_found("Invalid count value"))?);
+                options.count = Some(
+                    args[i]
+                        .parse::<u32>()
+                        .map_err(|_| ShellError::command_not_found("Invalid count value"))?,
+                );
             }
             "--help" => return Err(ShellError::command_not_found("Help requested")),
             _ if arg.starts_with("-") => {
-                return Err(ShellError::command_not_found(&format!("Unknown option: {arg}")));
+                return Err(ShellError::command_not_found(&format!(
+                    "Unknown option: {arg}"
+                )));
             }
-            _ => return Err(ShellError::command_not_found(&format!("Unknown argument: {arg}"))),
+            _ => {
+                return Err(ShellError::command_not_found(&format!(
+                    "Unknown argument: {arg}"
+                )))
+            }
         }
         i += 1;
     }
@@ -252,46 +266,46 @@ fn parse_free_args(args: &[String]) -> ShellResult<FreeOptions> {
 fn run_continuous_mode(options: &FreeOptions) -> ShellResult<()> {
     let interval = Duration::from_secs(options.interval.unwrap_or(1));
     let mut iteration = 0;
-    
+
     loop {
         if let Some(max_count) = options.count {
             if iteration >= max_count {
                 break;
             }
         }
-        
+
         display_memory_info(options)?;
         iteration += 1;
-        
+
         if options.count.is_some() && iteration >= options.count.unwrap() {
             break;
         }
-        
+
         thread::sleep(interval);
         println!(); // Add blank line between iterations
     }
-    
+
     Ok(())
 }
 
 fn display_memory_info(options: &FreeOptions) -> ShellResult<()> {
     let memory_info = collect_memory_info()?;
     let swap_info = collect_swap_info()?;
-    
+
     // Print header
     print_header(options);
-    
+
     // Print memory line
     print_memory_line(&memory_info, options);
-    
+
     // Print swap line
     print_swap_line(&swap_info, options);
-    
+
     // Print total line if requested
     if options.show_total {
         print_total_line(&memory_info, &swap_info, options);
     }
-    
+
     Ok(())
 }
 
@@ -300,7 +314,7 @@ fn collect_memory_info() -> ShellResult<MemoryInfo> {
     {
         collect_linux_memory_info()
     }
-    
+
     #[cfg(not(target_os = "linux"))]
     {
         // Simplified memory info for other platforms
@@ -353,26 +367,56 @@ fn collect_memory_info() -> ShellResult<MemoryInfo> {
 fn collect_linux_memory_info() -> ShellResult<MemoryInfo> {
     let content = fs::read_to_string("/proc/meminfo")
         .map_err(|e| ShellError::io(format!("Cannot read /proc/meminfo: {}", e)))?;
-    
+
     let mut memory_info = MemoryInfo {
-        total: 0, free: 0, available: 0, buffers: 0, cached: 0, slab: 0,
-        swap_cached: 0, active: 0, inactive: 0, dirty: 0, writeback: 0,
-        anon_pages: 0, mapped: 0, shmem: 0, kreclaimable: 0, sunreclaim: 0,
-        kernel_stack: 0, page_tables: 0, nfs_unstable: 0, bounce: 0,
-        writeback_tmp: 0, commit_limit: 0, committed_as: 0, vmalloc_total: 0,
-        vmalloc_used: 0, vmalloc_chunk: 0, hardware_corrupted: 0,
-        anon_huge_pages: 0, shmem_huge_pages: 0, shmem_pmd_mapped: 0,
-        cma_total: 0, cma_free: 0, huge_pages_total: 0, huge_pages_free: 0,
-        huge_pages_rsvd: 0, huge_pages_surp: 0, hugepagesize: 0,
-        direct_map_4k: 0, direct_map_2m: 0, direct_map_1g: 0,
+        total: 0,
+        free: 0,
+        available: 0,
+        buffers: 0,
+        cached: 0,
+        slab: 0,
+        swap_cached: 0,
+        active: 0,
+        inactive: 0,
+        dirty: 0,
+        writeback: 0,
+        anon_pages: 0,
+        mapped: 0,
+        shmem: 0,
+        kreclaimable: 0,
+        sunreclaim: 0,
+        kernel_stack: 0,
+        page_tables: 0,
+        nfs_unstable: 0,
+        bounce: 0,
+        writeback_tmp: 0,
+        commit_limit: 0,
+        committed_as: 0,
+        vmalloc_total: 0,
+        vmalloc_used: 0,
+        vmalloc_chunk: 0,
+        hardware_corrupted: 0,
+        anon_huge_pages: 0,
+        shmem_huge_pages: 0,
+        shmem_pmd_mapped: 0,
+        cma_total: 0,
+        cma_free: 0,
+        huge_pages_total: 0,
+        huge_pages_free: 0,
+        huge_pages_rsvd: 0,
+        huge_pages_surp: 0,
+        hugepagesize: 0,
+        direct_map_4k: 0,
+        direct_map_2m: 0,
+        direct_map_1g: 0,
     };
-    
+
     for line in content.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 2 {
             let key = parts[0].trim_end_matches(':');
             let value = parts[1].parse::<u64>().unwrap_or(0) * 1024; // Convert KB to bytes
-            
+
             match key {
                 "MemTotal" => memory_info.total = value,
                 "MemFree" => memory_info.free = value,
@@ -418,12 +462,12 @@ fn collect_linux_memory_info() -> ShellResult<MemoryInfo> {
             }
         }
     }
-    
+
     // Calculate available if not provided
     if memory_info.available == 0 {
         memory_info.available = memory_info.free + memory_info.buffers + memory_info.cached;
     }
-    
+
     Ok(memory_info)
 }
 
@@ -432,17 +476,17 @@ fn collect_swap_info() -> ShellResult<SwapInfo> {
     {
         let content = fs::read_to_string("/proc/meminfo")
             .map_err(|e| ShellError::io(format!("Cannot read /proc/meminfo: {}", e)))?;
-        
+
         let mut swap_total = 0;
         let mut swap_free = 0;
         let mut swap_cached = 0;
-        
+
         for line in content.lines() {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 2 {
                 let key = parts[0].trim_end_matches(':');
                 let value = parts[1].parse::<u64>().unwrap_or(0) * 1024; // Convert KB to bytes
-                
+
                 match key {
                     "SwapTotal" => swap_total = value,
                     "SwapFree" => swap_free = value,
@@ -451,9 +495,9 @@ fn collect_swap_info() -> ShellResult<SwapInfo> {
                 }
             }
         }
-        
+
         let swap_used = swap_total.saturating_sub(swap_free);
-        
+
         Ok(SwapInfo {
             total: swap_total,
             used: swap_used,
@@ -461,7 +505,7 @@ fn collect_swap_info() -> ShellResult<SwapInfo> {
             cached: swap_cached,
         })
     }
-    
+
     #[cfg(not(target_os = "linux"))]
     {
         Ok(SwapInfo {
@@ -475,21 +519,28 @@ fn collect_swap_info() -> ShellResult<SwapInfo> {
 
 fn print_header(options: &FreeOptions) {
     if options.wide_output {
-        println!("{:>14} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
-            "", "total", "used", "free", "shared", "buff/cache", "available");
+        println!(
+            "{:>14} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
+            "", "total", "used", "free", "shared", "buff/cache", "available"
+        );
     } else {
-        println!("{:>14} {:>10} {:>10} {:>10} {:>10} {:>10}",
-            "", "total", "used", "free", "shared", "buff/cache");
+        println!(
+            "{:>14} {:>10} {:>10} {:>10} {:>10} {:>10}",
+            "", "total", "used", "free", "shared", "buff/cache"
+        );
     }
 }
 
 fn print_memory_line(memory_info: &MemoryInfo, options: &FreeOptions) {
-    let used = memory_info.total.saturating_sub(memory_info.free + memory_info.buffers + memory_info.cached);
+    let used = memory_info
+        .total
+        .saturating_sub(memory_info.free + memory_info.buffers + memory_info.cached);
     let shared = memory_info.shmem;
     let buff_cache = memory_info.buffers + memory_info.cached;
-    
+
     if options.wide_output {
-        println!("{:>14} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
+        println!(
+            "{:>14} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
             "Mem:",
             format_memory(memory_info.total, options),
             format_memory(used, options),
@@ -499,7 +550,8 @@ fn print_memory_line(memory_info: &MemoryInfo, options: &FreeOptions) {
             format_memory(memory_info.available, options)
         );
     } else {
-        println!("{:>14} {:>10} {:>10} {:>10} {:>10} {:>10}",
+        println!(
+            "{:>14} {:>10} {:>10} {:>10} {:>10} {:>10}",
             "Mem:",
             format_memory(memory_info.total, options),
             format_memory(used, options),
@@ -512,7 +564,8 @@ fn print_memory_line(memory_info: &MemoryInfo, options: &FreeOptions) {
 
 fn print_swap_line(swap_info: &SwapInfo, options: &FreeOptions) {
     if options.wide_output {
-        println!("{:>14} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
+        println!(
+            "{:>14} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
             "Swap:",
             format_memory(swap_info.total, options),
             format_memory(swap_info.used, options),
@@ -522,7 +575,8 @@ fn print_swap_line(swap_info: &SwapInfo, options: &FreeOptions) {
             ""
         );
     } else {
-        println!("{:>14} {:>10} {:>10} {:>10} {:>10} {:>10}",
+        println!(
+            "{:>14} {:>10} {:>10} {:>10} {:>10} {:>10}",
             "Swap:",
             format_memory(swap_info.total, options),
             format_memory(swap_info.used, options),
@@ -537,9 +591,10 @@ fn print_total_line(memory_info: &MemoryInfo, swap_info: &SwapInfo, options: &Fr
     let total_total = memory_info.total + swap_info.total;
     let total_used = (memory_info.total - memory_info.available) + swap_info.used;
     let total_free = memory_info.available + swap_info.free;
-    
+
     if options.wide_output {
-        println!("{:>14} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
+        println!(
+            "{:>14} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
             "Total:",
             format_memory(total_total, options),
             format_memory(total_used, options),
@@ -549,7 +604,8 @@ fn print_total_line(memory_info: &MemoryInfo, swap_info: &SwapInfo, options: &Fr
             ""
         );
     } else {
-        println!("{:>14} {:>10} {:>10} {:>10} {:>10} {:>10}",
+        println!(
+            "{:>14} {:>10} {:>10} {:>10} {:>10} {:>10}",
             "Total:",
             format_memory(total_total, options),
             format_memory(total_used, options),
@@ -566,13 +622,25 @@ fn format_memory(bytes: u64, options: &FreeOptions) -> String {
     } else if options.bytes {
         bytes.to_string()
     } else if options.mega {
-        let divisor = if options.si_units { 1_000_000 } else { 1_048_576 };
+        let divisor = if options.si_units {
+            1_000_000
+        } else {
+            1_048_576
+        };
         (bytes / divisor).to_string()
     } else if options.giga {
-        let divisor = if options.si_units { 1_000_000_000 } else { 1_073_741_824 };
+        let divisor = if options.si_units {
+            1_000_000_000
+        } else {
+            1_073_741_824
+        };
         (bytes / divisor).to_string()
     } else if options.tera {
-        let divisor = if options.si_units { 1_000_000_000_000 } else { 1_099_511_627_776 };
+        let divisor = if options.si_units {
+            1_000_000_000_000
+        } else {
+            1_099_511_627_776
+        };
         (bytes / divisor).to_string()
     } else {
         // Default: kilo
@@ -587,16 +655,16 @@ fn format_human_readable(bytes: u64, si_units: bool) -> String {
     } else {
         ["B", "Ki", "Mi", "Gi", "Ti", "Pi"]
     };
-    
+
     let base = if si_units { 1000.0 } else { 1024.0 };
     let mut size = bytes as f64;
     let mut unit_index = 0;
-    
+
     while size >= base && unit_index < units.len() - 1 {
         size /= base;
         unit_index += 1;
     }
-    
+
     if unit_index == 0 {
         format!("{bytes}B")
     } else if size >= 10.0 {
@@ -611,10 +679,12 @@ pub fn free_cli(args: &[String]) -> anyhow::Result<()> {
     let _args = args; // Avoid unused warning
     println!("Free memory information not available on this platform");
     Ok(())
-} 
+}
 
-
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    _args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     println!("free: Command not yet implemented");
     Ok(0)
 }

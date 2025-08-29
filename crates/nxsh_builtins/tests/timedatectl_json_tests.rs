@@ -26,7 +26,7 @@ async fn status_and_statistics_json_smoke() {
 #[test]
 fn json_roundtrip_sample_structs() {
     // Construct minimal sample objects for smoke testing
-    use nxsh_builtins::timedatectl::{NTPServerStatus, TimeSyncStatus, LeapStatus};
+    use nxsh_builtins::timedatectl::{LeapStatus, NTPServerStatus, TimeSyncStatus};
     let status = TimeSyncStatus {
         enabled: true,
         synchronized: false,
@@ -48,10 +48,9 @@ fn json_roundtrip_sample_structs() {
         poll_interval: std::time::Duration::from_secs(64),
         leap_status: LeapStatus::NORMAL,
     };
-    
+
     // Simple validation that the struct can be constructed
     assert!(status.enabled);
     assert_eq!(status.servers.len(), 1);
     assert_eq!(status.servers[0].server, "pool.ntp.org");
 }
-

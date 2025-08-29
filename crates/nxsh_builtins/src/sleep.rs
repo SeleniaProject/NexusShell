@@ -1,6 +1,6 @@
+use crate::common::{BuiltinContext, BuiltinResult};
 use std::thread;
 use std::time::Duration;
-use crate::common::{BuiltinResult, BuiltinContext};
 
 /// Delay for a specified amount of time
 pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
@@ -80,7 +80,8 @@ fn parse_duration(s: &str) -> Result<Duration, String> {
     };
 
     // Parse the number part
-    let number: f64 = number_str.parse()
+    let number: f64 = number_str
+        .parse()
         .map_err(|_| format!("invalid time interval '{s}'"))?;
 
     if number < 0.0 {
@@ -98,7 +99,7 @@ fn parse_duration(s: &str) -> Result<Duration, String> {
 
     // Convert to Duration
     let duration = Duration::from_secs_f64(seconds);
-    
+
     // Check for reasonable limits (avoid overflow)
     if seconds > u64::MAX as f64 {
         return Err("time interval too large".to_string());

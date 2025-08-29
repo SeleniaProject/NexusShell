@@ -1,7 +1,7 @@
+use crate::common::{BuiltinContext, BuiltinResult};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
-use crate::common::{BuiltinResult, BuiltinContext};
 
 /// Display the first part of files
 pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
@@ -89,7 +89,14 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
             if index > 0 {
                 println!();
             }
-            println!("==> {} <==", if filename == "-" { "standard input" } else { filename });
+            println!(
+                "==> {} <==",
+                if filename == "-" {
+                    "standard input"
+                } else {
+                    filename
+                }
+            );
         }
 
         let result = if filename == "-" {
@@ -107,7 +114,11 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
     Ok(exit_code)
 }
 
-fn read_from_file(filename: &str, line_count: i64, byte_count: Option<u64>) -> Result<(), Box<dyn std::error::Error>> {
+fn read_from_file(
+    filename: &str,
+    line_count: i64,
+    byte_count: Option<u64>,
+) -> Result<(), Box<dyn std::error::Error>> {
     if !Path::new(filename).exists() {
         return Err("No such file or directory".to_string().into());
     }
@@ -124,7 +135,10 @@ fn read_from_file(filename: &str, line_count: i64, byte_count: Option<u64>) -> R
     Ok(())
 }
 
-fn read_from_stdin(line_count: i64, byte_count: Option<u64>) -> Result<(), Box<dyn std::error::Error>> {
+fn read_from_stdin(
+    line_count: i64,
+    byte_count: Option<u64>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let stdin = std::io::stdin();
 
     if let Some(bytes) = byte_count {
@@ -161,7 +175,7 @@ fn read_bytes<R: Read>(mut reader: R, byte_count: u64) -> Result<(), Box<dyn std
     while total_read < byte_count {
         let to_read = std::cmp::min(buffer.len() as u64, byte_count - total_read) as usize;
         let bytes_read = reader.read(&mut buffer[..to_read])?;
-        
+
         if bytes_read == 0 {
             break; // EOF
         }

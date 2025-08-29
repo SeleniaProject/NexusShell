@@ -1,9 +1,8 @@
-use std::collections::HashMap;
-use std::env;
+use crate::function::{get_function, list_functions};
 use anyhow::Result;
 use nxsh_core::{ErrorKind, ShellError};
-use crate::function::{get_function, list_functions};
-
+use std::collections::HashMap;
+use std::env;
 
 pub fn export_cli(args: Vec<String>) -> Result<()> {
     if args.contains(&"-h".to_string()) || args.contains(&"--help".to_string()) {
@@ -37,8 +36,9 @@ pub fn export_cli(args: Vec<String>) -> Result<()> {
                 if arg.starts_with('-') {
                     return Err(ShellError::new(
                         ErrorKind::InvalidArgument,
-                        format!("Unknown option: {arg}")
-                    ).into());
+                        format!("Unknown option: {arg}"),
+                    )
+                    .into());
                 }
 
                 if function_mode {
@@ -112,8 +112,9 @@ fn handle_export_assignment(arg: &str) -> Result<()> {
         if !is_valid_var_name(name) {
             return Err(ShellError::new(
                 ErrorKind::InvalidArgument,
-                format!("Invalid variable name: {name}")
-            ).into());
+                format!("Invalid variable name: {name}"),
+            )
+            .into());
         }
 
         env::set_var(name, value);
@@ -125,8 +126,9 @@ fn handle_export_assignment(arg: &str) -> Result<()> {
         if !is_valid_var_name(name) {
             return Err(ShellError::new(
                 ErrorKind::InvalidArgument,
-                format!("Invalid variable name: {name}")
-            ).into());
+                format!("Invalid variable name: {name}"),
+            )
+            .into());
         }
 
         match env::var(name) {
@@ -149,8 +151,9 @@ fn remove_from_export(name: &str) -> Result<()> {
     if !is_valid_var_name(name) {
         return Err(ShellError::new(
             ErrorKind::InvalidArgument,
-            format!("Invalid variable name: {name}")
-        ).into());
+            format!("Invalid variable name: {name}"),
+        )
+        .into());
     }
 
     // Remove environment variable from exported set
@@ -191,7 +194,7 @@ fn is_valid_var_name(name: &str) -> bool {
 
 fn escape_value(value: &str) -> String {
     let mut escaped = String::new();
-    
+
     for c in value.chars() {
         match c {
             '"' => escaped.push_str("\\\""),
@@ -204,7 +207,7 @@ fn escape_value(value: &str) -> String {
             _ => escaped.push(c),
         }
     }
-    
+
     escaped
 }
 
@@ -224,8 +227,9 @@ pub fn export_var(name: &str, value: &str) -> Result<()> {
     if !is_valid_var_name(name) {
         return Err(ShellError::new(
             ErrorKind::InvalidArgument,
-            format!("Invalid variable name: {name}")
-        ).into());
+            format!("Invalid variable name: {name}"),
+        )
+        .into());
     }
 
     env::set_var(name, value);
@@ -236,8 +240,9 @@ pub fn unexport_var(name: &str) -> Result<()> {
     if !is_valid_var_name(name) {
         return Err(ShellError::new(
             ErrorKind::InvalidArgument,
-            format!("Invalid variable name: {name}")
-        ).into());
+            format!("Invalid variable name: {name}"),
+        )
+        .into());
     }
 
     if env::var(name).is_ok() {
@@ -254,21 +259,19 @@ pub fn handle_shell_assignment(assignment: &str) -> Result<()> {
     if let Some(eq_pos) = assignment.find('=') {
         let name = &assignment[..eq_pos];
         let value = &assignment[eq_pos + 1..];
-        
+
         if !is_valid_var_name(name) {
             return Err(ShellError::new(
                 ErrorKind::InvalidArgument,
-                format!("Invalid variable name: {name}")
-            ).into());
+                format!("Invalid variable name: {name}"),
+            )
+            .into());
         }
 
         env::set_var(name, value);
         Ok(())
     } else {
-        Err(ShellError::new(
-            ErrorKind::InvalidArgument,
-            "Invalid assignment format"
-        ).into())
+        Err(ShellError::new(ErrorKind::InvalidArgument, "Invalid assignment format").into())
     }
 }
 
@@ -279,7 +282,7 @@ pub fn expand_variable(name: &str) -> Option<String> {
 pub fn substitute_variables(input: &str) -> String {
     let mut result = String::new();
     let mut chars = input.chars().peekable();
-    
+
     while let Some(c) = chars.next() {
         if c == '$' {
             if let Some(&next_char) = chars.peek() {
@@ -287,21 +290,21 @@ pub fn substitute_variables(input: &str) -> String {
                     // Handle ${var} format
                     chars.next(); // consume '{'
                     let mut var_name = String::new();
-                    
+
                     for c in chars.by_ref() {
                         if c == '}' {
                             break;
                         }
                         var_name.push(c);
                     }
-                    
+
                     if let Some(value) = expand_variable(&var_name) {
                         result.push_str(&value);
                     }
                 } else if next_char.is_ascii_alphabetic() || next_char == '_' {
                     // Handle $var format
                     let mut var_name = String::new();
-                    
+
                     while let Some(&c) = chars.peek() {
                         if c.is_ascii_alphanumeric() || c == '_' {
                             var_name.push(chars.next().unwrap());
@@ -309,7 +312,7 @@ pub fn substitute_variables(input: &str) -> String {
                             break;
                         }
                     }
-                    
+
                     if let Some(value) = expand_variable(&var_name) {
                         result.push_str(&value);
                     }
@@ -323,7 +326,7 @@ pub fn substitute_variables(input: &str) -> String {
             result.push(c);
         }
     }
-    
+
     result
 }
 
@@ -339,12 +342,15 @@ fn export_functions(names: &[String]) -> Result<()> {
     }
 
     for name in names {
-        if name.starts_with('-') { break; }
+        if name.starts_with('-') {
+            break;
+        }
         if !is_valid_var_name(name) {
             return Err(ShellError::new(
                 ErrorKind::InvalidArgument,
-                format!("Invalid function name: {name}")
-            ).into());
+                format!("Invalid function name: {name}"),
+            )
+            .into());
         }
         match get_function(name) {
             Some(_func) => {
@@ -354,17 +360,20 @@ fn export_functions(names: &[String]) -> Result<()> {
             None => {
                 return Err(ShellError::new(
                     ErrorKind::InvalidArgument,
-                    format!("Function not found: {name}")
-                ).into());
+                    format!("Function not found: {name}"),
+                )
+                .into());
             }
         }
     }
     Ok(())
 }
 
-
 /// Execute function stub
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    _args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     eprintln!("Command not yet implemented");
     Ok(1)
 }

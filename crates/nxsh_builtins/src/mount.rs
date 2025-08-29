@@ -71,39 +71,64 @@ impl MountInfo {
         } else {
             self.options.join(",")
         };
-        
-        format!("{} on {} type {} ({})", 
-            self.device, self.mount_point, self.filesystem, options_str)
+
+        format!(
+            "{} on {} type {} ({})",
+            self.device, self.mount_point, self.filesystem, options_str
+        )
     }
 
     /// Format mount entry with space usage information
     pub fn format_mount_with_usage(&self) -> String {
         let mut result = self.format_mount_entry();
-        
-        if let (Some(size), Some(used), Some(available)) = 
-            (self.size_bytes, self.used_bytes, self.available_bytes) {
-            result.push_str(&format!("\n  Size: {}, Used: {}, Available: {}", 
-                format_bytes(size), format_bytes(used), format_bytes(available)));
-            
+
+        if let (Some(size), Some(used), Some(available)) =
+            (self.size_bytes, self.used_bytes, self.available_bytes)
+        {
+            result.push_str(&format!(
+                "\n  Size: {}, Used: {}, Available: {}",
+                format_bytes(size),
+                format_bytes(used),
+                format_bytes(available)
+            ));
+
             if let Some(percentage) = self.use_percentage {
                 result.push_str(&format!(", {}% used", percentage as u32));
             }
         }
-        
+
         result
     }
 
     /// Check if this mount is read-only
     pub fn is_read_only(&self) -> bool {
-        self.options.iter().any(|opt| opt == "ro" || opt == "readonly")
+        self.options
+            .iter()
+            .any(|opt| opt == "ro" || opt == "readonly")
     }
 
     /// Check if this mount is a special filesystem (proc, sysfs, etc.)
     pub fn is_special_filesystem(&self) -> bool {
-        matches!(self.filesystem.as_str(), 
-            "proc" | "sysfs" | "devtmpfs" | "tmpfs" | "devpts" | "cgroup" | 
-            "cgroup2" | "pstore" | "bpf" | "tracefs" | "debugfs" | "securityfs" |
-            "configfs" | "fusectl" | "mqueue" | "hugetlbfs" | "autofs")
+        matches!(
+            self.filesystem.as_str(),
+            "proc"
+                | "sysfs"
+                | "devtmpfs"
+                | "tmpfs"
+                | "devpts"
+                | "cgroup"
+                | "cgroup2"
+                | "pstore"
+                | "bpf"
+                | "tracefs"
+                | "debugfs"
+                | "securityfs"
+                | "configfs"
+                | "fusectl"
+                | "mqueue"
+                | "hugetlbfs"
+                | "autofs"
+        )
     }
 }
 
@@ -150,12 +175,13 @@ impl MountConfig {
                 "--remount" => config.remount = true,
                 "-t" | "--types" => {
                     if i + 1 < args.len() {
-                        config.list_types = Some(args[i + 1].split(',').map(|s| s.to_string()).collect());
+                        config.list_types =
+                            Some(args[i + 1].split(',').map(|s| s.to_string()).collect());
                         i += 1;
                     } else {
                         bail!("Option '{}' requires an argument", args[i]);
                     }
-                },
+                }
                 "-o" | "--options" => {
                     if i + 1 < args.len() {
                         config.options = args[i + 1].split(',').map(|s| s.to_string()).collect();
@@ -163,10 +189,10 @@ impl MountConfig {
                     } else {
                         bail!("Option '{}' requires an argument", args[i]);
                     }
-                },
+                }
                 arg if arg.starts_with('-') => {
                     bail!("Unknown option: {}", arg);
-                },
+                }
                 _ => {
                     // Positional arguments: source and target
                     if config.source.is_none() {
@@ -214,7 +240,8 @@ mod windows_impl {
     fn query_wmi_logical_disks() -> Result<Vec<MountInfo>> {
         let output = Command::new("powershell")
             .args([
-                "-NoProfile", "-Command",
+                "-NoProfile",
+                "-Command",
                 r#"
                 Get-WmiObject -Class Win32_LogicalDisk | ForEach-Object {
                     [PSCustomObject]@{
@@ -230,19 +257,22 @@ mod windows_impl {
                         SupportsFileBasedCompression = $_.SupportsFileBasedCompression
                     }
                 } | ConvertTo-Json -Depth 2
-                "#
+                "#,
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()?;
 
         if !output.status.success() {
-            bail!("WMI logical disk query failed: {}", String::from_utf8_lossy(&output.stderr));
+            bail!(
+                "WMI logical disk query failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
 
         let json_str = String::from_utf8(output.stdout)?;
-        let disks_json: Value = serde_json::from_str(&json_str)
-            .context("Failed to parse WMI logical disk JSON")?;
+        let disks_json: Value =
+            serde_json::from_str(&json_str).context("Failed to parse WMI logical disk JSON")?;
 
         let mut mounts = Vec::new();
         let disk_array = if disks_json.is_array() {
@@ -252,8 +282,14 @@ mod windows_impl {
         };
 
         for disk_json in disk_array {
-            let device_id = disk_json["DeviceID"].as_str().unwrap_or("Unknown").to_string();
-            let filesystem = disk_json["FileSystem"].as_str().unwrap_or("Unknown").to_string();
+            let device_id = disk_json["DeviceID"]
+                .as_str()
+                .unwrap_or("Unknown")
+                .to_string();
+            let filesystem = disk_json["FileSystem"]
+                .as_str()
+                .unwrap_or("Unknown")
+                .to_string();
             let size = disk_json["Size"].as_u64();
             let free_space = disk_json["FreeSpace"].as_u64();
             let drive_type = disk_json["DriveType"].as_u64().unwrap_or(0);
@@ -262,7 +298,10 @@ mod windows_impl {
             if disk_json["Compressed"].as_bool().unwrap_or(false) {
                 options.push("compressed".to_string());
             }
-            if disk_json["SupportsFileBasedCompression"].as_bool().unwrap_or(false) {
+            if disk_json["SupportsFileBasedCompression"]
+                .as_bool()
+                .unwrap_or(false)
+            {
                 options.push("supports_compression".to_string());
             }
 
@@ -314,7 +353,8 @@ mod windows_impl {
     fn query_powershell_volumes() -> Result<Vec<Value>> {
         let output = Command::new("powershell")
             .args([
-                "-NoProfile", "-Command",
+                "-NoProfile",
+                "-Command",
                 r#"
                 Get-Volume | ForEach-Object {
                     [PSCustomObject]@{
@@ -329,7 +369,7 @@ mod windows_impl {
                         AllocationUnitSize = $_.AllocationUnitSize
                     }
                 } | ConvertTo-Json -Depth 2
-                "#
+                "#,
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -344,8 +384,8 @@ mod windows_impl {
             return Ok(Vec::new());
         }
 
-        let volumes_json: Value = serde_json::from_str(&json_str)
-            .context("Failed to parse PowerShell volume JSON")?;
+        let volumes_json: Value =
+            serde_json::from_str(&json_str).context("Failed to parse PowerShell volume JSON")?;
 
         let volumes = if volumes_json.is_array() {
             volumes_json.as_array().unwrap().clone()
@@ -359,7 +399,7 @@ mod windows_impl {
     fn enhance_mounts_with_volumes(mounts: &mut [MountInfo], volumes: Vec<Value>) {
         for mount in mounts.iter_mut() {
             let drive_letter = mount.device.trim_end_matches(':');
-            
+
             for volume in &volumes {
                 if let Some(vol_letter) = volume["DriveLetter"].as_str() {
                     if vol_letter == drive_letter {
@@ -401,12 +441,14 @@ mod windows_impl {
 
         // Parse 'net use' output
         for line in output_str.lines() {
-            if line.contains("\\\\") && (line.contains("Microsoft Windows Network") || line.contains("OK")) {
+            if line.contains("\\\\")
+                && (line.contains("Microsoft Windows Network") || line.contains("OK"))
+            {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 3 {
                     let drive_letter = parts[1];
                     let network_path = parts[2];
-                    
+
                     network_mounts.push(MountInfo {
                         device: network_path.to_string(),
                         mount_point: drive_letter.to_string(),
@@ -445,7 +487,7 @@ mod windows_impl {
         }
 
         let output = cmd.output()?;
-        
+
         if output.status.success() {
             if config.verbose {
                 println!("Successfully mounted network drive '{source}' as '{target}'");
@@ -460,8 +502,9 @@ mod windows_impl {
     fn mount_disk_image(source: &str, target: &str, config: &MountConfig) -> Result<()> {
         let mut cmd = Command::new("powershell");
         cmd.args([
-            "-NoProfile", "-Command",
-            &format!("Mount-DiskImage -ImagePath '{source}' -PassThru | Get-Volume")
+            "-NoProfile",
+            "-Command",
+            &format!("Mount-DiskImage -ImagePath '{source}' -PassThru | Get-Volume"),
         ]);
 
         if config.dry_run {
@@ -470,7 +513,7 @@ mod windows_impl {
         }
 
         let output = cmd.output()?;
-        
+
         if output.status.success() {
             if config.verbose {
                 println!("Successfully mounted disk image '{source}' (target: '{target}')");
@@ -494,7 +537,7 @@ mod windows_impl {
         }
 
         let output = cmd.output()?;
-        
+
         if output.status.success() {
             if config.verbose {
                 println!("Successfully created drive substitution '{target}' -> '{source}'");
@@ -508,7 +551,7 @@ mod windows_impl {
 
     pub fn unmount_filesystem(target: &str, config: &MountConfig) -> Result<()> {
         // Try different unmounting methods
-        
+
         // First try net use for network drives
         if let Ok(()) = unmount_network_drive(target, config) {
             return Ok(());
@@ -533,7 +576,7 @@ mod windows_impl {
         }
 
         let output = cmd.output()?;
-        
+
         if output.status.success() {
             if config.verbose {
                 println!("Successfully unmounted network drive '{target}'");
@@ -557,7 +600,7 @@ mod windows_impl {
         }
 
         let output = cmd.output()?;
-        
+
         if output.status.success() {
             if config.verbose {
                 println!("Successfully dismounted disk image containing '{target}'");
@@ -578,7 +621,7 @@ mod windows_impl {
         }
 
         let output = cmd.output()?;
-        
+
         if output.status.success() {
             if config.verbose {
                 println!("Successfully removed drive substitution '{target}'");
@@ -595,7 +638,7 @@ mod windows_impl {
 #[cfg(target_os = "linux")]
 mod linux_impl {
     use super::*;
-    
+
     pub fn list_mounts() -> Result<Vec<MountInfo>> {
         let mut mounts = Vec::new();
 
@@ -691,7 +734,7 @@ mod linux_impl {
             let root = parts[3].to_string();
             let mount_point = parts[4].to_string();
             let mount_options: Vec<String> = parts[5].split(',').map(|s| s.to_string()).collect();
-            
+
             // Find the separator "-"
             let separator_pos = parts.iter().position(|&x| x == "-")?;
             if separator_pos + 3 < parts.len() {
@@ -717,7 +760,10 @@ mod linux_impl {
         None
     }
 
-    fn enhance_mounts_with_mountinfo(mounts: &mut Vec<MountInfo>, mountinfo: HashMap<String, MountInfo>) {
+    fn enhance_mounts_with_mountinfo(
+        mounts: &mut Vec<MountInfo>,
+        mountinfo: HashMap<String, MountInfo>,
+    ) {
         for mount in mounts.iter_mut() {
             if let Some(info) = mountinfo.get(&mount.mount_point) {
                 mount.mount_id = info.mount_id.clone();
@@ -729,26 +775,36 @@ mod linux_impl {
         }
     }
 
-    fn get_filesystem_usage(mount_point: &str) -> Result<(Option<u64>, Option<u64>, Option<u64>, Option<f32>, Option<u64>, Option<u64>, Option<u64>)> {
+    fn get_filesystem_usage(
+        mount_point: &str,
+    ) -> Result<(
+        Option<u64>,
+        Option<u64>,
+        Option<u64>,
+        Option<f32>,
+        Option<u64>,
+        Option<u64>,
+        Option<u64>,
+    )> {
         use std::ffi::CString;
         use std::mem;
 
         // Use libc statvfs for filesystem statistics
         let path = CString::new(mount_point)?;
         let mut statvfs: libc::statvfs = unsafe { mem::zeroed() };
-        
+
         let result = unsafe { libc::statvfs(path.as_ptr(), &mut statvfs) };
-        
+
         if result == 0 {
             let block_size = statvfs.f_frsize as u64;
             let total_blocks = statvfs.f_blocks;
             let free_blocks = statvfs.f_bavail;
             let used_blocks = total_blocks - statvfs.f_bfree;
-            
+
             let total_bytes = total_blocks * block_size;
             let used_bytes = used_blocks * block_size;
             let available_bytes = free_blocks * block_size;
-            
+
             let use_percentage = if total_blocks > 0 {
                 Some((used_blocks as f32 / total_blocks as f32) * 100.0)
             } else {
@@ -760,13 +816,13 @@ mod linux_impl {
             let inode_used = Some(statvfs.f_files - statvfs.f_ffree);
 
             Ok((
-                Some(total_bytes), 
-                Some(used_bytes), 
-                Some(available_bytes), 
+                Some(total_bytes),
+                Some(used_bytes),
+                Some(available_bytes),
                 use_percentage,
                 inode_total,
                 inode_used,
-                inode_available
+                inode_available,
             ))
         } else {
             Ok((None, None, None, None, None, None, None))
@@ -785,8 +841,8 @@ mod linux_impl {
         }
 
         let json_str = String::from_utf8(output.stdout)?;
-        let findmnt_json: Value = serde_json::from_str(&json_str)
-            .context("Failed to parse findmnt JSON")?;
+        let findmnt_json: Value =
+            serde_json::from_str(&json_str).context("Failed to parse findmnt JSON")?;
 
         let mut mounts = Vec::new();
 
@@ -833,7 +889,9 @@ mod linux_impl {
         // Convert strings to C strings
         let source_c = CString::new(source)?;
         let target_c = CString::new(target)?;
-        let fs_type_c = config.filesystem_type.as_ref()
+        let fs_type_c = config
+            .filesystem_type
+            .as_ref()
             .map(|s| CString::new(s.as_str()))
             .transpose()?;
 
@@ -890,7 +948,12 @@ mod linux_impl {
             Ok(())
         } else {
             let error = std::io::Error::last_os_error();
-            bail!("mount: failed to mount '{}' on '{}': {}", source, target, error);
+            bail!(
+                "mount: failed to mount '{}' on '{}': {}",
+                source,
+                target,
+                error
+            );
         }
     }
 
@@ -915,7 +978,7 @@ mod linux_impl {
         } else {
             // Try lazy unmount if normal unmount fails
             let result = unsafe { libc::umount2(target_c.as_ptr(), libc::MNT_DETACH) };
-            
+
             if result == 0 {
                 if config.verbose {
                     println!("Successfully unmounted '{}' (lazy)", target);
@@ -982,17 +1045,21 @@ mod macos_impl {
         if let Some(on_pos) = line.find(" on ") {
             let device = line[..on_pos].to_string();
             let rest = &line[on_pos + 4..];
-            
+
             if let Some(open_paren) = rest.find(" (") {
                 let mount_point = rest[..open_paren].to_string();
                 let options_part = &rest[open_paren + 2..];
-                
+
                 if let Some(close_paren) = options_part.rfind(')') {
                     let options_str = &options_part[..close_paren];
-                    let options: Vec<String> = options_str.split(", ").map(|s| s.to_string()).collect();
-                    
-                    let filesystem = options.first().cloned().unwrap_or_else(|| "unknown".to_string());
-                    
+                    let options: Vec<String> =
+                        options_str.split(", ").map(|s| s.to_string()).collect();
+
+                    let filesystem = options
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| "unknown".to_string());
+
                     return Some(MountInfo {
                         device,
                         mount_point,
@@ -1006,7 +1073,9 @@ mod macos_impl {
         None
     }
 
-    fn get_diskutil_usage(mount_point: &str) -> Result<(Option<u64>, Option<u64>, Option<u64>, Option<f32>)> {
+    fn get_diskutil_usage(
+        mount_point: &str,
+    ) -> Result<(Option<u64>, Option<u64>, Option<u64>, Option<f32>)> {
         let output = Command::new("df")
             .args(&["-k", mount_point])
             .stdout(Stdio::piped())
@@ -1019,25 +1088,30 @@ mod macos_impl {
 
         let output_str = String::from_utf8(output.stdout)?;
         let lines: Vec<&str> = output_str.lines().collect();
-        
+
         if lines.len() >= 2 {
             let parts: Vec<&str> = lines[1].split_whitespace().collect();
             if parts.len() >= 4 {
                 let total_kb: u64 = parts[1].parse().unwrap_or(0);
                 let used_kb: u64 = parts[2].parse().unwrap_or(0);
                 let available_kb: u64 = parts[3].parse().unwrap_or(0);
-                
+
                 let total_bytes = total_kb * 1024;
                 let used_bytes = used_kb * 1024;
                 let available_bytes = available_kb * 1024;
-                
+
                 let use_percentage = if total_kb > 0 {
                     Some((used_kb as f32 / total_kb as f32) * 100.0)
                 } else {
                     None
                 };
 
-                return Ok((Some(total_bytes), Some(used_bytes), Some(available_bytes), use_percentage));
+                return Ok((
+                    Some(total_bytes),
+                    Some(used_bytes),
+                    Some(available_bytes),
+                    use_percentage,
+                ));
             }
         }
 
@@ -1051,19 +1125,19 @@ mod macos_impl {
         }
 
         let mut cmd = Command::new("mount");
-        
+
         if let Some(ref fs_type) = config.filesystem_type {
             cmd.args(&["-t", fs_type]);
         }
-        
+
         if !config.options.is_empty() {
             cmd.args(&["-o", &config.options.join(",")]);
         }
-        
+
         cmd.args(&[source, target]);
 
         let output = cmd.output()?;
-        
+
         if output.status.success() {
             if config.verbose {
                 println!("Successfully mounted '{}' on '{}'", source, target);
@@ -1071,7 +1145,12 @@ mod macos_impl {
             Ok(())
         } else {
             let error = String::from_utf8_lossy(&output.stderr);
-            bail!("mount: failed to mount '{}' on '{}': {}", source, target, error);
+            bail!(
+                "mount: failed to mount '{}' on '{}': {}",
+                source,
+                target,
+                error
+            );
         }
     }
 
@@ -1081,10 +1160,8 @@ mod macos_impl {
             return Ok(());
         }
 
-        let output = Command::new("umount")
-            .arg(target)
-            .output()?;
-        
+        let output = Command::new("umount").arg(target).output()?;
+
         if output.status.success() {
             if config.verbose {
                 println!("Successfully unmounted '{}'", target);
@@ -1101,13 +1178,13 @@ mod macos_impl {
 pub fn list_mounts() -> Result<Vec<MountInfo>> {
     #[cfg(target_os = "windows")]
     return windows_impl::list_mounts();
-    
+
     #[cfg(target_os = "linux")]
     return linux_impl::list_mounts();
-    
+
     #[cfg(target_os = "macos")]
     return macos_impl::list_mounts();
-    
+
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         // Fallback for unsupported platforms
@@ -1125,13 +1202,13 @@ pub fn list_mounts() -> Result<Vec<MountInfo>> {
 pub fn mount_filesystem(source: &str, target: &str, config: &MountConfig) -> Result<()> {
     #[cfg(target_os = "windows")]
     return windows_impl::mount_filesystem(source, target, config);
-    
+
     #[cfg(target_os = "linux")]
     return linux_impl::mount_filesystem(source, target, config);
-    
+
     #[cfg(target_os = "macos")]
     return macos_impl::mount_filesystem(source, target, config);
-    
+
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         bail!("Mount operations not supported on this platform");
@@ -1142,13 +1219,13 @@ pub fn mount_filesystem(source: &str, target: &str, config: &MountConfig) -> Res
 pub fn unmount_filesystem(target: &str, config: &MountConfig) -> Result<()> {
     #[cfg(target_os = "windows")]
     return windows_impl::unmount_filesystem(target, config);
-    
+
     #[cfg(target_os = "linux")]
     return linux_impl::unmount_filesystem(target, config);
-    
+
     #[cfg(target_os = "macos")]
     return macos_impl::unmount_filesystem(target, config);
-    
+
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
         bail!("Unmount operations not supported on this platform");
@@ -1205,7 +1282,7 @@ fn output_mounts(mounts: &[MountInfo], config: &MountConfig) -> Result<()> {
     } else {
         output_standard(mounts)?;
     }
-    
+
     Ok(())
 }
 
@@ -1221,7 +1298,7 @@ fn output_standard(mounts: &[MountInfo]) -> Result<()> {
 fn output_verbose(mounts: &[MountInfo]) -> Result<()> {
     for mount in mounts {
         println!("{}", mount.format_mount_with_usage());
-        
+
         if let Some(ref mount_id) = mount.mount_id {
             println!("  Mount ID: {mount_id}");
         }
@@ -1231,7 +1308,7 @@ fn output_verbose(mounts: &[MountInfo]) -> Result<()> {
         if let Some(ref major_minor) = mount.major_minor {
             println!("  Device: {major_minor}");
         }
-        
+
         println!();
     }
     Ok(())
@@ -1239,30 +1316,33 @@ fn output_verbose(mounts: &[MountInfo]) -> Result<()> {
 
 /// Output mounts in JSON format
 fn output_json(mounts: &[MountInfo]) -> Result<()> {
-    let json_mounts: Vec<Value> = mounts.iter().map(|mount| {
-        json!({
-            "device": mount.device,
-            "mount_point": mount.mount_point,
-            "filesystem": mount.filesystem,
-            "options": mount.options,
-            "dump_frequency": mount.dump_frequency,
-            "pass_number": mount.pass_number,
-            "size_bytes": mount.size_bytes,
-            "used_bytes": mount.used_bytes,
-            "available_bytes": mount.available_bytes,
-            "use_percentage": mount.use_percentage,
-            "inode_total": mount.inode_total,
-            "inode_used": mount.inode_used,
-            "inode_available": mount.inode_available,
-            "mount_id": mount.mount_id,
-            "parent_id": mount.parent_id,
-            "major_minor": mount.major_minor,
-            "root": mount.root,
-            "mount_source": mount.mount_source,
-            "read_only": mount.is_read_only(),
-            "special_filesystem": mount.is_special_filesystem()
+    let json_mounts: Vec<Value> = mounts
+        .iter()
+        .map(|mount| {
+            json!({
+                "device": mount.device,
+                "mount_point": mount.mount_point,
+                "filesystem": mount.filesystem,
+                "options": mount.options,
+                "dump_frequency": mount.dump_frequency,
+                "pass_number": mount.pass_number,
+                "size_bytes": mount.size_bytes,
+                "used_bytes": mount.used_bytes,
+                "available_bytes": mount.available_bytes,
+                "use_percentage": mount.use_percentage,
+                "inode_total": mount.inode_total,
+                "inode_used": mount.inode_used,
+                "inode_available": mount.inode_available,
+                "mount_id": mount.mount_id,
+                "parent_id": mount.parent_id,
+                "major_minor": mount.major_minor,
+                "root": mount.root,
+                "mount_source": mount.mount_source,
+                "read_only": mount.is_read_only(),
+                "special_filesystem": mount.is_special_filesystem()
+            })
         })
-    }).collect();
+        .collect();
 
     println!("{}", serde_json::to_string_pretty(&json_mounts)?);
     Ok(())
@@ -1334,9 +1414,8 @@ pub fn mount_cli(args: &[String]) -> Result<()> {
 
     // If no source and target specified, list mounts
     if config.source.is_none() && config.target.is_none() {
-        let mounts = list_mounts()
-            .context("Failed to list mounted filesystems")?;
-        
+        let mounts = list_mounts().context("Failed to list mounted filesystems")?;
+
         let filtered_mounts = filter_mounts(mounts, &config);
         output_mounts(&filtered_mounts, &config)?;
         return Ok(());
@@ -1401,8 +1480,10 @@ mod tests {
 
     #[test]
     fn test_mount_info_properties() {
-        let mut mount = MountInfo::default();
-        mount.options = vec!["ro".to_string(), "noexec".to_string()];
+        let mut mount = MountInfo {
+            options: vec!["ro".to_string(), "noexec".to_string()],
+            ..Default::default()
+        };
         assert!(mount.is_read_only());
 
         mount.filesystem = "proc".to_string();
@@ -1444,7 +1525,14 @@ mod tests {
     fn test_filesystem_types() {
         let args = vec!["-t".to_string(), "ext4,xfs,btrfs".to_string()];
         let config = MountConfig::parse_args(&args).unwrap();
-        assert_eq!(config.list_types, Some(vec!["ext4".to_string(), "xfs".to_string(), "btrfs".to_string()]));
+        assert_eq!(
+            config.list_types,
+            Some(vec![
+                "ext4".to_string(),
+                "xfs".to_string(),
+                "btrfs".to_string()
+            ])
+        );
     }
 
     #[test]
@@ -1479,10 +1567,10 @@ mod tests {
     #[test]
     fn test_linux_mount_line_parsing() {
         use linux_impl::parse_mount_line;
-        
+
         let line = "/dev/sda1 / ext4 rw,relatime 0 1";
         let mount = parse_mount_line(line).unwrap();
-        
+
         assert_eq!(mount.device, "/dev/sda1");
         assert_eq!(mount.mount_point, "/");
         assert_eq!(mount.filesystem, "ext4");
@@ -1495,10 +1583,10 @@ mod tests {
     #[test]
     fn test_macos_mount_line_parsing() {
         use macos_impl::parse_macos_mount_line;
-        
+
         let line = "/dev/disk1s1 on / (apfs, local, read-only, journaled)";
         let mount = parse_macos_mount_line(line).unwrap();
-        
+
         assert_eq!(mount.device, "/dev/disk1s1");
         assert_eq!(mount.mount_point, "/");
         assert_eq!(mount.filesystem, "apfs");
@@ -1545,7 +1633,10 @@ mod tests {
         let filtered = filter_mounts(mounts.clone(), &config);
         assert_eq!(filtered.len(), 1); // Only ext4 should remain
 
-        let config = MountConfig { list_all: true, ..Default::default() };
+        let config = MountConfig {
+            list_all: true,
+            ..Default::default()
+        };
         let filtered = filter_mounts(mounts, &config);
         assert_eq!(filtered.len(), 3); // All should remain
     }

@@ -3,12 +3,16 @@
 // do not require a real FAT image. They validate cryptographic signing paths and
 // tamper detection using the public CLI entry.
 
-#[cfg(feature = "updates")] use std::fs;
-#[cfg(feature = "updates")] use std::io::Write;
-#[cfg(feature = "updates")] use tempfile::tempdir;
+#[cfg(feature = "updates")]
+use std::fs;
+#[cfg(feature = "updates")]
+use std::io::Write;
+#[cfg(feature = "updates")]
+use tempfile::tempdir;
 
 // Use tokio runtime because fsck_cli is async
-#[cfg(feature = "updates")] use nxsh_builtins::fsck::fsck_cli;
+#[cfg(feature = "updates")]
+use nxsh_builtins::fsck::fsck_cli;
 
 #[cfg(feature = "updates")]
 fn make_keypair_hex() -> (String, String) {
@@ -46,7 +50,11 @@ async fn fsck_journal_sign_and_verify_success() {
         "signature": null,
         "public_key_hint": null
     });
-    fs::write(&journal_path, serde_json::to_vec_pretty(&report_json).unwrap()).unwrap();
+    fs::write(
+        &journal_path,
+        serde_json::to_vec_pretty(&report_json).unwrap(),
+    )
+    .unwrap();
 
     // Write keys
     fs::write(&sk_path, sk_hex.as_bytes()).unwrap();
@@ -58,7 +66,8 @@ async fn fsck_journal_sign_and_verify_success() {
         journal_path.to_string_lossy().to_string(),
         "--key".to_string(),
         sk_path.to_string_lossy().to_string(),
-    ]).expect("sign-journal should succeed");
+    ])
+    .expect("sign-journal should succeed");
 
     // Verify
     fsck_cli(&[
@@ -66,7 +75,8 @@ async fn fsck_journal_sign_and_verify_success() {
         journal_path.to_string_lossy().to_string(),
         "--pub".to_string(),
         pk_path.to_string_lossy().to_string(),
-    ]).expect("verify-journal should succeed");
+    ])
+    .expect("verify-journal should succeed");
 }
 
 #[tokio::test]
@@ -94,7 +104,11 @@ async fn fsck_journal_verify_detects_tamper() {
         "signature": null,
         "public_key_hint": null
     });
-    fs::write(&journal_path, serde_json::to_vec_pretty(&report_json).unwrap()).unwrap();
+    fs::write(
+        &journal_path,
+        serde_json::to_vec_pretty(&report_json).unwrap(),
+    )
+    .unwrap();
     fs::write(&sk_path, sk_hex.as_bytes()).unwrap();
     fs::write(&pk_path, pk_hex.as_bytes()).unwrap();
 
@@ -104,12 +118,17 @@ async fn fsck_journal_verify_detects_tamper() {
         journal_path.to_string_lossy().to_string(),
         "--key".to_string(),
         sk_path.to_string_lossy().to_string(),
-    ]).expect("sign-journal should succeed");
+    ])
+    .expect("sign-journal should succeed");
 
     // Tamper with the journal: change lost_clusters
     let mut tampered = fs::read_to_string(&journal_path).unwrap();
     tampered = tampered.replace("[\n    4\n  ]", "[\n    5\n  ]");
-    let mut f = fs::OpenOptions::new().write(true).truncate(true).open(&journal_path).unwrap();
+    let mut f = fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(&journal_path)
+        .unwrap();
     f.write_all(tampered.as_bytes()).unwrap();
 
     // Verify should fail due to hash mismatch or signature failure
@@ -121,5 +140,3 @@ async fn fsck_journal_verify_detects_tamper() {
     ]);
     assert!(res.is_err(), "verify-journal should detect tampering");
 }
-
-

@@ -3,8 +3,12 @@
 //! This module provides a comprehensive `cal` command that displays calendars
 //! in various formats with extensive customization options.
 
-use nxsh_core::{ShellError, ErrorKind, error::RuntimeErrorKind, ShellResult, ExecutionResult, executor::{ExecutionStrategy, ExecutionMetrics}};
-use chrono::{NaiveDate, Datelike};
+use chrono::{Datelike, NaiveDate};
+use nxsh_core::{
+    error::RuntimeErrorKind,
+    executor::{ExecutionMetrics, ExecutionStrategy},
+    ErrorKind, ExecutionResult, ShellError, ShellResult,
+};
 use std::env;
 
 /// Calendar display command entry point
@@ -34,26 +38,24 @@ impl CalendarManager {
             .unwrap_or("en")
             .to_string();
 
-        Self {
-            locale,
-        }
+        Self { locale }
     }
 
     pub async fn execute(&self, args: Vec<String>) -> ShellResult<ExecutionResult> {
         if args.contains(&"--help".to_string()) || args.contains(&"-h".to_string()) {
-        return Ok(ExecutionResult {
-            exit_code: 0,
-            stdout: self.generate_help(),
-            stderr: String::new(),
-            execution_time: 0,
-            strategy: ExecutionStrategy::DirectInterpreter,
-            metrics: ExecutionMetrics::default(),
-        });
+            return Ok(ExecutionResult {
+                exit_code: 0,
+                stdout: self.generate_help(),
+                stderr: String::new(),
+                execution_time: 0,
+                strategy: ExecutionStrategy::DirectInterpreter,
+                metrics: ExecutionMetrics::default(),
+            });
         }
 
         let (month, year) = self.parse_arguments(&args)?;
         let output = self.generate_calendar(month, year)?;
-        
+
         Ok(ExecutionResult {
             exit_code: 0,
             stdout: output,
@@ -143,11 +145,12 @@ impl CalendarManager {
         output.push('\n');
 
         // Get first day of month
-        let first_day = NaiveDate::from_ymd_opt(year, month, 1)
-            .ok_or_else(|| ShellError::new(
+        let first_day = NaiveDate::from_ymd_opt(year, month, 1).ok_or_else(|| {
+            ShellError::new(
                 ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
                 format!("Invalid date: {month}/{year}"),
-            ))?;
+            )
+        })?;
 
         // Get number of days in month
         let days_in_month = self.get_days_in_month(month, year)?;
@@ -181,8 +184,18 @@ impl CalendarManager {
 
     fn get_month_name(&self, month: u32) -> ShellResult<&'static str> {
         let month_names = [
-            "January", "February", "March", "April", "May", "June",
-            "July", "August", "September", "October", "November", "December"
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
         ];
 
         if (1..=12).contains(&month) {
@@ -235,13 +248,16 @@ EXAMPLES:
     cal 12 2023       Display December 2023
     cal 2024          Display current month of 2024
     cal 3             Display March of current year
-"#.to_string()
+"#
+        .to_string()
     }
 }
 
-
 /// Execute function stub
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    _args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     eprintln!("Command not yet implemented");
     Ok(1)
 }
@@ -253,7 +269,9 @@ mod tests {
     #[tokio::test]
     async fn test_cal_basic() {
         let manager = CalendarManager::new();
-        let result = manager.execute(vec!["12".to_string(), "2023".to_string()]).await;
+        let result = manager
+            .execute(vec!["12".to_string(), "2023".to_string()])
+            .await;
         assert!(result.is_ok());
     }
 

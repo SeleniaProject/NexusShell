@@ -2,8 +2,8 @@
 //!
 //! Cross-platform terminal screen clearing implementation
 
+use crate::common::{BuiltinContext, BuiltinResult};
 use std::io::{self, Write};
-use crate::common::{BuiltinResult, BuiltinContext};
 
 pub fn clear_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     if args.len() > 1 && (args[1] == "--help" || args[1] == "-h") {
@@ -16,14 +16,14 @@ pub fn clear_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     // Send ANSI escape sequence to clear screen and move cursor to top-left
     print!("\x1B[2J\x1B[H");
     io::stdout().flush()?;
-    
+
     Ok(())
 }
 
 pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
     // Check for special styling options
     let show_banner = args.iter().any(|arg| arg == "--banner");
-    
+
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!("clear - clear the terminal screen with style");
         println!("Usage: clear [OPTION]");
@@ -38,20 +38,20 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
         eprintln!("clear: {e}");
         return Ok(1);
     }
-    
+
     if show_banner {
         show_nexus_banner();
     }
-    
+
     Ok(0)
 }
 
 /// Display a stylish NexusShell banner
 fn show_nexus_banner() {
-    let cyan = "\x1b[38;2;0;245;255m";     // #00f5ff
-    let purple = "\x1b[38;2;153;69;255m";  // #9945ff
-    let coral = "\x1b[38;2;255;71;87m";    // #ff4757
-    let green = "\x1b[38;2;46;213;115m";   // #2ed573
+    let cyan = "\x1b[38;2;0;245;255m"; // #00f5ff
+    let purple = "\x1b[38;2;153;69;255m"; // #9945ff
+    let coral = "\x1b[38;2;255;71;87m"; // #ff4757
+    let green = "\x1b[38;2;46;213;115m"; // #2ed573
     let reset = "\x1b[0m";
 
     println!();

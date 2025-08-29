@@ -11,12 +11,15 @@ pub fn exec_cli(args: &[String]) -> Result<()> {
     }
     #[cfg(unix)]
     {
-        use nix::unistd::{execvp, ForkResult};
         use nix::unistd::fork;
+        use nix::unistd::{execvp, ForkResult};
         use std::ffi::CString;
 
         let c_cmd = CString::new(args[0].as_str())?;
-        let c_args: Vec<CString> = args.iter().map(|s| CString::new(s.as_str()).unwrap()).collect();
+        let c_args: Vec<CString> = args
+            .iter()
+            .map(|s| CString::new(s.as_str()).unwrap())
+            .collect();
         // Replace process image
         execvp(&c_cmd, &c_args)?;
         unreachable!();
@@ -30,7 +33,10 @@ pub fn exec_cli(args: &[String]) -> Result<()> {
 }
 
 /// Execute exec command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     match exec_cli(args) {
         Ok(_) => Ok(0),
         Err(e) => {
@@ -38,5 +44,4 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
             Ok(1)
         }
     }
-} 
-
+}

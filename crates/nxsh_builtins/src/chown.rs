@@ -23,17 +23,17 @@
 //! Example fallback usage: `chown 1000:1000 file.txt`.
 
 use anyhow::{anyhow, Result};
-use std::{path::Path, process::Command, fs};
+use std::{fs, path::Path, process::Command};
 use which::which;
 
 #[cfg(unix)]
-use nix::unistd::{User, Group, Uid, Gid};
+use nix::unistd::{Gid, Group, Uid, User};
 
 #[cfg(windows)]
 pub fn chown_cli(args: &[String]) -> Result<()> {
     // Parse arguments first to handle our enhanced options
     let parsed_args = parse_chown_args(args)?;
-    
+
     // If using advanced features, try system chown first
     if !parsed_args.force_fallback {
         if let Ok(path) = which("chown") {
@@ -64,7 +64,9 @@ struct ChownArgs {
 
 fn parse_chown_args(args: &[String]) -> Result<ChownArgs> {
     if args.is_empty() {
-        return Err(anyhow!("chown: missing operand\nTry 'chown --help' for more information."));
+        return Err(anyhow!(
+            "chown: missing operand\nTry 'chown --help' for more information."
+        ));
     }
 
     let mut parsed = ChownArgs {
@@ -83,39 +85,39 @@ fn parse_chown_args(args: &[String]) -> Result<ChownArgs> {
     let mut found_owner_spec = false;
     while i < args.len() {
         let arg = &args[i];
-        
+
         match arg.as_str() {
             "-R" | "--recursive" => {
                 parsed.recursive = true;
-            },
+            }
             "-v" | "--verbose" => {
                 parsed.verbose = true;
-            },
+            }
             "-c" | "--changes" => {
                 parsed.changes = true;
-            },
+            }
             "-h" | "--no-dereference" => {
                 parsed.dereference = false;
-            },
+            }
             "--help" => {
                 print_chown_help();
                 std::process::exit(0);
-            },
+            }
             "--version" => {
                 println!("chown (NexusShell) 1.0.0");
                 std::process::exit(0);
-            },
+            }
             "--fallback" => {
                 parsed.force_fallback = true;
-            },
+            }
             arg if arg.starts_with("--reference=") => {
                 let ref_file = arg.strip_prefix("--reference=").unwrap();
                 parsed.reference_file = Some(ref_file.to_string());
                 found_owner_spec = true; // Mark as found since reference replaces owner spec
-            },
+            }
             arg if arg.starts_with("-") => {
                 return Err(anyhow!("chown: invalid option -- '{}'", arg));
-            },
+            }
             _ => {
                 if !found_owner_spec {
                     // Parse OWNER[:GROUP] format
@@ -129,12 +131,18 @@ fn parse_chown_args(args: &[String]) -> Result<ChownArgs> {
         i += 1;
     }
 
-    if parsed.owner.is_none() && parsed.group.is_none() && parsed.reference_file.is_none() && !found_owner_spec {
+    if parsed.owner.is_none()
+        && parsed.group.is_none()
+        && parsed.reference_file.is_none()
+        && !found_owner_spec
+    {
         return Err(anyhow!("chown: missing operand"));
     }
 
     if parsed.files.is_empty() {
-        return Err(anyhow!("chown: missing operand\nTry 'chown --help' for more information."));
+        return Err(anyhow!(
+            "chown: missing operand\nTry 'chown --help' for more information."
+        ));
     }
 
     Ok(parsed)
@@ -188,21 +196,32 @@ fn execute_chown_fallback(args: ChownArgs) -> Result<()> {
             let current = get_file_ownership(file).ok();
             let will_change = match current {
                 Some((cur_uid, cur_gid)) => {
-                    (target_uid.is_some() && target_uid != Some(cur_uid)) ||
-                    (target_gid.is_some() && target_gid != Some(cur_gid))
-                },
+                    (target_uid.is_some() && target_uid != Some(cur_uid))
+                        || (target_gid.is_some() && target_gid != Some(cur_gid))
+                }
                 None => true,
             };
-            
+
             if args.verbose || (args.changes && will_change) {
-                let uid_part = target_uid.map(|u| u.to_string()).unwrap_or_else(|| "unchanged".to_string());
-                let gid_part = target_gid.map(|g| g.to_string()).unwrap_or_else(|| "unchanged".to_string());
+                let uid_part = target_uid
+                    .map(|u| u.to_string())
+                    .unwrap_or_else(|| "unchanged".to_string());
+                let gid_part = target_gid
+                    .map(|g| g.to_string())
+                    .unwrap_or_else(|| "unchanged".to_string());
                 println!("changing ownership of '{file}' to {uid_part}:{gid_part}");
             }
         }
-        
+
         if args.recursive && Path::new(file).is_dir() {
-            change_ownership_recursive(file, target_uid, target_gid, args.verbose, args.changes, args.dereference)?;
+            change_ownership_recursive(
+                file,
+                target_uid,
+                target_gid,
+                args.verbose,
+                args.changes,
+                args.dereference,
+            )?;
         } else {
             change_file_ownership(file, target_uid, target_gid, args.dereference)?;
         }
@@ -237,7 +256,9 @@ fn resolve_user_to_uid(user: &str) -> Result<u32> {
 
     #[cfg(not(any(unix, windows)))]
     {
-        Err(anyhow!("chown: symbolic user names not supported on this platform"))
+        Err(anyhow!(
+            "chown: symbolic user names not supported on this platform"
+        ))
     }
 }
 
@@ -267,7 +288,9 @@ fn resolve_group_to_gid(group: &str) -> Result<u32> {
 
     #[cfg(not(any(unix, windows)))]
     {
-        Err(anyhow!("chown: symbolic group names not supported on this platform"))
+        Err(anyhow!(
+            "chown: symbolic group names not supported on this platform"
+        ))
     }
 }
 
@@ -287,13 +310,17 @@ fn resolve_windows_group_name(group_name: &str) -> Result<u32> {
 
 #[cfg(windows)]
 fn simple_hash(s: &str) -> u32 {
-    s.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32))
+    s.bytes()
+        .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32))
 }
 
 fn get_file_ownership(file_path: &str) -> Result<(u32, u32)> {
     let path = Path::new(file_path);
     if !path.exists() {
-        return Err(anyhow!("chown: cannot access '{}': No such file or directory", file_path));
+        return Err(anyhow!(
+            "chown: cannot access '{}': No such file or directory",
+            file_path
+        ));
     }
 
     #[cfg(unix)]
@@ -316,10 +343,18 @@ fn get_file_ownership(file_path: &str) -> Result<(u32, u32)> {
     }
 }
 
-fn change_file_ownership(file_path: &str, uid: Option<u32>, gid: Option<u32>, dereference: bool) -> Result<()> {
+fn change_file_ownership(
+    file_path: &str,
+    uid: Option<u32>,
+    gid: Option<u32>,
+    dereference: bool,
+) -> Result<()> {
     let path = Path::new(file_path);
     if !path.exists() {
-        return Err(anyhow!("chown: cannot access '{}': No such file or directory", file_path));
+        return Err(anyhow!(
+            "chown: cannot access '{}': No such file or directory",
+            file_path
+        ));
     }
 
     #[cfg(unix)]
@@ -327,13 +362,23 @@ fn change_file_ownership(file_path: &str, uid: Option<u32>, gid: Option<u32>, de
         use nix::unistd::{chown as nix_chown, lchown as nix_lchown};
         let target_uid = uid.map(Uid::from_raw);
         let target_gid = gid.map(Gid::from_raw);
-        
+
         if dereference {
-            nix_chown(path, target_uid, target_gid)
-                .map_err(|e| anyhow!("chown: failed to change ownership of '{}': {}", file_path, e))?;
+            nix_chown(path, target_uid, target_gid).map_err(|e| {
+                anyhow!(
+                    "chown: failed to change ownership of '{}': {}",
+                    file_path,
+                    e
+                )
+            })?;
         } else {
-            nix_lchown(path, target_uid, target_gid)
-                .map_err(|e| anyhow!("chown: failed to change ownership of '{}': {}", file_path, e))?;
+            nix_lchown(path, target_uid, target_gid).map_err(|e| {
+                anyhow!(
+                    "chown: failed to change ownership of '{}': {}",
+                    file_path,
+                    e
+                )
+            })?;
         }
     }
 
@@ -350,44 +395,71 @@ fn change_file_ownership(file_path: &str, uid: Option<u32>, gid: Option<u32>, de
     Ok(())
 }
 
-fn change_windows_file_ownership(file_path: &str, _uid: Option<u32>, _gid: Option<u32>) -> Result<()> {
+fn change_windows_file_ownership(
+    file_path: &str,
+    _uid: Option<u32>,
+    _gid: Option<u32>,
+) -> Result<()> {
     // For a complete implementation, you would:
     // 1. Get the current security descriptor
     // 2. Modify the owner and/or group SID
     // 3. Set the new security descriptor
-    
+
     // For now, we'll just indicate that the operation is not fully supported
     eprintln!("chown: Windows ACL ownership change is not fully implemented for '{file_path}'");
     eprintln!("       This operation requires Windows-specific security APIs");
-    
+
     Ok(())
 }
 
-fn change_ownership_recursive(dir_path: &str, uid: Option<u32>, gid: Option<u32>, verbose: bool, changes: bool, _dereference: bool) -> Result<()> {
-    fn visit_dir(dir: &Path, uid: Option<u32>, gid: Option<u32>, verbose: bool, changes: bool, dereference: bool) -> Result<()> {
+fn change_ownership_recursive(
+    dir_path: &str,
+    uid: Option<u32>,
+    gid: Option<u32>,
+    verbose: bool,
+    changes: bool,
+    _dereference: bool,
+) -> Result<()> {
+    fn visit_dir(
+        dir: &Path,
+        uid: Option<u32>,
+        gid: Option<u32>,
+        verbose: bool,
+        changes: bool,
+        dereference: bool,
+    ) -> Result<()> {
         if verbose || changes {
             let current = get_file_ownership(&dir.to_string_lossy()).ok();
             let will_change = match current {
                 Some((cur_uid, cur_gid)) => {
-                    (uid.is_some() && uid != Some(cur_uid)) ||
-                    (gid.is_some() && gid != Some(cur_gid))
-                },
+                    (uid.is_some() && uid != Some(cur_uid))
+                        || (gid.is_some() && gid != Some(cur_gid))
+                }
                 None => true,
             };
-            
+
             if verbose || (changes && will_change) {
-                let uid_part = uid.map(|u| u.to_string()).unwrap_or_else(|| "unchanged".to_string());
-                let gid_part = gid.map(|g| g.to_string()).unwrap_or_else(|| "unchanged".to_string());
-                println!("changing ownership of '{}' to {}:{}", dir.display(), uid_part, gid_part);
+                let uid_part = uid
+                    .map(|u| u.to_string())
+                    .unwrap_or_else(|| "unchanged".to_string());
+                let gid_part = gid
+                    .map(|g| g.to_string())
+                    .unwrap_or_else(|| "unchanged".to_string());
+                println!(
+                    "changing ownership of '{}' to {}:{}",
+                    dir.display(),
+                    uid_part,
+                    gid_part
+                );
             }
         }
-        
+
         change_file_ownership(&dir.to_string_lossy(), uid, gid, dereference)?;
-        
+
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
             let path = entry.path();
-            
+
             if path.is_dir() {
                 visit_dir(&path, uid, gid, verbose, changes, dereference)?;
             } else {
@@ -395,28 +467,40 @@ fn change_ownership_recursive(dir_path: &str, uid: Option<u32>, gid: Option<u32>
                     let current = get_file_ownership(&path.to_string_lossy()).ok();
                     let will_change = match current {
                         Some((cur_uid, cur_gid)) => {
-                            (uid.is_some() && uid != Some(cur_uid)) ||
-                            (gid.is_some() && gid != Some(cur_gid))
-                        },
+                            (uid.is_some() && uid != Some(cur_uid))
+                                || (gid.is_some() && gid != Some(cur_gid))
+                        }
                         None => true,
                     };
-                    
+
                     if verbose || (changes && will_change) {
-                        let uid_part = uid.map(|u| u.to_string()).unwrap_or_else(|| "unchanged".to_string());
-                        let gid_part = gid.map(|g| g.to_string()).unwrap_or_else(|| "unchanged".to_string());
-                        println!("changing ownership of '{}' to {}:{}", path.display(), uid_part, gid_part);
+                        let uid_part = uid
+                            .map(|u| u.to_string())
+                            .unwrap_or_else(|| "unchanged".to_string());
+                        let gid_part = gid
+                            .map(|g| g.to_string())
+                            .unwrap_or_else(|| "unchanged".to_string());
+                        println!(
+                            "changing ownership of '{}' to {}:{}",
+                            path.display(),
+                            uid_part,
+                            gid_part
+                        );
                     }
                 }
                 change_file_ownership(&path.to_string_lossy(), uid, gid, dereference)?;
             }
         }
-        
+
         Ok(())
     }
 
     let path = Path::new(dir_path);
     if !path.exists() {
-        return Err(anyhow!("chown: cannot access '{}': No such file or directory", dir_path));
+        return Err(anyhow!(
+            "chown: cannot access '{}': No such file or directory",
+            dir_path
+        ));
     }
 
     if path.is_dir() {
@@ -458,7 +542,10 @@ fn print_chown_help() {
 }
 
 /// Execute chown command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     match chown_cli(args) {
         Ok(_) => Ok(0),
         Err(e) => {
@@ -471,8 +558,6 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
 #[cfg(test)]
 mod tests {
     use super::*;
-
-
 
     #[test]
     fn test_parse_chown_args_basic() {
@@ -505,7 +590,11 @@ mod tests {
 
     #[test]
     fn test_parse_chown_args_recursive() {
-        let args = vec!["-R".to_string(), "user:group".to_string(), "dir/".to_string()];
+        let args = vec![
+            "-R".to_string(),
+            "user:group".to_string(),
+            "dir/".to_string(),
+        ];
         let parsed = parse_chown_args(&args).unwrap();
         assert_eq!(parsed.owner, Some("user".to_string()));
         assert_eq!(parsed.group, Some("group".to_string()));
@@ -515,7 +604,11 @@ mod tests {
 
     #[test]
     fn test_parse_chown_args_verbose() {
-        let args = vec!["-v".to_string(), "user:group".to_string(), "file.txt".to_string()];
+        let args = vec![
+            "-v".to_string(),
+            "user:group".to_string(),
+            "file.txt".to_string(),
+        ];
         let parsed = parse_chown_args(&args).unwrap();
         assert_eq!(parsed.owner, Some("user".to_string()));
         assert_eq!(parsed.group, Some("group".to_string()));
@@ -525,7 +618,11 @@ mod tests {
 
     #[test]
     fn test_parse_chown_args_changes() {
-        let args = vec!["-c".to_string(), "user:group".to_string(), "file.txt".to_string()];
+        let args = vec![
+            "-c".to_string(),
+            "user:group".to_string(),
+            "file.txt".to_string(),
+        ];
         let parsed = parse_chown_args(&args).unwrap();
         assert_eq!(parsed.owner, Some("user".to_string()));
         assert_eq!(parsed.group, Some("group".to_string()));
@@ -535,7 +632,11 @@ mod tests {
 
     #[test]
     fn test_parse_chown_args_no_dereference() {
-        let args = vec!["-h".to_string(), "user:group".to_string(), "file.txt".to_string()];
+        let args = vec![
+            "-h".to_string(),
+            "user:group".to_string(),
+            "file.txt".to_string(),
+        ];
         let parsed = parse_chown_args(&args).unwrap();
         assert_eq!(parsed.owner, Some("user".to_string()));
         assert_eq!(parsed.group, Some("group".to_string()));
@@ -573,7 +674,7 @@ mod tests {
         let hash1 = simple_hash("test");
         let hash2 = simple_hash("test");
         let hash3 = simple_hash("different");
-        
+
         assert_eq!(hash1, hash2);
         assert_ne!(hash1, hash3);
     }
@@ -588,24 +689,26 @@ mod tests {
     #[test]
     fn test_chown_integration_basic() {
         use std::os::unix::fs::MetadataExt;
-        
+
         // Create a temporary file for testing
         let temp_file = std::env::temp_dir().join("chown_test.txt");
         fs::write(&temp_file, "test content").unwrap();
-        
+
         // Get current ownership
         let metadata = fs::metadata(&temp_file).unwrap();
         let current_uid = metadata.uid();
         let current_gid = metadata.gid();
-        
+
         // Test changing to the same ownership (should succeed)
-        let result = change_file_ownership(&temp_file.to_string_lossy(), Some(current_uid), Some(current_gid), true);
+        let result = change_file_ownership(
+            &temp_file.to_string_lossy(),
+            Some(current_uid),
+            Some(current_gid),
+            true,
+        );
         assert!(result.is_ok());
-        
+
         // Clean up
         let _ = fs::remove_file(&temp_file);
     }
-} 
-
-
-
+}

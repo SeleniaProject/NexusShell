@@ -7,23 +7,23 @@
 //! 4. Cross-platform compatibility including Windows ACL operations
 //! 5. Reference file support (--reference=RFILE)
 //!
-//! Examples: 
+//! Examples:
 //! - `chgrp 1000 file.txt` (numeric GID)
 //! - `chgrp staff file.txt` (symbolic name)
 //! - `chgrp -R users /path/to/dir` (recursive)
 
 use anyhow::{anyhow, Result};
-use std::{path::Path, process::Command, fs};
+use std::{fs, path::Path, process::Command};
 use which::which;
 
 #[cfg(unix)]
-use nix::unistd::{Group, Gid};
+use nix::unistd::{Gid, Group};
 
 #[cfg(windows)]
 pub fn chgrp_cli(args: &[String]) -> Result<()> {
     // Parse arguments first to handle our enhanced options
     let parsed_args = parse_chgrp_args(args)?;
-    
+
     // If using advanced features, try system chgrp first
     if !parsed_args.force_fallback {
         if let Ok(path) = which("chgrp") {
@@ -51,7 +51,9 @@ struct ChgrpArgs {
 
 fn parse_chgrp_args(args: &[String]) -> Result<ChgrpArgs> {
     if args.is_empty() {
-        return Err(anyhow!("chgrp: missing operand\nTry 'chgrp --help' for more information."));
+        return Err(anyhow!(
+            "chgrp: missing operand\nTry 'chgrp --help' for more information."
+        ));
     }
 
     let mut parsed = ChgrpArgs {
@@ -66,32 +68,32 @@ fn parse_chgrp_args(args: &[String]) -> Result<ChgrpArgs> {
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
-        
+
         match arg.as_str() {
             "-R" | "--recursive" => {
                 parsed.recursive = true;
-            },
+            }
             "-v" | "--verbose" => {
                 parsed.verbose = true;
-            },
+            }
             "--help" => {
                 print_chgrp_help();
                 std::process::exit(0);
-            },
+            }
             "--version" => {
                 println!("chgrp (NexusShell) 1.0.0");
                 std::process::exit(0);
-            },
+            }
             "--fallback" => {
                 parsed.force_fallback = true;
-            },
+            }
             arg if arg.starts_with("--reference=") => {
                 let ref_file = arg.strip_prefix("--reference=").unwrap();
                 parsed.reference_file = Some(ref_file.to_string());
-            },
+            }
             arg if arg.starts_with("-") => {
                 return Err(anyhow!("chgrp: invalid option -- '{}'", arg));
-            },
+            }
             _ => {
                 if parsed.group.is_empty() && parsed.reference_file.is_none() {
                     parsed.group = arg.clone();
@@ -108,7 +110,9 @@ fn parse_chgrp_args(args: &[String]) -> Result<ChgrpArgs> {
     }
 
     if parsed.files.is_empty() {
-        return Err(anyhow!("chgrp: missing operand\nTry 'chgrp --help' for more information."));
+        return Err(anyhow!(
+            "chgrp: missing operand\nTry 'chgrp --help' for more information."
+        ));
     }
 
     Ok(parsed)
@@ -125,7 +129,7 @@ fn execute_chgrp_fallback(args: ChgrpArgs) -> Result<()> {
         if args.verbose {
             println!("changing group of '{file}' to {target_gid}");
         }
-        
+
         if args.recursive && Path::new(file).is_dir() {
             change_group_recursive(file, target_gid, args.verbose)?;
         } else {
@@ -162,7 +166,9 @@ fn resolve_group_to_gid(group: &str) -> Result<u32> {
 
     #[cfg(not(any(unix, windows)))]
     {
-        Err(anyhow!("chgrp: symbolic group names not supported on this platform"))
+        Err(anyhow!(
+            "chgrp: symbolic group names not supported on this platform"
+        ))
     }
 }
 
@@ -176,13 +182,17 @@ fn resolve_windows_group_name(group_name: &str) -> Result<u32> {
 
 #[cfg(windows)]
 fn simple_hash(s: &str) -> u32 {
-    s.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32))
+    s.bytes()
+        .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32))
 }
 
 fn get_file_gid(file_path: &str) -> Result<u32> {
     let path = Path::new(file_path);
     if !path.exists() {
-        return Err(anyhow!("chgrp: cannot access '{}': No such file or directory", file_path));
+        return Err(anyhow!(
+            "chgrp: cannot access '{}': No such file or directory",
+            file_path
+        ));
     }
 
     #[cfg(unix)]
@@ -208,7 +218,10 @@ fn get_file_gid(file_path: &str) -> Result<u32> {
 fn change_file_group(file_path: &str, gid: u32, _dereference: bool) -> Result<()> {
     let path = Path::new(file_path);
     if !path.exists() {
-        return Err(anyhow!("chgrp: cannot access '{}': No such file or directory", file_path));
+        return Err(anyhow!(
+            "chgrp: cannot access '{}': No such file or directory",
+            file_path
+        ));
     }
 
     #[cfg(unix)]
@@ -239,11 +252,11 @@ fn change_windows_file_group(file_path: &str, _gid: u32) -> Result<()> {
     // 1. Get the current security descriptor
     // 2. Modify the group SID
     // 3. Set the new security descriptor
-    
+
     // For now, we'll just indicate that the operation is not fully supported
     eprintln!("chgrp: Windows ACL group change is not fully implemented for '{file_path}'");
     eprintln!("       This operation requires Windows-specific security APIs");
-    
+
     Ok(())
 }
 
@@ -252,13 +265,13 @@ fn change_group_recursive(dir_path: &str, gid: u32, verbose: bool) -> Result<()>
         if verbose {
             println!("changing group of '{}' to {}", dir.display(), gid);
         }
-        
+
         change_file_group(&dir.to_string_lossy(), gid, true)?;
-        
+
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
             let path = entry.path();
-            
+
             if path.is_dir() {
                 visit_dir(&path, gid, verbose)?;
             } else {
@@ -268,13 +281,16 @@ fn change_group_recursive(dir_path: &str, gid: u32, verbose: bool) -> Result<()>
                 change_file_group(&path.to_string_lossy(), gid, true)?;
             }
         }
-        
+
         Ok(())
     }
 
     let path = Path::new(dir_path);
     if !path.exists() {
-        return Err(anyhow!("chgrp: cannot access '{}': No such file or directory", dir_path));
+        return Err(anyhow!(
+            "chgrp: cannot access '{}': No such file or directory",
+            dir_path
+        ));
     }
 
     if path.is_dir() {
@@ -308,7 +324,10 @@ fn print_chgrp_help() {
 }
 
 /// Execute chgrp command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     match chgrp_cli(args) {
         Ok(_) => Ok(0),
         Err(e) => {
@@ -321,8 +340,6 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
 #[cfg(test)]
 mod tests {
     use super::*;
-
-
 
     #[test]
     fn test_parse_chgrp_args_basic() {
@@ -346,7 +363,12 @@ mod tests {
 
     #[test]
     fn test_parse_chgrp_args_verbose() {
-        let args = vec!["-v".to_string(), "users".to_string(), "file1.txt".to_string(), "file2.txt".to_string()];
+        let args = vec![
+            "-v".to_string(),
+            "users".to_string(),
+            "file1.txt".to_string(),
+            "file2.txt".to_string(),
+        ];
         let parsed = parse_chgrp_args(&args).unwrap();
         assert_eq!(parsed.group, "users");
         assert_eq!(parsed.files, vec!["file1.txt", "file2.txt"]);
@@ -400,7 +422,7 @@ mod tests {
         let hash1 = simple_hash("test");
         let hash2 = simple_hash("test");
         let hash3 = simple_hash("different");
-        
+
         assert_eq!(hash1, hash2);
         assert_ne!(hash1, hash3);
     }
@@ -429,19 +451,19 @@ mod tests {
     #[test]
     fn test_chgrp_integration_basic() {
         use std::os::unix::fs::MetadataExt;
-        
+
         // Create a temporary file for testing
         let temp_file = std::env::temp_dir().join("chgrp_test.txt");
         fs::write(&temp_file, "test content").unwrap();
-        
+
         // Get current group ownership
         let metadata = fs::metadata(&temp_file).unwrap();
         let current_gid = metadata.gid();
-        
+
         // Test changing to the same group (should succeed)
         let result = change_file_group(&temp_file.to_string_lossy(), current_gid, true);
         assert!(result.is_ok());
-        
+
         // Clean up
         let _ = fs::remove_file(&temp_file);
     }
@@ -453,5 +475,3 @@ mod tests {
         assert!(result.unwrap_err().to_string().contains("No such file"));
     }
 }
-
-

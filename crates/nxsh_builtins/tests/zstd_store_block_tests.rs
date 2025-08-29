@@ -19,7 +19,8 @@ fn zstd_store_single_block_boundary_minus_one() {
     let data = vec![0xAA; size as usize];
     let mut out: Vec<u8> = Vec::new();
     let mut cursor = std::io::Cursor::new(&data);
-    nxsh_builtins::zstd::write_store_frame_stream(&mut out, &mut cursor, data.len() as u64).unwrap();
+    nxsh_builtins::zstd::write_store_frame_stream(&mut out, &mut cursor, data.len() as u64)
+        .unwrap();
     let mut dec = StreamingDecoder::new(&out[..]).unwrap();
     let mut restored = Vec::new();
     use std::io::Read;
@@ -35,14 +36,13 @@ fn zstd_store_multi_block_boundary_plus_one() {
     let data = vec![0xBB; size];
     let mut out: Vec<u8> = Vec::new();
     let mut cursor = std::io::Cursor::new(&data);
-    nxsh_builtins::zstd::write_store_frame_stream(&mut out, &mut cursor, data.len() as u64).unwrap();
+    nxsh_builtins::zstd::write_store_frame_stream(&mut out, &mut cursor, data.len() as u64)
+        .unwrap();
     let mut dec = StreamingDecoder::new(&out[..]).unwrap();
     let mut restored = Vec::new();
     use std::io::Read;
     dec.read_to_end(&mut restored).unwrap();
     assert_eq!(restored.len(), data.len());
     assert_eq!(restored[0], 0xBB);
-    assert_eq!(restored[restored.len()-1], 0xBB);
+    assert_eq!(restored[restored.len() - 1], 0xBB);
 }
-
-

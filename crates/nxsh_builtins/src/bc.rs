@@ -15,7 +15,7 @@
 use anyhow::{anyhow, Result};
 use num_bigint::BigInt;
 use num_rational::BigRational;
-use num_traits::{Zero, One, ToPrimitive};
+use num_traits::{One, ToPrimitive, Zero};
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader};
 use std::str::FromStr;
@@ -48,10 +48,14 @@ impl BcContext {
 
     fn with_math_lib(&mut self) {
         // Add common mathematical constants and functions
-        self.variables.insert("pi".to_string(), 
-            BigRational::from_str("3.14159265358979323846").unwrap_or_else(|_| BigRational::zero()));
-        self.variables.insert("e".to_string(), 
-            BigRational::from_str("2.71828182845904523536").unwrap_or_else(|_| BigRational::zero()));
+        self.variables.insert(
+            "pi".to_string(),
+            BigRational::from_str("3.14159265358979323846").unwrap_or_else(|_| BigRational::zero()),
+        );
+        self.variables.insert(
+            "e".to_string(),
+            BigRational::from_str("2.71828182845904523536").unwrap_or_else(|_| BigRational::zero()),
+        );
     }
 
     fn evaluate_expression(&mut self, expr: &str) -> Result<BigRational> {
@@ -96,7 +100,7 @@ impl BcContext {
     fn parse_number_or_expression(&mut self, expr: &str) -> Result<BigRational> {
         // Simple expression parser for basic arithmetic
         let expr = expr.replace(" ", "");
-        
+
         // Check if it's a variable
         if let Some(value) = self.variables.get(&expr) {
             return Ok(value.clone());
@@ -122,14 +126,13 @@ impl BcContext {
             if parts.len() == 2 {
                 let integer_part = BigInt::from_str(parts[0]).unwrap_or_else(|_| BigInt::zero());
                 let decimal_part = parts[1];
-                let decimal_value = BigInt::from_str(decimal_part).unwrap_or_else(|_| BigInt::zero());
+                let decimal_value =
+                    BigInt::from_str(decimal_part).unwrap_or_else(|_| BigInt::zero());
                 let decimal_places = decimal_part.len();
                 let denominator = BigInt::from(10).pow(decimal_places as u32);
-                
-                let rational = BigRational::new(
-                    integer_part * &denominator + decimal_value,
-                    denominator
-                );
+
+                let rational =
+                    BigRational::new(integer_part * &denominator + decimal_value, denominator);
                 return Ok(rational);
             }
         }
@@ -146,10 +149,10 @@ impl BcContext {
             if let Some(pos) = expr.rfind(*op) {
                 let left = &expr[..pos];
                 let right = &expr[pos + 1..];
-                
+
                 let left_val = self.parse_number_or_expression(left)?;
                 let right_val = self.parse_number_or_expression(right)?;
-                
+
                 let result = match op {
                     '+' => left_val + right_val,
                     '-' => left_val - right_val,
@@ -176,11 +179,11 @@ impl BcContext {
                     }
                     _ => unreachable!(),
                 };
-                
+
                 return Ok(Some(result));
             }
         }
-        
+
         Ok(None)
     }
 
@@ -188,7 +191,7 @@ impl BcContext {
         let mut result = BigRational::one();
         let mut base = base.clone();
         let mut exp = exp;
-        
+
         while exp > 0 {
             if exp % 2 == 1 {
                 result *= &base;
@@ -197,7 +200,7 @@ impl BcContext {
             base *= &base_clone;
             exp /= 2;
         }
-        
+
         result
     }
 
@@ -214,7 +217,7 @@ impl BcContext {
             } else {
                 value.clone()
             };
-            
+
             format!("{}", scaled.to_f64().unwrap_or(0.0))
         }
     }
@@ -262,7 +265,7 @@ pub fn bc_cli(args: &[String]) -> Result<()> {
         let file = std::fs::File::open(file_path)
             .map_err(|e| anyhow!("bc: cannot open {}: {}", file_path, e))?;
         let reader = BufReader::new(file);
-        
+
         for line in reader.lines() {
             let line = line?;
             process_line(&mut ctx, &line)?;
@@ -272,7 +275,7 @@ pub fn bc_cli(args: &[String]) -> Result<()> {
     // Interactive mode or stdin processing
     if files_empty || interactive {
         let stdin = io::stdin();
-        
+
         if single_line {
             let mut line = String::new();
             stdin.read_line(&mut line)?;
@@ -310,7 +313,10 @@ fn process_line(ctx: &mut BcContext, line: &str) -> Result<()> {
 }
 
 /// Execute function for bc command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     match bc_cli(args) {
         Ok(_) => Ok(0),
         Err(e) => {
@@ -327,27 +333,38 @@ mod tests {
     #[test]
     fn test_basic_arithmetic() {
         let mut ctx = BcContext::new();
-        
-        assert_eq!(ctx.evaluate_expression("2+3").unwrap(), BigRational::from_integer(BigInt::from(5)));
-        assert_eq!(ctx.evaluate_expression("10-4").unwrap(), BigRational::from_integer(BigInt::from(6)));
-        assert_eq!(ctx.evaluate_expression("3*4").unwrap(), BigRational::from_integer(BigInt::from(12)));
+
+        assert_eq!(
+            ctx.evaluate_expression("2+3").unwrap(),
+            BigRational::from_integer(BigInt::from(5))
+        );
+        assert_eq!(
+            ctx.evaluate_expression("10-4").unwrap(),
+            BigRational::from_integer(BigInt::from(6))
+        );
+        assert_eq!(
+            ctx.evaluate_expression("3*4").unwrap(),
+            BigRational::from_integer(BigInt::from(12))
+        );
     }
 
     #[test]
     fn test_variable_assignment() {
         let mut ctx = BcContext::new();
-        
+
         ctx.evaluate_expression("x=5").unwrap();
-        assert_eq!(ctx.evaluate_expression("x").unwrap(), BigRational::from_integer(BigInt::from(5)));
+        assert_eq!(
+            ctx.evaluate_expression("x").unwrap(),
+            BigRational::from_integer(BigInt::from(5))
+        );
     }
 
     #[test]
     fn test_decimal_numbers() {
         let ctx = BcContext::new();
-        
+
         let result = ctx.parse_number("3.14").unwrap();
-    use std::f64::consts::PI;
-    assert!((result.to_f64().unwrap() - PI).abs() < 0.01); // Allow small tolerance
+        use std::f64::consts::PI;
+        assert!((result.to_f64().unwrap() - PI).abs() < 0.01); // Allow small tolerance
     }
 }
-

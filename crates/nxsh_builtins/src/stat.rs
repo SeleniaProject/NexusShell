@@ -1,14 +1,14 @@
 //! `stat` command - comprehensive file and filesystem status display implementation.
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
+use chrono::{DateTime, Local};
 use std::fs::{self, Metadata};
 use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
-use chrono::{DateTime, Local};
 
 // Platform-specific imports
 #[cfg(unix)]
-use std::os::unix::fs::{MetadataExt, FileTypeExt};
+use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
 #[cfg(windows)]
 use whoami;
@@ -18,7 +18,11 @@ use nxsh_core::{Context, ExecutionResult, ShellError};
 pub struct StatBuiltin;
 
 impl StatBuiltin {
-    pub fn execute(&self, _ctx: &mut Context, args: Vec<String>) -> Result<ExecutionResult, ShellError> {
+    pub fn execute(
+        &self,
+        _ctx: &mut Context,
+        args: Vec<String>,
+    ) -> Result<ExecutionResult, ShellError> {
         match stat_cli(&args) {
             Ok(()) => Ok(ExecutionResult::success(0)),
             Err(e) => Ok(ExecutionResult::success(1).with_error(e.to_string().into_bytes())),
@@ -26,8 +30,7 @@ impl StatBuiltin {
     }
 }
 
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 struct StatOptions {
     dereference: bool,
     file_system: bool,
@@ -36,7 +39,6 @@ struct StatOptions {
     printf_format: Option<String>,
     files: Vec<String>,
 }
-
 
 #[derive(Debug)]
 struct FileInfo {
@@ -75,7 +77,7 @@ pub fn stat_cli(args: &[String]) -> anyhow::Result<()> {
             }
         } else {
             let file_info = get_file_info(file_path, options.dereference)?;
-            
+
             if let Some(ref format) = options.format {
                 display_custom_format(&file_info, format, false)?;
             } else if let Some(ref printf_format) = options.printf_format {
@@ -97,7 +99,7 @@ fn parse_stat_args(args: &[String]) -> Result<StatOptions> {
 
     while i < args.len() {
         let arg = &args[i];
-        
+
         match arg.as_str() {
             "-L" | "--dereference" => {
                 options.dereference = true;
@@ -145,12 +147,13 @@ fn parse_stat_args(args: &[String]) -> Result<StatOptions> {
 
 fn get_file_info(path: &str, dereference: bool) -> Result<FileInfo> {
     let path_buf = PathBuf::from(path);
-    
+
     let metadata = if dereference {
         fs::metadata(&path_buf)
     } else {
         fs::symlink_metadata(&path_buf)
-    }.map_err(|e| anyhow!("Cannot stat {}: {}", path, e))?;
+    }
+    .map_err(|e| anyhow!("Cannot stat {}: {}", path, e))?;
 
     Ok(FileInfo {
         path: path_buf,
@@ -160,7 +163,7 @@ fn get_file_info(path: &str, dereference: bool) -> Result<FileInfo> {
 
 fn get_filesystem_info(path: &str) -> Result<FilesystemInfo> {
     let path_buf = PathBuf::from(path);
-    
+
     // This is a simplified implementation
     // Real implementation would use platform-specific system calls
     Ok(FilesystemInfo {
@@ -180,23 +183,31 @@ fn get_filesystem_info(path: &str) -> Result<FilesystemInfo> {
 fn display_default_format(info: &FileInfo) -> Result<()> {
     let meta = &info.metadata;
     let file_type = get_file_type_description(meta);
-    
+
     println!("  File: \"{}\"", info.path.display());
-    
+
     if meta.file_type().is_symlink() {
         if let Ok(target) = fs::read_link(&info.path) {
             println!("  Link: {} -> {}", info.path.display(), target.display());
         }
     }
-    
+
     // Display file information
     #[cfg(unix)]
     {
-        println!("  Size: {:<15} Blocks: {:<10} IO Block: {:<6} {}",
-            meta.len(), meta.blocks(), meta.blksize(), file_type);
-        println!("Device: {:<15} Inode: {:<10} Links: {}",
+        println!(
+            "  Size: {:<15} Blocks: {:<10} IO Block: {:<6} {}",
+            meta.len(),
+            meta.blocks(),
+            meta.blksize(),
+            file_type
+        );
+        println!(
+            "Device: {:<15} Inode: {:<10} Links: {}",
             format!("{}h/{}d", format!("{:x}", meta.dev()), meta.dev()),
-            meta.ino(), meta.nlink());
+            meta.ino(),
+            meta.nlink()
+        );
         println!(
             "Access: ({:04o}/{})  Uid: ({:5}/{})   Gid: ({:5}/{})",
             meta.mode() & 0o7777,
@@ -209,22 +220,20 @@ fn display_default_format(info: &FileInfo) -> Result<()> {
     }
     #[cfg(windows)]
     {
-        println!("  Size: {:<15} Type: {}",
-            meta.len(), file_type);
+        println!("  Size: {:<15} Type: {}", meta.len(), file_type);
         println!("Device: N/A             Inode: N/A        Links: N/A");
-        println!("Access: N/A  Owner: {}   Group: N/A",
-            whoami::username());
+        println!("Access: N/A  Owner: {}   Group: N/A", whoami::username());
     }
-    
+
     // Display timestamps
     #[cfg(unix)]
     {
         let atime = DateTime::<Local>::from(meta.accessed()?);
         let mtime = DateTime::<Local>::from(meta.modified()?);
         let ctime = DateTime::<Local>::from(
-            UNIX_EPOCH + std::time::Duration::from_secs(meta.ctime() as u64)
+            UNIX_EPOCH + std::time::Duration::from_secs(meta.ctime() as u64),
         );
-        
+
         println!("Access: {}", atime.format("%Y-%m-%d %H:%M:%S.%9f %z"));
         println!("Modify: {}", mtime.format("%Y-%m-%d %H:%M:%S.%9f %z"));
         println!("Change: {}", ctime.format("%Y-%m-%d %H:%M:%S.%9f %z"));
@@ -235,38 +244,51 @@ fn display_default_format(info: &FileInfo) -> Result<()> {
         let created = DateTime::<Local>::from(meta.created()?);
         let modified = DateTime::<Local>::from(meta.modified()?);
         let accessed = DateTime::<Local>::from(meta.accessed()?);
-        
+
         println!("Access: {}", accessed.format("%Y-%m-%d %H:%M:%S.%9f"));
         println!("Modify: {}", modified.format("%Y-%m-%d %H:%M:%S.%9f"));
         println!("Change: {}", modified.format("%Y-%m-%d %H:%M:%S.%9f"));
         println!(" Birth: {}", created.format("%Y-%m-%d %H:%M:%S.%9f"));
     }
-    
+
     Ok(())
 }
 
 fn display_terse_format(info: &FileInfo) -> Result<()> {
     let meta = &info.metadata;
     let path = info.path.to_string_lossy();
-    
+
     // Terse format for Windows
     #[cfg(windows)]
     {
         let created = meta.created().unwrap_or(UNIX_EPOCH);
         let modified = meta.modified().unwrap_or(UNIX_EPOCH);
         let accessed = meta.accessed().unwrap_or(UNIX_EPOCH);
-        
-        println!("{} {} 100644 0 0 0 0 1 {} {} {} {} 4096 {}",
+
+        println!(
+            "{} {} 100644 0 0 0 0 1 {} {} {} {} 4096 {}",
             path,
             meta.len(), // nlink
-            accessed.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
-            modified.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
-            modified.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
-            created.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(), // blksize
+            accessed
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            modified
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            modified
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            created
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(), // blksize
             meta.len().div_ceil(4096) // blocks
         );
     }
-    
+
     Ok(())
 }
 
@@ -290,7 +312,7 @@ fn display_custom_format(_info: &FileInfo, _format: &str, _is_printf: bool) -> R
 
 fn get_file_type_description(meta: &Metadata) -> String {
     let file_type = meta.file_type();
-    
+
     if file_type.is_file() {
         "regular file".to_string()
     } else if file_type.is_dir() {
@@ -323,7 +345,7 @@ fn format_permissions(_mode: u32) -> String {
     #[cfg(unix)]
     {
         let mut perms = String::new();
-        
+
         // File type
         let file_type = (_mode & 0o170000) as u32;
         perms.push(match file_type {
@@ -336,22 +358,22 @@ fn format_permissions(_mode: u32) -> String {
             0o140000 => 's', // Socket
             _ => '?',
         });
-        
+
         // Owner permissions
         perms.push(if _mode & 0o400 != 0 { 'r' } else { '-' });
         perms.push(if _mode & 0o200 != 0 { 'w' } else { '-' });
         perms.push(if _mode & 0o100 != 0 { 'x' } else { '-' });
-        
+
         // Group permissions
         perms.push(if _mode & 0o040 != 0 { 'r' } else { '-' });
         perms.push(if _mode & 0o020 != 0 { 'w' } else { '-' });
         perms.push(if _mode & 0o010 != 0 { 'x' } else { '-' });
-        
+
         // Other permissions
         perms.push(if _mode & 0o004 != 0 { 'r' } else { '-' });
         perms.push(if _mode & 0o002 != 0 { 'w' } else { '-' });
         perms.push(if _mode & 0o001 != 0 { 'x' } else { '-' });
-        
+
         perms
     }
     #[cfg(windows)]
@@ -488,7 +510,10 @@ fn print_help() {
 }
 
 /// Execute stat command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     match stat_cli(args) {
         Ok(_) => Ok(0),
         Err(e) => {
@@ -497,4 +522,3 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
         }
     }
 }
-

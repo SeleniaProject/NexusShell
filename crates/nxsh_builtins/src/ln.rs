@@ -1,6 +1,6 @@
+use crate::common::{BuiltinContext, BuiltinResult};
 use std::fs;
 use std::path::Path;
-use crate::common::{BuiltinResult, BuiltinContext};
 
 /// Create links between files
 pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
@@ -91,9 +91,13 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
             Ok(0)
         }
         Err(e) => {
-            eprintln!("ln: failed to create {} link '{}' -> '{}': {}", 
-                     if symbolic { "symbolic" } else { "hard" }, 
-                     link_name, target, e);
+            eprintln!(
+                "ln: failed to create {} link '{}' -> '{}': {}",
+                if symbolic { "symbolic" } else { "hard" },
+                link_name,
+                target,
+                e
+            );
             Ok(1)
         }
     }

@@ -10,7 +10,12 @@ mod unix_fsck {
     // Create a minimal fake FAT-like image (not a valid FS) just to exercise journal I/O
     // The test focuses on JSON journal roundtrip and command wiring, not on real FAT parsing.
     fn create_dummy_image(path: &str, size: usize) {
-        let mut f = fs::OpenOptions::new().create(true).write(true).truncate(true).open(path).unwrap();
+        let mut f = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(path)
+            .unwrap();
         f.write_all(&vec![0u8; size]).unwrap();
         f.flush().unwrap();
     }
@@ -41,7 +46,8 @@ mod unix_fsck {
         fs::write(report_path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
 
         // Just ensure the file exists and is valid JSON to avoid panics in fsck code paths used by CLI.
-        let loaded: serde_json::Value = serde_json::from_slice(&fs::read(report_path).unwrap()).unwrap();
+        let loaded: serde_json::Value =
+            serde_json::from_slice(&fs::read(report_path).unwrap()).unwrap();
         assert_eq!(loaded["filesystem"], "FAT32");
 
         // Create shadow image file to pass mount sanity path (mount may fail, but apply with dry-run should still work)
@@ -50,9 +56,18 @@ mod unix_fsck {
 
         // Dry-run application should not fail.
         // We call the library entry via nxsh_core::execute_builtin when available in test binary.
-        let args = vec!["apply-journal".to_string(), report_path.to_string(), "--shadow".to_string(), img_path.to_string()];
+        let args = vec![
+            "apply-journal".to_string(),
+            report_path.to_string(),
+            "--shadow".to_string(),
+            img_path.to_string(),
+        ];
         let res = nxsh_builtins::fsck::fsck_cli(&args);
-        assert!(res.is_ok(), "fsck apply-journal dry-run should succeed: {:?}", res.err());
+        assert!(
+            res.is_ok(),
+            "fsck apply-journal dry-run should succeed: {:?}",
+            res.err()
+        );
     }
 }
 
@@ -62,5 +77,3 @@ fn fsck_skip_on_non_unix() {
     // No-op test to keep suite green on non-Unix platforms
     // Test passes by default
 }
-
-

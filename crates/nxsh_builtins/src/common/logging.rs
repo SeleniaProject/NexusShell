@@ -14,26 +14,31 @@
 #[cfg(feature = "logging")]
 use anyhow::{Context, Result};
 #[cfg(feature = "logging")]
+use chrono::{DateTime, Utc};
+#[cfg(feature = "logging")]
+use hostname;
+#[cfg(feature = "logging")]
 use once_cell::sync::OnceCell;
-use tracing::{info, Level, debug, error, warn};
-#[cfg(feature = "logging")]
-use tracing_subscriber::{fmt::{self, format::FmtSpan}, EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
-#[cfg(feature = "logging")]
-use tracing_appender::{rolling, non_blocking};
 #[cfg(feature = "logging")]
 use serde::{Deserialize, Serialize};
 #[cfg(not(feature = "logging"))]
 use serde::{Deserialize, Serialize};
-use std::path::{PathBuf, Path};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 #[cfg(feature = "logging")]
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "logging")]
 use std::time::SystemTime;
+use tracing::{debug, error, info, warn, Level};
 #[cfg(feature = "logging")]
-use chrono::{DateTime, Utc};
+use tracing_appender::{non_blocking, rolling};
 #[cfg(feature = "logging")]
-use hostname;
+use tracing_subscriber::{
+    fmt::{self, format::FmtSpan},
+    layer::SubscriberExt,
+    util::SubscriberInitExt,
+    EnvFilter,
+};
 
 #[cfg(feature = "logging")]
 static LOGGER_INSTANCE: OnceCell<LoggerInstance> = OnceCell::new();
@@ -156,14 +161,14 @@ pub struct ProcessInfo {
 pub fn init_advanced(config: LoggingConfig) -> Result<()> {
     LOGGER_INSTANCE.get_or_try_init(|| -> Result<LoggerInstance> {
         setup_tracing_subscriber(&config)?;
-        
+
         Ok(LoggerInstance {
             config,
             start_time: SystemTime::now(),
             log_stats: Arc::new(Mutex::new(LogStats::default())),
         })
     })?;
-    
+
     info!("Advanced logging system initialized successfully");
     Ok(())
 }
@@ -172,9 +177,9 @@ pub fn init_advanced(config: LoggingConfig) -> Result<()> {
 pub fn init(level: Option<Level>) {
     #[cfg(feature = "logging")]
     let config = LoggingConfig {
-        level: level.map(|l| l.to_string()).unwrap_or_else(|| {
-            std::env::var("NXSH_LOG").unwrap_or_else(|_| "info".to_string())
-        }),
+        level: level
+            .map(|l| l.to_string())
+            .unwrap_or_else(|| std::env::var("NXSH_LOG").unwrap_or_else(|_| "info".to_string())),
         ..Default::default()
     };
     #[cfg(feature = "logging")]
@@ -188,7 +193,7 @@ fn setup_tracing_subscriber(config: &LoggingConfig) -> Result<()> {
     let filter = EnvFilter::try_new(&config.level)
         .or_else(|_| EnvFilter::try_new("info"))
         .context("Failed to create log filter")?;
-    
+
     match &config.output {
         LogOutput::Stdout => {
             setup_stdout_logging(config, filter)?;
@@ -203,7 +208,7 @@ fn setup_tracing_subscriber(config: &LoggingConfig) -> Result<()> {
             setup_multiple_logging(config, filter, outputs)?;
         }
     }
-    
+
     Ok(())
 }
 
@@ -213,7 +218,11 @@ fn setup_stdout_logging(config: &LoggingConfig, filter: EnvFilter) -> Result<()>
         LogFormat::Json => {
             tracing_subscriber::registry()
                 .with(filter)
-                .with(fmt::layer().with_writer(std::io::stdout).with_span_events(FmtSpan::CLOSE))
+                .with(
+                    fmt::layer()
+                        .with_writer(std::io::stdout)
+                        .with_span_events(FmtSpan::CLOSE),
+                )
                 .init();
         }
         LogFormat::Pretty => {
@@ -244,7 +253,11 @@ fn setup_stderr_logging(config: &LoggingConfig, filter: EnvFilter) -> Result<()>
         LogFormat::Json => {
             tracing_subscriber::registry()
                 .with(filter)
-                .with(fmt::layer().with_writer(std::io::stderr).with_span_events(FmtSpan::CLOSE))
+                .with(
+                    fmt::layer()
+                        .with_writer(std::io::stderr)
+                        .with_span_events(FmtSpan::CLOSE),
+                )
                 .init();
         }
         LogFormat::Pretty => {
@@ -273,23 +286,35 @@ fn setup_stderr_logging(config: &LoggingConfig, filter: EnvFilter) -> Result<()>
 fn setup_file_logging(config: &LoggingConfig, filter: EnvFilter, path: &Path) -> Result<()> {
     // Create directory if it doesn't exist
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .context("Failed to create log directory")?;
+        std::fs::create_dir_all(parent).context("Failed to create log directory")?;
     }
-    
+
     let file_appender = match config.rotation.rotation_type {
-        RotationType::Daily => rolling::daily(path.parent().unwrap_or_else(|| Path::new(".")), path.file_name().unwrap().to_str().unwrap()),
-        RotationType::Hourly => rolling::hourly(path.parent().unwrap_or_else(|| Path::new(".")), path.file_name().unwrap().to_str().unwrap()),
-        _ => rolling::never(path.parent().unwrap_or_else(|| Path::new(".")), path.file_name().unwrap().to_str().unwrap()),
+        RotationType::Daily => rolling::daily(
+            path.parent().unwrap_or_else(|| Path::new(".")),
+            path.file_name().unwrap().to_str().unwrap(),
+        ),
+        RotationType::Hourly => rolling::hourly(
+            path.parent().unwrap_or_else(|| Path::new(".")),
+            path.file_name().unwrap().to_str().unwrap(),
+        ),
+        _ => rolling::never(
+            path.parent().unwrap_or_else(|| Path::new(".")),
+            path.file_name().unwrap().to_str().unwrap(),
+        ),
     };
-    
+
     if config.async_logging {
         let (non_blocking_appender, _guard) = non_blocking(file_appender);
         match config.format {
             LogFormat::Json => {
                 tracing_subscriber::registry()
                     .with(filter)
-                    .with(fmt::layer().with_writer(non_blocking_appender).with_span_events(FmtSpan::CLOSE))
+                    .with(
+                        fmt::layer()
+                            .with_writer(non_blocking_appender)
+                            .with_span_events(FmtSpan::CLOSE),
+                    )
                     .init();
             }
             LogFormat::Pretty => {
@@ -316,7 +341,11 @@ fn setup_file_logging(config: &LoggingConfig, filter: EnvFilter, path: &Path) ->
             LogFormat::Json => {
                 tracing_subscriber::registry()
                     .with(filter)
-                    .with(fmt::layer().with_writer(file_appender).with_span_events(FmtSpan::CLOSE))
+                    .with(
+                        fmt::layer()
+                            .with_writer(file_appender)
+                            .with_span_events(FmtSpan::CLOSE),
+                    )
                     .init();
             }
             LogFormat::Pretty => {
@@ -339,35 +368,39 @@ fn setup_file_logging(config: &LoggingConfig, filter: EnvFilter, path: &Path) ->
             }
         }
     }
-    
+
     Ok(())
 }
 
 #[cfg(feature = "logging")]
-fn setup_multiple_logging(config: &LoggingConfig, filter: EnvFilter, outputs: &[LogOutput]) -> Result<()> {
-    use tracing_subscriber::{layer::SubscriberExt, Registry};
+fn setup_multiple_logging(
+    config: &LoggingConfig,
+    filter: EnvFilter,
+    outputs: &[LogOutput],
+) -> Result<()> {
     use std::io::{self, Write};
-    
+    use tracing_subscriber::{layer::SubscriberExt, Registry};
+
     // Custom writer that duplicates output to multiple destinations
     struct MultiWriter {
         writers: Vec<Box<dyn Write + Send + Sync>>,
     }
-    
+
     impl MultiWriter {
         fn new() -> Self {
             Self {
                 writers: Vec::new(),
             }
         }
-        
+
         fn add_stdout(&mut self) {
             self.writers.push(Box::new(io::stdout()));
         }
-        
+
         fn add_stderr(&mut self) {
             self.writers.push(Box::new(io::stderr()));
         }
-        
+
         fn add_file(&mut self, path: &Path) -> Result<()> {
             let file = std::fs::OpenOptions::new()
                 .create(true)
@@ -378,12 +411,12 @@ fn setup_multiple_logging(config: &LoggingConfig, filter: EnvFilter, outputs: &[
             Ok(())
         }
     }
-    
+
     impl Write for MultiWriter {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
             let mut errors = Vec::new();
             let mut bytes_written = 0;
-            
+
             for writer in &mut self.writers {
                 match writer.write(buf) {
                     Ok(n) => {
@@ -394,14 +427,14 @@ fn setup_multiple_logging(config: &LoggingConfig, filter: EnvFilter, outputs: &[
                     Err(e) => errors.push(e),
                 }
             }
-            
+
             if !errors.is_empty() && bytes_written == 0 {
                 return Err(errors.into_iter().next().unwrap());
             }
-            
+
             Ok(bytes_written)
         }
-        
+
         fn flush(&mut self) -> io::Result<()> {
             for writer in &mut self.writers {
                 writer.flush()?;
@@ -409,10 +442,10 @@ fn setup_multiple_logging(config: &LoggingConfig, filter: EnvFilter, outputs: &[
             Ok(())
         }
     }
-    
+
     // Build multi-writer based on output configurations
     let mut multi_writer = MultiWriter::new();
-    
+
     for output in outputs {
         match output {
             LogOutput::Stdout => multi_writer.add_stdout(),
@@ -424,87 +457,88 @@ fn setup_multiple_logging(config: &LoggingConfig, filter: EnvFilter, outputs: &[
             }
         }
     }
-    
+
     // Wrap multi_writer in Arc to allow sharing across multiple closures
     let multi_writer = Arc::new(Mutex::new(multi_writer));
-    
+
     // Create a wrapper that implements MakeWriter
     #[derive(Clone)]
     struct MultiWriterMakeWriter {
         writer: Arc<Mutex<MultiWriter>>,
     }
-    
+
     impl<'a> tracing_subscriber::fmt::writer::MakeWriter<'a> for MultiWriterMakeWriter {
         type Writer = MultiWriterHandle;
-        
+
         fn make_writer(&'a self) -> Self::Writer {
             MultiWriterHandle {
                 writer: self.writer.clone(),
             }
         }
     }
-    
+
     struct MultiWriterHandle {
         writer: Arc<Mutex<MultiWriter>>,
     }
-    
+
     impl std::io::Write for MultiWriterHandle {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
             let mut writer = self.writer.lock().unwrap();
             writer.write(buf)
         }
-        
+
         fn flush(&mut self) -> std::io::Result<()> {
             let mut writer = self.writer.lock().unwrap();
             writer.flush()
         }
     }
-    
+
     let make_writer = MultiWriterMakeWriter {
         writer: multi_writer,
     };
-    
+
     // Setup subscriber with the multi-writer
     match config.format {
         LogFormat::Json => {
             Registry::default()
                 .with(filter)
-                .with(fmt::layer()
-                    .with_writer(make_writer.clone())
-                    .with_span_events(FmtSpan::CLOSE))
+                .with(
+                    fmt::layer()
+                        .with_writer(make_writer.clone())
+                        .with_span_events(FmtSpan::CLOSE),
+                )
                 .init();
         }
         LogFormat::Pretty => {
             Registry::default()
                 .with(filter)
-                .with(fmt::layer()
-                    .pretty()
-                    .with_writer(make_writer.clone()))
+                .with(fmt::layer().pretty().with_writer(make_writer.clone()))
                 .init();
         }
         LogFormat::Compact => {
             Registry::default()
                 .with(filter)
-                .with(fmt::layer()
-                    .compact()
-                    .with_writer(make_writer.clone()))
+                .with(fmt::layer().compact().with_writer(make_writer.clone()))
                 .init();
         }
         LogFormat::Plain => {
             Registry::default()
                 .with(filter)
-                .with(fmt::layer()
-                    .with_writer(make_writer.clone()))
+                .with(fmt::layer().with_writer(make_writer.clone()))
                 .init();
         }
     }
-    
+
     Ok(())
 }
 
 /// Create a structured log entry
 #[cfg(feature = "logging")]
-pub fn create_log_entry(level: Level, message: &str, fields: HashMap<String, serde_json::Value>) -> LogEntry {
+pub fn create_log_entry(
+    level: Level,
+    message: &str,
+    fields: HashMap<String, serde_json::Value>,
+) -> LogEntry {
     LogEntry {
         timestamp: Utc::now(),
         level: level.to_string(),
@@ -515,22 +549,30 @@ pub fn create_log_entry(level: Level, message: &str, fields: HashMap<String, ser
         process_info: ProcessInfo {
             pid: std::process::id(),
             thread_id: format!("{:?}", std::thread::current().id()),
-            hostname: hostname::get().map(|h| h.to_string_lossy().to_string()).unwrap_or_else(|_| "unknown".to_string()),
-            user: std::env::var("USER").or_else(|_| std::env::var("USERNAME")).ok(),
+            hostname: hostname::get()
+                .map(|h| h.to_string_lossy().to_string())
+                .unwrap_or_else(|_| "unknown".to_string()),
+            user: std::env::var("USER")
+                .or_else(|_| std::env::var("USERNAME"))
+                .ok(),
         },
     }
 }
 
 /// Log an internationalized informational message.
 pub fn info_i18n(msg_ja: &str, msg_en: &str) {
-    if is_lang_ja() { info!("{msg_ja}"); } else { info!("{msg_en}"); }
+    if is_lang_ja() {
+        info!("{msg_ja}");
+    } else {
+        info!("{msg_en}");
+    }
 }
 
 /// Log with structured data
 #[cfg(feature = "logging")]
 pub fn log_structured(level: Level, message: &str, fields: HashMap<String, serde_json::Value>) {
     let entry = create_log_entry(level, message, fields);
-    
+
     // Update statistics
     if let Some(instance) = LOGGER_INSTANCE.get() {
         if let Ok(mut stats) = instance.log_stats.lock() {
@@ -544,29 +586,49 @@ pub fn log_structured(level: Level, message: &str, fields: HashMap<String, serde
             }
         }
     }
-    
+
     // Emit log based on level
     match level {
-        Level::ERROR => error!("{}", serde_json::to_string(&entry).unwrap_or_else(|_| message.to_string())),
-        Level::WARN => warn!("{}", serde_json::to_string(&entry).unwrap_or_else(|_| message.to_string())),
-        Level::INFO => info!("{}", serde_json::to_string(&entry).unwrap_or_else(|_| message.to_string())),
-        Level::DEBUG => debug!("{}", serde_json::to_string(&entry).unwrap_or_else(|_| message.to_string())),
-        Level::TRACE => tracing::trace!("{}", serde_json::to_string(&entry).unwrap_or_else(|_| message.to_string())),
+        Level::ERROR => error!(
+            "{}",
+            serde_json::to_string(&entry).unwrap_or_else(|_| message.to_string())
+        ),
+        Level::WARN => warn!(
+            "{}",
+            serde_json::to_string(&entry).unwrap_or_else(|_| message.to_string())
+        ),
+        Level::INFO => info!(
+            "{}",
+            serde_json::to_string(&entry).unwrap_or_else(|_| message.to_string())
+        ),
+        Level::DEBUG => debug!(
+            "{}",
+            serde_json::to_string(&entry).unwrap_or_else(|_| message.to_string())
+        ),
+        Level::TRACE => tracing::trace!(
+            "{}",
+            serde_json::to_string(&entry).unwrap_or_else(|_| message.to_string())
+        ),
     }
 }
 
 /// Get logging statistics
 #[cfg(feature = "logging")]
 pub(crate) fn get_stats() -> Option<LogStats> {
-    LOGGER_INSTANCE.get()?.log_stats.lock().ok().map(|stats| LogStats {
-        total_logs: stats.total_logs,
-        error_count: stats.error_count,
-        warn_count: stats.warn_count,
-        info_count: stats.info_count,
-        debug_count: stats.debug_count,
-        trace_count: stats.trace_count,
-        bytes_written: stats.bytes_written,
-    })
+    LOGGER_INSTANCE
+        .get()?
+        .log_stats
+        .lock()
+        .ok()
+        .map(|stats| LogStats {
+            total_logs: stats.total_logs,
+            error_count: stats.error_count,
+            warn_count: stats.warn_count,
+            info_count: stats.info_count,
+            debug_count: stats.debug_count,
+            trace_count: stats.trace_count,
+            bytes_written: stats.bytes_written,
+        })
 }
 
 /// Detect if current locale is Japanese.

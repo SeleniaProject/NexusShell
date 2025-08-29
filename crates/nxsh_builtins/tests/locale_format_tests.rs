@@ -1,4 +1,6 @@
-use nxsh_builtins::common::locale_format::{format_integer_locale, format_float_locale, format_date_locale, format_size_locale};
+use nxsh_builtins::common::locale_format::{
+    format_date_locale, format_float_locale, format_integer_locale, format_size_locale,
+};
 
 #[test]
 fn test_integer_grouping_locales() {
@@ -18,10 +20,11 @@ fn test_float_decimal_separator() {
 fn test_date_and_size() {
     // 2023-05-04
     use chrono::TimeZone;
-    let ts = chrono::Local.with_ymd_and_hms(2023, 5, 4, 0, 0, 0).unwrap().timestamp();
+    let ts = chrono::Local
+        .with_ymd_and_hms(2023, 5, 4, 0, 0, 0)
+        .unwrap()
+        .timestamp();
     assert!(format_date_locale(ts, "ja-JP").contains("2023/05/04"));
     let sz = format_size_locale(1_000_000, "en-US");
     assert!(sz.contains("MB") || sz.contains("KB"));
 }
-
-

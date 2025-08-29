@@ -1,6 +1,6 @@
 use anyhow::Result;
-use std::io::{self, Read, Write};
 use std::fs::File;
+use std::io::{self, Read, Write};
 
 /// CLI wrapper function for base64 encoding/decoding
 pub fn base64_cli(args: &[String]) -> Result<()> {
@@ -9,7 +9,7 @@ pub fn base64_cli(args: &[String]) -> Result<()> {
     let mut wrap_width = 76;
     let mut files = Vec::new();
     let mut i = 0;
-    
+
     while i < args.len() {
         match args[i].as_str() {
             "-d" | "--decode" => {
@@ -43,12 +43,12 @@ pub fn base64_cli(args: &[String]) -> Result<()> {
         }
         i += 1;
     }
-    
+
     if files.is_empty() {
         // Read from stdin
         let mut buffer = Vec::new();
         io::stdin().read_to_end(&mut buffer)?;
-        
+
         if decode {
             decode_base64(&buffer, ignore_garbage)?;
         } else {
@@ -60,7 +60,7 @@ pub fn base64_cli(args: &[String]) -> Result<()> {
             let mut file = File::open(&filename)?;
             let mut buffer = Vec::new();
             file.read_to_end(&mut buffer)?;
-            
+
             if decode {
                 decode_base64(&buffer, ignore_garbage)?;
             } else {
@@ -68,41 +68,46 @@ pub fn base64_cli(args: &[String]) -> Result<()> {
             }
         }
     }
-    
+
     Ok(())
 }
 
 fn encode_base64(data: &[u8], wrap_width: usize) -> Result<()> {
     const BASE64_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    
+
     let mut result = String::new();
-    
+
     for chunk in data.chunks(3) {
         let mut buf = [0u8; 3];
         for (i, &byte) in chunk.iter().enumerate() {
             buf[i] = byte;
         }
-        
+
         let b = ((buf[0] as u32) << 16) | ((buf[1] as u32) << 8) | (buf[2] as u32);
-        
+
         result.push(BASE64_CHARS[((b >> 18) & 0x3F) as usize] as char);
         result.push(BASE64_CHARS[((b >> 12) & 0x3F) as usize] as char);
-        
+
         if chunk.len() > 1 {
             result.push(BASE64_CHARS[((b >> 6) & 0x3F) as usize] as char);
         } else {
             result.push('=');
         }
-        
+
         if chunk.len() > 2 {
             result.push(BASE64_CHARS[(b & 0x3F) as usize] as char);
         } else {
             result.push('=');
         }
     }
-    
+
     if wrap_width > 0 {
-        for (i, chunk) in result.chars().collect::<Vec<_>>().chunks(wrap_width).enumerate() {
+        for (i, chunk) in result
+            .chars()
+            .collect::<Vec<_>>()
+            .chunks(wrap_width)
+            .enumerate()
+        {
             if i > 0 {
                 println!();
             }
@@ -112,29 +117,28 @@ fn encode_base64(data: &[u8], wrap_width: usize) -> Result<()> {
     } else {
         println!("{result}");
     }
-    
+
     Ok(())
 }
 
 fn decode_base64(data: &[u8], ignore_garbage: bool) -> Result<()> {
     let input = String::from_utf8_lossy(data);
     let cleaned: String = if ignore_garbage {
-        input.chars()
+        input
+            .chars()
             .filter(|c| c.is_ascii_alphanumeric() || *c == '+' || *c == '/' || *c == '=')
             .collect()
     } else {
-        input.chars()
-            .filter(|c| !c.is_whitespace())
-            .collect()
+        input.chars().filter(|c| !c.is_whitespace()).collect()
     };
-    
+
     let mut result = Vec::new();
-    
+
     for chunk in cleaned.chars().collect::<Vec<_>>().chunks(4) {
         if chunk.len() < 4 {
             continue;
         }
-        
+
         let mut values = [0u8; 4];
         for (i, &c) in chunk.iter().enumerate() {
             values[i] = match c {
@@ -152,29 +156,32 @@ fn decode_base64(data: &[u8], ignore_garbage: bool) -> Result<()> {
                 }
             };
         }
-        
-        let b = ((values[0] as u32) << 18) | 
-                ((values[1] as u32) << 12) | 
-                ((values[2] as u32) << 6) | 
-                (values[3] as u32);
-        
+
+        let b = ((values[0] as u32) << 18)
+            | ((values[1] as u32) << 12)
+            | ((values[2] as u32) << 6)
+            | (values[3] as u32);
+
         result.push((b >> 16) as u8);
-        
+
         if chunk[2] != '=' {
             result.push((b >> 8) as u8);
         }
-        
+
         if chunk[3] != '=' {
             result.push(b as u8);
         }
     }
-    
+
     io::stdout().write_all(&result)?;
     Ok(())
 }
 
 /// Execute function for base64 command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     match base64_cli(args) {
         Ok(_) => Ok(0),
         Err(e) => {
@@ -183,4 +190,3 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
         }
     }
 }
-

@@ -8,11 +8,11 @@ use std::path::Path;
 /// File system check command
 pub fn fsck_cli(args: &[String]) -> Result<()> {
     let options = parse_fsck_args(args)?;
-    
+
     for fs_path in &options.filesystems {
         check_filesystem(fs_path, &options)?;
     }
-    
+
     Ok(())
 }
 
@@ -30,8 +30,7 @@ pub struct FsckOptions {
 }
 
 /// Check modes
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CheckMode {
     /// Read-only check (default)
     #[default]
@@ -42,12 +41,11 @@ pub enum CheckMode {
     Automatic,
 }
 
-
 /// Parse command line arguments
 fn parse_fsck_args(args: &[String]) -> Result<FsckOptions> {
     let mut options = FsckOptions::default();
     let mut i = 0;
-    
+
     while i < args.len() {
         match args[i].as_str() {
             "-v" | "--verbose" => options.verbose = true,
@@ -62,11 +60,11 @@ fn parse_fsck_args(args: &[String]) -> Result<FsckOptions> {
         }
         i += 1;
     }
-    
+
     if options.filesystems.is_empty() {
         options.filesystems.push("/dev/sda1".to_string()); // Default
     }
-    
+
     Ok(options)
 }
 
@@ -75,7 +73,7 @@ fn check_filesystem(fs_path: &str, options: &FsckOptions) -> Result<()> {
     if options.verbose {
         println!("fsck: checking filesystem {fs_path}");
     }
-    
+
     // Basic existence check
     if !Path::new(fs_path).exists() {
         if options.verbose {
@@ -83,31 +81,34 @@ fn check_filesystem(fs_path: &str, options: &FsckOptions) -> Result<()> {
         }
         return Ok(());
     }
-    
+
     // Simulate filesystem check
     if options.verbose {
         println!("fsck: {fs_path} appears to be clean");
     }
-    
+
     // On Windows, suggest using native tools
     #[cfg(windows)]
     {
         println!("fsck: On this platform, use native tools for filesystem checking");
         println!("fsck: Consider using 'chkdsk' or 'sfc /scannow'");
     }
-    
+
     // On Unix-like systems, provide basic simulation
     #[cfg(unix)]
     {
         println!("fsck: filesystem check completed for {}", fs_path);
         println!("fsck: no errors detected");
     }
-    
+
     Ok(())
 }
 
 // Adapter function for the builtin command interface
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     fsck_cli(args).map_err(|e| crate::common::BuiltinError::Other(e.to_string()))?;
     Ok(0)
 }

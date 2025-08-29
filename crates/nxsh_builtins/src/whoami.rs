@@ -7,22 +7,24 @@ use crate::ui_design::{ColorPalette, Icons};
 pub fn whoami_cli(args: &[String]) -> Result<()> {
     // Parse arguments
     let show_help = args.contains(&"--help".to_string()) || args.contains(&"-h".to_string());
-    
+
     if show_help {
         println!("whoami - print effective userid");
         println!("Usage: whoami [OPTION]...");
         println!("  -h, --help     display this help and exit");
         return Ok(());
     }
-    
+
     // Get current username
     match std::env::var("USERNAME").or_else(|_| std::env::var("USER")) {
         Ok(username) => {
             let colors = ColorPalette::new();
             let icons = Icons::new();
-            println!("{}👤 Current user: {}{}{}", 
-                colors.primary, colors.success, username, colors.reset);
-        },
+            println!(
+                "{}👤 Current user: {}{}{}",
+                colors.primary, colors.success, username, colors.reset
+            );
+        }
         Err(_) => {
             // Fallback to current user detection
             #[cfg(unix)]
@@ -40,18 +42,19 @@ pub fn whoami_cli(args: &[String]) -> Result<()> {
                     }
                 }
             }
-            
+
             println!("unknown");
         }
     }
-    
+
     Ok(())
 }
 
-
-
 /// Execute function stub
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    _args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     eprintln!("Command not yet implemented");
     Ok(1)
 }

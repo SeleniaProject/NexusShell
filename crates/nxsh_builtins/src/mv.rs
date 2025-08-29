@@ -18,12 +18,12 @@
 //!   --help                     - Display help and exit
 //!   --version                  - Output version information and exit
 
-use anyhow::{Result, anyhow};
-use std::fs::{self};
-use std::path::{Path, PathBuf};
-use std::io::{self, Write};
 use crate::ui_design::TableFormatter;
+use anyhow::{anyhow, Result};
 use nxsh_ui::ProgressBar;
+use std::fs::{self};
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum BackupMode {
@@ -166,14 +166,16 @@ impl MvCommand {
                         return Err(anyhow!("mv: option '{}' requires an argument", args[i]));
                     }
                     i += 1;
-                    self.options.preserve_attributes = args[i].split(',').map(|s| s.to_string()).collect();
+                    self.options.preserve_attributes =
+                        args[i].split(',').map(|s| s.to_string()).collect();
                 }
                 "--no-preserve" => {
                     if i + 1 >= args.len() {
                         return Err(anyhow!("mv: option '{}' requires an argument", args[i]));
                     }
                     i += 1;
-                    self.options.no_preserve_attributes = args[i].split(',').map(|s| s.to_string()).collect();
+                    self.options.no_preserve_attributes =
+                        args[i].split(',').map(|s| s.to_string()).collect();
                 }
                 "-Z" | "--context" => {
                     if i + 1 >= args.len() {
@@ -232,7 +234,10 @@ impl MvCommand {
             self.destination = target_dir.clone();
         } else {
             if positional_args.len() < 2 {
-                return Err(anyhow!("mv: missing destination file operand after '{}'", positional_args[0]));
+                return Err(anyhow!(
+                    "mv: missing destination file operand after '{}'",
+                    positional_args[0]
+                ));
             }
             self.destination = PathBuf::from(positional_args.pop().unwrap());
             self.sources = positional_args.into_iter().map(PathBuf::from).collect();
@@ -254,10 +259,16 @@ impl MvCommand {
 
     pub fn execute(&mut self) -> Result<()> {
         // Validate destination
-        if self.sources.len() > 1 && !self.destination.is_dir() && self.options.target_directory.is_none()
-            && !self.options.no_target_directory {
-                return Err(anyhow!("mv: target '{}' is not a directory", self.destination.display()));
-            }
+        if self.sources.len() > 1
+            && !self.destination.is_dir()
+            && self.options.target_directory.is_none()
+            && !self.options.no_target_directory
+        {
+            return Err(anyhow!(
+                "mv: target '{}' is not a directory",
+                self.destination.display()
+            ));
+        }
 
         // Show progress bar for large operations
         let total_operations = self.sources.len();
@@ -300,7 +311,10 @@ impl MvCommand {
         }
 
         if self.statistics.errors > 0 {
-            Err(anyhow!("mv: {} errors occurred during move operation", self.statistics.errors))
+            Err(anyhow!(
+                "mv: {} errors occurred during move operation",
+                self.statistics.errors
+            ))
         } else {
             Ok(())
         }
@@ -308,12 +322,16 @@ impl MvCommand {
 
     fn move_single_item(&mut self, source: &Path) -> Result<()> {
         if !source.exists() {
-            return Err(anyhow!("cannot stat '{}': No such file or directory", source.display()));
+            return Err(anyhow!(
+                "cannot stat '{}': No such file or directory",
+                source.display()
+            ));
         }
 
         // Determine target path
         let target = if self.destination.is_dir() && !self.options.no_target_directory {
-            self.destination.join(source.file_name().unwrap_or(source.as_os_str()))
+            self.destination
+                .join(source.file_name().unwrap_or(source.as_os_str()))
         } else {
             self.destination.clone()
         };
@@ -321,7 +339,11 @@ impl MvCommand {
         // Check for self-move
         if source.canonicalize()? == target.canonicalize().unwrap_or(target.clone()) {
             if self.options.verbose {
-                println!("'{}' and '{}' are the same file", source.display(), target.display());
+                println!(
+                    "'{}' and '{}' are the same file",
+                    source.display(),
+                    target.display()
+                );
             }
             return Ok(());
         }
@@ -340,16 +362,18 @@ impl MvCommand {
                 let target_time = target.metadata()?.modified()?;
                 if source_time <= target_time {
                     if self.options.verbose {
-                        println!("not overwriting '{}' (update mode - target is newer)", target.display());
+                        println!(
+                            "not overwriting '{}' (update mode - target is newer)",
+                            target.display()
+                        );
                     }
                     return Ok(());
                 }
             }
 
-            if self.options.interactive && !self.options.force
-                && !self.prompt_overwrite(&target)? {
-                    return Ok(());
-                }
+            if self.options.interactive && !self.options.force && !self.prompt_overwrite(&target)? {
+                return Ok(());
+            }
 
             // Create backup if requested
             if self.options.backup != BackupMode::None {
@@ -364,12 +388,12 @@ impl MvCommand {
                 if self.options.verbose {
                     println!("'{}' -> '{}'", source.display(), target.display());
                 }
-                
+
                 // Update statistics
                 if let Ok(metadata) = fs::metadata(&target) {
                     self.statistics.bytes_moved += metadata.len();
                 }
-                
+
                 Ok(())
             }
             Err(_) => {
@@ -389,7 +413,11 @@ impl MvCommand {
         }
 
         if self.options.verbose {
-            println!("'{}' -> '{}' (copied across filesystems)", source.display(), target.display());
+            println!(
+                "'{}' -> '{}' (copied across filesystems)",
+                source.display(),
+                target.display()
+            );
         }
 
         Ok(())
@@ -419,10 +447,10 @@ impl MvCommand {
     fn prompt_overwrite(&self, target: &Path) -> Result<bool> {
         print!("mv: overwrite '{}'? ", target.display());
         io::stdout().flush()?;
-        
+
         let mut input = String::new();
         io::stdin().read_line(&mut input)?;
-        
+
         let response = input.trim().to_lowercase();
         Ok(response.starts_with('y') || response == "yes")
     }
@@ -442,7 +470,7 @@ impl MvCommand {
                     backup.push(&self.options.backup_suffix);
                     PathBuf::from(backup)
                 };
-                
+
                 if simple_backup.exists() {
                     self.create_numbered_backup(target)?
                 } else {
@@ -453,11 +481,15 @@ impl MvCommand {
         };
 
         fs::copy(target, &backup_path)?;
-        
+
         if self.options.verbose {
-            println!("backup: '{}' -> '{}'", target.display(), backup_path.display());
+            println!(
+                "backup: '{}' -> '{}'",
+                target.display(),
+                backup_path.display()
+            );
         }
-        
+
         Ok(())
     }
 
@@ -475,14 +507,26 @@ impl MvCommand {
     fn print_statistics(&self) {
         println!("Move Operation Statistics");
         println!("=========================");
-        
+
         let formatter = TableFormatter::new();
 
         let data = vec![
-            vec!["Files moved".to_string(), self.statistics.files_moved.to_string()],
-            vec!["Directories moved".to_string(), self.statistics.directories_moved.to_string()],
-            vec!["Bytes moved".to_string(), humansize::format_size(self.statistics.bytes_moved, humansize::BINARY)],
-            vec!["Backups created".to_string(), self.statistics.backups_created.to_string()],
+            vec![
+                "Files moved".to_string(),
+                self.statistics.files_moved.to_string(),
+            ],
+            vec![
+                "Directories moved".to_string(),
+                self.statistics.directories_moved.to_string(),
+            ],
+            vec![
+                "Bytes moved".to_string(),
+                humansize::format_size(self.statistics.bytes_moved, humansize::BINARY),
+            ],
+            vec![
+                "Backups created".to_string(),
+                self.statistics.backups_created.to_string(),
+            ],
             vec!["Errors".to_string(), self.statistics.errors.to_string()],
         ];
 
@@ -541,7 +585,10 @@ pub fn mv_cli(args: &[String]) -> Result<()> {
 }
 
 /// Execute the mv builtin command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     match mv_cli(args) {
         Ok(_) => Ok(0),
         Err(e) => {
@@ -554,22 +601,25 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs::File;
     use std::io::Write;
+    use tempfile::TempDir;
 
     #[test]
     fn test_mv_basic() {
         let temp_dir = TempDir::new().unwrap();
         let source = temp_dir.path().join("source.txt");
         let dest = temp_dir.path().join("dest.txt");
-        
-        File::create(&source).unwrap().write_all(b"test content").unwrap();
-        
+
+        File::create(&source)
+            .unwrap()
+            .write_all(b"test content")
+            .unwrap();
+
         let mut cmd = MvCommand::new();
         cmd.sources = vec![source.clone()];
         cmd.destination = dest.clone();
-        
+
         assert!(cmd.execute().is_ok());
         assert!(!source.exists());
         assert!(dest.exists());
@@ -581,14 +631,17 @@ mod tests {
         let source = temp_dir.path().join("source.txt");
         let dest_dir = temp_dir.path().join("dest_dir");
         let expected_dest = dest_dir.join("source.txt");
-        
-        File::create(&source).unwrap().write_all(b"test content").unwrap();
+
+        File::create(&source)
+            .unwrap()
+            .write_all(b"test content")
+            .unwrap();
         fs::create_dir(&dest_dir).unwrap();
-        
+
         let mut cmd = MvCommand::new();
         cmd.sources = vec![source.clone()];
         cmd.destination = dest_dir;
-        
+
         assert!(cmd.execute().is_ok());
         assert!(!source.exists());
         assert!(expected_dest.exists());
@@ -599,15 +652,21 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let source = temp_dir.path().join("source.txt");
         let dest = temp_dir.path().join("dest.txt");
-        
-        File::create(&source).unwrap().write_all(b"source content").unwrap();
-        File::create(&dest).unwrap().write_all(b"dest content").unwrap();
-        
+
+        File::create(&source)
+            .unwrap()
+            .write_all(b"source content")
+            .unwrap();
+        File::create(&dest)
+            .unwrap()
+            .write_all(b"dest content")
+            .unwrap();
+
         let mut cmd = MvCommand::new();
         cmd.options.interactive = true;
         cmd.sources = vec![source.clone()];
         cmd.destination = dest.clone();
-        
+
         // Note: This test requires manual interaction, so we just verify the setup
         assert!(source.exists());
         assert!(dest.exists());
@@ -618,20 +677,26 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let source = temp_dir.path().join("source.txt");
         let dest = temp_dir.path().join("dest.txt");
-        
-        File::create(&source).unwrap().write_all(b"source content").unwrap();
-        File::create(&dest).unwrap().write_all(b"dest content").unwrap();
-        
+
+        File::create(&source)
+            .unwrap()
+            .write_all(b"source content")
+            .unwrap();
+        File::create(&dest)
+            .unwrap()
+            .write_all(b"dest content")
+            .unwrap();
+
         let mut cmd = MvCommand::new();
         cmd.options.backup = BackupMode::Simple;
         cmd.options.force = true;
         cmd.sources = vec![source.clone()];
         cmd.destination = dest.clone();
-        
+
         assert!(cmd.execute().is_ok());
         assert!(!source.exists());
         assert!(dest.exists());
-        
+
         let backup_file = temp_dir.path().join("dest.txt~");
         assert!(backup_file.exists());
     }
@@ -641,24 +706,30 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let source = temp_dir.path().join("source.txt");
         let dest = temp_dir.path().join("dest.txt");
-        
+
         // Create destination first (older)
-        File::create(&dest).unwrap().write_all(b"dest content").unwrap();
+        File::create(&dest)
+            .unwrap()
+            .write_all(b"dest content")
+            .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(50));
-        
+
         // Create source (newer)
-        File::create(&source).unwrap().write_all(b"source content").unwrap();
-        
+        File::create(&source)
+            .unwrap()
+            .write_all(b"source content")
+            .unwrap();
+
         let mut cmd = MvCommand::new();
         cmd.options.update = true;
         cmd.sources = vec![source.clone()];
         cmd.destination = dest.clone();
-        
+
         assert!(cmd.execute().is_ok());
-        
+
         // Source should not exist because it was moved (dest was older)
         assert!(!source.exists());
-        
+
         // Dest should contain source content now
         let dest_content = fs::read_to_string(&dest).unwrap();
         assert_eq!(dest_content, "source content");
@@ -669,21 +740,27 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let source = temp_dir.path().join("source.txt");
         let dest = temp_dir.path().join("dest.txt");
-        
-        File::create(&source).unwrap().write_all(b"source content").unwrap();
-        File::create(&dest).unwrap().write_all(b"dest content").unwrap();
-        
+
+        File::create(&source)
+            .unwrap()
+            .write_all(b"source content")
+            .unwrap();
+        File::create(&dest)
+            .unwrap()
+            .write_all(b"dest content")
+            .unwrap();
+
         let mut cmd = MvCommand::new();
         cmd.options.no_clobber = true;
         cmd.sources = vec![source.clone()];
         cmd.destination = dest.clone();
-        
+
         assert!(cmd.execute().is_ok());
-        
+
         // Both files should still exist
         assert!(source.exists());
         assert!(dest.exists());
-        
+
         // Dest content should be unchanged
         let dest_content = fs::read_to_string(&dest).unwrap();
         assert_eq!(dest_content, "dest content");
@@ -695,15 +772,21 @@ mod tests {
         let source1 = temp_dir.path().join("source1.txt");
         let source2 = temp_dir.path().join("source2.txt");
         let dest_dir = temp_dir.path().join("dest_dir");
-        
-        File::create(&source1).unwrap().write_all(b"content1").unwrap();
-        File::create(&source2).unwrap().write_all(b"content2").unwrap();
+
+        File::create(&source1)
+            .unwrap()
+            .write_all(b"content1")
+            .unwrap();
+        File::create(&source2)
+            .unwrap()
+            .write_all(b"content2")
+            .unwrap();
         fs::create_dir(&dest_dir).unwrap();
-        
+
         let mut cmd = MvCommand::new();
         cmd.sources = vec![source1.clone(), source2.clone()];
         cmd.destination = dest_dir.clone();
-        
+
         assert!(cmd.execute().is_ok());
         assert!(!source1.exists());
         assert!(!source2.exists());
@@ -715,7 +798,7 @@ mod tests {
     fn test_parse_args_basic() {
         let mut cmd = MvCommand::new();
         let args = vec!["source.txt".to_string(), "dest.txt".to_string()];
-        
+
         assert!(cmd.parse_args(&args).is_ok());
         assert_eq!(cmd.sources.len(), 1);
         assert_eq!(cmd.sources[0], PathBuf::from("source.txt"));
@@ -731,7 +814,7 @@ mod tests {
             "source.txt".to_string(),
             "dest.txt".to_string(),
         ];
-        
+
         assert!(cmd.parse_args(&args).is_ok());
         assert!(cmd.options.force);
         assert!(cmd.options.verbose);
@@ -747,11 +830,14 @@ mod tests {
             "source1.txt".to_string(),
             "source2.txt".to_string(),
         ];
-        
+
         assert!(cmd.parse_args(&args).is_ok());
         assert_eq!(cmd.sources.len(), 2);
         assert_eq!(cmd.destination, PathBuf::from("dest_dir"));
-        assert_eq!(cmd.options.target_directory, Some(PathBuf::from("dest_dir")));
+        assert_eq!(
+            cmd.options.target_directory,
+            Some(PathBuf::from("dest_dir"))
+        );
     }
 
     #[test]
@@ -762,7 +848,7 @@ mod tests {
             "source.txt".to_string(),
             "dest.txt".to_string(),
         ];
-        
+
         assert!(cmd.parse_args(&args).is_ok());
         assert!(cmd.options.force);
         assert!(cmd.options.verbose);
@@ -772,16 +858,20 @@ mod tests {
     #[test]
     fn test_parse_args_errors() {
         let mut cmd = MvCommand::new();
-        
+
         // No arguments
         assert!(cmd.parse_args(&[]).is_err());
-        
+
         // Only one argument
         let args = vec!["source.txt".to_string()];
         assert!(cmd.parse_args(&args).is_err());
-        
+
         // Invalid option
-        let args = vec!["-x".to_string(), "source.txt".to_string(), "dest.txt".to_string()];
+        let args = vec![
+            "-x".to_string(),
+            "source.txt".to_string(),
+            "dest.txt".to_string(),
+        ];
         assert!(cmd.parse_args(&args).is_err());
     }
 }

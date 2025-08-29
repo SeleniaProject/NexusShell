@@ -1,5 +1,5 @@
 //! Pure Rust `bzip2` builtin for decompression (decode-only)
-//! 
+//!
 //! This module provides a Pure Rust implementation of bzip2 decompression
 //! using the bzip2-rs crate (decompression-only). Compression is not
 //! available in this build. Use gzip or xz for compression, or an external
@@ -7,8 +7,8 @@
 
 use anyhow::{Context, Result};
 use bzip2_rs::DecoderReader;
-use std::io::{self, Read, Write, BufReader, BufWriter};
 use std::fs::File;
+use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::Path;
 
 #[derive(Debug, Clone)]
@@ -34,7 +34,7 @@ impl Default for Bzip2Options {
             verbose: false,
             quiet: false,
             test: false,
-            level: 9,  // Default compression level
+            level: 9, // Default compression level
             small: false,
         }
     }
@@ -142,7 +142,7 @@ pub fn bzip2_cli(args: &[String]) -> Result<()> {
 fn process_stdio(options: &Bzip2Options) -> Result<()> {
     let stdin = io::stdin();
     let stdout = io::stdout();
-    
+
     let mut reader = BufReader::new(stdin.lock());
     let mut writer = BufWriter::new(stdout.lock());
 
@@ -161,7 +161,7 @@ fn process_stdio(options: &Bzip2Options) -> Result<()> {
 /// Process multiple files with compression/decompression
 fn process_files(input_files: &[String], options: &Bzip2Options) -> Result<()> {
     let mut all_success = true;
-    
+
     for filename in input_files {
         if let Err(e) = process_single_file(filename, options) {
             if !options.quiet {
@@ -173,18 +173,18 @@ fn process_files(input_files: &[String], options: &Bzip2Options) -> Result<()> {
             }
         }
     }
-    
+
     if !all_success {
         return Err(anyhow::anyhow!("Some files failed to process"));
     }
-    
+
     Ok(())
 }
 
 /// Process a single file with compression/decompression
 fn process_single_file(filename: &str, options: &Bzip2Options) -> Result<()> {
     let input_path = Path::new(filename);
-    
+
     if !input_path.exists() {
         return Err(anyhow::anyhow!("No such file or directory"));
     }
@@ -206,15 +206,15 @@ fn process_single_file(filename: &str, options: &Bzip2Options) -> Result<()> {
         }
     }
 
-    let input_file = File::open(input_path)
-        .with_context(|| format!("Cannot open input file '{filename}'"))?;
-    
+    let input_file =
+        File::open(input_path).with_context(|| format!("Cannot open input file '{filename}'"))?;
+
     let mut reader = BufReader::new(input_file);
 
     if options.stdout {
         let stdout = io::stdout();
         let mut writer = BufWriter::new(stdout.lock());
-        
+
         if options.decompress {
             decompress_stream(&mut reader, &mut writer, options)?;
         } else {
@@ -225,7 +225,7 @@ fn process_single_file(filename: &str, options: &Bzip2Options) -> Result<()> {
         let out_file = File::create(&output_file)
             .with_context(|| format!("Cannot create output file '{output_file}'"))?;
         let mut writer = BufWriter::new(out_file);
-        
+
         if options.decompress {
             decompress_stream(&mut reader, &mut writer, options)?;
         } else {
@@ -289,9 +289,8 @@ fn decompress_stream<R: Read, W: Write>(
     _options: &Bzip2Options,
 ) -> Result<()> {
     let mut decoder = DecoderReader::new(reader);
-    std::io::copy(&mut decoder, writer)
-        .context("Failed to decompress bzip2 data")?;
-    
+    std::io::copy(&mut decoder, writer).context("Failed to decompress bzip2 data")?;
+
     Ok(())
 }
 
@@ -307,7 +306,7 @@ fn determine_compressed_filename(input: &str) -> String {
 /// Determine decompressed filename by removing .bz2 extension
 fn determine_decompressed_filename(input: &str) -> Result<String> {
     let path = Path::new(input);
-    
+
     if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
         if file_name.ends_with(".bz2") {
             let stem = file_name.strip_suffix(".bz2").unwrap();
@@ -319,14 +318,20 @@ fn determine_decompressed_filename(input: &str) -> Result<String> {
         } else if file_name.ends_with(".tbz2") {
             let stem = file_name.strip_suffix(".tbz2").unwrap();
             if let Some(parent) = path.parent() {
-                Ok(parent.join(format!("{stem}.tar")).to_string_lossy().to_string())
+                Ok(parent
+                    .join(format!("{stem}.tar"))
+                    .to_string_lossy()
+                    .to_string())
             } else {
                 Ok(format!("{stem}.tar"))
             }
         } else if file_name.ends_with(".tbz") {
             let stem = file_name.strip_suffix(".tbz").unwrap();
             if let Some(parent) = path.parent() {
-                Ok(parent.join(format!("{stem}.tar")).to_string_lossy().to_string())
+                Ok(parent
+                    .join(format!("{stem}.tar"))
+                    .to_string_lossy()
+                    .to_string())
             } else {
                 Ok(format!("{stem}.tar"))
             }
@@ -361,16 +366,15 @@ fn test_bzip2_files(files: &[String], options: &Bzip2Options) -> Result<()> {
 
 /// Test integrity of a single compressed file
 fn test_single_file(filename: &str, _options: &Bzip2Options) -> Result<()> {
-    let file = File::open(filename)
-        .with_context(|| format!("Cannot open file '{filename}'"))?;
-    
+    let file = File::open(filename).with_context(|| format!("Cannot open file '{filename}'"))?;
+
     let mut reader = BufReader::new(file);
     let mut null_writer = NullWriter;
     let test_options = Bzip2Options::default();
-    
+
     decompress_stream(&mut reader, &mut null_writer, &test_options)
         .with_context(|| format!("Integrity test failed for '{filename}'"))?;
-    
+
     Ok(())
 }
 
@@ -381,7 +385,7 @@ impl Write for NullWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         Ok(buf.len())
     }
-    
+
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
@@ -418,7 +422,10 @@ fn print_bzip2_help() {
 
 /// Print version information
 fn print_bzip2_version() {
-    println!("bzip2 (NexusShell Pure Rust implementation) {}", env!("CARGO_PKG_VERSION"));
+    println!(
+        "bzip2 (NexusShell Pure Rust implementation) {}",
+        env!("CARGO_PKG_VERSION")
+    );
     println!("Decompression-only via bzip2-rs (decode-only backend)");
     println!();
     println!("This is free software; you can redistribute it and/or modify");
@@ -428,7 +435,10 @@ fn print_bzip2_version() {
     println!("or an external bzip2 binary if needed.");
 }
 
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     match bzip2_cli(args) {
         Ok(()) => Ok(0),
         Err(e) => Err(crate::common::BuiltinError::Other(e.to_string())),

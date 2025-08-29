@@ -49,5 +49,3 @@ fn zstd_decompress_invalid_file_errors() {
     let res = zstd_cli(&["-d".to_string(), bad_path.to_string_lossy().to_string()]);
     assert!(res.is_err());
 }
-
-

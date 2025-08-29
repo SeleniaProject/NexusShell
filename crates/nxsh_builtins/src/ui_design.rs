@@ -1,6 +1,6 @@
 //! UI Design command for NexusShell theme management
 
-use crate::common::{BuiltinResult, BuiltinError, BuiltinContext};
+use crate::common::{BuiltinContext, BuiltinError, BuiltinResult};
 
 // Minimal types to satisfy dependencies
 pub struct ColorPalette {
@@ -21,11 +21,11 @@ impl ColorPalette {
 impl Default for ColorPalette {
     fn default() -> Self {
         Self {
-            success: "#2ed573".to_string(),      // Fresh modern green
-            info: "#5352ed".to_string(),         // Electric indigo
-            warning: "#ffa502".to_string(),      // Modern orange
-            error: "#ff4757".to_string(),        // Vibrant coral red
-            primary: "#00f5ff".to_string(),      // Cyberpunk cyan
+            success: "#2ed573".to_string(), // Fresh modern green
+            info: "#5352ed".to_string(),    // Electric indigo
+            warning: "#ffa502".to_string(), // Modern orange
+            error: "#ff4757".to_string(),   // Vibrant coral red
+            primary: "#00f5ff".to_string(), // Cyberpunk cyan
             reset: "\x1b[0m".to_string(),
         }
     }
@@ -43,7 +43,7 @@ impl Icons {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     pub const FOLDER: &'static str = "📁";
     pub const FOLDER_PLUS: &'static str = "📁+";
 }
@@ -72,25 +72,57 @@ pub trait Colorize {
 }
 
 impl Colorize for str {
-    fn colorize(&self, _color: &str) -> String { self.to_string() }
-    fn primary(&self) -> String { self.to_string() }
-    fn secondary(&self) -> String { self.to_string() }
-    fn info(&self) -> String { self.to_string() }
-    fn success(&self) -> String { self.to_string() }
-    fn muted(&self) -> String { self.to_string() }
-    fn bright(&self) -> String { self.to_string() }
-    fn dim(&self) -> String { self.to_string() }
+    fn colorize(&self, _color: &str) -> String {
+        self.to_string()
+    }
+    fn primary(&self) -> String {
+        self.to_string()
+    }
+    fn secondary(&self) -> String {
+        self.to_string()
+    }
+    fn info(&self) -> String {
+        self.to_string()
+    }
+    fn success(&self) -> String {
+        self.to_string()
+    }
+    fn muted(&self) -> String {
+        self.to_string()
+    }
+    fn bright(&self) -> String {
+        self.to_string()
+    }
+    fn dim(&self) -> String {
+        self.to_string()
+    }
 }
 
 impl Colorize for String {
-    fn colorize(&self, _color: &str) -> String { self.clone() }
-    fn primary(&self) -> String { self.clone() }
-    fn secondary(&self) -> String { self.clone() }
-    fn info(&self) -> String { self.clone() }
-    fn success(&self) -> String { self.clone() }
-    fn muted(&self) -> String { self.clone() }
-    fn bright(&self) -> String { self.clone() }
-    fn dim(&self) -> String { self.clone() }
+    fn colorize(&self, _color: &str) -> String {
+        self.clone()
+    }
+    fn primary(&self) -> String {
+        self.clone()
+    }
+    fn secondary(&self) -> String {
+        self.clone()
+    }
+    fn info(&self) -> String {
+        self.clone()
+    }
+    fn success(&self) -> String {
+        self.clone()
+    }
+    fn muted(&self) -> String {
+        self.clone()
+    }
+    fn bright(&self) -> String {
+        self.clone()
+    }
+    fn dim(&self) -> String {
+        self.clone()
+    }
 }
 
 // Table formatting
@@ -106,39 +138,39 @@ impl TableFormatter {
     pub fn new() -> Self {
         Self
     }
-    
+
     pub fn format_permissions(&self, _mode: u32) -> String {
         "rwxr-xr-x".to_string()
     }
-    
+
     pub fn format_size(&self, size: u64) -> String {
         format!("{size}")
     }
-    
+
     pub fn get_file_icon(&self, _filename: &str) -> String {
         "📄".to_string()
     }
-    
+
     pub fn create_advanced_table(&self, headers: &[String], rows: &[Vec<String>]) -> String {
         let mut result = String::new();
-        
+
         // Headers
         result.push_str(&headers.join("\t"));
         result.push('\n');
-        
+
         // Separator
         result.push_str(&"-".repeat(50));
         result.push('\n');
-        
+
         // Rows
         for row in rows {
             result.push_str(&row.join("\t"));
             result.push('\n');
         }
-        
+
         result
     }
-    
+
     pub fn display_width(&self, text: &str) -> usize {
         text.chars().count()
     }
@@ -164,15 +196,15 @@ impl Notification {
 
 // Enums and structs
 #[derive(Default)]
-pub enum BorderStyle { 
+pub enum BorderStyle {
     #[default]
-    Simple 
+    Simple,
 }
 
 #[derive(Default)]
-pub enum Alignment { 
+pub enum Alignment {
     #[default]
-    Left 
+    Left,
 }
 
 #[derive(Default)]

@@ -2,9 +2,9 @@
 //!
 //! Full uptime implementation with load averages and user count
 
-use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::common::process_utils::execute_uptime_command;
+use nxsh_core::{Builtin, ExecutionResult, ShellContext, ShellError, ShellResult};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub struct UptimeBuiltin;
 
@@ -42,9 +42,9 @@ impl Builtin for UptimeBuiltin {
 
     fn execute(&self, _ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
         let options = parse_uptime_args(args)?; // keep options use below
-        
+
         let uptime_info = collect_uptime_info()?;
-        
+
         if options.since {
             display_since(&uptime_info);
         } else if options.pretty {
@@ -52,7 +52,7 @@ impl Builtin for UptimeBuiltin {
         } else {
             display_standard(&uptime_info);
         }
-        
+
         Ok(ExecutionResult::success(0))
     }
 
@@ -94,9 +94,15 @@ fn parse_uptime_args(args: &[String]) -> ShellResult<UptimeOptions> {
             "-s" | "--since" => options.since = true,
             "--help" => return Err(ShellError::command_not_found("Help requested")),
             _ if arg.starts_with("-") => {
-                return Err(ShellError::command_not_found(&format!("Unknown option: {arg}")));
+                return Err(ShellError::command_not_found(&format!(
+                    "Unknown option: {arg}"
+                )));
             }
-            _ => return Err(ShellError::command_not_found(&format!("Unknown argument: {arg}"))),
+            _ => {
+                return Err(ShellError::command_not_found(&format!(
+                    "Unknown argument: {arg}"
+                )))
+            }
         }
     }
 
@@ -108,7 +114,7 @@ fn collect_uptime_info() -> ShellResult<UptimeInfo> {
     {
         collect_linux_uptime_info()
     }
-    
+
     #[cfg(not(target_os = "linux"))]
     {
         // Simplified uptime info for other platforms
@@ -125,16 +131,16 @@ fn collect_uptime_info() -> ShellResult<UptimeInfo> {
 fn collect_linux_uptime_info() -> ShellResult<UptimeInfo> {
     // Read uptime from /proc/uptime
     let uptime = read_proc_uptime()?;
-    
+
     // Read load averages from /proc/loadavg
     let load_avg = read_proc_loadavg()?;
-    
+
     // Calculate boot time
     let boot_time = SystemTime::now() - uptime;
-    
+
     // Count logged in users from /var/run/utmp or /proc
     let users = count_logged_in_users();
-    
+
     Ok(UptimeInfo {
         uptime,
         boot_time,
@@ -147,15 +153,16 @@ fn collect_linux_uptime_info() -> ShellResult<UptimeInfo> {
 fn read_proc_uptime() -> ShellResult<Duration> {
     let content = fs::read_to_string("/proc/uptime")
         .map_err(|e| ShellError::io(format!("Cannot read /proc/uptime: {}", e)))?;
-    
+
     let parts: Vec<&str> = content.split_whitespace().collect();
     if parts.is_empty() {
         return Err(ShellError::command_not_found("Invalid /proc/uptime format"));
     }
-    
-    let uptime_secs = parts[0].parse::<f64>()
+
+    let uptime_secs = parts[0]
+        .parse::<f64>()
         .map_err(|_| ShellError::command_not_found("Invalid uptime value"))?;
-    
+
     Ok(Duration::from_secs_f64(uptime_secs))
 }
 
@@ -163,19 +170,24 @@ fn read_proc_uptime() -> ShellResult<Duration> {
 fn read_proc_loadavg() -> ShellResult<(f64, f64, f64)> {
     let content = fs::read_to_string("/proc/loadavg")
         .map_err(|e| ShellError::io(format!("Cannot read /proc/loadavg: {}", e)))?;
-    
+
     let parts: Vec<&str> = content.split_whitespace().collect();
     if parts.len() < 3 {
-        return Err(ShellError::command_not_found("Invalid /proc/loadavg format"));
+        return Err(ShellError::command_not_found(
+            "Invalid /proc/loadavg format",
+        ));
     }
-    
-    let load1 = parts[0].parse::<f64>()
+
+    let load1 = parts[0]
+        .parse::<f64>()
         .map_err(|_| ShellError::command_not_found("Invalid load average"))?;
-    let load5 = parts[1].parse::<f64>()
+    let load5 = parts[1]
+        .parse::<f64>()
         .map_err(|_| ShellError::command_not_found("Invalid load average"))?;
-    let load15 = parts[2].parse::<f64>()
+    let load15 = parts[2]
+        .parse::<f64>()
         .map_err(|_| ShellError::command_not_found("Invalid load average"))?;
-    
+
     Ok((load1, load5, load15))
 }
 
@@ -185,7 +197,7 @@ fn count_logged_in_users() -> u32 {
     if let Ok(count) = count_users_from_utmp() {
         return count;
     }
-    
+
     // Fallback: count unique users from /proc/*/stat
     count_users_from_proc().unwrap_or(0)
 }
@@ -196,10 +208,9 @@ fn count_users_from_utmp() -> Result<u32, Box<dyn std::error::Error>> {
     // In a real implementation, we would parse the utmp binary format
     // For now, we'll try to count login sessions from who command output
     use std::process::Command;
-    
-    let output = Command::new("who")
-        .output()?;
-    
+
+    let output = Command::new("who").output()?;
+
     if output.status.success() {
         let output_str = String::from_utf8_lossy(&output.stdout);
         let user_count = output_str.lines().count() as u32;
@@ -212,15 +223,15 @@ fn count_users_from_utmp() -> Result<u32, Box<dyn std::error::Error>> {
 #[cfg(target_os = "linux")]
 fn count_users_from_proc() -> Result<u32, Box<dyn std::error::Error>> {
     use std::collections::HashSet;
-    
+
     let mut users = HashSet::new();
     let proc_dir = fs::read_dir("/proc")?;
-    
+
     for entry in proc_dir {
         let entry = entry?;
         let file_name = entry.file_name();
         let name_str = file_name.to_string_lossy();
-        
+
         if let Ok(_pid) = name_str.parse::<u32>() {
             let status_path = format!("/proc/{}/status", name_str);
             if let Ok(content) = fs::read_to_string(&status_path) {
@@ -240,7 +251,7 @@ fn count_users_from_proc() -> Result<u32, Box<dyn std::error::Error>> {
             }
         }
     }
-    
+
     Ok(users.len() as u32)
 }
 
@@ -252,8 +263,9 @@ fn display_standard(uptime_info: &UptimeInfo) {
     } else {
         format!("{} users", uptime_info.users)
     };
-    
-    println!(" {} up {}, {}, load average: {:.2}, {:.2}, {:.2}",
+
+    println!(
+        " {} up {}, {}, load average: {:.2}, {:.2}, {:.2}",
         current_time,
         uptime_str,
         users_str,
@@ -290,7 +302,7 @@ fn format_uptime_duration(uptime: Duration) -> String {
     let days = total_seconds / 86400;
     let hours = (total_seconds % 86400) / 3600;
     let minutes = (total_seconds % 3600) / 60;
-    
+
     if days > 0 {
         if days == 1 {
             if hours > 0 {
@@ -315,9 +327,9 @@ fn format_uptime_pretty(uptime: Duration) -> String {
     let days = total_seconds / 86400;
     let hours = (total_seconds % 86400) / 3600;
     let minutes = (total_seconds % 3600) / 60;
-    
+
     let mut parts = Vec::new();
-    
+
     if days > 0 {
         if days == 1 {
             parts.push("1 day".to_string());
@@ -325,7 +337,7 @@ fn format_uptime_pretty(uptime: Duration) -> String {
             parts.push(format!("{days} days"));
         }
     }
-    
+
     if hours > 0 {
         if hours == 1 {
             parts.push("1 hour".to_string());
@@ -333,7 +345,7 @@ fn format_uptime_pretty(uptime: Duration) -> String {
             parts.push(format!("{hours} hours"));
         }
     }
-    
+
     if minutes > 0 {
         if minutes == 1 {
             parts.push("1 minute".to_string());
@@ -341,7 +353,7 @@ fn format_uptime_pretty(uptime: Duration) -> String {
             parts.push(format!("{minutes} minutes"));
         }
     }
-    
+
     if parts.is_empty() {
         "less than a minute".to_string()
     } else if parts.len() == 1 {
@@ -358,18 +370,18 @@ fn format_boot_time(boot_time: SystemTime) -> String {
     match boot_time.duration_since(UNIX_EPOCH) {
         Ok(duration) => {
             let timestamp = duration.as_secs();
-            
+
             // Simple date formatting (in a real implementation, we'd use a proper date library)
             let days_since_epoch = timestamp / 86400;
             let year = 1970 + days_since_epoch / 365; // Approximation
             let day_of_year = days_since_epoch % 365;
             let month = (day_of_year / 30) + 1; // Approximation
             let day = (day_of_year % 30) + 1;
-            
+
             let hours = (timestamp % 86400) / 3600;
             let minutes = (timestamp % 3600) / 60;
             let seconds = timestamp % 60;
-            
+
             format!("{year:04}-{month:02}-{day:02} {hours:02}:{minutes:02}:{seconds:02}")
         }
         Err(_) => "unknown".to_string(),
@@ -386,9 +398,11 @@ pub fn uptime_cli(args: &[String]) -> anyhow::Result<()> {
     }
 }
 
-
 /// Execute function stub
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    _args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     eprintln!("Command not yet implemented");
     Ok(1)
 }
@@ -403,18 +417,33 @@ mod tests {
         assert_eq!(format_uptime_duration(Duration::from_secs(60)), "1 min");
         assert_eq!(format_uptime_duration(Duration::from_secs(3600)), "1:00");
         assert_eq!(format_uptime_duration(Duration::from_secs(3660)), "1:01");
-        assert_eq!(format_uptime_duration(Duration::from_secs(86400)), "1 day, 0 min");
-        assert_eq!(format_uptime_duration(Duration::from_secs(90000)), "1 day, 1:00");
+        assert_eq!(
+            format_uptime_duration(Duration::from_secs(86400)),
+            "1 day, 0 min"
+        );
+        assert_eq!(
+            format_uptime_duration(Duration::from_secs(90000)),
+            "1 day, 1:00"
+        );
     }
 
     #[test]
     fn test_format_uptime_pretty() {
-        assert_eq!(format_uptime_pretty(Duration::from_secs(30)), "less than a minute");
+        assert_eq!(
+            format_uptime_pretty(Duration::from_secs(30)),
+            "less than a minute"
+        );
         assert_eq!(format_uptime_pretty(Duration::from_secs(60)), "1 minute");
         assert_eq!(format_uptime_pretty(Duration::from_secs(120)), "2 minutes");
         assert_eq!(format_uptime_pretty(Duration::from_secs(3600)), "1 hour");
-        assert_eq!(format_uptime_pretty(Duration::from_secs(3660)), "1 hour and 1 minute");
+        assert_eq!(
+            format_uptime_pretty(Duration::from_secs(3660)),
+            "1 hour and 1 minute"
+        );
         assert_eq!(format_uptime_pretty(Duration::from_secs(86400)), "1 day");
-        assert_eq!(format_uptime_pretty(Duration::from_secs(90060)), "1 day, 1 hour, and 1 minute");
+        assert_eq!(
+            format_uptime_pretty(Duration::from_secs(90060)),
+            "1 day, 1 hour, and 1 minute"
+        );
     }
 }

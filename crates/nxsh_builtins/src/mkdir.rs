@@ -9,15 +9,14 @@
 //!   --help                    - Display help and exit
 //!   --version                 - Output version information and exit
 
-use anyhow::{Result, anyhow};
+use super::ui_design::{ColorPalette, Colorize, Icons};
+use anyhow::{anyhow, Result};
 use std::fs::{self};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use super::ui_design::{Colorize, ColorPalette, Icons};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct MkdirOptions {
     pub directories: Vec<String>,
     pub mode: Option<u32>,
@@ -26,33 +25,32 @@ pub struct MkdirOptions {
     pub context: Option<String>,
 }
 
-
 pub fn mkdir_cli(args: &[String]) -> Result<()> {
     let options = parse_mkdir_args(args)?;
-    
+
     if options.directories.is_empty() {
         return Err(anyhow!("mkdir: missing operand"));
     }
-    
+
     for directory in &options.directories {
         let path = PathBuf::from(directory);
-        
+
         if let Err(e) = create_directory(&path, &options) {
             eprintln!("mkdir: {e}");
             // Continue with other directories instead of exiting
         }
     }
-    
+
     Ok(())
 }
 
 fn parse_mkdir_args(args: &[String]) -> Result<MkdirOptions> {
     let mut options = MkdirOptions::default();
     let mut i = 0;
-    
+
     while i < args.len() {
         let arg = &args[i];
-        
+
         match arg.as_str() {
             "-m" | "--mode" => {
                 if i + 1 < args.len() {
@@ -125,7 +123,7 @@ fn parse_mkdir_args(args: &[String]) -> Result<MkdirOptions> {
         }
         i += 1;
     }
-    
+
     Ok(options)
 }
 
@@ -139,19 +137,19 @@ fn parse_mode(mode_str: &str) -> Result<u32> {
         }
         return Ok(mode);
     }
-    
+
     // Handle symbolic mode (e.g., "u=rwx,g=rx,o=rx", "a+x", etc.)
     parse_symbolic_mode(mode_str)
 }
 
 fn parse_symbolic_mode(mode_str: &str) -> Result<u32> {
     let mut mode = 0o755; // Default mode for directories
-    
+
     // Split by commas to handle multiple clauses
     for clause in mode_str.split(',') {
         mode = apply_symbolic_clause(mode, clause)?;
     }
-    
+
     Ok(mode)
 }
 
@@ -159,32 +157,45 @@ fn apply_symbolic_clause(mut mode: u32, clause: &str) -> Result<u32> {
     if clause.is_empty() {
         return Ok(mode);
     }
-    
+
     // Parse who (u, g, o, a)
     let mut chars = clause.chars().peekable();
     let mut who_mask = 0u32;
-    
+
     while let Some(&ch) = chars.peek() {
         match ch {
-            'u' => { who_mask |= 0o700; chars.next(); }
-            'g' => { who_mask |= 0o070; chars.next(); }
-            'o' => { who_mask |= 0o007; chars.next(); }
-            'a' => { who_mask |= 0o777; chars.next(); }
+            'u' => {
+                who_mask |= 0o700;
+                chars.next();
+            }
+            'g' => {
+                who_mask |= 0o070;
+                chars.next();
+            }
+            'o' => {
+                who_mask |= 0o007;
+                chars.next();
+            }
+            'a' => {
+                who_mask |= 0o777;
+                chars.next();
+            }
             _ => break,
         }
     }
-    
+
     if who_mask == 0 {
         who_mask = 0o777; // Default to all if no who specified
     }
-    
+
     // Parse operation (+, -, =)
-    let operation = chars.next()
+    let operation = chars
+        .next()
         .ok_or_else(|| anyhow!("mkdir: invalid mode clause '{}'", clause))?;
-    
+
     // Parse permissions (r, w, x, X, s, t)
     let mut perm_mask = 0u32;
-    
+
     for ch in chars {
         match ch {
             'r' => perm_mask |= 0o444,
@@ -196,17 +207,23 @@ fn apply_symbolic_clause(mut mode: u32, clause: &str) -> Result<u32> {
             }
             's' => {
                 // Set-user-ID and set-group-ID
-                if who_mask & 0o700 != 0 { perm_mask |= 0o4000; }
-                if who_mask & 0o070 != 0 { perm_mask |= 0o2000; }
+                if who_mask & 0o700 != 0 {
+                    perm_mask |= 0o4000;
+                }
+                if who_mask & 0o070 != 0 {
+                    perm_mask |= 0o2000;
+                }
             }
             't' => {
                 // Sticky bit
-                if who_mask & 0o007 != 0 { perm_mask |= 0o1000; }
+                if who_mask & 0o007 != 0 {
+                    perm_mask |= 0o1000;
+                }
             }
             _ => return Err(anyhow!("mkdir: invalid permission '{}'", ch)),
         }
     }
-    
+
     // Apply the operation
     match operation {
         '+' => mode |= perm_mask & who_mask,
@@ -217,7 +234,7 @@ fn apply_symbolic_clause(mut mode: u32, clause: &str) -> Result<u32> {
         }
         _ => return Err(anyhow!("mkdir: invalid operation '{}'", operation)),
     }
-    
+
     Ok(mode)
 }
 
@@ -231,39 +248,43 @@ fn create_directory(path: &Path, options: &MkdirOptions) -> Result<()> {
 
 fn create_single_directory(path: &Path, options: &MkdirOptions) -> Result<()> {
     if path.exists() {
-        return Err(anyhow!("cannot create directory '{}': File exists", path.display()));
+        return Err(anyhow!(
+            "cannot create directory '{}': File exists",
+            path.display()
+        ));
     }
-    
+
     // Create the directory
     fs::create_dir(path)
         .map_err(|e| anyhow!("cannot create directory '{}': {}", path.display(), e))?;
-    
+
     // Set permissions if specified
     if let Some(mode) = options.mode {
         set_directory_permissions(path, mode)?;
     }
-    
+
     // Set SELinux context if specified
     if let Some(ref context) = options.context {
         set_selinux_context(path, context)?;
     }
-    
+
     if options.verbose {
         let palette = ColorPalette::new();
-        println!("{} {} {}", 
-            Icons::FOLDER_PLUS, 
+        println!(
+            "{} {} {}",
+            Icons::FOLDER_PLUS,
             "Created directory:".colorize(&palette.info),
             path.display().to_string().colorize(&palette.success)
         );
     }
-    
+
     Ok(())
 }
 
 fn create_directory_with_parents(path: &Path, options: &MkdirOptions) -> Result<()> {
     let mut components = Vec::new();
     let mut current = path;
-    
+
     // Collect all components that need to be created
     while !current.exists() {
         components.push(current.to_path_buf());
@@ -272,43 +293,45 @@ fn create_directory_with_parents(path: &Path, options: &MkdirOptions) -> Result<
             None => break,
         }
     }
-    
+
     // Create directories from parent to child
     components.reverse();
-    
+
     for component in components {
         if !component.exists() {
             fs::create_dir(&component)
                 .map_err(|e| anyhow!("cannot create directory '{}': {}", component.display(), e))?;
-            
+
             // Set permissions if specified
             if let Some(mode) = options.mode {
                 set_directory_permissions(&component, mode)?;
             }
-            
+
             // Set SELinux context if specified
             if let Some(ref context) = options.context {
                 set_selinux_context(&component, context)?;
             }
-            
+
             if options.verbose {
                 let palette = ColorPalette::new();
-                println!("{} {} {}", 
-                    Icons::FOLDER_PLUS, 
+                println!(
+                    "{} {} {}",
+                    Icons::FOLDER_PLUS,
                     "Created directory:".colorize(&palette.info),
                     component.display().to_string().colorize(&palette.success)
                 );
             }
         }
     }
-    
+
     Ok(())
 }
 
 fn set_directory_permissions(path: &Path, mode: u32) -> Result<()> {
     #[cfg(unix)]
     {
-        #[cfg(unix)] use std::os::unix::fs::PermissionsExt;
+        #[cfg(unix)]
+        use std::os::unix::fs::PermissionsExt;
         let permissions = std::fs::Permissions::from_mode(mode);
         fs::set_permissions(path, permissions)
             .map_err(|e| anyhow!("cannot set permissions for '{}': {}", path.display(), e))?;
@@ -328,8 +351,13 @@ fn set_selinux_context(path: &Path, context: &str) -> Result<()> {
         // This requires appropriate privileges and SELinux enabled.
         use nix::sys::xattr;
         let name = "security.selinux";
-        xattr::set(path, name, context.as_bytes(), xattr::XattrFlags::empty())
-            .map_err(|e| anyhow!("mkdir: failed to set SELinux context on '{}': {}", path.display(), e))?;
+        xattr::set(path, name, context.as_bytes(), xattr::XattrFlags::empty()).map_err(|e| {
+            anyhow!(
+                "mkdir: failed to set SELinux context on '{}': {}",
+                path.display(),
+                e
+            )
+        })?;
         return Ok(());
     }
     #[cfg(not(target_os = "linux"))]
@@ -362,14 +390,13 @@ fn print_help() {
     println!("  mkdir -v dir1 dir2 dir3   Create multiple directories with verbose output");
     println!();
     println!("Report mkdir bugs to <bug-reports@nexusshell.org>");
-} 
-
-
-
-
+}
 
 /// Execute function for mkdir command
-pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     match mkdir_cli(args) {
         Ok(_) => Ok(0),
         Err(e) => {
@@ -382,65 +409,66 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[cfg(unix)]
-    #[cfg(unix)] use std::os::unix::fs::PermissionsExt;
-    
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+
     #[test]
     fn test_parse_args() {
         let args = vec!["-pv".to_string(), "dir1".to_string(), "dir2".to_string()];
         let options = parse_mkdir_args(&args).unwrap();
-        
+
         assert!(options.parents);
         assert!(options.verbose);
         assert_eq!(options.directories, vec!["dir1", "dir2"]);
     }
-    
+
     #[test]
     fn test_parse_mode_octal() {
         assert_eq!(parse_mode("755").unwrap(), 0o755);
         assert_eq!(parse_mode("0644").unwrap(), 0o644);
     }
-    
+
     #[test]
     fn test_parse_mode_symbolic() {
         // Basic symbolic modes
         assert_eq!(parse_mode("u=rwx,g=rx,o=rx").unwrap(), 0o755);
         assert_eq!(parse_mode("u=rw,g=r,o=r").unwrap(), 0o644);
     }
-    
+
     #[test]
     fn test_mode_with_arg() {
         let args = vec!["-m".to_string(), "755".to_string(), "testdir".to_string()];
         let options = parse_mkdir_args(&args).unwrap();
-        
+
         assert_eq!(options.mode, Some(0o755));
         assert_eq!(options.directories, vec!["testdir"]);
     }
-    
+
     #[test]
     fn test_combined_options() {
         let args = vec!["-pvm755".to_string(), "testdir".to_string()];
         let options = parse_mkdir_args(&args).unwrap();
-        
+
         assert!(options.parents);
         assert!(options.verbose);
         assert_eq!(options.mode, Some(0o755));
         assert_eq!(options.directories, vec!["testdir"]);
     }
-    
+
     #[test]
     fn test_apply_symbolic_clause() {
         let mut mode = 0o644;
-        
+
         // Add execute permission for user
         mode = apply_symbolic_clause(mode, "u+x").unwrap();
         assert_eq!(mode, 0o744);
-        
+
         // Remove write permission for group and others
         mode = apply_symbolic_clause(mode, "go-w").unwrap();
         assert_eq!(mode, 0o744);
-        
+
         // Set all permissions for all
         mode = apply_symbolic_clause(mode, "a=rwx").unwrap();
         assert_eq!(mode, 0o777);

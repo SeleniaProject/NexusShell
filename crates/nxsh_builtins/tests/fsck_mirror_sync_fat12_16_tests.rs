@@ -12,7 +12,10 @@ use std::io::{Read, Seek, SeekFrom, Write};
 #[cfg(unix)]
 fn fat_hash_pair(image_path: &str) -> (String, String) {
     use sha2::{Digest, Sha256};
-    let mut f = std::fs::OpenOptions::new().read(true).open(image_path).unwrap();
+    let mut f = std::fs::OpenOptions::new()
+        .read(true)
+        .open(image_path)
+        .unwrap();
     let mut bpb = [0u8; 512];
     f.read_exact(&mut bpb).unwrap();
     let bps = u16::from_le_bytes([bpb[11], bpb[12]]) as u64;
@@ -33,7 +36,9 @@ fn fat_hash_pair(image_path: &str) -> (String, String) {
         while remaining > 0 {
             let to_read = std::cmp::min(remaining, buf.len() as u64) as usize;
             let n = f.read(&mut buf[..to_read]).unwrap();
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
             hasher.update(&buf[..n]);
             remaining -= n as u64;
         }
@@ -48,15 +53,30 @@ async fn run_sync_case(ftype: &str) {
     let dir = tempfile::tempdir().unwrap();
     let img_path = dir.path().join(format!("fsck_sync_{}.img", ftype));
     {
-        let file = std::fs::OpenOptions::new().create(true).read(true).write(true).truncate(true).open(&img_path).unwrap();
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(true)
+            .open(&img_path)
+            .unwrap();
         file.set_len(4 * 1024 * 1024).unwrap();
     }
     // Format as requested FAT type
-    mkfs_cli(&vec!["-t".into(), ftype.into(), img_path.to_string_lossy().to_string()]).expect("mkfs");
+    mkfs_cli(&vec![
+        "-t".into(),
+        ftype.into(),
+        img_path.to_string_lossy().to_string(),
+    ])
+    .expect("mkfs");
 
     // Corrupt second FAT
     {
-        let mut f = std::fs::OpenOptions::new().read(true).write(true).open(&img_path).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&img_path)
+            .unwrap();
         let mut bpb = [0u8; 512];
         f.read_exact(&mut bpb).unwrap();
         let bps = u16::from_le_bytes([bpb[11], bpb[12]]) as u64;
@@ -92,7 +112,12 @@ async fn run_sync_case(ftype: &str) {
     let journal_path = dir.path().join("report.json");
     std::fs::write(&journal_path, serde_json::to_vec_pretty(&journal).unwrap()).unwrap();
 
-    fsck_cli(&["apply-journal".into(), "dummy.json".into(), "--commit".into()]).expect("apply sync");
+    fsck_cli(&[
+        "apply-journal".into(),
+        "dummy.json".into(),
+        "--commit".into(),
+    ])
+    .expect("apply sync");
 
     let (h0_after, h1_after) = fat_hash_pair(&img_path.to_string_lossy());
     assert_eq!(h0_after, h1_after, "mirrors should match after sync");
@@ -100,17 +125,23 @@ async fn run_sync_case(ftype: &str) {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn fsck_sync_fat12() { run_sync_case("fat12"); }
+async fn fsck_sync_fat12() {
+    run_sync_case("fat12");
+}
 
 #[cfg(unix)]
 #[tokio::test]
-async fn fsck_sync_fat16() { run_sync_case("fat16"); }
+async fn fsck_sync_fat16() {
+    run_sync_case("fat16");
+}
 
 #[cfg(not(unix))]
 #[tokio::test]
 async fn fsck_sync_not_supported_on_non_unix() {
-    let res = fsck_cli(&["apply-journal".into(), "dummy.json".into(), "--commit".into()]);
+    let res = fsck_cli(&[
+        "apply-journal".into(),
+        "dummy.json".into(),
+        "--commit".into(),
+    ]);
     assert!(res.is_err());
 }
-
-

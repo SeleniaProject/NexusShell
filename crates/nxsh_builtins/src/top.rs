@@ -2,9 +2,9 @@
 //!
 //! Full top implementation with real-time monitoring, interactive controls, and system information
 
-use std::io::{self};
-use nxsh_core::{Builtin, ShellContext, ExecutionResult, ShellResult, ShellError, ErrorKind};
 use nxsh_core::error::RuntimeErrorKind;
+use nxsh_core::{Builtin, ErrorKind, ExecutionResult, ShellContext, ShellError, ShellResult};
+use std::io::{self};
 
 use crossterm::{
     cursor,
@@ -116,13 +116,13 @@ impl Builtin for TopBuiltin {
 
     fn execute(&self, _ctx: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
         let options = parse_top_args(args)?;
-        
+
         if options.batch_mode {
             run_batch_mode(&options)?;
         } else {
             run_interactive_mode(&options)?;
         }
-        
+
         Ok(ExecutionResult::success(0))
     }
 
@@ -197,7 +197,7 @@ fn parse_top_args(args: &[String]) -> ShellResult<TopOptions> {
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
-        
+
         match arg.as_str() {
             "-b" => options.batch_mode = true,
             "-c" => options.show_command_line = true,
@@ -207,40 +207,81 @@ fn parse_top_args(args: &[String]) -> ShellResult<TopOptions> {
             "-d" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::new(ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument), "Option -d requires an argument"));
+                    return Err(ShellError::new(
+                        ErrorKind::RuntimeError(
+                            nxsh_core::error::RuntimeErrorKind::InvalidArgument,
+                        ),
+                        "Option -d requires an argument",
+                    ));
                 }
-                let delay_secs: f64 = args[i].parse()
-                    .map_err(|_| ShellError::new(ErrorKind::RuntimeError(nxsh_core::error::RuntimeErrorKind::InvalidArgument), "Invalid delay value"))?;
+                let delay_secs: f64 = args[i].parse().map_err(|_| {
+                    ShellError::new(
+                        ErrorKind::RuntimeError(
+                            nxsh_core::error::RuntimeErrorKind::InvalidArgument,
+                        ),
+                        "Invalid delay value",
+                    )
+                })?;
                 options.delay = Duration::from_secs_f64(delay_secs);
             }
             "-n" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "Option -n requires an argument"));
+                    return Err(ShellError::new(
+                        ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+                        "Option -n requires an argument",
+                    ));
                 }
-                options.iterations = Some(args[i].parse()
-                    .map_err(|_| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "Invalid iteration count"))?);
+                options.iterations = Some(args[i].parse().map_err(|_| {
+                    ShellError::new(
+                        ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+                        "Invalid iteration count",
+                    )
+                })?);
             }
             "-p" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "Option -p requires an argument"));
+                    return Err(ShellError::new(
+                        ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+                        "Option -p requires an argument",
+                    ));
                 }
-                options.filter_pid = Some(args[i].parse()
-                    .map_err(|_| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "Invalid PID"))?);
+                options.filter_pid = Some(args[i].parse().map_err(|_| {
+                    ShellError::new(
+                        ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+                        "Invalid PID",
+                    )
+                })?);
             }
             "-u" => {
                 i += 1;
                 if i >= args.len() {
-                    return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "Option -u requires an argument"));
+                    return Err(ShellError::new(
+                        ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+                        "Option -u requires an argument",
+                    ));
                 }
                 options.filter_user = Some(args[i].clone());
             }
-            "--help" => return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), "Help requested")),
-            _ if arg.starts_with("-") => {
-                return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Unknown option: {arg}")));
+            "--help" => {
+                return Err(ShellError::new(
+                    ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+                    "Help requested",
+                ))
             }
-            _ => return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Unknown argument: {arg}"))),
+            _ if arg.starts_with("-") => {
+                return Err(ShellError::new(
+                    ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+                    format!("Unknown option: {arg}"),
+                ));
+            }
+            _ => {
+                return Err(ShellError::new(
+                    ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+                    format!("Unknown argument: {arg}"),
+                ))
+            }
         }
         i += 1;
     }
@@ -250,57 +291,80 @@ fn parse_top_args(args: &[String]) -> ShellResult<TopOptions> {
 
 fn run_batch_mode(options: &TopOptions) -> ShellResult<()> {
     let mut iteration = 0;
-    
+
     loop {
         if let Some(max_iterations) = options.iterations {
             if iteration >= max_iterations {
                 break;
             }
         }
-        
+
         let system_info = collect_system_info()?;
         let processes = collect_top_processes(options)?;
-        
+
         display_batch_output(&system_info, &processes, options)?;
-        
+
         iteration += 1;
-        
+
         if options.iterations.is_some() || iteration == 0 {
             thread::sleep(options.delay);
         }
     }
-    
+
     Ok(())
 }
 
 fn run_interactive_mode(options: &TopOptions) -> ShellResult<()> {
     // Enable raw mode for interactive input
-    terminal::enable_raw_mode()
-        .map_err(|e| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Failed to enable raw mode: {e}")))?;
-    
+    terminal::enable_raw_mode().map_err(|e| {
+        ShellError::new(
+            ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+            format!("Failed to enable raw mode: {e}"),
+        )
+    })?;
+
     let result = run_interactive_loop(options);
-    
+
     // Restore terminal
-    terminal::disable_raw_mode()
-        .map_err(|e| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Failed to disable raw mode: {e}")))?;
-    execute!(io::stdout(), terminal::Clear(ClearType::All), cursor::MoveTo(0, 0))
-        .map_err(|e| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Failed to clear terminal: {e}")))?;
-    
+    terminal::disable_raw_mode().map_err(|e| {
+        ShellError::new(
+            ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+            format!("Failed to disable raw mode: {e}"),
+        )
+    })?;
+    execute!(
+        io::stdout(),
+        terminal::Clear(ClearType::All),
+        cursor::MoveTo(0, 0)
+    )
+    .map_err(|e| {
+        ShellError::new(
+            ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+            format!("Failed to clear terminal: {e}"),
+        )
+    })?;
+
     result
 }
 
 fn run_interactive_loop(options: &TopOptions) -> ShellResult<()> {
     let mut current_options = options.clone();
     let mut last_update = Instant::now();
-    
+
     loop {
         // Check for input
-        if event::poll(Duration::from_millis(100))
-            .map_err(|e| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Failed to poll events: {e}")))? {
-            
-            if let Event::Key(key_event) = event::read()
-                .map_err(|e| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Failed to read event: {e}")))? {
-                
+        if event::poll(Duration::from_millis(100)).map_err(|e| {
+            ShellError::new(
+                ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+                format!("Failed to poll events: {e}"),
+            )
+        })? {
+            if let Event::Key(key_event) = event::read().map_err(|e| {
+                ShellError::new(
+                    ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+                    format!("Failed to read event: {e}"),
+                )
+            })? {
                 match handle_key_event(key_event, &mut current_options)? {
                     KeyAction::Quit => break,
                     KeyAction::Update => {
@@ -311,14 +375,14 @@ fn run_interactive_loop(options: &TopOptions) -> ShellResult<()> {
                 }
             }
         }
-        
+
         // Auto-update based on delay
         if last_update.elapsed() >= current_options.delay {
             last_update = Instant::now();
             update_display(&current_options)?;
         }
     }
-    
+
     Ok(())
 }
 
@@ -376,15 +440,22 @@ fn handle_key_event(key_event: KeyEvent, options: &mut TopOptions) -> ShellResul
 fn update_display(options: &TopOptions) -> ShellResult<()> {
     let system_info = collect_system_info()?;
     let processes = collect_top_processes(options)?;
-    
+
     // Clear screen and move to top
-    execute!(io::stdout(), 
-        terminal::Clear(ClearType::All), 
+    execute!(
+        io::stdout(),
+        terminal::Clear(ClearType::All),
         cursor::MoveTo(0, 0)
-    ).map_err(|e| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Failed to clear screen: {e}")))?;
-    
+    )
+    .map_err(|e| {
+        ShellError::new(
+            ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+            format!("Failed to clear screen: {e}"),
+        )
+    })?;
+
     display_interactive_output(&system_info, &processes, options)?;
-    
+
     Ok(())
 }
 
@@ -393,7 +464,7 @@ fn collect_system_info() -> ShellResult<SystemInfo> {
     {
         collect_linux_system_info()
     }
-    
+
     #[cfg(not(target_os = "linux"))]
     {
         // Simplified system info for other platforms
@@ -438,7 +509,7 @@ fn collect_linux_system_info() -> ShellResult<SystemInfo> {
     } else {
         Duration::from_secs(0)
     };
-    
+
     // Read /proc/loadavg
     let load_avg = if let Ok(content) = fs::read_to_string("/proc/loadavg") {
         let parts: Vec<&str> = content.split_whitespace().collect();
@@ -453,9 +524,9 @@ fn collect_linux_system_info() -> ShellResult<SystemInfo> {
     } else {
         (0.0, 0.0, 0.0)
     };
-    
+
     // Read /proc/stat for CPU info
-    let (cpu_user, cpu_system, cpu_nice, cpu_idle, cpu_wait, cpu_hi, cpu_si, cpu_steal) = 
+    let (cpu_user, cpu_system, cpu_nice, cpu_idle, cpu_wait, cpu_hi, cpu_si, cpu_steal) =
         if let Ok(content) = fs::read_to_string("/proc/stat") {
             if let Some(cpu_line) = content.lines().next() {
                 let parts: Vec<&str> = cpu_line.split_whitespace().collect();
@@ -467,8 +538,12 @@ fn collect_linux_system_info() -> ShellResult<SystemInfo> {
                     let iowait = parts[5].parse::<u64>().unwrap_or(0);
                     let irq = parts[6].parse::<u64>().unwrap_or(0);
                     let softirq = parts[7].parse::<u64>().unwrap_or(0);
-                    let steal = if parts.len() > 8 { parts[8].parse::<u64>().unwrap_or(0) } else { 0 };
-                    
+                    let steal = if parts.len() > 8 {
+                        parts[8].parse::<u64>().unwrap_or(0)
+                    } else {
+                        0
+                    };
+
                     let total = user + nice + system + idle + iowait + irq + softirq + steal;
                     if total > 0 {
                         (
@@ -493,9 +568,9 @@ fn collect_linux_system_info() -> ShellResult<SystemInfo> {
         } else {
             (0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0)
         };
-    
+
     // Read /proc/meminfo
-    let (memory_total, memory_free, memory_buffers, memory_cached, swap_total, swap_free) = 
+    let (memory_total, memory_free, memory_buffers, memory_cached, swap_total, swap_free) =
         if let Ok(content) = fs::read_to_string("/proc/meminfo") {
             let mut mem_total = 0;
             let mut mem_free = 0;
@@ -503,7 +578,7 @@ fn collect_linux_system_info() -> ShellResult<SystemInfo> {
             let mut cached = 0;
             let mut swap_total = 0;
             let mut swap_free = 0;
-            
+
             for line in content.lines() {
                 if line.starts_with("MemTotal:") {
                     if let Some(value) = line.split_whitespace().nth(1) {
@@ -531,19 +606,19 @@ fn collect_linux_system_info() -> ShellResult<SystemInfo> {
                     }
                 }
             }
-            
+
             (mem_total, mem_free, buffers, cached, swap_total, swap_free)
         } else {
             (0, 0, 0, 0, 0, 0)
         };
-    
+
     let memory_used = memory_total.saturating_sub(memory_free + memory_buffers + memory_cached);
     let swap_used = swap_total.saturating_sub(swap_free);
-    
+
     // Count tasks by reading /proc
-    let (tasks_total, tasks_running, tasks_sleeping, tasks_stopped, tasks_zombie) = 
+    let (tasks_total, tasks_running, tasks_sleeping, tasks_stopped, tasks_zombie) =
         count_tasks().unwrap_or((0, 0, 0, 0, 0));
-    
+
     Ok(SystemInfo {
         uptime,
         load_avg,
@@ -578,17 +653,17 @@ fn count_tasks() -> Result<(u32, u32, u32, u32, u32), Box<dyn std::error::Error>
     let mut sleeping = 0;
     let mut stopped = 0;
     let mut zombie = 0;
-    
+
     let proc_dir = fs::read_dir("/proc")?;
-    
+
     for entry in proc_dir {
         let entry = entry?;
         let file_name = entry.file_name();
         let name_str = file_name.to_string_lossy();
-        
+
         if let Ok(_pid) = name_str.parse::<u32>() {
             total += 1;
-            
+
             let stat_path = format!("/proc/{}/stat", name_str);
             if let Ok(content) = fs::read_to_string(&stat_path) {
                 let parts: Vec<&str> = content.split_whitespace().collect();
@@ -604,23 +679,29 @@ fn count_tasks() -> Result<(u32, u32, u32, u32, u32), Box<dyn std::error::Error>
             }
         }
     }
-    
+
     Ok((total, running, sleeping, stopped, zombie))
 }
 
 fn collect_top_processes(options: &TopOptions) -> ShellResult<Vec<TopProcess>> {
     let mut processes = Vec::new();
-    
+
     #[cfg(target_os = "linux")]
     {
-        let proc_dir = fs::read_dir("/proc")
-            .map_err(|e| ShellError::new(ErrorKind::IoError, format!("Cannot read /proc: {}", e)))?;
-        
+        let proc_dir = fs::read_dir("/proc").map_err(|e| {
+            ShellError::new(ErrorKind::IoError, format!("Cannot read /proc: {}", e))
+        })?;
+
         for entry in proc_dir {
-            let entry = entry.map_err(|e| ShellError::new(ErrorKind::IoError, format!("Error reading /proc entry: {}", e)))?;
+            let entry = entry.map_err(|e| {
+                ShellError::new(
+                    ErrorKind::IoError,
+                    format!("Error reading /proc entry: {}", e),
+                )
+            })?;
             let file_name = entry.file_name();
             let name_str = file_name.to_string_lossy();
-            
+
             if let Ok(pid) = name_str.parse::<u32>() {
                 if let Ok(process) = read_top_process_info(pid) {
                     if should_include_top_process(&process, options) {
@@ -630,10 +711,10 @@ fn collect_top_processes(options: &TopOptions) -> ShellResult<Vec<TopProcess>> {
             }
         }
     }
-    
+
     // Sort processes
     sort_top_processes(&mut processes, &options.sort_field, options.reverse_sort)?;
-    
+
     Ok(processes)
 }
 
@@ -642,15 +723,15 @@ fn read_top_process_info(pid: u32) -> Result<TopProcess, Box<dyn std::error::Err
     let stat_path = format!("/proc/{}/stat", pid);
     let status_path = format!("/proc/{}/status", pid);
     let cmdline_path = format!("/proc/{}/cmdline", pid);
-    
+
     // Read basic process info from stat
     let stat_content = fs::read_to_string(&stat_path)?;
     let stat_fields: Vec<&str> = stat_content.split_whitespace().collect();
-    
+
     if stat_fields.len() < 44 {
         return Err("Invalid stat file format".into());
     }
-    
+
     let ppid = stat_fields[3].parse::<u32>()?;
     let priority = stat_fields[17].parse::<i32>()?;
     let nice = stat_fields[18].parse::<i32>()?;
@@ -658,7 +739,7 @@ fn read_top_process_info(pid: u32) -> Result<TopProcess, Box<dyn std::error::Err
     let vsize = stat_fields[22].parse::<u64>()?;
     let rss = stat_fields[23].parse::<u64>()? * 4096; // Convert pages to bytes
     let state = stat_fields[2].to_string();
-    
+
     // Read additional info from status
     let mut uid = 0;
     if let Ok(status_content) = fs::read_to_string(&status_path) {
@@ -671,10 +752,10 @@ fn read_top_process_info(pid: u32) -> Result<TopProcess, Box<dyn std::error::Err
             }
         }
     }
-    
+
     // Get username
     let user = get_username_by_uid(uid).unwrap_or_else(|| uid.to_string());
-    
+
     // Read command line
     let command = if let Ok(cmdline_content) = fs::read(&cmdline_path) {
         let cmdline_str = String::from_utf8_lossy(&cmdline_content);
@@ -687,7 +768,7 @@ fn read_top_process_info(pid: u32) -> Result<TopProcess, Box<dyn std::error::Err
     } else {
         format!("[{}]", pid)
     };
-    
+
     Ok(TopProcess {
         pid,
         ppid,
@@ -698,8 +779,8 @@ fn read_top_process_info(pid: u32) -> Result<TopProcess, Box<dyn std::error::Err
         resident_memory: rss,
         shared_memory: 0, // Would need to read from statm
         state,
-        cpu_percent: 0.0, // Would need multiple samples
-        memory_percent: 0.0, // Would need total system memory
+        cpu_percent: 0.0,                 // Would need multiple samples
+        memory_percent: 0.0,              // Would need total system memory
         cpu_time: Duration::from_secs(0), // Would need to parse from stat
         command,
         threads: num_threads,
@@ -730,76 +811,104 @@ fn should_include_top_process(process: &TopProcess, options: &TopOptions) -> boo
             return false;
         }
     }
-    
+
     // Filter by PID
     if let Some(pid) = options.filter_pid {
         if process.pid != pid {
             return false;
         }
     }
-    
+
     // Filter idle processes
     if !options.show_idle && process.cpu_percent == 0.0 {
         return false;
     }
-    
+
     true
 }
 
-fn sort_top_processes(processes: &mut [TopProcess], sort_field: &str, reverse: bool) -> ShellResult<()> {
+fn sort_top_processes(
+    processes: &mut [TopProcess],
+    sort_field: &str,
+    reverse: bool,
+) -> ShellResult<()> {
     match sort_field {
-        "cpu" => processes.sort_by(|a, b| a.cpu_percent.partial_cmp(&b.cpu_percent).unwrap_or(std::cmp::Ordering::Equal)),
-        "memory" => processes.sort_by(|a, b| a.memory_percent.partial_cmp(&b.memory_percent).unwrap_or(std::cmp::Ordering::Equal)),
+        "cpu" => processes.sort_by(|a, b| {
+            a.cpu_percent
+                .partial_cmp(&b.cpu_percent)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        }),
+        "memory" => processes.sort_by(|a, b| {
+            a.memory_percent
+                .partial_cmp(&b.memory_percent)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        }),
         "pid" => processes.sort_by_key(|p| p.pid),
         "time" => processes.sort_by_key(|p| p.cpu_time),
-        _ => return Err(ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Unknown sort field: {sort_field}"))),
+        _ => {
+            return Err(ShellError::new(
+                ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+                format!("Unknown sort field: {sort_field}"),
+            ))
+        }
     }
-    
+
     if reverse {
         processes.reverse();
     }
-    
+
     Ok(())
 }
 
-fn display_batch_output(system_info: &SystemInfo, processes: &[TopProcess], options: &TopOptions) -> ShellResult<()> {
+fn display_batch_output(
+    system_info: &SystemInfo,
+    processes: &[TopProcess],
+    options: &TopOptions,
+) -> ShellResult<()> {
     display_system_header(system_info)?;
     display_process_list(processes, options)?;
     Ok(())
 }
 
-fn display_interactive_output(system_info: &SystemInfo, processes: &[TopProcess], options: &TopOptions) -> ShellResult<()> {
+fn display_interactive_output(
+    system_info: &SystemInfo,
+    processes: &[TopProcess],
+    options: &TopOptions,
+) -> ShellResult<()> {
     display_system_header(system_info)?;
     display_process_list(processes, options)?;
-    
+
     // Show status line
     println!("\nPress 'h' for help, 'q' to quit");
-    
+
     Ok(())
 }
 
 fn display_system_header(system_info: &SystemInfo) -> ShellResult<()> {
     // Top line - uptime and load
     let uptime_str = format_uptime(system_info.uptime);
-    println!("top - {} up {}, load average: {:.2}, {:.2}, {:.2}",
+    println!(
+        "top - {} up {}, load average: {:.2}, {:.2}, {:.2}",
         format_current_time(),
         uptime_str,
         system_info.load_avg.0,
         system_info.load_avg.1,
         system_info.load_avg.2
     );
-    
+
     // Tasks line
-    println!("Tasks: {} total, {} running, {} sleeping, {} stopped, {} zombie",
+    println!(
+        "Tasks: {} total, {} running, {} sleeping, {} stopped, {} zombie",
         system_info.tasks_total,
         system_info.tasks_running,
         system_info.tasks_sleeping,
         system_info.tasks_stopped,
         system_info.tasks_zombie
     );
-    
+
     // CPU line
-    println!("%Cpu(s): {:.1} us, {:.1} sy, {:.1} ni, {:.1} id, {:.1} wa, {:.1} hi, {:.1} si, {:.1} st",
+    println!(
+        "%Cpu(s): {:.1} us, {:.1} sy, {:.1} ni, {:.1} id, {:.1} wa, {:.1} hi, {:.1} si, {:.1} st",
         system_info.cpu_user,
         system_info.cpu_system,
         system_info.cpu_nice,
@@ -809,41 +918,50 @@ fn display_system_header(system_info: &SystemInfo) -> ShellResult<()> {
         system_info.cpu_si,
         system_info.cpu_steal
     );
-    
+
     // Memory lines
-    println!("MiB Mem : {:.1} total, {:.1} free, {:.1} used, {:.1} buff/cache",
+    println!(
+        "MiB Mem : {:.1} total, {:.1} free, {:.1} used, {:.1} buff/cache",
         system_info.memory_total as f64 / 1024.0 / 1024.0,
         system_info.memory_free as f64 / 1024.0 / 1024.0,
         system_info.memory_used as f64 / 1024.0 / 1024.0,
         (system_info.memory_buffers + system_info.memory_cached) as f64 / 1024.0 / 1024.0
     );
-    
-    println!("MiB Swap: {:.1} total, {:.1} free, {:.1} used",
+
+    println!(
+        "MiB Swap: {:.1} total, {:.1} free, {:.1} used",
         system_info.swap_total as f64 / 1024.0 / 1024.0,
         system_info.swap_free as f64 / 1024.0 / 1024.0,
         system_info.swap_used as f64 / 1024.0 / 1024.0
     );
-    
+
     println!();
-    
+
     Ok(())
 }
 
 fn display_process_list(processes: &[TopProcess], options: &TopOptions) -> ShellResult<()> {
     // Header
-    println!("{:>7} {:>9} {:>2} {:>2} {:>7} {:>7} {:>7} {:>1} {:>5} {:>5} {:>9} COMMAND",
+    println!(
+        "{:>7} {:>9} {:>2} {:>2} {:>7} {:>7} {:>7} {:>1} {:>5} {:>5} {:>9} COMMAND",
         "PID", "USER", "PR", "NI", "VIRT", "RES", "SHR", "S", "%CPU", "%MEM", "TIME+"
     );
-    
+
     // Process lines
-    for process in processes.iter().take(20) { // Show top 20 processes
+    for process in processes.iter().take(20) {
+        // Show top 20 processes
         let command = if options.show_command_line {
             &process.command
         } else {
-            process.command.split_whitespace().next().unwrap_or(&process.command)
+            process
+                .command
+                .split_whitespace()
+                .next()
+                .unwrap_or(&process.command)
         };
-        
-        println!("{:>7} {:>9} {:>2} {:>2} {:>7} {:>7} {:>7} {:>1} {:>5.1} {:>5.1} {:>9} {}",
+
+        println!(
+            "{:>7} {:>9} {:>2} {:>2} {:>7} {:>7} {:>7} {:>1} {:>5.1} {:>5.1} {:>9} {}",
             process.pid,
             truncate_string(&process.user, 9),
             process.priority,
@@ -858,14 +976,23 @@ fn display_process_list(processes: &[TopProcess], options: &TopOptions) -> Shell
             truncate_string(command, 30)
         );
     }
-    
+
     Ok(())
 }
 
 fn show_help_screen() -> ShellResult<()> {
-    execute!(io::stdout(), terminal::Clear(ClearType::All), cursor::MoveTo(0, 0))
-        .map_err(|e| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Failed to clear screen: {e}")))?;
-    
+    execute!(
+        io::stdout(),
+        terminal::Clear(ClearType::All),
+        cursor::MoveTo(0, 0)
+    )
+    .map_err(|e| {
+        ShellError::new(
+            ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+            format!("Failed to clear screen: {e}"),
+        )
+    })?;
+
     println!("Help for Interactive Commands - top version");
     println!();
     println!("Window 1:Def: Cumulative mode Off.  System: Delay 3.0 secs; Secure mode Off.");
@@ -891,10 +1018,15 @@ fn show_help_screen() -> ShellResult<()> {
     println!("          ( commands shown with '.' require a visible task display window )");
     println!();
     println!("Press any key to continue...");
-    
+
     // Wait for key press
-    event::read().map_err(|e| ShellError::new(ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument), format!("Failed to read key: {e}")))?;
-    
+    event::read().map_err(|e| {
+        ShellError::new(
+            ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument),
+            format!("Failed to read key: {e}"),
+        )
+    })?;
+
     Ok(())
 }
 
@@ -903,7 +1035,7 @@ fn format_uptime(uptime: Duration) -> String {
     let days = total_seconds / 86400;
     let hours = (total_seconds % 86400) / 3600;
     let minutes = (total_seconds % 3600) / 60;
-    
+
     if days > 0 {
         format!("{days} days, {hours}:{minutes:02}")
     } else if hours > 0 {
@@ -957,7 +1089,7 @@ fn truncate_string(s: &str, max_len: usize) -> String {
 // CLI entry point function
 pub fn top_cli(_args: &[String]) -> anyhow::Result<()> {
     let options = TopOptions::default();
-    
+
     if options.batch_mode {
         if let Err(e) = run_batch_mode(&options) {
             return Err(anyhow::anyhow!("top error: {}", e));
@@ -965,13 +1097,14 @@ pub fn top_cli(_args: &[String]) -> anyhow::Result<()> {
     } else if let Err(e) = run_interactive_mode(&options) {
         return Err(anyhow::anyhow!("top error: {}", e));
     }
-    
+
     Ok(())
-} 
+}
 
-
-
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    _args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     println!("top: Command not yet implemented");
     Ok(0)
 }

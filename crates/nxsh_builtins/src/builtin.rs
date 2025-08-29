@@ -8,9 +8,7 @@ pub use nxsh_core::Builtin;
 pub fn builtin_cli(args: &[String]) -> Result<()> {
     if args.is_empty() {
         // List supported builtins.
-        println!(
-            "Available built-ins: bg bind break (more will be auto-detected in future)"
-        );
+        println!("Available built-ins: bg bind break (more will be auto-detected in future)");
         return Ok(());
     }
 
@@ -26,18 +24,20 @@ pub fn builtin_cli(args: &[String]) -> Result<()> {
         "bind" => {
             println!("bind: readline key bindings (not implemented yet)");
             Ok(())
-        },
+        }
         "break" => {
             println!("break: exit from loops (not implemented yet)");
             Ok(())
-        },
+        }
         _ => Err(anyhow!("builtin: unsupported command '{}'.", cmd)),
     }
-} 
-
+}
 
 /// Execute function stub
-pub fn execute(_args: &[String], _context: &crate::common::BuiltinContext) -> crate::common::BuiltinResult<i32> {
+pub fn execute(
+    _args: &[String],
+    _context: &crate::common::BuiltinContext,
+) -> crate::common::BuiltinResult<i32> {
     eprintln!("Command not yet implemented");
     Ok(1)
 }
