@@ -590,7 +590,7 @@ impl MirExecutor {
     /// Create a new MIR executor with performance optimizations
     pub fn new() -> Self {
         Self {
-            registers: vec![MirValue::Null; 1024], // Pre-allocate more registers for performance
+            registers: vec![MirValue::Null; 256], // Pre-allocate registers for performance (matches test expectation)
             call_stack: Vec::with_capacity(64), // Pre-allocate call stack capacity
             global_memory: HashMap::with_capacity(256), // Pre-allocate global memory capacity
             functions: HashMap::new(),
@@ -1024,13 +1024,13 @@ impl MirExecutor {
                 let result = match syscall_name.as_str() {
                     "print" => {
                         for arg in arg_values {
-                            print!("{}", arg);
+                            print!("{arg}");
                         }
                         MirValue::Integer(0)
                     },
                     "println" => {
                         for arg in arg_values {
-                            print!("{}", arg);
+                            print!("{arg}");
                         }
                         println!();
                         MirValue::Integer(0)
@@ -1106,7 +1106,7 @@ impl MirExecutor {
                 match iter_val {
                     MirValue::Integer(index) => {
                         // Mock iterator advancement
-                        self.set_register(element, MirValue::String(format!("item_{}", index)))?;
+                        self.set_register(element, MirValue::String(format!("item_{index}")))?;
                         self.set_register(has_next, MirValue::Boolean(index < 10))?; // Mock limit
                     },
                     _ => {

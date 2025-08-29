@@ -858,7 +858,7 @@ impl CrashHandler {
         {
             // Windows implementation would require more complex API calls
             // For now, return empty list as a reasonable fallback
-            return Some(Vec::new());
+            Some(Vec::new())
         }
         
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]

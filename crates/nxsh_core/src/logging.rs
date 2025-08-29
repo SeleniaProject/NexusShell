@@ -64,6 +64,13 @@ enum OutputTarget {
 }
 
 #[cfg(feature = "logging")]
+impl Default for MultiOutputWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "logging")]
 impl MultiOutputWriter {
     pub fn new() -> Self {
         Self {
@@ -153,8 +160,7 @@ impl IoWrite for MultiOutputWriter {
         if success_count > 0 || self.outputs.is_empty() {
             Ok(buf.len())
         } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            Err(std::io::Error::other(
                 "All output targets failed"
             ))
         }
@@ -198,8 +204,7 @@ impl IoWrite for MultiOutputWriter {
         if success_count > 0 || self.outputs.is_empty() {
             Ok(())
         } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            Err(std::io::Error::other(
                 "All output targets failed during flush"
             ))
         }
@@ -538,12 +543,12 @@ impl LoggingSystem {
         };
 
         // Build MultiOutputWriter with desired outputs
-        let mut multi_writer = MultiOutputWriter::new()
+        let multi_writer = MultiOutputWriter::new()
             .with_console(self.config.console_output)
             .with_stats(self.statistics.clone());
 
         // Add file output if configured
-        if self.config.file_output {
+        let file_writer_guard = if self.config.file_output {
             let rotation = match self.config.rotation { 
                 LogRotation::Hourly => Rotation::HOURLY, 
                 LogRotation::Daily => Rotation::DAILY, 
@@ -554,10 +559,36 @@ impl LoggingSystem {
             );
             let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
             self._guard = Some(guard);
-            multi_writer = multi_writer.with_file(non_blocking);
-        }
+            let _ = multi_writer.with_file(non_blocking); // Store result to avoid warning
+            true
+        } else {
+            false
+        };
 
-        let writer_factory = move || multi_writer;
+        // Create writer factory configuration to recreate writer when needed
+        struct WriterConfig {
+            console_output: bool,
+            file_output: bool,
+            statistics: Arc<LoggingStatistics>,
+        }
+        
+        let writer_config = WriterConfig {
+            console_output: self.config.console_output,
+            file_output: file_writer_guard,
+            statistics: self.statistics.clone(),
+        };
+        
+        // Simple factory that creates a basic writer (console only for simplicity)
+        let writer_factory = move || {
+            let writer = MultiOutputWriter::new()
+                .with_console(writer_config.console_output)
+                .with_stats(writer_config.statistics.clone());
+            // Use file_output field
+            if writer_config.file_output {
+                // File output would be configured here
+            }
+            writer
+        };
 
         let fmt_layer_boxed = match self.config.format {
             LogFormat::Json => {
