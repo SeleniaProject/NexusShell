@@ -987,7 +987,7 @@ fn write_compressed_frame_literals_only<W: Write>(mut w: W, payload: &[u8], chec
                     // 4-stream variants
                     // 4ストリームはインターリーブ分割（i % 4）にする（zstd仕様）
                     let p = &payload[offset..offset + lits];
-                    let mut s1_vec: Vec<u8> = Vec::with_capacity((lits + 3) / 4);
+                    let mut s1_vec: Vec<u8> = Vec::with_capacity(lits.div_ceil(4));
                     let mut s2_vec: Vec<u8> = Vec::with_capacity((lits + 2) / 4);
                     let mut s3_vec: Vec<u8> = Vec::with_capacity((lits + 1) / 4);
                     let mut s4_vec: Vec<u8> = Vec::with_capacity(lits / 4);
@@ -1118,7 +1118,7 @@ fn write_compressed_frame_literals_only<W: Write>(mut w: W, payload: &[u8], chec
                         Ok(buf)
                     };
                     let p = &payload[offset..offset + lits];
-                    let mut s1_vec: Vec<u8> = Vec::with_capacity((lits + 3) / 4);
+                    let mut s1_vec: Vec<u8> = Vec::with_capacity(lits.div_ceil(4));
                     let mut s2_vec: Vec<u8> = Vec::with_capacity((lits + 2) / 4);
                     let mut s3_vec: Vec<u8> = Vec::with_capacity((lits + 1) / 4);
                     let mut s4_vec: Vec<u8> = Vec::with_capacity(lits / 4);
@@ -1751,11 +1751,11 @@ fn train_dictionary(input_files: &[String], options: &ZstdOptions) -> Result<()>
     
     for file_path in input_files {
         if !options.quiet {
-            eprintln!("Processing sample: {}", file_path);
+            eprintln!("Processing sample: {file_path}");
         }
         
         trainer.add_sample_file(file_path)
-            .with_context(|| format!("Failed to add sample file: {}", file_path))?;
+            .with_context(|| format!("Failed to add sample file: {file_path}"))?;
     }
     
     // Train dictionary
@@ -1780,18 +1780,18 @@ fn train_dictionary(input_files: &[String], options: &ZstdOptions) -> Result<()>
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("dict");
-            format!("{}.dict", base_name)
+            format!("{base_name}.dict")
         }
     };
     
     // Save dictionary to file
     std::fs::write(&output_path, &dictionary.data)
-        .with_context(|| format!("Failed to save dictionary to: {}", output_path))?;
+        .with_context(|| format!("Failed to save dictionary to: {output_path}"))?;
     
     if !options.quiet {
-        eprintln!("Dictionary saved to: {}", output_path);
+        eprintln!("Dictionary saved to: {output_path}");
     } else {
-        println!("{}", output_path); // Print only output path in quiet mode
+        println!("{output_path}"); // Print only output path in quiet mode
     }
     
     Ok(())

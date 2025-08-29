@@ -117,7 +117,7 @@ pub fn execute(args: &[String], _context: &crate::common::BuiltinContext) -> cra
         match du_cli(args) {
             Ok(_) => Ok(0),
             Err(e) => {
-                eprintln!("du: {}", e);
+                eprintln!("du: {e}");
                 Ok(1)
             }
         }

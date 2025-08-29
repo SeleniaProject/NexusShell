@@ -152,7 +152,7 @@ fn display_current_date(matches: &ArgMatches) -> Result<()> {
 /// Display a parsed date string
 fn display_parsed_date(date_string: &str, matches: &ArgMatches) -> Result<()> {
     let parsed_date = parse_date_string(date_string)
-        .with_context(|| format!("Failed to parse date: '{}'", date_string))?;
+        .with_context(|| format!("Failed to parse date: '{date_string}'"))?;
     
     let datetime = if matches.get_flag("universal") {
         parsed_date
@@ -161,10 +161,10 @@ fn display_parsed_date(date_string: &str, matches: &ArgMatches) -> Result<()> {
     };
 
     let formatted = format_datetime(&datetime, matches)?;
-    println!("{}", formatted);
+    println!("{formatted}");
     
     if matches.get_flag("debug") {
-        eprintln!("date: input string: '{}'", date_string);
+        eprintln!("date: input string: '{date_string}'");
         eprintln!("date: parsed date: {}", datetime.format("%Y-%m-%d %H:%M:%S %Z"));
     }
     
@@ -174,10 +174,10 @@ fn display_parsed_date(date_string: &str, matches: &ArgMatches) -> Result<()> {
 /// Display file modification time
 fn display_file_time(file_path: &str, matches: &ArgMatches) -> Result<()> {
     let metadata = std::fs::metadata(file_path)
-        .with_context(|| format!("Failed to read metadata for file: '{}'", file_path))?;
+        .with_context(|| format!("Failed to read metadata for file: '{file_path}'"))?;
     
     let modified = metadata.modified()
-        .with_context(|| format!("Failed to get modification time for file: '{}'", file_path))?;
+        .with_context(|| format!("Failed to get modification time for file: '{file_path}'"))?;
     
     let datetime = if matches.get_flag("universal") {
         DateTime::<Utc>::from(modified)
@@ -186,10 +186,10 @@ fn display_file_time(file_path: &str, matches: &ArgMatches) -> Result<()> {
     };
 
     let formatted = format_datetime(&datetime, matches)?;
-    println!("{}", formatted);
+    println!("{formatted}");
     
     if matches.get_flag("debug") {
-        eprintln!("date: reference file: '{}'", file_path);
+        eprintln!("date: reference file: '{file_path}'");
         eprintln!("date: file modification time: {}", datetime.format("%Y-%m-%d %H:%M:%S %Z"));
     }
     
@@ -199,7 +199,7 @@ fn display_file_time(file_path: &str, matches: &ArgMatches) -> Result<()> {
 /// Process a file containing multiple date strings
 fn process_date_file(file_path: &str, matches: &ArgMatches) -> Result<()> {
     let content = std::fs::read_to_string(file_path)
-        .with_context(|| format!("Failed to read date file: '{}'", file_path))?;
+        .with_context(|| format!("Failed to read date file: '{file_path}'"))?;
     
     for (line_num, line) in content.lines().enumerate() {
         let line = line.trim();
@@ -216,7 +216,7 @@ fn process_date_file(file_path: &str, matches: &ArgMatches) -> Result<()> {
                 };
                 
                 let formatted = format_datetime(&datetime, matches)?;
-                println!("{}", formatted);
+                println!("{formatted}");
                 
                 if matches.get_flag("debug") {
                     eprintln!("date: line {}: '{}'", line_num + 1, line);
@@ -262,8 +262,8 @@ fn parse_date_string(date_string: &str) -> Result<DateTime<Utc>> {
     
     // Handle Unix timestamp
     if let Ok(timestamp) = date_string.parse::<i64>() {
-        return Ok(DateTime::from_timestamp(timestamp, 0)
-            .ok_or_else(|| anyhow!("Invalid timestamp: {}", timestamp))?);
+        return DateTime::from_timestamp(timestamp, 0)
+            .ok_or_else(|| anyhow!("Invalid timestamp: {}", timestamp));
     }
 
     // Try RFC 3339 / ISO 8601 format first (with timezone info)

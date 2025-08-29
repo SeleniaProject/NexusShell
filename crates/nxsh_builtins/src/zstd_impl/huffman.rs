@@ -68,7 +68,7 @@ pub fn build_literals_huffman(data: &[u8]) -> Option<(HuffmanTable, Vec<u8>)> {
     assign_depths(&nodes, root_idx, 0, &mut lengths);
     // Compute MaxBits
     let mut max_bits = 0u8;
-    for i in 0..=last_sym { let l = lengths[i]; if freq[i] > 0 { if l > max_bits { max_bits = l; } } }
+    for i in 0..=last_sym { let l = lengths[i]; if freq[i] > 0  && l > max_bits { max_bits = l; }  }
     if max_bits == 0 {
         return None;
     }
@@ -160,7 +160,7 @@ pub fn build_literals_huffman(data: &[u8]) -> Option<(HuffmanTable, Vec<u8>)> {
     // Emit weights for symbols 0..last_sym-1 (N-1 weights); last is deduced.
     let number_of_symbols = (last_sym as u8) + 1; // <= 128 ensured above
     let header_byte = 127u8 + number_of_symbols; // 128..255
-    let mut hdr: Vec<u8> = Vec::with_capacity(1 + ((number_of_symbols as usize + 1)/2));
+    let mut hdr: Vec<u8> = Vec::with_capacity(1 + (number_of_symbols as usize).div_ceil(2));
     hdr.push(header_byte);
     // pack weights for symbols 0..(last_sym-1), 2 per byte: first takes high nibble
     let emit_weights = last_sym; // count = number_of_symbols - 1
@@ -193,7 +193,7 @@ pub fn build_literals_huffman(data: &[u8]) -> Option<(HuffmanTable, Vec<u8>)> {
             leftover = total.saturating_sub(sum2);
             if leftover != 0 && (leftover & (leftover - 1)) == 0 {
                 // accept this raised HufLog; update weights accordingly
-                let delta = (try_bits - max_bits) as u8;
+                let delta = try_bits - max_bits;
                 for i in 0..=last_sym { if weights[i] > 0 { weights[i] = weights[i].saturating_add(delta); } }
                 max_bits = try_bits;
                 sum = sum2;
@@ -269,7 +269,7 @@ pub fn build_fse_compressed_weights_header(_table: &HuffmanTable) -> Option<Vec<
 pub fn reverse_bits(mut value: u32, bits: u8) -> u32 {
     let mut out = 0u32;
     for i in 0..bits {
-        out |= ((value & 1) as u32) << (bits - 1 - i);
+        out |= (value & 1) << (bits - 1 - i);
         value >>= 1;
     }
     out

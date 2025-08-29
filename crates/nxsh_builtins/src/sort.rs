@@ -27,13 +27,13 @@ pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32>
     
     // Output sorted lines
     for line in sorted_lines {
-        println!("{}", line);
+        println!("{line}");
     }
     
     Ok(0)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct SortConfig {
     help: bool,
     reverse: bool,
@@ -41,19 +41,6 @@ struct SortConfig {
     unique: bool,
     ignore_case: bool,
     files: Vec<String>,
-}
-
-impl Default for SortConfig {
-    fn default() -> Self {
-        Self {
-            help: false,
-            reverse: false,
-            numeric: false,
-            unique: false,
-            ignore_case: false,
-            files: Vec::new(),
-        }
-    }
 }
 
 fn parse_args(args: &[String]) -> BuiltinResult<SortConfig> {
@@ -68,7 +55,7 @@ fn parse_args(args: &[String]) -> BuiltinResult<SortConfig> {
             "--unique" | "-u" => config.unique = true,
             "--ignore-case" | "-f" => config.ignore_case = true,
             arg if arg.starts_with('-') => {
-                return Err(BuiltinError::InvalidArgument(format!("Unknown option: {}", arg)));
+                return Err(BuiltinError::InvalidArgument(format!("Unknown option: {arg}")));
             }
             file => config.files.push(file.to_string()),
         }

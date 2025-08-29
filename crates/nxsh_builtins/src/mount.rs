@@ -213,7 +213,7 @@ mod windows_impl {
 
     fn query_wmi_logical_disks() -> Result<Vec<MountInfo>> {
         let output = Command::new("powershell")
-            .args(&[
+            .args([
                 "-NoProfile", "-Command",
                 r#"
                 Get-WmiObject -Class Win32_LogicalDisk | ForEach-Object {
@@ -313,7 +313,7 @@ mod windows_impl {
 
     fn query_powershell_volumes() -> Result<Vec<Value>> {
         let output = Command::new("powershell")
-            .args(&[
+            .args([
                 "-NoProfile", "-Command",
                 r#"
                 Get-Volume | ForEach-Object {
@@ -387,7 +387,7 @@ mod windows_impl {
 
     fn query_network_drives() -> Result<Vec<MountInfo>> {
         let output = Command::new("net")
-            .args(&["use"])
+            .args(["use"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()?;
@@ -459,13 +459,13 @@ mod windows_impl {
 
     fn mount_disk_image(source: &str, target: &str, config: &MountConfig) -> Result<()> {
         let mut cmd = Command::new("powershell");
-        cmd.args(&[
+        cmd.args([
             "-NoProfile", "-Command",
-            &format!("Mount-DiskImage -ImagePath '{}' -PassThru | Get-Volume", source)
+            &format!("Mount-DiskImage -ImagePath '{source}' -PassThru | Get-Volume")
         ]);
 
         if config.dry_run {
-            println!("Would execute: Mount-DiskImage -ImagePath '{}'", source);
+            println!("Would execute: Mount-DiskImage -ImagePath '{source}'");
             return Ok(());
         }
 
@@ -473,9 +473,9 @@ mod windows_impl {
         
         if output.status.success() {
             if config.verbose {
-                println!("Successfully mounted disk image '{}' (target: '{}')", source, target);
+                println!("Successfully mounted disk image '{source}' (target: '{target}')");
                 let output_str = String::from_utf8_lossy(&output.stdout);
-                println!("{}", output_str);
+                println!("{output_str}");
             }
             Ok(())
         } else {
@@ -486,10 +486,10 @@ mod windows_impl {
 
     fn mount_drive_substitution(source: &str, target: &str, config: &MountConfig) -> Result<()> {
         let mut cmd = Command::new("subst");
-        cmd.args(&[target, source]);
+        cmd.args([target, source]);
 
         if config.dry_run {
-            println!("Would execute: subst {} {}", target, source);
+            println!("Would execute: subst {target} {source}");
             return Ok(());
         }
 
@@ -497,7 +497,7 @@ mod windows_impl {
         
         if output.status.success() {
             if config.verbose {
-                println!("Successfully created drive substitution '{}' -> '{}'", target, source);
+                println!("Successfully created drive substitution '{target}' -> '{source}'");
             }
             Ok(())
         } else {
@@ -525,10 +525,10 @@ mod windows_impl {
 
     fn unmount_network_drive(target: &str, config: &MountConfig) -> Result<()> {
         let mut cmd = Command::new("net");
-        cmd.args(&["use", target, "/delete"]);
+        cmd.args(["use", target, "/delete"]);
 
         if config.dry_run {
-            println!("Would execute: net use {} /delete", target);
+            println!("Would execute: net use {target} /delete");
             return Ok(());
         }
 
@@ -536,7 +536,7 @@ mod windows_impl {
         
         if output.status.success() {
             if config.verbose {
-                println!("Successfully unmounted network drive '{}'", target);
+                println!("Successfully unmounted network drive '{target}'");
             }
             Ok(())
         } else {
@@ -546,13 +546,13 @@ mod windows_impl {
 
     fn unmount_disk_image(target: &str, config: &MountConfig) -> Result<()> {
         let mut cmd = Command::new("powershell");
-        cmd.args(&[
+        cmd.args([
             "-NoProfile", "-Command",
-            &format!("Get-DiskImage | Where-Object {{ $_.Attached -and $_.ImagePath -like '*{}*' }} | Dismount-DiskImage", target)
+            &format!("Get-DiskImage | Where-Object {{ $_.Attached -and $_.ImagePath -like '*{target}*' }} | Dismount-DiskImage")
         ]);
 
         if config.dry_run {
-            println!("Would execute: Dismount-DiskImage for '{}'", target);
+            println!("Would execute: Dismount-DiskImage for '{target}'");
             return Ok(());
         }
 
@@ -560,7 +560,7 @@ mod windows_impl {
         
         if output.status.success() {
             if config.verbose {
-                println!("Successfully dismounted disk image containing '{}'", target);
+                println!("Successfully dismounted disk image containing '{target}'");
             }
             Ok(())
         } else {
@@ -570,10 +570,10 @@ mod windows_impl {
 
     fn unmount_drive_substitution(target: &str, config: &MountConfig) -> Result<()> {
         let mut cmd = Command::new("subst");
-        cmd.args(&[target, "/d"]);
+        cmd.args([target, "/d"]);
 
         if config.dry_run {
-            println!("Would execute: subst {} /d", target);
+            println!("Would execute: subst {target} /d");
             return Ok(());
         }
 
@@ -581,7 +581,7 @@ mod windows_impl {
         
         if output.status.success() {
             if config.verbose {
-                println!("Successfully removed drive substitution '{}'", target);
+                println!("Successfully removed drive substitution '{target}'");
             }
             Ok(())
         } else {
@@ -1223,13 +1223,13 @@ fn output_verbose(mounts: &[MountInfo]) -> Result<()> {
         println!("{}", mount.format_mount_with_usage());
         
         if let Some(ref mount_id) = mount.mount_id {
-            println!("  Mount ID: {}", mount_id);
+            println!("  Mount ID: {mount_id}");
         }
         if let Some(ref parent_id) = mount.parent_id {
-            println!("  Parent ID: {}", parent_id);
+            println!("  Parent ID: {parent_id}");
         }
         if let Some(ref major_minor) = mount.major_minor {
-            println!("  Device: {}", major_minor);
+            println!("  Device: {major_minor}");
         }
         
         println!();

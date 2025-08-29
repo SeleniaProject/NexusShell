@@ -1133,7 +1133,7 @@ fn process_url_to_writer(
             let password = url.password().unwrap_or("anonymous@example.com");
             
             // Connect to FTP server with timeout
-            let mut ftp_stream = FtpStream::connect(format!("{}:{}", host, port))
+            let mut ftp_stream = FtpStream::connect(format!("{host}:{port}"))
                 .with_context(|| t!("cat-error-ftp-connect-failed", "host" => host, "port" => port.to_string()))?;
             
             // Login with credentials

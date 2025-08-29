@@ -219,6 +219,12 @@ mod stub {
     #[derive(Clone, Debug)]
     pub struct I18n;
     static I18N: OnceLock<I18n> = OnceLock::new();
+    impl Default for I18n {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl I18n {
         pub fn init() -> Result<()> { Ok(()) }
         pub fn global() -> &'static I18n { I18N.get_or_init(|| I18n) }

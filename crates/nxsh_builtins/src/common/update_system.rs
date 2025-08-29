@@ -437,7 +437,7 @@ async fn download_update(system: &UpdateSystem, manifest: &UpdateManifest) -> Re
     {
     // Silence unused parameter warning when the updates feature is disabled
     let _ = manifest;
-        return Err(anyhow!("Update feature not enabled"));
+        Err(anyhow!("Update feature not enabled"))
     }
 
     #[cfg(feature = "updates")]
@@ -865,7 +865,7 @@ fn check_for_updates_fallback() -> Result<()> {
             nxsh_log_warn!("Failed to get current version for update check: {}", e);
             let mut status = system.status.lock().unwrap();
             status.installation_status = InstallationStatus::None;
-            status.last_error = Some(format!("Version check failed: {}", e));
+            status.last_error = Some(format!("Version check failed: {e}"));
             return Ok(());
         }
     };
