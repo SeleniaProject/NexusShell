@@ -37,7 +37,7 @@ pub fn execute(args: &[String], context: &BuiltinContext) -> BuiltinResult<i32> 
     let matches = match app.try_get_matches_from(std::iter::once("date".to_string()).chain(args.iter().cloned())) {
         Ok(matches) => matches,
         Err(e) => {
-            eprintln!("date: {}", e);
+            eprintln!("date: {e}");
             return Ok(1);
         }
     };
@@ -45,7 +45,7 @@ pub fn execute(args: &[String], context: &BuiltinContext) -> BuiltinResult<i32> 
     match execute_date_command(&matches, context) {
         Ok(()) => Ok(0),
         Err(e) => {
-            eprintln!("date: {}", e);
+            eprintln!("date: {e}");
             Ok(1)
         }
     }
@@ -59,7 +59,7 @@ fn build_app() -> Command {
         .arg(Arg::new("format")
             .help("Display format string")
             .value_name("FORMAT")
-            .conflicts_with_all(&["iso", "rfc", "universal"]))
+            .conflicts_with_all(["iso", "rfc", "universal"]))
         .arg(Arg::new("date")
             .short('d')
             .long("date")
@@ -140,7 +140,7 @@ fn display_current_date(matches: &ArgMatches) -> Result<()> {
     };
 
     let formatted = format_datetime(&now, matches)?;
-    println!("{}", formatted);
+    println!("{formatted}");
     
     if matches.get_flag("debug") {
         eprintln!("date: parsed date: {}", now.format("%Y-%m-%d %H:%M:%S %Z"));

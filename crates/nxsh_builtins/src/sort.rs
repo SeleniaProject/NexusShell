@@ -85,7 +85,7 @@ fn read_stdin_lines() -> BuiltinResult<Vec<String>> {
     reader
         .lines()
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| BuiltinError::IoError(format!("Failed to read from stdin: {}", e)))
+        .map_err(BuiltinError::IoError)
 }
 
 fn read_file_lines(files: &[String]) -> BuiltinResult<Vec<String>> {
@@ -93,14 +93,14 @@ fn read_file_lines(files: &[String]) -> BuiltinResult<Vec<String>> {
     
     for file_path in files {
         let file = std::fs::File::open(file_path)
-            .map_err(|e| BuiltinError::IoError(format!("Failed to open file '{}': {}", file_path, e)))?;
+            .map_err(BuiltinError::IoError)?;
         
         let reader = BufReader::new(file);
         let lines: Result<Vec<_>, _> = reader.lines().collect();
         
         match lines {
             Ok(mut file_lines) => all_lines.append(&mut file_lines),
-            Err(e) => return Err(BuiltinError::IoError(format!("Failed to read file '{}': {}", file_path, e))),
+            Err(e) => return Err(BuiltinError::IoError(e)),
         }
     }
     
@@ -163,10 +163,26 @@ mod tests {
     
     #[test]
     fn test_sort_basic() {
-        let context = BuiltinContext::new();
-        // Basic functionality test - would need mock input
-        let result = execute(&[], &context);
-        assert!(result.is_ok());
+        // 標準入力に依存しない形で基本動作を検証
+    let lines = vec![
+            "banana".to_string(),
+            "Apple".to_string(),
+            "cherry".to_string(),
+        ];
+        let mut cfg = SortConfig::default();
+        // デフォルト（辞書順、大小区別）
+        let out = sort_lines(lines.clone(), &cfg).unwrap();
+        assert_eq!(out, vec!["Apple", "banana", "cherry"]);
+
+        // 大文字小文字無視
+        cfg.ignore_case = true;
+        let out_icase = sort_lines(lines.clone(), &cfg).unwrap();
+        assert_eq!(out_icase, vec!["Apple", "banana", "cherry"]);
+
+        // 逆順
+        cfg.reverse = true;
+        let out_rev = sort_lines(lines.clone(), &cfg).unwrap();
+        assert_eq!(out_rev, vec!["cherry", "banana", "Apple"]);
     }
     
     #[test]

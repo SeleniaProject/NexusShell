@@ -31,7 +31,7 @@ pub fn du_cli(args: &[String]) -> Result<()> {
     
     // Beautiful table output
     let table = TableFormatter::new();
-    let rows = vec![
+    let rows = [
         vec!["Path".to_string(), "Size".to_string(), "Type".to_string()],
         vec![
             path.to_string(),

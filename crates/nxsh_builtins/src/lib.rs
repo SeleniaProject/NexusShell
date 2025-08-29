@@ -98,11 +98,13 @@ pub mod eval;           // 📜 Evaluate expressions
 
 // File System Tools 🔧 (Additional existing modules)
 pub mod fsck;           // 🔧 File system check
+pub mod mount;          // 💾 Mount filesystems
 pub mod logstats_builtin; // 📈 Log statistics
 
 // Compression Tools 🗜️ (Additional existing modules)
 pub mod zstd;           // 🗜️ Zstandard compression
 pub mod unzstd;         // 🗜️ Zstandard decompression
+pub mod zstd_impl;      // 🧩 Internal Zstd implementation (encoder utilities)
 
 // System Time Tools ⏰ (Additional existing modules)
 pub mod timedatectl;    // ⏰ Time and date control
@@ -382,12 +384,12 @@ pub mod tar {
     use anyhow::{anyhow, Result};
     
     pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
-        #[cfg(feature = "compression")]
+        #[cfg(feature = "compression-tar")]
         {
             // Full tar implementation would go here in compression builds
-            Err(BuiltinError::NotImplemented("tar: Full implementation requires compression feature".to_string()))
+            Err(BuiltinError::NotImplemented("tar: Full implementation requires compression-tar feature".to_string()))
         }
-        #[cfg(not(feature = "compression"))]
+        #[cfg(not(feature = "compression-tar"))]
         {
             // Minimal builds provide helpful error
             if args.is_empty() || args.iter().any(|arg| arg == "--help" || arg == "-h") {
@@ -410,18 +412,18 @@ pub mod tar {
 }
 
 /// Grep functionality with minimal build support
+/// Text search functionality with feature-aware implementation
 pub mod grep {
-    //! Text search functionality with feature-aware implementation
     use crate::common::{BuiltinContext, BuiltinError, BuiltinResult};
     use anyhow::Result;
     
     pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
-        #[cfg(feature = "text-processing")]
+        #[cfg(any(feature = "minimal", feature = "default"))]
         {
             // Full grep implementation would go here
-            Err(BuiltinError::NotImplemented("grep: Full implementation requires text-processing feature".to_string()))
+            Err(BuiltinError::NotImplemented("grep: Full implementation requires advanced text processing".to_string()))
         }
-        #[cfg(not(feature = "text-processing"))]
+        #[cfg(not(any(feature = "minimal", feature = "default")))]
         {
             if args.is_empty() || args.iter().any(|arg| arg == "--help" || arg == "-h") {
                 println!("grep: Minimal build - external grep command recommended");
@@ -442,8 +444,8 @@ pub mod grep {
 }
 
 /// Extended grep functionality (egrep)
+/// Extended regular expression grep with super-min build handling
 pub mod egrep {
-    //! Extended regular expression grep with super-min build handling
     use crate::common::{BuiltinContext, BuiltinError, BuiltinResult};
     
     pub fn execute(args: &[String], _context: &BuiltinContext) -> BuiltinResult<i32> {
