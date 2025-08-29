@@ -2,8 +2,8 @@
 use nxsh_core::{Executor, ShellContext};
 use nxsh_parser::Parser;
 use std::sync::Once;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
-use std::sync::{OnceLock, Mutex};
 
 static INIT: Once = Once::new();
 // Global lock to serialize environment mutations across tests in this module
@@ -68,13 +68,18 @@ fn test_global_timeout_triggers() {
     // Busy loop: use a sequence of many no-op words
     let parser = Parser::new();
     let mut script = String::new();
-    for _ in 0..2000 { script.push_str("echo a\n"); }
+    for _ in 0..2000 {
+        script.push_str("echo a\n");
+    }
     let ast = parser.parse(&script).expect("parse");
     let start = Instant::now();
     let res = exec.execute(&ast, &mut ctx).unwrap();
     let elapsed = start.elapsed();
     assert_eq!(res.exit_code, 124, "Expected timeout exit code 124");
-    assert!(elapsed < Duration::from_secs(2), "Execution should abort quickly on timeout");
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "Execution should abort quickly on timeout"
+    );
     // Cleanup for other tests
     std::env::remove_var("NXSH_TIMEOUT_MS");
 }

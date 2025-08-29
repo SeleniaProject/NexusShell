@@ -1,6 +1,9 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock, atomic::{AtomicU64, Ordering}},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, RwLock,
+    },
     time::{Duration, SystemTime},
 };
 
@@ -34,24 +37,27 @@ impl MemoryPool {
         }
 
         let buffer = Vec::with_capacity(min_size);
-        self.total_allocated.fetch_add(min_size as u64, Ordering::Relaxed);
+        self.total_allocated
+            .fetch_add(min_size as u64, Ordering::Relaxed);
         buffer
     }
 
     pub fn release(&self, mut buffer: Vec<u8>) {
         let capacity = buffer.capacity();
-        
+
         if let Ok(mut buffers) = self.buffers.write() {
             if buffers.len() < self.max_pool_size && capacity > 0 {
                 buffer.clear();
                 buffers.push(buffer);
-                self.total_freed.fetch_add(capacity as u64, Ordering::Relaxed);
+                self.total_freed
+                    .fetch_add(capacity as u64, Ordering::Relaxed);
                 return;
             }
         }
-        
+
         // Buffer dropped here if pool is full
-        self.total_freed.fetch_add(capacity as u64, Ordering::Relaxed);
+        self.total_freed
+            .fetch_add(capacity as u64, Ordering::Relaxed);
     }
 
     pub fn stats(&self) -> MemoryPoolStats {
@@ -96,7 +102,7 @@ impl StringInterner {
         }
 
         let arc_str: Arc<str> = Arc::from(s);
-        
+
         if let Ok(mut strings) = self.strings.write() {
             strings.insert(s.to_string(), Arc::clone(&arc_str));
         }
@@ -120,7 +126,7 @@ impl StringInterner {
             let before_count = strings.len();
             strings.retain(|_, v| Arc::strong_count(v) > 1);
             let after_count = strings.len();
-            
+
             if let Ok(mut stats) = self.stats.write() {
                 stats.cleaned_strings += before_count - after_count;
             }
@@ -129,7 +135,9 @@ impl StringInterner {
 }
 
 impl Default for StringInterner {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -204,7 +212,7 @@ impl<T: Poolable> PooledObject<T> {
 
 impl<T: Poolable> std::ops::Deref for PooledObject<T> {
     type Target = T;
-    
+
     fn deref(&self) -> &Self::Target {
         self.object.as_ref().unwrap()
     }
@@ -247,11 +255,11 @@ pub struct MemoryManager {
 impl MemoryManager {
     pub fn new() -> Self {
         let mut pools = HashMap::new();
-        
+
         // Pre-create common buffer pools
         pools.insert("small".to_string(), Arc::new(MemoryPool::new(100))); // < 1KB
-        pools.insert("medium".to_string(), Arc::new(MemoryPool::new(50)));  // 1KB-16KB  
-        pools.insert("large".to_string(), Arc::new(MemoryPool::new(10)));   // > 16KB
+        pools.insert("medium".to_string(), Arc::new(MemoryPool::new(50))); // 1KB-16KB
+        pools.insert("large".to_string(), Arc::new(MemoryPool::new(10))); // > 16KB
 
         Self {
             pools,
@@ -265,7 +273,7 @@ impl MemoryManager {
     pub fn get_buffer(&self, size: usize) -> Vec<u8> {
         let pool_name = match size {
             0..=1024 => "small",
-            1025..=16384 => "medium", 
+            1025..=16384 => "medium",
             _ => "large",
         };
 
@@ -281,7 +289,7 @@ impl MemoryManager {
         let pool_name = match size {
             0..=1024 => "small",
             1025..=16384 => "medium",
-            _ => "large", 
+            _ => "large",
         };
 
         if let Some(pool) = self.pools.get(pool_name) {
@@ -317,7 +325,7 @@ impl MemoryManager {
     fn estimate_memory_usage(&self) -> u64 {
         // Rough estimation based on pool statistics
         let mut total = 0u64;
-        
+
         for pool in self.pools.values() {
             let stats = pool.stats();
             total += stats.total_allocated.saturating_sub(stats.total_freed);
@@ -360,9 +368,9 @@ use std::sync::OnceLock;
 static GLOBAL_MEMORY_MANAGER: OnceLock<Arc<RwLock<MemoryManager>>> = OnceLock::new();
 
 pub fn global_memory_manager() -> Arc<RwLock<MemoryManager>> {
-    GLOBAL_MEMORY_MANAGER.get_or_init(|| {
-        Arc::new(RwLock::new(MemoryManager::new()))
-    }).clone()
+    GLOBAL_MEMORY_MANAGER
+        .get_or_init(|| Arc::new(RwLock::new(MemoryManager::new())))
+        .clone()
 }
 
 /// Convenient functions for global memory management
@@ -371,7 +379,10 @@ pub fn get_buffer(size: usize) -> Vec<u8> {
 }
 
 pub fn return_buffer(buffer: Vec<u8>) {
-    global_memory_manager().read().unwrap().return_buffer(buffer)
+    global_memory_manager()
+        .read()
+        .unwrap()
+        .return_buffer(buffer)
 }
 
 pub fn intern_string(s: &str) -> Arc<str> {
@@ -382,19 +393,19 @@ pub fn intern_string(s: &str) -> Arc<str> {
 mod tests {
     use super::*;
 
-    #[test] 
+    #[test]
     fn test_memory_pool_basic() {
         let pool = MemoryPool::new(5);
-        
+
         let buffer1 = pool.acquire(1024);
         assert_eq!(buffer1.capacity(), 1024);
-        
+
         pool.release(buffer1);
-        let buffer2 = pool.acquire(512);  // Should reuse the buffer
+        let buffer2 = pool.acquire(512); // Should reuse the buffer
         assert!(buffer2.capacity() >= 512); // May reuse larger buffer
-        
+
         pool.release(buffer2); // Release buffer2 before checking stats
-        
+
         let stats = pool.stats();
         assert_eq!(stats.buffers_in_pool, 1); // buffer2 now in pool
     }
@@ -402,12 +413,12 @@ mod tests {
     #[test]
     fn test_string_interner() {
         let interner = StringInterner::new();
-        
+
         let s1 = interner.intern("hello");
         let s2 = interner.intern("hello");
-        
+
         assert!(Arc::ptr_eq(&s1, &s2)); // Same object
-        
+
         let stats = interner.stats();
         assert_eq!(stats.cache_hits, 1);
         assert_eq!(stats.cache_misses, 1);

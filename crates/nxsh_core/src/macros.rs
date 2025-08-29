@@ -1,4 +1,4 @@
-use crate::compat::{Result, Context};
+use crate::compat::{Context, Result};
 use crate::memory_efficient::MemoryEfficientStringBuilder;
 use std::collections::HashMap;
 
@@ -12,7 +12,9 @@ pub struct MacroSystem {
 }
 
 impl Default for MacroSystem {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MacroSystem {
@@ -23,7 +25,7 @@ impl MacroSystem {
             max_expansion_depth: 100,
             builtin_macros: HashMap::new(),
         };
-        
+
         system.register_builtin_macros();
         system
     }
@@ -37,7 +39,7 @@ impl MacroSystem {
             error_msg.push('\'');
             return Err(crate::compat::anyhow(error_msg.into_string()));
         }
-        
+
         self.macros.insert(name, macro_def);
         Ok(())
     }
@@ -50,11 +52,14 @@ impl MacroSystem {
         }
 
         if self.expansion_stack.contains(&name.to_string()) {
-            return Err(crate::anyhow!("Circular macro expansion detected for '{}'", name));
+            return Err(crate::anyhow!(
+                "Circular macro expansion detected for '{}'",
+                name
+            ));
         }
 
         self.expansion_stack.push(name.to_string());
-        
+
         let result = if let Some(builtin) = self.builtin_macros.get(name) {
             let builtin_clone = builtin.clone();
             self.expand_builtin_macro(&builtin_clone, args)
@@ -85,21 +90,26 @@ impl MacroSystem {
                 }
 
                 let mut result = body.clone();
-                
+
                 // Replace parameters with arguments
                 for (param, arg) in parameters.iter().zip(args.iter()) {
-                    let mut search_pattern = MemoryEfficientStringBuilder::with_capacity(param.len() + 2);
+                    let mut search_pattern =
+                        MemoryEfficientStringBuilder::with_capacity(param.len() + 2);
                     search_pattern.push('$');
                     search_pattern.push_str(param);
                     result = result.replace(&search_pattern.into_string(), arg);
                 }
 
                 Ok(result)
-            },
-            
-            Macro::Conditional { condition, then_body, else_body } => {
+            }
+
+            Macro::Conditional {
+                condition,
+                then_body,
+                else_body,
+            } => {
                 let condition_result = self.evaluate_condition(condition, &args)?;
-                
+
                 if condition_result {
                     self.expand_template(then_body, &args)
                 } else if let Some(else_body) = else_body {
@@ -107,21 +117,21 @@ impl MacroSystem {
                 } else {
                     Ok(String::new())
                 }
-            },
-            
+            }
+
             Macro::Loop { iterator, body } => {
                 let mut result = String::new();
                 let items = self.resolve_iterator(iterator, &args)?;
-                
+
                 for item in items {
                     let expanded = self.expand_template(body, &[item])?;
                     result.push_str(&expanded);
                     result.push('\n');
                 }
-                
+
                 Ok(result)
-            },
-            
+            }
+
             Macro::Function { parameters, body } => {
                 if args.len() != parameters.len() {
                     return Err(crate::anyhow!(
@@ -138,70 +148,77 @@ impl MacroSystem {
                 }
 
                 self.expand_function_body(body, &bindings)
-            },
+            }
         }
     }
 
     /// Expand a builtin macro
-    fn expand_builtin_macro(&mut self, builtin: &BuiltinMacro, args: Vec<String>) -> Result<String> {
+    fn expand_builtin_macro(
+        &mut self,
+        builtin: &BuiltinMacro,
+        args: Vec<String>,
+    ) -> Result<String> {
         match builtin {
             BuiltinMacro::Include => {
                 if args.len() != 1 {
                     return Err(crate::anyhow!("include! macro requires exactly 1 argument"));
                 }
-                
+
                 let file_path = &args[0];
-                std::fs::read_to_string(file_path)
-                    .with_context(|| {
-                        let mut error_msg = MemoryEfficientStringBuilder::with_capacity(file_path.len() + 20);
-                        error_msg.push_str("Failed to read file: ");
-                        error_msg.push_str(file_path);
-                        error_msg.into_string()
-                    })
-            },
-            
-            BuiltinMacro::Concat => {
-                Ok(args.join(""))
-            },
-            
+                std::fs::read_to_string(file_path).with_context(|| {
+                    let mut error_msg =
+                        MemoryEfficientStringBuilder::with_capacity(file_path.len() + 20);
+                    error_msg.push_str("Failed to read file: ");
+                    error_msg.push_str(file_path);
+                    error_msg.into_string()
+                })
+            }
+
+            BuiltinMacro::Concat => Ok(args.join("")),
+
             BuiltinMacro::Repeat => {
                 if args.len() != 2 {
                     return Err(crate::anyhow!("repeat! macro requires exactly 2 arguments"));
                 }
-                
-                let count: usize = args[1].parse()
+
+                let count: usize = args[1]
+                    .parse()
                     .with_context(|| "Second argument to repeat! must be a number")?;
-                
+
                 Ok(args[0].repeat(count))
-            },
-            
+            }
+
             BuiltinMacro::Stringify => {
-                let mut result = MemoryEfficientStringBuilder::with_capacity(args.join(" ").len() + 2);
+                let mut result =
+                    MemoryEfficientStringBuilder::with_capacity(args.join(" ").len() + 2);
                 result.push('"');
                 result.push_str(&args.join(" "));
                 result.push('"');
                 Ok(result.into_string())
-            },
-            
+            }
+
             BuiltinMacro::Env => {
                 if args.len() != 1 {
                     return Err(crate::anyhow!("env! macro requires exactly 1 argument"));
                 }
-                
-                std::env::var(&args[0])
-                    .with_context(|| {
-                        let mut error_msg = MemoryEfficientStringBuilder::with_capacity(args[0].len() + 30);
-                        error_msg.push_str("Environment variable '");
-                        error_msg.push_str(&args[0]);
-                        error_msg.push_str("' not found");
-                        error_msg.into_string()
-                    })
-            },
-            
+
+                std::env::var(&args[0]).with_context(|| {
+                    let mut error_msg =
+                        MemoryEfficientStringBuilder::with_capacity(args[0].len() + 30);
+                    error_msg.push_str("Environment variable '");
+                    error_msg.push_str(&args[0]);
+                    error_msg.push_str("' not found");
+                    error_msg.into_string()
+                })
+            }
+
             BuiltinMacro::Date => {
                 #[cfg(feature = "heavy-time")]
                 {
-                    let format = args.first().map(|s| s.as_str()).unwrap_or("%Y-%m-%d %H:%M:%S");
+                    let format = args
+                        .first()
+                        .map(|s| s.as_str())
+                        .unwrap_or("%Y-%m-%d %H:%M:%S");
                     Ok(chrono::Local::now().format(format).to_string())
                 }
                 #[cfg(not(feature = "heavy-time"))]
@@ -212,11 +229,9 @@ impl MacroSystem {
                         .unwrap_or(0);
                     Ok(secs.to_string())
                 }
-            },
-            
-            BuiltinMacro::Version => {
-                Ok(env!("CARGO_PKG_VERSION").to_string())
-            },
+            }
+
+            BuiltinMacro::Version => Ok(env!("CARGO_PKG_VERSION").to_string()),
         }
     }
 
@@ -224,7 +239,7 @@ impl MacroSystem {
     pub fn process_text(&mut self, text: &str) -> Result<String> {
         let mut result = String::new();
         let mut chars = text.chars().peekable();
-        
+
         // Use a single mutable iterator so we can safely call peek/next as needed.
         while let Some(ch) = chars.next() {
             if ch == '$' && chars.peek() == Some(&'{') {
@@ -254,7 +269,7 @@ impl MacroSystem {
                 result.push(ch);
             }
         }
-        
+
         Ok(result)
     }
 
@@ -262,29 +277,27 @@ impl MacroSystem {
     fn parse_macro_call(&self, call: &str) -> Result<(String, Vec<String>)> {
         let parts: Vec<&str> = call.splitn(2, '(').collect();
         let macro_name = parts[0].trim().to_string();
-        
+
         if parts.len() == 1 {
             // No arguments
             return Ok((macro_name, vec![]));
         }
-        
+
         let args_str = parts[1].trim_end_matches(')').trim();
         if args_str.is_empty() {
             return Ok((macro_name, vec![]));
         }
-        
+
         // Simple argument parsing (would need more sophisticated parsing for real use)
-        let args = args_str.split(',')
-            .map(|s| s.trim().to_string())
-            .collect();
-        
+        let args = args_str.split(',').map(|s| s.trim().to_string()).collect();
+
         Ok((macro_name, args))
     }
 
     /// Expand a template with arguments
     fn expand_template(&mut self, template: &str, args: &[String]) -> Result<String> {
         let mut result = template.to_string();
-        
+
         // Replace numbered arguments $0, $1, $2, etc.
         for (i, arg) in args.iter().enumerate() {
             let mut search_pattern = MemoryEfficientStringBuilder::with_capacity(8);
@@ -292,7 +305,7 @@ impl MacroSystem {
             search_pattern.push_str(&i.to_string());
             result = result.replace(&search_pattern.into_string(), arg);
         }
-        
+
         // Process nested macros
         self.process_text(&result)
     }
@@ -307,19 +320,18 @@ impl MacroSystem {
                 } else {
                     Ok(false)
                 }
-            },
+            }
             MacroCondition::EnvVar { name, value } => {
                 if let Ok(env_value) = std::env::var(name) {
                     Ok(&env_value == value)
                 } else {
                     Ok(false)
                 }
-            },
-            MacroCondition::Platform(platform) => {
-                Ok(cfg!(target_os = "windows") && platform == "windows" ||
-                   cfg!(target_os = "linux") && platform == "linux" ||
-                   cfg!(target_os = "macos") && platform == "macos")
-            },
+            }
+            MacroCondition::Platform(platform) => Ok(cfg!(target_os = "windows")
+                && platform == "windows"
+                || cfg!(target_os = "linux") && platform == "linux"
+                || cfg!(target_os = "macos") && platform == "macos"),
         }
     }
 
@@ -333,9 +345,12 @@ impl MacroSystem {
                     result.push(i.to_string());
                 }
                 Ok(result)
-            },
+            }
             MacroIterator::List(items) => Ok(items.clone()),
-            MacroIterator::Split { arg_index, delimiter } => {
+            MacroIterator::Split {
+                arg_index,
+                delimiter,
+            } => {
                 if *arg_index < args.len() {
                     let split_items: Vec<String> = args[*arg_index]
                         .split(delimiter)
@@ -345,33 +360,40 @@ impl MacroSystem {
                 } else {
                     Ok(vec![])
                 }
-            },
+            }
         }
     }
 
     /// Expand function body with parameter bindings
-    fn expand_function_body(&mut self, body: &[MacroStatement], bindings: &HashMap<String, String>) -> Result<String> {
+    fn expand_function_body(
+        &mut self,
+        body: &[MacroStatement],
+        bindings: &HashMap<String, String>,
+    ) -> Result<String> {
         let mut result = String::new();
-        
+
         for statement in body {
             match statement {
                 MacroStatement::Text(text) => {
                     let mut expanded = text.clone();
                     for (param, value) in bindings {
-                        let mut search_pattern = MemoryEfficientStringBuilder::with_capacity(param.len() + 2);
+                        let mut search_pattern =
+                            MemoryEfficientStringBuilder::with_capacity(param.len() + 2);
                         search_pattern.push('$');
                         search_pattern.push_str(param);
                         expanded = expanded.replace(&search_pattern.into_string(), value);
                     }
                     result.push_str(&expanded);
-                },
-                
+                }
+
                 MacroStatement::MacroCall { name, args } => {
-                    let expanded_args = args.iter()
+                    let expanded_args = args
+                        .iter()
                         .map(|arg| {
                             let mut expanded = arg.clone();
                             for (param, value) in bindings {
-                                let mut search_pattern = MemoryEfficientStringBuilder::with_capacity(param.len() + 2);
+                                let mut search_pattern =
+                                    MemoryEfficientStringBuilder::with_capacity(param.len() + 2);
                                 search_pattern.push('$');
                                 search_pattern.push_str(param);
                                 expanded = expanded.replace(&search_pattern.into_string(), value);
@@ -379,14 +401,18 @@ impl MacroSystem {
                             expanded
                         })
                         .collect();
-                    
+
                     let expanded = self.expand_macro(name, expanded_args)?;
                     result.push_str(&expanded);
-                },
-                
-                MacroStatement::Conditional { condition, then_body, else_body } => {
+                }
+
+                MacroStatement::Conditional {
+                    condition,
+                    then_body,
+                    else_body,
+                } => {
                     let condition_result = self.evaluate_condition(condition, &[])?;
-                    
+
                     if condition_result {
                         let expanded = self.expand_function_body(then_body, bindings)?;
                         result.push_str(&expanded);
@@ -394,22 +420,29 @@ impl MacroSystem {
                         let expanded = self.expand_function_body(else_body, bindings)?;
                         result.push_str(&expanded);
                     }
-                },
+                }
             }
         }
-        
+
         Ok(result)
     }
 
     /// Register built-in macros
     fn register_builtin_macros(&mut self) {
-        self.builtin_macros.insert("include".to_string(), BuiltinMacro::Include);
-        self.builtin_macros.insert("concat".to_string(), BuiltinMacro::Concat);
-        self.builtin_macros.insert("repeat".to_string(), BuiltinMacro::Repeat);
-        self.builtin_macros.insert("stringify".to_string(), BuiltinMacro::Stringify);
-        self.builtin_macros.insert("env".to_string(), BuiltinMacro::Env);
-        self.builtin_macros.insert("date".to_string(), BuiltinMacro::Date);
-        self.builtin_macros.insert("version".to_string(), BuiltinMacro::Version);
+        self.builtin_macros
+            .insert("include".to_string(), BuiltinMacro::Include);
+        self.builtin_macros
+            .insert("concat".to_string(), BuiltinMacro::Concat);
+        self.builtin_macros
+            .insert("repeat".to_string(), BuiltinMacro::Repeat);
+        self.builtin_macros
+            .insert("stringify".to_string(), BuiltinMacro::Stringify);
+        self.builtin_macros
+            .insert("env".to_string(), BuiltinMacro::Env);
+        self.builtin_macros
+            .insert("date".to_string(), BuiltinMacro::Date);
+        self.builtin_macros
+            .insert("version".to_string(), BuiltinMacro::Version);
     }
 
     /// Get macro information
@@ -434,21 +467,21 @@ impl MacroSystem {
     /// List all available macros
     pub fn list_macros(&self) -> Vec<MacroInfo> {
         let mut macros = Vec::new();
-        
+
         // Add builtin macros
         for name in self.builtin_macros.keys() {
             if let Some(info) = self.get_macro_info(name) {
                 macros.push(info);
             }
         }
-        
+
         // Add user macros
         for name in self.macros.keys() {
             if let Some(info) = self.get_macro_info(name) {
                 macros.push(info);
             }
         }
-        
+
         macros.sort_by(|a, b| a.name.cmp(&b.name));
         macros
     }
@@ -457,10 +490,23 @@ impl MacroSystem {
 /// Macro definition types
 #[derive(Debug, Clone)]
 pub enum Macro {
-    Simple { parameters: Vec<String>, body: String },
-    Conditional { condition: MacroCondition, then_body: String, else_body: Option<String> },
-    Loop { iterator: MacroIterator, body: String },
-    Function { parameters: Vec<String>, body: Vec<MacroStatement> },
+    Simple {
+        parameters: Vec<String>,
+        body: String,
+    },
+    Conditional {
+        condition: MacroCondition,
+        then_body: String,
+        else_body: Option<String>,
+    },
+    Loop {
+        iterator: MacroIterator,
+        body: String,
+    },
+    Function {
+        parameters: Vec<String>,
+        body: Vec<MacroStatement>,
+    },
 }
 
 impl Macro {
@@ -534,8 +580,15 @@ pub enum MacroIterator {
 #[derive(Debug, Clone)]
 pub enum MacroStatement {
     Text(String),
-    MacroCall { name: String, args: Vec<String> },
-    Conditional { condition: MacroCondition, then_body: Vec<MacroStatement>, else_body: Option<Vec<MacroStatement>> },
+    MacroCall {
+        name: String,
+        args: Vec<String>,
+    },
+    Conditional {
+        condition: MacroCondition,
+        then_body: Vec<MacroStatement>,
+        else_body: Option<Vec<MacroStatement>>,
+    },
 }
 
 /// Macro information
@@ -564,57 +617,61 @@ mod tests {
     #[test]
     fn test_simple_macro() {
         let mut system = MacroSystem::new();
-        
+
         let macro_def = Macro::Simple {
             parameters: vec!["name".to_string()],
             body: "Hello, $name!".to_string(),
         };
-        
+
         system.define_macro("greet".to_string(), macro_def).unwrap();
-        
-        let result = system.expand_macro("greet", vec!["World".to_string()]).unwrap();
+
+        let result = system
+            .expand_macro("greet", vec!["World".to_string()])
+            .unwrap();
         assert_eq!(result, "Hello, World!");
     }
 
     #[test]
     fn test_builtin_concat_macro() {
         let mut system = MacroSystem::new();
-        
-        let result = system.expand_macro("concat", vec![
-            "Hello".to_string(),
-            " ".to_string(),
-            "World".to_string(),
-        ]).unwrap();
-        
+
+        let result = system
+            .expand_macro(
+                "concat",
+                vec!["Hello".to_string(), " ".to_string(), "World".to_string()],
+            )
+            .unwrap();
+
         assert_eq!(result, "Hello World");
     }
 
     #[test]
     fn test_builtin_repeat_macro() {
         let mut system = MacroSystem::new();
-        
-        let result = system.expand_macro("repeat", vec![
-            "A".to_string(),
-            "3".to_string(),
-        ]).unwrap();
-        
+
+        let result = system
+            .expand_macro("repeat", vec!["A".to_string(), "3".to_string()])
+            .unwrap();
+
         assert_eq!(result, "AAA");
     }
 
     #[test]
     fn test_text_processing_with_macros() {
         let mut system = MacroSystem::new();
-        
+
         let macro_def = Macro::Simple {
             parameters: vec!["x".to_string()],
             body: "$x squared is ${multiply($x, $x)}".to_string(),
         };
-        
-        system.define_macro("square".to_string(), macro_def).unwrap();
-        
+
+        system
+            .define_macro("square".to_string(), macro_def)
+            .unwrap();
+
         let text = "The result is: ${square(5)}";
         let result = system.process_text(text).unwrap();
-        
+
         // Note: This test assumes multiply macro exists
         // In practice, we'd need more sophisticated expression evaluation
         assert!(result.contains("The result is:"));
@@ -623,20 +680,22 @@ mod tests {
     #[test]
     fn test_conditional_macro() {
         let mut system = MacroSystem::new();
-        
+
         let macro_def = Macro::Conditional {
             condition: MacroCondition::Platform("windows".to_string()),
             then_body: "Windows command".to_string(),
             else_body: Some("Unix command".to_string()),
         };
-        
-        system.define_macro("platform_cmd".to_string(), macro_def).unwrap();
-        
+
+        system
+            .define_macro("platform_cmd".to_string(), macro_def)
+            .unwrap();
+
         let result = system.expand_macro("platform_cmd", vec![]).unwrap();
-        
+
         #[cfg(target_os = "windows")]
         assert_eq!(result, "Windows command");
-        
+
         #[cfg(not(target_os = "windows"))]
         assert_eq!(result, "Unix command");
     }
@@ -645,7 +704,7 @@ mod tests {
     fn test_macro_listing() {
         let system = MacroSystem::new();
         let macros = system.list_macros();
-        
+
         assert!(!macros.is_empty());
         assert!(macros.iter().any(|m| m.name == "concat"));
         assert!(macros.iter().any(|m| m.name == "repeat"));

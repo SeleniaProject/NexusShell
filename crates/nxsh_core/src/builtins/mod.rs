@@ -6,16 +6,16 @@
 use crate::executor::Builtin;
 use std::sync::Arc;
 
-pub mod jobs;
-pub mod fg;
 pub mod bg;
+pub mod fg;
 pub mod id;
-pub mod testutils;
+pub mod jobs;
 pub mod kill;
+pub mod testutils;
 
 pub use id::IdBuiltin;
-use testutils::ArgDumpBuiltin;
 use kill::KillBuiltin;
+use testutils::ArgDumpBuiltin;
 
 /// Register all built-in commands
 pub fn register_all_builtins() -> Vec<Arc<dyn Builtin>> {

@@ -3,7 +3,7 @@
 //! This module provides stream abstractions that support both traditional
 //! byte streams and structured object streams for advanced pipeline operations.
 
-use crate::error::{ShellError, ErrorKind, ShellResult};
+use crate::error::{ErrorKind, ShellError, ShellResult};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex};
@@ -48,10 +48,7 @@ pub enum StreamData {
     /// JSON value
     Json(serde_json::Value),
     /// Custom object (serialized)
-    Object {
-        type_name: String,
-        data: Vec<u8>,
-    },
+    Object { type_name: String, data: Vec<u8> },
     /// Multiple items in a collection
     Collection(Vec<StreamData>),
     /// Key-value pairs (like a record/struct)
@@ -80,8 +77,12 @@ impl StreamData {
             StreamData::Bytes(bytes) => Ok(bytes.clone()),
             StreamData::Text(text) => Ok(text.as_bytes().to_vec()),
             StreamData::Json(value) => {
-                let json_str = serde_json::to_string(value)
-                    .map_err(|e| ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::ConversionError), format!("JSON serialization failed: {e}")))?;
+                let json_str = serde_json::to_string(value).map_err(|e| {
+                    ShellError::new(
+                        ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::ConversionError),
+                        format!("JSON serialization failed: {e}"),
+                    )
+                })?;
                 Ok(json_str.into_bytes())
             }
             StreamData::Object { data, .. } => Ok(data.clone()),
@@ -94,21 +95,28 @@ impl StreamData {
                 Ok(result)
             }
             StreamData::Record(record) => {
-                let json_value: serde_json::Value = record.iter()
+                let json_value: serde_json::Value = record
+                    .iter()
                     .map(|(k, v)| {
                         let value = match v {
                             StreamData::Text(s) => serde_json::Value::String(s.clone()),
                             StreamData::Json(j) => j.clone(),
-                            StreamData::Bytes(b) => serde_json::Value::String(String::from_utf8_lossy(b).to_string()),
+                            StreamData::Bytes(b) => {
+                                serde_json::Value::String(String::from_utf8_lossy(b).to_string())
+                            }
                             _ => serde_json::Value::String(format!("{v:?}")),
                         };
                         (k.clone(), value)
                     })
                     .collect::<serde_json::Map<_, _>>()
                     .into();
-                
-                let json_str = serde_json::to_string(&json_value)
-                    .map_err(|e| ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::ConversionError), format!("Record serialization failed: {e}")))?;
+
+                let json_str = serde_json::to_string(&json_value).map_err(|e| {
+                    ShellError::new(
+                        ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::ConversionError),
+                        format!("Record serialization failed: {e}"),
+                    )
+                })?;
                 Ok(json_str.into_bytes())
             }
             StreamData::Error(msg) => Ok(msg.as_bytes().to_vec()),
@@ -120,15 +128,18 @@ impl StreamData {
         match self {
             StreamData::Text(text) => Ok(text.clone()),
             StreamData::Bytes(bytes) => Ok(String::from_utf8_lossy(bytes).to_string()),
-            StreamData::Json(value) => {
-                serde_json::to_string_pretty(value)
-                    .map_err(|e| ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::ConversionError), format!("JSON serialization failed: {e}")))
-            }
+            StreamData::Json(value) => serde_json::to_string_pretty(value).map_err(|e| {
+                ShellError::new(
+                    ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::ConversionError),
+                    format!("JSON serialization failed: {e}"),
+                )
+            }),
             StreamData::Object { type_name, data } => {
                 Ok(format!("{}({})", type_name, String::from_utf8_lossy(data)))
             }
             StreamData::Collection(items) => {
-                let strings: Result<Vec<_>, _> = items.iter().map(|item| item.to_string()).collect();
+                let strings: Result<Vec<_>, _> =
+                    items.iter().map(|item| item.to_string()).collect();
                 Ok(strings?.join("\n"))
             }
             StreamData::Record(record) => {
@@ -170,13 +181,13 @@ impl StreamData {
 pub trait StreamReader: Send + Sync {
     /// Read the next item from the stream
     fn read_next(&mut self) -> ShellResult<Option<StreamData>>;
-    
+
     /// Get the stream type
     fn stream_type(&self) -> StreamType;
-    
+
     /// Check if the stream has more data
     fn has_more(&self) -> bool;
-    
+
     /// Close the stream
     fn close(&mut self) -> ShellResult<()>;
 }
@@ -185,13 +196,13 @@ pub trait StreamReader: Send + Sync {
 pub trait StreamWriter: Send + Sync {
     /// Write data to the stream
     fn write_data(&mut self, data: StreamData) -> ShellResult<()>;
-    
+
     /// Get the stream type
     fn stream_type(&self) -> StreamType;
-    
+
     /// Flush the stream
     fn flush(&mut self) -> ShellResult<()>;
-    
+
     /// Close the stream
     fn close(&mut self) -> ShellResult<()>;
 }
@@ -258,32 +269,51 @@ impl Stream {
 
     /// Write data to the stream
     pub fn write(&mut self, data: StreamData) -> ShellResult<()> {
-        let closed = *self.closed.lock()
-            .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Stream closed lock poisoned"))?;
-        
+        let closed = *self.closed.lock().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Stream closed lock poisoned",
+            )
+        })?;
+
         if closed {
-            return Err(ShellError::new(ErrorKind::IoError(crate::error::IoErrorKind::BrokenPipe), "Cannot write to closed stream"));
+            return Err(ShellError::new(
+                ErrorKind::IoError(crate::error::IoErrorKind::BrokenPipe),
+                "Cannot write to closed stream",
+            ));
         }
 
-        let mut buffer = self.data.lock()
-            .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Stream data lock poisoned"))?;
-        
+        let mut buffer = self.data.lock().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Stream data lock poisoned",
+            )
+        })?;
+
         buffer.push(data);
         Ok(())
     }
 
     /// Read the next item from the stream
     pub fn read(&mut self) -> ShellResult<Option<StreamData>> {
-        let buffer = self.data.lock()
-            .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Stream data lock poisoned"))?;
-        
-        let mut pos = self.position.lock()
-            .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Stream position lock poisoned"))?;
-        
+        let buffer = self.data.lock().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Stream data lock poisoned",
+            )
+        })?;
+
+        let mut pos = self.position.lock().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Stream position lock poisoned",
+            )
+        })?;
+
         if *pos >= buffer.len() {
             return Ok(None);
         }
-        
+
         let data = buffer[*pos].clone();
         *pos += 1;
         Ok(Some(data))
@@ -291,9 +321,13 @@ impl Stream {
 
     /// Read all data from the stream
     pub fn read_all(&mut self) -> ShellResult<Vec<StreamData>> {
-        let buffer = self.data.lock()
-            .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Stream data lock poisoned"))?;
-        
+        let buffer = self.data.lock().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Stream data lock poisoned",
+            )
+        })?;
+
         Ok(buffer.clone())
     }
 
@@ -318,8 +352,12 @@ impl Stream {
 
     /// Close the stream
     pub fn close(&mut self) -> ShellResult<()> {
-        let mut closed = self.closed.lock()
-            .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Stream closed lock poisoned"))?;
+        let mut closed = self.closed.lock().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Stream closed lock poisoned",
+            )
+        })?;
         *closed = true;
         Ok(())
     }
@@ -331,9 +369,13 @@ impl Stream {
 
     /// Convert stream to bytes (for traditional pipe compatibility)
     pub fn to_bytes(&self) -> ShellResult<Vec<u8>> {
-        let buffer = self.data.lock()
-            .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Stream data lock poisoned"))?;
-        
+        let buffer = self.data.lock().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Stream data lock poisoned",
+            )
+        })?;
+
         let mut result = Vec::new();
         for item in buffer.iter() {
             result.extend(item.to_bytes()?);
@@ -349,15 +391,18 @@ impl Stream {
             if serde_json::from_str::<serde_json::Value>(text).is_ok() {
                 return StreamType::Json;
             }
-            
+
             // Check if it looks like structured text
-            if text.lines().any(|line| line.contains(':') || line.contains('=')) {
+            if text
+                .lines()
+                .any(|line| line.contains(':') || line.contains('='))
+            {
                 return StreamType::Object("structured".to_string());
             }
-            
+
             return StreamType::Text;
         }
-        
+
         StreamType::Byte
     }
 
@@ -366,16 +411,20 @@ impl Stream {
     where
         F: Fn(&StreamData) -> ShellResult<StreamData>,
     {
-        let buffer = self.data.lock()
-            .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Stream data lock poisoned"))?;
-        
+        let buffer = self.data.lock().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Stream data lock poisoned",
+            )
+        })?;
+
         let mut result = Stream::new(self.stream_type.clone());
-        
+
         for item in buffer.iter() {
             let transformed = f(item)?;
             result.write(transformed)?;
         }
-        
+
         Ok(result)
     }
 
@@ -384,24 +433,32 @@ impl Stream {
     where
         F: Fn(&StreamData) -> bool,
     {
-        let buffer = self.data.lock()
-            .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Stream data lock poisoned"))?;
-        
+        let buffer = self.data.lock().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Stream data lock poisoned",
+            )
+        })?;
+
         let mut result = Stream::new(self.stream_type.clone());
-        
+
         for item in buffer.iter() {
             if predicate(item) {
                 result.write(item.clone())?;
             }
         }
-        
+
         Ok(result)
     }
 
     /// Collect stream into a vector
     pub fn collect(&self) -> ShellResult<Vec<StreamData>> {
-        let buffer = self.data.lock()
-            .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Stream data lock poisoned"))?;
+        let buffer = self.data.lock().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Stream data lock poisoned",
+            )
+        })?;
         Ok(buffer.clone())
     }
 
@@ -447,29 +504,36 @@ impl StreamConverter {
         match target_type {
             StreamType::Byte => Ok(StreamData::Bytes(data.to_bytes()?)),
             StreamType::Text => Ok(StreamData::Text(data.to_string()?)),
-            StreamType::Json => {
-                match data {
-                    StreamData::Json(v) => Ok(StreamData::Json(v)),
-                    StreamData::Text(s) => {
-                        let value: serde_json::Value = serde_json::from_str(&s)
-                            .map_err(|e| ShellError::new(ErrorKind::ParseError(crate::error::ParseErrorKind::SyntaxError), format!("JSON parse error: {e}")))?;
-                        Ok(StreamData::Json(value))
-                    }
-                    StreamData::Bytes(b) => {
-                        let text = String::from_utf8_lossy(&b);
-                        let value: serde_json::Value = serde_json::from_str(&text)
-                            .map_err(|e| ShellError::new(ErrorKind::ParseError(crate::error::ParseErrorKind::SyntaxError), format!("JSON parse error: {e}")))?;
-                        Ok(StreamData::Json(value))
-                    }
-                    _ => Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::ConversionError), "Cannot convert to JSON")),
+            StreamType::Json => match data {
+                StreamData::Json(v) => Ok(StreamData::Json(v)),
+                StreamData::Text(s) => {
+                    let value: serde_json::Value = serde_json::from_str(&s).map_err(|e| {
+                        ShellError::new(
+                            ErrorKind::ParseError(crate::error::ParseErrorKind::SyntaxError),
+                            format!("JSON parse error: {e}"),
+                        )
+                    })?;
+                    Ok(StreamData::Json(value))
                 }
-            }
-            StreamType::Object(type_name) => {
-                Ok(StreamData::Object {
-                    type_name: type_name.clone(),
-                    data: data.to_bytes()?,
-                })
-            }
+                StreamData::Bytes(b) => {
+                    let text = String::from_utf8_lossy(&b);
+                    let value: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+                        ShellError::new(
+                            ErrorKind::ParseError(crate::error::ParseErrorKind::SyntaxError),
+                            format!("JSON parse error: {e}"),
+                        )
+                    })?;
+                    Ok(StreamData::Json(value))
+                }
+                _ => Err(ShellError::new(
+                    ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::ConversionError),
+                    "Cannot convert to JSON",
+                )),
+            },
+            StreamType::Object(type_name) => Ok(StreamData::Object {
+                type_name: type_name.clone(),
+                data: data.to_bytes()?,
+            }),
             StreamType::Mixed => Ok(data),
             StreamType::Error => Ok(StreamData::Error(data.to_string()?)),
         }
@@ -504,9 +568,7 @@ pub struct StreamPipeline {
 impl StreamPipeline {
     /// Create a new pipeline
     pub fn new() -> Self {
-        Self {
-            stages: Vec::new(),
-        }
+        Self { stages: Vec::new() }
     }
 
     /// Add a stage to the pipeline
@@ -531,4 +593,4 @@ impl Default for StreamPipeline {
     fn default() -> Self {
         Self::new()
     }
-} 
+}

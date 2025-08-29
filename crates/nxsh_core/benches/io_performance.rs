@@ -1,18 +1,18 @@
-use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
-use nxsh_core::io_optimization::{IoManager, AsyncIoManager};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use nxsh_core::io_optimization::{AsyncIoManager, IoManager};
 use std::{fs, path::PathBuf};
 use tempfile::tempdir;
 
 fn bench_file_operations(c: &mut Criterion) {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("benchmark_file.txt");
-    
+
     // Create test content of various sizes
-    let small_content = "x".repeat(1024);      // 1KB
-    let medium_content = "x".repeat(10240);    // 10KB
-    
+    let small_content = "x".repeat(1024); // 1KB
+    let medium_content = "x".repeat(10240); // 10KB
+
     let mut group = c.benchmark_group("file_operations");
-    
+
     // Benchmark standard file operations
     group.bench_with_input(
         BenchmarkId::new("std_write_small", 1024),
@@ -23,7 +23,7 @@ fn bench_file_operations(c: &mut Criterion) {
             });
         },
     );
-    
+
     group.bench_with_input(
         BenchmarkId::new("std_read_small", 1024),
         &small_content,
@@ -34,10 +34,10 @@ fn bench_file_operations(c: &mut Criterion) {
             });
         },
     );
-    
+
     // Benchmark optimized I/O operations
     let io_manager = IoManager::new(8192);
-    
+
     group.bench_with_input(
         BenchmarkId::new("optimized_write_small", 1024),
         &small_content,
@@ -47,7 +47,7 @@ fn bench_file_operations(c: &mut Criterion) {
             });
         },
     );
-    
+
     group.bench_with_input(
         BenchmarkId::new("optimized_read_small", 1024),
         &small_content,
@@ -58,7 +58,7 @@ fn bench_file_operations(c: &mut Criterion) {
             });
         },
     );
-    
+
     // Medium size benchmarks
     group.bench_with_input(
         BenchmarkId::new("std_write_medium", 10240),
@@ -69,7 +69,7 @@ fn bench_file_operations(c: &mut Criterion) {
             });
         },
     );
-    
+
     group.bench_with_input(
         BenchmarkId::new("optimized_write_medium", 10240),
         &medium_content,
@@ -79,22 +79,22 @@ fn bench_file_operations(c: &mut Criterion) {
             });
         },
     );
-    
+
     group.finish();
 }
 
 fn bench_multiple_file_operations(c: &mut Criterion) {
     let dir = tempdir().unwrap();
     let content = "test content for multiple file operations";
-    
+
     let mut group = c.benchmark_group("multiple_file_operations");
-    
+
     // Create multiple files for testing
     let file_count = 10;
     let file_paths: Vec<PathBuf> = (0..file_count)
         .map(|i| dir.path().join(format!("test_{i}.txt")))
         .collect();
-    
+
     // Benchmark sequential file operations
     group.bench_function("sequential_write", |b| {
         b.iter(|| {
@@ -103,23 +103,23 @@ fn bench_multiple_file_operations(c: &mut Criterion) {
             }
         });
     });
-    
+
     group.bench_function("sequential_read", |b| {
         // Pre-write files
         for path in &file_paths {
             fs::write(path, content).unwrap();
         }
-        
+
         b.iter(|| {
             for path in &file_paths {
                 let _: String = fs::read_to_string(path).unwrap();
             }
         });
     });
-    
+
     // Benchmark optimized file operations
     let io_manager = IoManager::new(4096);
-    
+
     group.bench_function("optimized_sequential_write", |b| {
         b.iter(|| {
             for path in &file_paths {
@@ -127,37 +127,37 @@ fn bench_multiple_file_operations(c: &mut Criterion) {
             }
         });
     });
-    
+
     group.bench_function("optimized_sequential_read", |b| {
         // Pre-write files
         for path in &file_paths {
             io_manager.write_file_buffered(path, content).unwrap();
         }
-        
+
         b.iter(|| {
             for path in &file_paths {
                 let _: String = io_manager.read_file_buffered(path).unwrap();
             }
         });
     });
-    
+
     group.finish();
 }
 
 fn bench_line_reading(c: &mut Criterion) {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("lines_test.txt");
-    
+
     // Create file with many lines
     let line_count = 1000;
     let content: String = (0..line_count)
         .map(|i| format!("This is line number {i}\n"))
         .collect();
-    
+
     fs::write(&file_path, &content).unwrap();
-    
+
     let mut group = c.benchmark_group("line_reading");
-    
+
     group.bench_function("std_read_lines", |b| {
         b.iter(|| {
             use std::io::{BufRead, BufReader};
@@ -167,7 +167,7 @@ fn bench_line_reading(c: &mut Criterion) {
             assert_eq!(lines.len(), line_count);
         });
     });
-    
+
     let io_manager = IoManager::new(8192);
     group.bench_function("optimized_read_lines", |b| {
         b.iter(|| {
@@ -175,45 +175,49 @@ fn bench_line_reading(c: &mut Criterion) {
             assert_eq!(lines.len(), line_count);
         });
     });
-    
+
     group.finish();
 }
 
 fn bench_buffer_sizes(c: &mut Criterion) {
     let dir = tempdir().unwrap();
     let file_path = dir.path().join("buffer_test.txt");
-    
+
     let content = "x".repeat(50000); // 50KB file
-    
+
     let mut group = c.benchmark_group("buffer_sizes");
-    
+
     let buffer_sizes = [1024, 4096, 8192, 16384, 32768];
-    
+
     for &buffer_size in &buffer_sizes {
         let io_manager = IoManager::new(buffer_size);
-        
+
         group.bench_with_input(
             BenchmarkId::new("write", buffer_size),
             &buffer_size,
             |b, _| {
                 b.iter(|| {
-                    io_manager.write_file_buffered(&file_path, &content).unwrap();
+                    io_manager
+                        .write_file_buffered(&file_path, &content)
+                        .unwrap();
                 });
             },
         );
-        
+
         group.bench_with_input(
             BenchmarkId::new("read", buffer_size),
             &buffer_size,
             |b, _| {
-                io_manager.write_file_buffered(&file_path, &content).unwrap();
+                io_manager
+                    .write_file_buffered(&file_path, &content)
+                    .unwrap();
                 b.iter(|| {
                     let _: String = io_manager.read_file_buffered(&file_path).unwrap();
                 });
             },
         );
     }
-    
+
     group.finish();
 }
 
@@ -223,39 +227,41 @@ fn bench_async_operations(c: &mut Criterion) {
     let _rt = tokio::runtime::Runtime::new().unwrap();
     let dir = tempdir().unwrap();
     let content = "test content for async operations";
-    
+
     let file_count = 20;
     let file_paths: Vec<PathBuf> = (0..file_count)
         .map(|i| dir.path().join(format!("async_test_{i}.txt")))
         .collect();
-    
+
     let mut group = c.benchmark_group("async_operations");
-    
+
     // Benchmark async multiple file operations
     let async_io = AsyncIoManager::new(8192, 5); // 5 concurrent operations
-    
+
     group.bench_function("async_concurrent_write", |b| {
         let rt = tokio::runtime::Runtime::new().unwrap();
         b.iter(|| {
             rt.block_on(async {
-                let data: Vec<_> = file_paths.iter()
+                let data: Vec<_> = file_paths
+                    .iter()
                     .map(|path| (path.as_path(), content))
                     .collect();
                 async_io.write_multiple_files(data).await.unwrap();
             });
         });
     });
-    
+
     group.bench_function("async_concurrent_read", |b| {
         let rt = tokio::runtime::Runtime::new().unwrap();
         // Pre-write files using runtime
         rt.block_on(async {
-            let data: Vec<_> = file_paths.iter()
+            let data: Vec<_> = file_paths
+                .iter()
                 .map(|path| (path.as_path(), content))
                 .collect();
             async_io.write_multiple_files(data).await.unwrap();
         });
-        
+
         b.iter(|| {
             rt.block_on(async {
                 let paths: Vec<_> = file_paths.iter().map(|p| p.as_path()).collect();
@@ -263,7 +269,7 @@ fn bench_async_operations(c: &mut Criterion) {
             });
         });
     });
-    
+
     group.finish();
 }
 

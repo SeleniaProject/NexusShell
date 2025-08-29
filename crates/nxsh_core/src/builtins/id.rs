@@ -1,18 +1,17 @@
 //! Id builtin command for NexusShell
 //! Cross-platform implementation for user and group identification
 
-use crate::{
-    context::ShellContext,
-    error::ShellResult,
-    ExecutionResult,
-    executor::Builtin,
-};
+use crate::{context::ShellContext, error::ShellResult, executor::Builtin, ExecutionResult};
 
 /// Built-in id command with full cross-platform support
 pub struct IdBuiltin;
 
 impl Builtin for IdBuiltin {
-    fn execute(&self, _context: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
+    fn execute(
+        &self,
+        _context: &mut ShellContext,
+        args: &[String],
+    ) -> ShellResult<ExecutionResult> {
         if args.len() > 1 {
             println!("id: extra operand '{}'", args[1]);
             println!("Try 'id --help' for more information.");
@@ -67,7 +66,7 @@ fn display_current_user_info() -> ShellResult<ExecutionResult> {
     {
         display_windows_current_user()
     }
-    
+
     #[cfg(unix)]
     {
         display_unix_current_user()
@@ -80,7 +79,7 @@ fn display_user_info(username: &str) -> ShellResult<ExecutionResult> {
     {
         display_windows_user_info(username)
     }
-    
+
     #[cfg(unix)]
     {
         display_unix_user_info(username)
@@ -91,37 +90,42 @@ fn display_user_info(username: &str) -> ShellResult<ExecutionResult> {
 fn display_windows_current_user() -> ShellResult<ExecutionResult> {
     use std::env;
     use std::process::Command;
-    
+
     let username = env::var("USERNAME").unwrap_or_else(|_| "unknown".to_string());
-    let _domain = env::var("USERDOMAIN").unwrap_or_else(|_| env::var("COMPUTERNAME").unwrap_or_else(|_| "WORKGROUP".to_string()));
-    
+    let _domain = env::var("USERDOMAIN")
+        .unwrap_or_else(|_| env::var("COMPUTERNAME").unwrap_or_else(|_| "WORKGROUP".to_string()));
+
     // Try to get SID using whoami command
     let sid_result = Command::new("whoami")
-    .args(["/user", "/fo", "csv", "/nh"])
+        .args(["/user", "/fo", "csv", "/nh"])
         .output();
-        
+
     let user_sid = if let Ok(output) = sid_result {
         let output_str = String::from_utf8_lossy(&output.stdout);
-        extract_sid_from_csv(&output_str).unwrap_or_else(|| "S-1-5-21-1000-1000-1000-1000".to_string())
+        extract_sid_from_csv(&output_str)
+            .unwrap_or_else(|| "S-1-5-21-1000-1000-1000-1000".to_string())
     } else {
         "S-1-5-21-1000-1000-1000-1000".to_string()
     };
-    
+
     // Get primary group info
     let group_result = Command::new("whoami")
-    .args(["/groups", "/fo", "csv", "/nh"])
+        .args(["/groups", "/fo", "csv", "/nh"])
         .output();
-        
+
     let primary_group = if let Ok(output) = group_result {
         let output_str = String::from_utf8_lossy(&output.stdout);
-        extract_primary_group_from_csv(&output_str).unwrap_or_else(|| ("Users".to_string(), "S-1-5-32-545".to_string()))
+        extract_primary_group_from_csv(&output_str)
+            .unwrap_or_else(|| ("Users".to_string(), "S-1-5-32-545".to_string()))
     } else {
         ("Users".to_string(), "S-1-5-32-545".to_string())
     };
 
-    println!("uid={}({}) gid={}({}) groups={}({})", 
-             user_sid, username, primary_group.1, primary_group.0, primary_group.1, primary_group.0);
-             
+    println!(
+        "uid={}({}) gid={}({}) groups={}({})",
+        user_sid, username, primary_group.1, primary_group.0, primary_group.1, primary_group.0
+    );
+
     Ok(ExecutionResult::success(0))
 }
 
@@ -129,11 +133,9 @@ fn display_windows_current_user() -> ShellResult<ExecutionResult> {
 fn display_windows_user_info(username: &str) -> ShellResult<ExecutionResult> {
     // For specified users on Windows, we need to query system information
     use std::process::Command;
-    
-    let query_result = Command::new("net")
-    .args(["user", username])
-        .output();
-        
+
+    let query_result = Command::new("net").args(["user", username]).output();
+
     match query_result {
         Ok(output) if output.status.success() => {
             let output_str = String::from_utf8_lossy(&output.stdout);
@@ -202,7 +204,7 @@ fn display_unix_current_user() -> ShellResult<ExecutionResult> {
         let gid = libc::getgid();
         let euid = libc::geteuid();
         let egid = libc::getegid();
-        
+
         // Get username from uid
         let username = get_username_from_uid(uid).unwrap_or_else(|| uid.to_string());
         let groupname = get_groupname_from_gid(gid).unwrap_or_else(|| gid.to_string());
@@ -216,38 +218,39 @@ fn display_unix_current_user() -> ShellResult<ExecutionResult> {
         } else {
             groupname.clone()
         };
-        
+
         // Get supplementary groups
         let mut groups = vec![0u32; 64];
         let ngroups = libc::getgroups(groups.len() as i32, groups.as_mut_ptr());
-        
+
         if ngroups >= 0 {
             groups.truncate(ngroups as usize);
         } else {
             groups.clear();
         }
-        
+
         print!("uid={}({}) gid={}({})", uid, username, gid, groupname);
-        
+
         if euid != uid {
             print!(" euid={}({})", euid, effective_username);
         }
-        
+
         if egid != gid {
             print!(" egid={}({})", egid, effective_groupname);
         }
-        
+
         if !groups.is_empty() {
             print!(" groups=");
             for (i, group_id) in groups.iter().enumerate() {
                 if i > 0 {
                     print!(",");
                 }
-                let group_name = get_groupname_from_gid(*group_id).unwrap_or_else(|| group_id.to_string());
+                let group_name =
+                    get_groupname_from_gid(*group_id).unwrap_or_else(|| group_id.to_string());
                 print!("{}({})", group_id, group_name);
             }
         }
-        
+
         println!();
         Ok(ExecutionResult::success(0))
     }
@@ -256,7 +259,7 @@ fn display_unix_current_user() -> ShellResult<ExecutionResult> {
 #[cfg(unix)]
 fn display_unix_user_info(username: &str) -> ShellResult<ExecutionResult> {
     use std::ffi::CString;
-    
+
     let c_username = CString::new(username).unwrap();
     unsafe {
         let passwd = libc::getpwnam(c_username.as_ptr());
@@ -264,12 +267,12 @@ fn display_unix_user_info(username: &str) -> ShellResult<ExecutionResult> {
             println!("id: '{}': no such user", username);
             return Ok(ExecutionResult::failure(1));
         }
-        
+
         let uid = (*passwd).pw_uid;
         let gid = (*passwd).pw_gid;
-        
+
         let groupname = get_groupname_from_gid(gid).unwrap_or_else(|| gid.to_string());
-        
+
         println!("uid={}({}) gid={}({})", uid, username, gid, groupname);
         Ok(ExecutionResult::success(0))
     }

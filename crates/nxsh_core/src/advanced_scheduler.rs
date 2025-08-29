@@ -6,15 +6,18 @@
 use crate::compat::Result;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, BinaryHeap, VecDeque},
-    sync::{Arc, Mutex, atomic::{AtomicU64, AtomicBool, Ordering}},
-    time::{Duration, SystemTime, Instant},
     cmp::{Ordering as CmpOrdering, Reverse},
+    collections::{BinaryHeap, HashMap, VecDeque},
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, Mutex,
+    },
+    time::{Duration, Instant, SystemTime},
 };
 use tokio::{
     sync::{RwLock as AsyncRwLock, Semaphore},
-    time::interval,
     task::JoinHandle,
+    time::interval,
 };
 use tracing::{error, info};
 // use chrono::Datelike; // moved to local scopes where required
@@ -105,12 +108,12 @@ pub struct ScheduledJob {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum JobSchedule {
     /// 単発実行（at風）
-    Once { 
+    Once {
         /// 実行時刻
         run_at: SystemTime,
     },
     /// 定期実行（cron風）
-    Recurring { 
+    Recurring {
         /// cron式
         cron_expression: String,
         /// 次回実行時刻
@@ -119,14 +122,14 @@ pub enum JobSchedule {
         last_run: Option<SystemTime>,
     },
     /// 間隔実行
-    Interval { 
+    Interval {
         /// 間隔（秒）
         interval_secs: u64,
         /// 次回実行時刻
         next_run: SystemTime,
     },
     /// イベント依存
-    EventBased { 
+    EventBased {
         /// 監視イベント
         trigger_events: Vec<String>,
     },
@@ -307,14 +310,23 @@ impl AdvancedJobScheduler {
         // Detect worker count
         let mut worker_count = config.num_workers;
         if worker_count == 0 {
-            worker_count = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+            worker_count = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4);
             if let Ok(v) = std::env::var("NXSH_SCHED_WORKERS") {
-                if let Ok(parsed) = v.parse::<usize>() { if parsed > 0 { worker_count = parsed; } }
+                if let Ok(parsed) = v.parse::<usize>() {
+                    if parsed > 0 {
+                        worker_count = parsed;
+                    }
+                }
             }
         }
         let mut workers: Vec<Worker> = Vec::with_capacity(worker_count);
         for i in 0..worker_count {
-            workers.push(Worker { id: i, queue: Arc::new(Mutex::new(VecDeque::new())) });
+            workers.push(Worker {
+                id: i,
+                queue: Arc::new(Mutex::new(VecDeque::new())),
+            });
         }
 
         Self {
@@ -331,7 +343,7 @@ impl AdvancedJobScheduler {
             rr_counter: AtomicU64::new(0),
         }
     }
-    
+
     /// スケジューラーを開始
     pub async fn start(&mut self) -> Result<()> {
         let jobs = Arc::clone(&self.jobs);
@@ -341,16 +353,20 @@ impl AdvancedJobScheduler {
         let semaphore = Arc::clone(&self.semaphore);
         let shutdown_signal = Arc::clone(&self.shutdown_signal);
         let config = self.config.clone();
-        let worker_shared = self.workers.iter().map(|w| (w.id, Arc::clone(&w.queue))).collect::<Vec<_>>();
+        let worker_shared = self
+            .workers
+            .iter()
+            .map(|w| (w.id, Arc::clone(&w.queue)))
+            .collect::<Vec<_>>();
 
         let handle = tokio::spawn(async move {
             let mut interval = interval(Duration::from_secs(config.check_interval_secs));
-            
+
             info!("Advanced job scheduler started");
-            
+
             while !shutdown_signal.load(Ordering::Relaxed) {
                 interval.tick().await;
-                
+
                 if let Err(e) = Self::process_scheduled_jobs(
                     &jobs,
                     &queue,
@@ -359,14 +375,16 @@ impl AdvancedJobScheduler {
                     &semaphore,
                     &config,
                     &worker_shared,
-                ).await {
+                )
+                .await
+                {
                     error!(error = %e, "Error processing scheduled jobs");
                 }
             }
-            
+
             info!("Advanced job scheduler stopped");
         });
-        
+
         // Spawn worker loops for work-stealing execution
         for (wid, wqueue) in self.workers.iter().map(|w| (w.id, Arc::clone(&w.queue))) {
             let jobs = Arc::clone(&self.jobs);
@@ -377,17 +395,31 @@ impl AdvancedJobScheduler {
             let config = self.config.clone();
             let shutdown = Arc::clone(&self.shutdown_signal);
             // Other queues for stealing
-            let others = self.workers.iter().filter(|w| w.id != wid).map(|w| Arc::clone(&w.queue)).collect::<Vec<_>>();
+            let others = self
+                .workers
+                .iter()
+                .filter(|w| w.id != wid)
+                .map(|w| Arc::clone(&w.queue))
+                .collect::<Vec<_>>();
             tokio::spawn(async move {
                 loop {
-                    if shutdown.load(Ordering::Relaxed) { break; }
+                    if shutdown.load(Ordering::Relaxed) {
+                        break;
+                    }
                     // Try from own queue
                     let mut maybe_job = None;
-                    if let Ok(mut q) = wqueue.lock() { maybe_job = q.pop_back(); }
+                    if let Ok(mut q) = wqueue.lock() {
+                        maybe_job = q.pop_back();
+                    }
                     // Try stealing
                     if maybe_job.is_none() {
                         for q in &others {
-                            if let Ok(mut o) = q.lock() { if let Some(j) = o.pop_front() { maybe_job = Some(j); break; } }
+                            if let Ok(mut o) = q.lock() {
+                                if let Some(j) = o.pop_front() {
+                                    maybe_job = Some(j);
+                                    break;
+                                }
+                            }
                         }
                     }
                     if let Some(queued_job) = maybe_job {
@@ -412,12 +444,23 @@ impl AdvancedJobScheduler {
                                     &job_history_clone,
                                     &queue_clone,
                                     &config_clone,
-                                ).await
+                                )
+                                .await
                             });
-                            let running_job = RunningJob { job_id: queued_job.job_id.clone(), started_at: Instant::now(), handle, pid: None };
-                            running_jobs.write().await.insert(queued_job.job_id.clone(), running_job);
+                            let running_job = RunningJob {
+                                job_id: queued_job.job_id.clone(),
+                                started_at: Instant::now(),
+                                handle,
+                                pid: None,
+                            };
+                            running_jobs
+                                .write()
+                                .await
+                                .insert(queued_job.job_id.clone(), running_job);
                             continue;
-                        } else if let Ok(mut q) = wqueue.lock() { q.push_back(queued_job); }
+                        } else if let Ok(mut q) = wqueue.lock() {
+                            q.push_back(queued_job);
+                        }
                     }
                     tokio::time::sleep(Duration::from_millis(5)).await;
                 }
@@ -427,31 +470,31 @@ impl AdvancedJobScheduler {
         self.scheduler_handle = Some(handle);
         Ok(())
     }
-    
+
     /// スケジューラーを停止
     pub async fn stop(&mut self) {
         self.shutdown_signal.store(true, Ordering::Relaxed);
-        
+
         if let Some(handle) = self.scheduler_handle.take() {
             let _ = handle.await;
         }
-        
+
         // 実行中のジョブを停止
         let running_jobs = self.running_jobs.read().await;
         for (_, job) in running_jobs.iter() {
             job.handle.abort();
         }
     }
-    
+
     /// ジョブをスケジュール
     pub async fn schedule_job(&self, mut job: ScheduledJob) -> Result<String> {
         let job_id = job.id.clone();
-        
+
         // 次回実行時刻を計算
         let next_run = self.calculate_next_run(&job.schedule).await?;
         // Normalize nice range
-    job.nice = job.nice.clamp(-20, 19);
-        
+        job.nice = job.nice.clamp(-20, 19);
+
         // キューに追加
         {
             let mut queue = self.queue.write().await;
@@ -462,26 +505,26 @@ impl AdvancedJobScheduler {
                 attempt: 0,
             }));
         }
-        
+
         // ジョブを保存
         {
             let mut jobs = self.jobs.write().await;
             jobs.insert(job_id.clone(), job);
         }
-        
+
         info!(
             job_id = %job_id,
             next_run = ?next_run,
             "Job scheduled successfully"
         );
-        
+
         Ok(job_id)
     }
-    
+
     /// at風のジョブをスケジュール
     pub async fn schedule_at(&self, command: String, run_at: SystemTime) -> Result<String> {
         let job_id = format!("at_{}", self.job_counter.fetch_add(1, Ordering::Relaxed));
-        
+
         let job = ScheduledJob {
             id: job_id.clone(),
             name: format!("At job: {command}"),
@@ -503,16 +546,16 @@ impl AdvancedJobScheduler {
             metadata: HashMap::new(),
             nice: 0,
         };
-        
+
         self.schedule_job(job).await
     }
-    
+
     /// cron風のジョブをスケジュール
     pub async fn schedule_cron(&self, command: String, cron_expression: String) -> Result<String> {
         let job_id = format!("cron_{}", self.job_counter.fetch_add(1, Ordering::Relaxed));
-        
+
         let next_run = self.parse_cron_expression(&cron_expression).await?;
-        
+
         let job = ScheduledJob {
             id: job_id.clone(),
             name: format!("Cron job: {command}"),
@@ -538,7 +581,7 @@ impl AdvancedJobScheduler {
             metadata: HashMap::new(),
             nice: 0,
         };
-        
+
         self.schedule_job(job).await
     }
 
@@ -551,9 +594,15 @@ impl AdvancedJobScheduler {
             name: format!("Interval job: {command}"),
             command: command.clone(),
             args: Vec::new(),
-            working_dir: std::env::current_dir().unwrap_or_default().to_string_lossy().to_string(),
+            working_dir: std::env::current_dir()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string(),
             environment: std::env::vars().collect(),
-            schedule: JobSchedule::Interval { interval_secs, next_run: nr },
+            schedule: JobSchedule::Interval {
+                interval_secs,
+                next_run: nr,
+            },
             priority: 5,
             timeout_secs: self.config.default_timeout_secs,
             retry_config: RetryConfig::default(),
@@ -588,7 +637,12 @@ impl AdvancedJobScheduler {
         // Compute next run outside the lock
         let next_run = self.calculate_next_run(&schedule_clone).await?;
         let mut q = self.queue.write().await;
-        q.push(Reverse(QueuedJob { job_id: job_id.to_string(), scheduled_time: next_run, priority, attempt: 0 }));
+        q.push(Reverse(QueuedJob {
+            job_id: job_id.to_string(),
+            scheduled_time: next_run,
+            priority,
+            attempt: 0,
+        }));
         Ok(true)
     }
 
@@ -602,14 +656,16 @@ impl AdvancedJobScheduler {
             let mut queue = self.queue.write().await;
             let mut new_queue = BinaryHeap::new();
             while let Some(Reverse(job)) = queue.pop() {
-                if job.job_id != job_id { new_queue.push(Reverse(job)); }
+                if job.job_id != job_id {
+                    new_queue.push(Reverse(job));
+                }
             }
             *queue = new_queue;
             return Ok(true);
         }
         Ok(false)
     }
-    
+
     /// ジョブをキャンセル
     pub async fn cancel_job(&self, job_id: &str) -> Result<bool> {
         // スケジュールされたジョブを削除
@@ -619,7 +675,7 @@ impl AdvancedJobScheduler {
                 return Ok(false);
             }
         }
-        
+
         // キューから削除（効率化のため、実際の実装では別のアプローチを使用）
         {
             let mut queue = self.queue.write().await;
@@ -631,7 +687,7 @@ impl AdvancedJobScheduler {
             }
             *queue = new_queue;
         }
-        
+
         // 実行中のジョブを停止
         {
             let mut running_jobs = self.running_jobs.write().await;
@@ -639,28 +695,28 @@ impl AdvancedJobScheduler {
                 running_job.handle.abort();
             }
         }
-        
+
         info!(job_id = %job_id, "Job cancelled successfully");
         Ok(true)
     }
-    
+
     /// ジョブリストを取得
     pub async fn list_jobs(&self) -> Vec<ScheduledJob> {
         let jobs = self.jobs.read().await;
         jobs.values().cloned().collect()
     }
-    
+
     /// ジョブ統計を取得
     pub async fn get_statistics(&self) -> JobStatistics {
         let jobs = self.jobs.read().await;
         let running_jobs = self.running_jobs.read().await;
         let queue = self.queue.read().await;
         let history = self.job_history.read().await;
-        
+
         let total_jobs = jobs.len() as u64;
         let running_jobs_count = running_jobs.len() as u64;
         let queued_jobs_count = queue.len() as u64;
-        
+
         // 成功率の計算
         let total_executions = history.len();
         let successful_executions = history.iter().filter(|entry| entry.result.success).count();
@@ -669,15 +725,18 @@ impl AdvancedJobScheduler {
         } else {
             100.0
         };
-        
+
         // 平均実行時間の計算
         let avg_execution_time_ms = if !history.is_empty() {
-            let total_time: u64 = history.iter().map(|entry| entry.result.execution_time_ms).sum();
+            let total_time: u64 = history
+                .iter()
+                .map(|entry| entry.result.execution_time_ms)
+                .sum();
             total_time as f64 / history.len() as f64
         } else {
             0.0
         };
-        
+
         // トップコマンドの集計
         let mut command_counts = HashMap::new();
         for entry in history.iter() {
@@ -685,11 +744,11 @@ impl AdvancedJobScheduler {
                 *command_counts.entry(job.command.clone()).or_insert(0) += 1;
             }
         }
-        
+
         let mut top_commands: Vec<_> = command_counts.into_iter().collect();
         top_commands.sort_by(|a, b| b.1.cmp(&a.1));
         top_commands.truncate(10);
-        
+
         JobStatistics {
             total_jobs,
             running_jobs: running_jobs_count,
@@ -700,7 +759,7 @@ impl AdvancedJobScheduler {
             top_commands,
         }
     }
-    
+
     /// スケジュールされたジョブを処理
     async fn process_scheduled_jobs(
         _jobs: &Arc<AsyncRwLock<HashMap<String, ScheduledJob>>>,
@@ -709,11 +768,11 @@ impl AdvancedJobScheduler {
         _job_history: &Arc<AsyncRwLock<VecDeque<JobHistoryEntry>>>,
         _semaphore: &Arc<Semaphore>,
         _config: &SchedulerConfig,
-    workers: &[(usize, Arc<Mutex<VecDeque<QueuedJob>>>)],
+        workers: &[(usize, Arc<Mutex<VecDeque<QueuedJob>>>)],
     ) -> Result<()> {
         let now = SystemTime::now();
         let mut jobs_to_execute = Vec::new();
-        
+
         // 実行すべきジョブをキューから取得
         {
             let mut queue_guard = queue.write().await;
@@ -727,7 +786,7 @@ impl AdvancedJobScheduler {
                 }
             }
         }
-        
+
         // Dispatch jobs to workers (local deque). Defer global queue writes to avoid awaits in this scope.
         let mut fallback_jobs: Vec<QueuedJob> = Vec::new();
         for qj in jobs_to_execute {
@@ -736,13 +795,18 @@ impl AdvancedJobScheduler {
             for (idx, wq) in workers.iter() {
                 if let Ok(guard) = wq.lock() {
                     let len = guard.len();
-                    if len < best_len { best_len = len; best_idx = *idx; }
+                    if len < best_len {
+                        best_len = len;
+                        best_idx = *idx;
+                    }
                 }
             }
             if let Some((_, wq)) = workers.iter().find(|(i, _)| *i == best_idx) {
                 if let Ok(mut guard) = wq.lock() {
                     // Higher priority earlier in deque
-                    let pos = guard.iter().position(|existing| existing.priority < qj.priority);
+                    let pos = guard
+                        .iter()
+                        .position(|existing| existing.priority < qj.priority);
                     match pos {
                         Some(p) => guard.insert(p, qj.clone()),
                         None => guard.push_back(qj.clone()),
@@ -757,12 +821,14 @@ impl AdvancedJobScheduler {
         }
         if !fallback_jobs.is_empty() {
             let mut q = queue.write().await;
-            for j in fallback_jobs { q.push(Reverse(j)); }
+            for j in fallback_jobs {
+                q.push(Reverse(j));
+            }
         }
-        
+
         Ok(())
     }
-    
+
     /// ジョブを実行
     #[allow(clippy::too_many_arguments)] // Context struct planned; keeping signature stable for call sites/tests
     async fn execute_job(
@@ -777,12 +843,12 @@ impl AdvancedJobScheduler {
     ) -> JobExecutionResult {
         let start_time = Instant::now();
         let started_at = SystemTime::now();
-        
+
         let job = {
             let jobs_guard = jobs.read().await;
             jobs_guard.get(job_id).cloned()
         };
-        
+
         let result = if let Some(job) = job {
             // Skip disabled jobs gracefully (do not reschedule)
             if !job.enabled {
@@ -803,7 +869,7 @@ impl AdvancedJobScheduler {
                 command = %job.command,
                 "Starting job execution"
             );
-            
+
             // 実際のコマンド実行（簡略化）
             let mut result = JobExecutionResult {
                 job_id: job_id.to_string(),
@@ -816,7 +882,7 @@ impl AdvancedJobScheduler {
                 memory_usage: Some(1024 * 1024), // 1MB
                 cpu_usage: Some(5.0),
             };
-            
+
             // 実行時間を記録
             result.execution_time_ms = start_time.elapsed().as_millis() as u64;
             result
@@ -833,10 +899,10 @@ impl AdvancedJobScheduler {
                 cpu_usage: None,
             }
         };
-        
+
         // 実行中ジョブから削除
         running_jobs.write().await.remove(job_id);
-        
+
         // 履歴に追加
         let history_entry = JobHistoryEntry {
             job_id: job_id.to_string(),
@@ -844,24 +910,28 @@ impl AdvancedJobScheduler {
             finished_at: SystemTime::now(),
             result: result.clone(),
             scheduled_time,
-            delay_ms: started_at.duration_since(scheduled_time)
+            delay_ms: started_at
+                .duration_since(scheduled_time)
                 .unwrap_or(Duration::ZERO)
                 .as_millis() as u64,
         };
-        
+
         {
             let mut history = job_history.write().await;
             history.push_back(history_entry);
-            
+
             // 履歴サイズを制限
             let max_history = config.history_retention_hours * 60; // 1分あたり1エントリと仮定
             while history.len() > max_history as usize {
                 history.pop_front();
             }
         }
-        
+
         // 次回実行時刻の計算と再スケジュール処理
-        if let Some(mut job) = { let guard = jobs.read().await; guard.get(job_id).cloned() } {
+        if let Some(mut job) = {
+            let guard = jobs.read().await;
+            guard.get(job_id).cloned()
+        } {
             // 成否に応じて再スケジュール方針
             let mut maybe_next: Option<SystemTime> = None;
             if result.success {
@@ -871,17 +941,26 @@ impl AdvancedJobScheduler {
                         let mut jobs_w = jobs.write().await;
                         jobs_w.remove(job_id);
                     }
-                    JobSchedule::Recurring { cron_expression, next_run, last_run } => {
+                    JobSchedule::Recurring {
+                        cron_expression,
+                        next_run,
+                        last_run,
+                    } => {
                         *last_run = Some(SystemTime::now());
                         // 簡易: 既存のパーサで次回を算出
                         if let Ok(nr) = Self::parse_cron_expression_static(cron_expression).await {
-                            *next_run = nr; maybe_next = Some(nr);
+                            *next_run = nr;
+                            maybe_next = Some(nr);
                         }
                     }
-                    JobSchedule::Interval { interval_secs, next_run } => {
+                    JobSchedule::Interval {
+                        interval_secs,
+                        next_run,
+                    } => {
                         let base = SystemTime::now();
                         let nr = base + Duration::from_secs(*interval_secs);
-                        *next_run = nr; maybe_next = Some(nr);
+                        *next_run = nr;
+                        maybe_next = Some(nr);
                     }
                     JobSchedule::EventBased { .. } => { /* wait for event */ }
                 }
@@ -892,10 +971,14 @@ impl AdvancedJobScheduler {
                     if job.retry_config.exponential_backoff {
                         // Exponential backoff by doubling per attempt, clamped to max_delay_secs
                         let mut factor: u32 = 1;
-                        for _ in 0..attempt.min(16) { factor = factor.saturating_mul(2); }
+                        for _ in 0..attempt.min(16) {
+                            factor = factor.saturating_mul(2);
+                        }
                         delay = delay.saturating_mul(factor);
                         let max = Duration::from_secs(job.retry_config.max_delay_secs);
-                        if delay > max { delay = max; }
+                        if delay > max {
+                            delay = max;
+                        }
                     }
                     maybe_next = Some(SystemTime::now() + delay);
                 }
@@ -905,23 +988,30 @@ impl AdvancedJobScheduler {
                 let priority_for_requeue = job.priority;
                 {
                     let mut jobs_w = jobs.write().await;
-                    if let Some(stored) = jobs_w.get_mut(job_id) { *stored = job.clone(); }
+                    if let Some(stored) = jobs_w.get_mut(job_id) {
+                        *stored = job.clone();
+                    }
                 }
                 let mut q = queue.write().await;
-                q.push(Reverse(QueuedJob { job_id: job_id.to_string(), scheduled_time: nr, priority: priority_for_requeue, attempt: attempt.saturating_add(1) }));
+                q.push(Reverse(QueuedJob {
+                    job_id: job_id.to_string(),
+                    scheduled_time: nr,
+                    priority: priority_for_requeue,
+                    attempt: attempt.saturating_add(1),
+                }));
             }
         }
-        
+
         info!(
             job_id = %job_id,
             success = result.success,
             execution_time_ms = result.execution_time_ms,
             "Job execution completed"
         );
-        
+
         result
     }
-    
+
     /// 次回実行時刻を計算
     async fn calculate_next_run(&self, schedule: &JobSchedule) -> Result<SystemTime> {
         match schedule {
@@ -934,7 +1024,7 @@ impl AdvancedJobScheduler {
             }
         }
     }
-    
+
     /// cron式を解析
     async fn parse_cron_expression(&self, cron_expression: &str) -> Result<SystemTime> {
         Self::parse_cron_expression_static(cron_expression).await
@@ -950,54 +1040,76 @@ impl AdvancedJobScheduler {
     async fn parse_cron_expression_static(cron_expression: &str) -> Result<SystemTime> {
         use chrono::{Datelike, Timelike};
         let parts: Vec<&str> = cron_expression.split_whitespace().collect();
-        if parts.len() < 5 { return Ok(SystemTime::now() + Duration::from_secs(3600)); }
-        let (min_s, hour_s, day_s, month_s, wday_s) = (parts[0], parts[1], parts[2], parts[3], parts[4]);
+        if parts.len() < 5 {
+            return Ok(SystemTime::now() + Duration::from_secs(3600));
+        }
+        let (min_s, hour_s, day_s, month_s, wday_s) =
+            (parts[0], parts[1], parts[2], parts[3], parts[4]);
 
         // Parser for a field into a matcher closure
         fn parse_set(spec: &str, min: u32, max: u32) -> Box<dyn Fn(u32) -> bool + Send + Sync> {
             // '*' catch-all
-            if spec == "*" { return Box::new(|_| true); }
+            if spec == "*" {
+                return Box::new(|_| true);
+            }
             // '*/N'
             if let Some(step_str) = spec.strip_prefix("*/") {
-                if let Ok(step) = step_str.parse::<u32>() { if step >= 1 { return Box::new(move |v| v % step == 0); } }
+                if let Ok(step) = step_str.parse::<u32>() {
+                    if step >= 1 {
+                        return Box::new(move |v| v % step == 0);
+                    }
+                }
             }
             // lists with possible ranges and steps: A,B,C  A-B  A-B/N
             let entries: Vec<&str> = spec.split(',').collect();
-            let mut ranges: Vec<(u32,u32,u32)> = Vec::new(); // (start,end,step)
+            let mut ranges: Vec<(u32, u32, u32)> = Vec::new(); // (start,end,step)
             for e in entries {
                 if let Some((lhs, rhs)) = e.split_once('/') {
                     let step = rhs.parse::<u32>().unwrap_or(1).max(1);
                     if let Some((a_str, b_str)) = lhs.split_once('-') {
-                        if let (Ok(mut a), Ok(mut b)) = (a_str.parse::<u32>(), b_str.parse::<u32>()) {
-                            if a > b { std::mem::swap(&mut a, &mut b); }
-                            a = a.clamp(min, max); b = b.clamp(min, max);
-                            ranges.push((a,b,step));
+                        if let (Ok(mut a), Ok(mut b)) = (a_str.parse::<u32>(), b_str.parse::<u32>())
+                        {
+                            if a > b {
+                                std::mem::swap(&mut a, &mut b);
+                            }
+                            a = a.clamp(min, max);
+                            b = b.clamp(min, max);
+                            ranges.push((a, b, step));
                             continue;
                         }
                     } else if let Ok(v) = lhs.parse::<u32>() {
                         let v = v.clamp(min, max);
-                        ranges.push((v,v,step));
+                        ranges.push((v, v, step));
                         continue;
                     }
                 }
                 if let Some((a_str, b_str)) = e.split_once('-') {
                     if let (Ok(mut a), Ok(mut b)) = (a_str.parse::<u32>(), b_str.parse::<u32>()) {
-                        if a > b { std::mem::swap(&mut a, &mut b); }
-                        a = a.clamp(min, max); b = b.clamp(min, max);
-                        ranges.push((a,b,1));
+                        if a > b {
+                            std::mem::swap(&mut a, &mut b);
+                        }
+                        a = a.clamp(min, max);
+                        b = b.clamp(min, max);
+                        ranges.push((a, b, 1));
                         continue;
                     }
                 }
                 if let Ok(v) = e.parse::<u32>() {
                     let v = v.clamp(min, max);
-                    ranges.push((v,v,1));
+                    ranges.push((v, v, 1));
                 }
             }
-            if ranges.is_empty() { return Box::new(|_| false); }
+            if ranges.is_empty() {
+                return Box::new(|_| false);
+            }
             Box::new(move |v| {
-                for (a,b,step) in &ranges {
-                    if v < *a || v > *b { continue; }
-                    if ((v - *a) % *step) == 0 { return true; }
+                for (a, b, step) in &ranges {
+                    if v < *a || v > *b {
+                        continue;
+                    }
+                    if ((v - *a) % *step) == 0 {
+                        return true;
+                    }
                 }
                 false
             })
@@ -1009,7 +1121,12 @@ impl AdvancedJobScheduler {
         let match_month = parse_set(month_s, 1, 12);
         let match_wday = parse_set(wday_s, 0, 6);
 
-        let mut t = chrono::Utc::now().with_second(0).unwrap().with_nanosecond(0).unwrap() + chrono::Duration::minutes(1);
+        let mut t = chrono::Utc::now()
+            .with_second(0)
+            .unwrap()
+            .with_nanosecond(0)
+            .unwrap()
+            + chrono::Duration::minutes(1);
         // Search horizon: one year
         for _ in 0..(60 * 24 * 366) {
             let m = t.minute();
@@ -1029,7 +1146,7 @@ impl AdvancedJobScheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_scheduler_config_default() {
         let config = SchedulerConfig::default();
@@ -1037,7 +1154,7 @@ mod tests {
         assert_eq!(config.check_interval_secs, 5);
         assert!(config.enable_priority_queue);
     }
-    
+
     #[test]
     fn test_queued_job_ordering() {
         let job1 = QueuedJob {
@@ -1046,35 +1163,37 @@ mod tests {
             priority: 5,
             attempt: 0,
         };
-        
+
         let job2 = QueuedJob {
             job_id: "job2".to_string(),
             scheduled_time: SystemTime::now() + Duration::from_secs(60),
             priority: 8,
             attempt: 0,
         };
-        
+
         // job1の方が早い時刻なので、job1 < job2 (BinaryHeapでは逆順なのでjob1 > job2)
         assert!(job1 < job2); // 正しい順序比較
     }
-    
+
     #[tokio::test]
     async fn test_scheduler_creation() {
         let config = SchedulerConfig::default();
         let scheduler = AdvancedJobScheduler::new(config);
-        
+
         assert_eq!(scheduler.job_counter.load(Ordering::Relaxed), 0);
         assert!(!scheduler.shutdown_signal.load(Ordering::Relaxed));
     }
-    
+
     #[tokio::test]
     async fn test_schedule_at_job() {
         let config = SchedulerConfig::default();
         let scheduler = AdvancedJobScheduler::new(config);
-        
+
         let run_at = SystemTime::now() + Duration::from_secs(3600);
-        let result = scheduler.schedule_at("echo hello".to_string(), run_at).await;
-        
+        let result = scheduler
+            .schedule_at("echo hello".to_string(), run_at)
+            .await;
+
         assert!(result.is_ok());
         let job_id = result.unwrap();
         assert!(job_id.starts_with("at_"));

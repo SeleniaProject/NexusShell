@@ -1,12 +1,12 @@
 type ProfilerHook = std::sync::Arc<dyn Fn(&mut PerformanceProfiler) -> Result<()> + Send + Sync>;
 use crate::compat::Result;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    time::{Duration, Instant, SystemTime},
     sync::{Arc, Mutex},
+    time::{Duration, Instant, SystemTime},
 };
-use serde::{Deserialize, Serialize};
-use sysinfo::{SystemExt, ProcessExt, CpuExt};
+use sysinfo::{CpuExt, ProcessExt, SystemExt};
 
 /// Comprehensive performance monitoring and optimization system
 #[derive(Debug, Clone)]
@@ -32,9 +32,14 @@ impl PerformanceProfiler {
 
     /// Start comprehensive system profiling
     pub fn start_profiling(&mut self, session_name: String) -> Result<String> {
-        let session_id = format!("{}_{}", session_name, SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)?.as_secs());
-        
+        let session_id = format!(
+            "{}_{}",
+            session_name,
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)?
+                .as_secs()
+        );
+
         let session = ProfilingSession {
             id: session_id.clone(),
             name: session_name,
@@ -46,48 +51,54 @@ impl PerformanceProfiler {
             io_samples: Vec::new(),
             command_timings: HashMap::new(),
         };
-        
+
         self.profiling_sessions.insert(session_id.clone(), session);
-        
+
         // Start background monitoring
         let metrics = Arc::clone(&self.metrics);
         let session_id_clone = session_id.clone();
-        
+
         std::thread::spawn(move || {
             Self::profile_system_resources(metrics, session_id_clone);
         });
-        
+
         Ok(session_id)
     }
 
     /// Stop profiling session and generate report
     pub fn stop_profiling(&mut self, session_id: &str) -> Result<ProfilingReport> {
-        let mut session = self.profiling_sessions.remove(session_id)
+        let mut session = self
+            .profiling_sessions
+            .remove(session_id)
             .ok_or_else(|| crate::anyhow!("Profiling session not found: {}", session_id))?;
-        
+
         session.end_time = Some(Instant::now());
         session.metrics.finalize();
-        
+
         let report = self.generate_profiling_report(&session)?;
         Ok(report)
     }
 
     /// Profile command execution
-    pub fn profile_command<F, T>(&mut self, command_name: &str, operation: F) -> Result<(T, CommandProfile)>
+    pub fn profile_command<F, T>(
+        &mut self,
+        command_name: &str,
+        operation: F,
+    ) -> Result<(T, CommandProfile)>
     where
         F: FnOnce() -> Result<T>,
     {
         let start_time = Instant::now();
         let start_memory = self.get_memory_usage()?;
         let start_cpu = self.get_cpu_usage()?;
-        
+
         // Execute the operation
         let result = operation()?;
-        
+
         let end_time = Instant::now();
         let end_memory = self.get_memory_usage()?;
         let end_cpu = self.get_cpu_usage()?;
-        
+
         let profile = CommandProfile {
             command: command_name.to_string(),
             duration: end_time.duration_since(start_time),
@@ -95,28 +106,30 @@ impl PerformanceProfiler {
             cpu_time: end_cpu.saturating_sub(start_cpu),
             timestamp: SystemTime::now(),
         };
-        
+
         // Update metrics
         let mut metrics = self.metrics.lock().unwrap();
         metrics.add_command_profile(&profile);
-        
+
         Ok((result, profile))
     }
 
     /// Run performance benchmark
     pub fn run_benchmark(&mut self, benchmark_name: &str) -> Result<BenchmarkResult> {
-        let benchmark = self.benchmarks.get(benchmark_name)
+        let benchmark = self
+            .benchmarks
+            .get(benchmark_name)
             .ok_or_else(|| crate::anyhow!("Benchmark not found: {}", benchmark_name))?
             .clone();
-        
+
         let mut results = Vec::new();
-        
+
         for iteration in 0..benchmark.iterations {
             let start_time = Instant::now();
-            
+
             // Run benchmark operation
             (benchmark.operation)()?;
-            
+
             let duration = start_time.elapsed();
             results.push(BenchmarkSample {
                 iteration,
@@ -124,14 +137,14 @@ impl PerformanceProfiler {
                 memory_usage: self.get_memory_usage()?,
             });
         }
-        
+
         let benchmark_result = BenchmarkResult {
             name: benchmark_name.to_string(),
             samples: results.clone(),
             statistical_summary: self.calculate_statistics(&results),
             timestamp: SystemTime::now(),
         };
-        
+
         Ok(benchmark_result)
     }
 
@@ -144,7 +157,7 @@ impl PerformanceProfiler {
             io_bottlenecks: Vec::new(),
             recommendations: Vec::new(),
         };
-        
+
         // Analyze CPU usage patterns
         if let Some(avg_cpu) = metrics.average_cpu_usage() {
             if avg_cpu > 80.0 {
@@ -154,45 +167,57 @@ impl PerformanceProfiler {
                     location: "System-wide".to_string(),
                     impact: "Commands may execute slowly".to_string(),
                 });
-                
+
                 analysis.recommendations.push(
-                    "Consider optimizing CPU-intensive operations or reducing concurrent tasks".to_string()
+                    "Consider optimizing CPU-intensive operations or reducing concurrent tasks"
+                        .to_string(),
                 );
             }
         }
-        
+
         // Analyze memory usage patterns
         if let Some(peak_memory) = metrics.peak_memory_usage() {
-            if peak_memory > 500_000_000 { // 500MB threshold
+            if peak_memory > 500_000_000 {
+                // 500MB threshold
                 analysis.memory_bottlenecks.push(Bottleneck {
                     severity: BottleneckSeverity::Medium,
                     description: format!("High memory usage: {peak_memory} bytes"),
                     location: "Memory allocation".to_string(),
                     impact: "Potential memory pressure".to_string(),
                 });
-                
+
                 analysis.recommendations.push(
-                    "Consider implementing memory pooling or reducing data structure sizes".to_string()
+                    "Consider implementing memory pooling or reducing data structure sizes"
+                        .to_string(),
                 );
             }
         }
-        
+
         // Analyze command execution times
         for (command, profiles) in &metrics.command_profiles {
-            let avg_duration = profiles.iter()
+            let avg_duration = profiles
+                .iter()
                 .map(|p| p.duration.as_millis())
-                .sum::<u128>() as f64 / profiles.len() as f64;
-            
-            if avg_duration > 100.0 { // 100ms threshold
+                .sum::<u128>() as f64
+                / profiles.len() as f64;
+
+            if avg_duration > 100.0 {
+                // 100ms threshold
                 analysis.cpu_bottlenecks.push(Bottleneck {
-                    severity: if avg_duration > 1000.0 { BottleneckSeverity::High } else { BottleneckSeverity::Medium },
-                    description: format!("Slow command execution: {command} ({avg_duration:.1}ms avg)"),
+                    severity: if avg_duration > 1000.0 {
+                        BottleneckSeverity::High
+                    } else {
+                        BottleneckSeverity::Medium
+                    },
+                    description: format!(
+                        "Slow command execution: {command} ({avg_duration:.1}ms avg)"
+                    ),
                     location: command.clone(),
                     impact: "User experience degradation".to_string(),
                 });
             }
         }
-        
+
         Ok(analysis)
     }
 
@@ -216,35 +241,36 @@ impl PerformanceProfiler {
             performance_improvement: 0.0,
             timestamp: SystemTime::now(),
         };
-        
+
         // Apply optimization rules
         let mut applied_optimizations = Vec::new();
         let mut performance_improvement = 0.0;
-        
+
         // Clone rules to avoid borrowing issues
         let rules = self.optimization_rules.clone();
         for rule in &rules {
             if rule.condition_met(self)? {
                 let before_metrics = self.get_baseline_performance()?;
-                
+
                 (rule.apply_optimization)(self)?;
-                
+
                 let after_metrics = self.get_baseline_performance()?;
-                let improvement = PerformanceProfiler::calculate_improvement(&before_metrics, &after_metrics);
-                
+                let improvement =
+                    PerformanceProfiler::calculate_improvement(&before_metrics, &after_metrics);
+
                 applied_optimizations.push(AppliedOptimization {
                     name: rule.name.clone(),
                     description: rule.description.clone(),
                     improvement_percentage: improvement,
                 });
-                
+
                 performance_improvement += improvement;
             }
         }
-        
+
         report.applied_optimizations = applied_optimizations;
         report.performance_improvement = performance_improvement;
-        
+
         Ok(report)
     }
 
@@ -256,16 +282,16 @@ impl PerformanceProfiler {
     /// Export performance data
     pub fn export_performance_data(&self, format: ExportFormat) -> Result<Vec<u8>> {
         let metrics = self.metrics.lock().unwrap();
-        
+
         match format {
             ExportFormat::Json => {
                 let json = serde_json::to_vec_pretty(&*metrics)?;
                 Ok(json)
-            },
+            }
             ExportFormat::Csv => {
                 let mut csv = String::new();
                 csv.push_str("timestamp,command,duration_ms,memory_delta,cpu_time\n");
-                
+
                 for (command, profiles) in &metrics.command_profiles {
                     for profile in profiles {
                         csv.push_str(&format!(
@@ -278,14 +304,14 @@ impl PerformanceProfiler {
                         ));
                     }
                 }
-                
+
                 Ok(csv.into_bytes())
-            },
+            }
             ExportFormat::Binary => {
                 // Use serde_json as binary alternative since bincode is not available
                 let binary = serde_json::to_vec(&*metrics)?;
                 Ok(binary)
-            },
+            }
         }
     }
 
@@ -323,7 +349,8 @@ impl PerformanceProfiler {
                 name: "Parallel Processing".to_string(),
                 description: "Enable parallel processing for IO-heavy operations".to_string(),
                 condition: std::sync::Arc::new(|profiler| {
-                    profiler.get_io_read_rate().unwrap_or(0) > 100 * 1024 * 1024 // 100MB/s
+                    profiler.get_io_read_rate().unwrap_or(0) > 100 * 1024 * 1024
+                    // 100MB/s
                 }),
                 apply_optimization: std::sync::Arc::new(|_profiler| {
                     // Enable parallel IO
@@ -337,7 +364,7 @@ impl PerformanceProfiler {
     fn profile_system_resources(metrics: Arc<Mutex<PerformanceMetrics>>, _session_id: String) {
         loop {
             std::thread::sleep(Duration::from_millis(100)); // Sample every 100ms
-            
+
             if let Ok(mut m) = metrics.try_lock() {
                 // Sample system resources
                 if let Ok(cpu_usage) = Self::get_current_cpu_usage() {
@@ -346,7 +373,7 @@ impl PerformanceProfiler {
                         usage_percent: cpu_usage,
                     });
                 }
-                
+
                 if let Ok(memory_usage) = Self::get_current_memory_usage() {
                     m.memory_samples.push(MemorySample {
                         timestamp: SystemTime::now(),
@@ -359,7 +386,7 @@ impl PerformanceProfiler {
 
     fn generate_profiling_report(&self, session: &ProfilingSession) -> Result<ProfilingReport> {
         let duration = session.end_time.unwrap().duration_since(session.start_time);
-        
+
         Ok(ProfilingReport {
             session_id: session.id.clone(),
             session_name: session.name.clone(),
@@ -373,15 +400,16 @@ impl PerformanceProfiler {
 
     fn calculate_statistics(&self, samples: &[BenchmarkSample]) -> StatisticalSummary {
         let durations: Vec<f64> = samples.iter().map(|s| s.duration.as_secs_f64()).collect();
-        
+
         let mean = durations.iter().sum::<f64>() / durations.len() as f64;
         let min = durations.iter().fold(f64::INFINITY, |a, &b| a.min(b));
         let max = durations.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-        
+
         // Calculate standard deviation
-        let variance = durations.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / durations.len() as f64;
+        let variance =
+            durations.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / durations.len() as f64;
         let std_dev = variance.sqrt();
-        
+
         StatisticalSummary {
             mean,
             min,
@@ -394,7 +422,8 @@ impl PerformanceProfiler {
     fn calculate_improvement(before: &BaselineMetrics, after: &BaselineMetrics) -> f64 {
         // Simple improvement calculation based on execution time
         if before.avg_execution_time > 0.0 {
-            (before.avg_execution_time - after.avg_execution_time) / before.avg_execution_time * 100.0
+            (before.avg_execution_time - after.avg_execution_time) / before.avg_execution_time
+                * 100.0
         } else {
             0.0
         }
@@ -402,18 +431,20 @@ impl PerformanceProfiler {
 
     fn get_baseline_performance(&self) -> Result<BaselineMetrics> {
         let metrics = self.metrics.lock().unwrap();
-        
+
         let total_commands: usize = metrics.command_profiles.values().map(|v| v.len()).sum();
-        let total_duration: Duration = metrics.command_profiles.values()
+        let total_duration: Duration = metrics
+            .command_profiles
+            .values()
             .flat_map(|profiles| profiles.iter().map(|p| p.duration))
             .sum();
-        
+
         let avg_execution_time = if total_commands > 0 {
             total_duration.as_secs_f64() / total_commands as f64
         } else {
             0.0
         };
-        
+
         Ok(BaselineMetrics {
             avg_execution_time,
             memory_usage: self.get_memory_usage().unwrap_or(0),
@@ -513,7 +544,11 @@ impl PerformanceProfiler {
         let mut sys = sysinfo::System::new();
         sys.refresh_cpu();
         let cpus = sys.cpus();
-        let avg = if cpus.is_empty() { 0.0 } else { cpus.iter().map(|c| c.cpu_usage() as f64).sum::<f64>() / (cpus.len() as f64) };
+        let avg = if cpus.is_empty() {
+            0.0
+        } else {
+            cpus.iter().map(|c| c.cpu_usage() as f64).sum::<f64>() / (cpus.len() as f64)
+        };
         Ok(avg)
     }
 
@@ -525,18 +560,39 @@ impl PerformanceProfiler {
     }
 
     fn calculate_cpu_summary(&self, samples: &[CpuSample]) -> CpuSummary {
-        let avg = if samples.is_empty() { 0.0 } else { samples.iter().map(|s| s.usage_percent).sum::<f64>() / samples.len() as f64 };
+        let avg = if samples.is_empty() {
+            0.0
+        } else {
+            samples.iter().map(|s| s.usage_percent).sum::<f64>() / samples.len() as f64
+        };
         let peak = samples.iter().map(|s| s.usage_percent).fold(0.0, f64::max);
-        CpuSummary { average_usage: avg, peak_usage: peak, samples_count: samples.len() }
+        CpuSummary {
+            average_usage: avg,
+            peak_usage: peak,
+            samples_count: samples.len(),
+        }
     }
 
     fn calculate_memory_summary(&self, samples: &[MemorySample]) -> MemorySummary {
-        let (sum, peak) = samples.iter().fold((0usize, 0usize), |(s, p), m| (s + m.bytes_used, p.max(m.bytes_used)));
-        let avg = if samples.is_empty() { 0 } else { sum / samples.len() };
-        MemorySummary { average_usage: avg, peak_usage: peak, samples_count: samples.len() }
+        let (sum, peak) = samples.iter().fold((0usize, 0usize), |(s, p), m| {
+            (s + m.bytes_used, p.max(m.bytes_used))
+        });
+        let avg = if samples.is_empty() {
+            0
+        } else {
+            sum / samples.len()
+        };
+        MemorySummary {
+            average_usage: avg,
+            peak_usage: peak,
+            samples_count: samples.len(),
+        }
     }
 
-    fn calculate_command_summary(&self, timings: &HashMap<String, Vec<Duration>>) -> CommandSummary {
+    fn calculate_command_summary(
+        &self,
+        timings: &HashMap<String, Vec<Duration>>,
+    ) -> CommandSummary {
         let total_commands = timings.values().map(|v| v.len()).sum();
         let mut slowest_cmd = String::new();
         let mut slowest = Duration::from_secs(0);
@@ -546,11 +602,22 @@ impl PerformanceProfiler {
             for d in durs {
                 total += *d;
                 count += 1;
-                if *d > slowest { slowest = *d; slowest_cmd = cmd.clone(); }
+                if *d > slowest {
+                    slowest = *d;
+                    slowest_cmd = cmd.clone();
+                }
             }
         }
-        let avg = if count == 0 { Duration::from_millis(0) } else { Duration::from_secs_f64(total.as_secs_f64() / count as f64) };
-        CommandSummary { total_commands, average_duration: avg, slowest_command: slowest_cmd }
+        let avg = if count == 0 {
+            Duration::from_millis(0)
+        } else {
+            Duration::from_secs_f64(total.as_secs_f64() / count as f64)
+        };
+        CommandSummary {
+            total_commands,
+            average_duration: avg,
+            slowest_command: slowest_cmd,
+        }
     }
 
     fn generate_recommendations(&self, _session: &ProfilingSession) -> Vec<String> {
@@ -561,7 +628,11 @@ impl PerformanceProfiler {
         ]
     }
 }
-impl Default for PerformanceProfiler { fn default() -> Self { Self::new() } }
+impl Default for PerformanceProfiler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 // Supporting types and structures
 
@@ -605,7 +676,11 @@ impl PerformanceMetrics {
         self.memory_samples.iter().map(|s| s.bytes_used).max()
     }
 }
-impl Default for PerformanceMetrics { fn default() -> Self { Self::new() } }
+impl Default for PerformanceMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CpuSample {
@@ -710,7 +785,11 @@ impl PerformanceSnapshot {
         // Finalize snapshot data
     }
 }
-impl Default for PerformanceSnapshot { fn default() -> Self { Self::new() } }
+impl Default for PerformanceSnapshot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct IoSample {
@@ -854,12 +933,14 @@ mod tests {
     #[test]
     fn test_command_profiling() {
         let mut profiler = PerformanceProfiler::new();
-        
-        let (result, profile) = profiler.profile_command("test_command", || {
-            std::thread::sleep(Duration::from_millis(10));
-            Ok(42)
-        }).unwrap();
-        
+
+        let (result, profile) = profiler
+            .profile_command("test_command", || {
+                std::thread::sleep(Duration::from_millis(10));
+                Ok(42)
+            })
+            .unwrap();
+
         assert_eq!(result, 42);
         assert_eq!(profile.command, "test_command");
         assert!(profile.duration >= Duration::from_millis(10));
@@ -868,13 +949,15 @@ mod tests {
     #[test]
     fn test_profiling_session() {
         let mut profiler = PerformanceProfiler::new();
-        
-        let session_id = profiler.start_profiling("test_session".to_string()).unwrap();
+
+        let session_id = profiler
+            .start_profiling("test_session".to_string())
+            .unwrap();
         assert!(!session_id.is_empty());
-        
+
         // Simulate some work
         std::thread::sleep(Duration::from_millis(50));
-        
+
         let report = profiler.stop_profiling(&session_id).unwrap();
         assert_eq!(report.session_name, "test_session");
         assert!(report.total_duration >= Duration::from_millis(50));
@@ -884,18 +967,18 @@ mod tests {
     fn test_bottleneck_analysis() {
         let profiler = PerformanceProfiler::new();
         let analysis = profiler.analyze_bottlenecks().unwrap();
-        
-    // 期待値: 初期状態ではボトルネックは検出されない (全て 0 件)
-    assert_eq!(analysis.cpu_bottlenecks.len(), 0);
-    assert_eq!(analysis.memory_bottlenecks.len(), 0);
-    assert_eq!(analysis.io_bottlenecks.len(), 0);
+
+        // 期待値: 初期状態ではボトルネックは検出されない (全て 0 件)
+        assert_eq!(analysis.cpu_bottlenecks.len(), 0);
+        assert_eq!(analysis.memory_bottlenecks.len(), 0);
+        assert_eq!(analysis.io_bottlenecks.len(), 0);
     }
 
     #[test]
     fn test_realtime_metrics() {
         let profiler = PerformanceProfiler::new();
         let metrics = profiler.get_realtime_metrics().unwrap();
-        
+
         assert!(metrics.memory_usage > 0);
         assert!(metrics.active_threads > 0);
     }

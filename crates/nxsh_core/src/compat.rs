@@ -2,7 +2,7 @@
 //! Provides `Result`, `anyhow!` macro, and basic `.context()` so existing code compiles.
 
 #[cfg(feature = "error-rich")]
-pub use anyhow::{Result, Error, Context};
+pub use anyhow::{Context, Error, Result};
 
 // When error-rich is enabled, provide both a function and a crate-root macro shim
 // so call sites can use either `crate::anyhow!` (macro) or `crate::compat::anyhow(...)` (function).
@@ -19,7 +19,7 @@ macro_rules! anyhow {
 }
 
 #[cfg(not(feature = "error-rich"))]
-use crate::error::{ShellError, ErrorKind, InternalErrorKind};
+use crate::error::{ErrorKind, InternalErrorKind, ShellError};
 
 #[cfg(not(feature = "error-rich"))]
 pub type Error = ShellError;
@@ -49,7 +49,7 @@ where
     E: core::fmt::Display + Send + Sync + 'static,
 {
     fn context<C: core::fmt::Display>(self, context: C) -> Result<T> {
-    self.map_err(|e| anyhow(format!("{context}: {e}")))
+        self.map_err(|e| anyhow(format!("{context}: {e}")))
     }
     fn with_context<F, C>(self, f: F) -> Result<T>
     where

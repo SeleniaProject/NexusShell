@@ -1,23 +1,23 @@
 //! Task 15: Integration Test & QA System
-//! 
+//!
 //! NexusShell統合テスト・品質保証システム
 //! 完全なテストスイート、パフォーマンス監視、品質検証を提供
 
 use std::{
     collections::HashMap,
-    path::{Path, PathBuf},
-    time::{Duration, Instant},
     fs::File,
     io::Write,
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
 };
 
 use crate::compat::Result;
 use serde::{Deserialize, Serialize};
 use tokio::{
     process::Command as TokioCommand,
-    time::{sleep, timeout},
     sync::{RwLock, Semaphore},
     task::JoinSet,
+    time::{sleep, timeout},
 };
 use uuid::Uuid;
 
@@ -124,56 +124,42 @@ impl IntegrationTestSystem {
 
         // 1. 単体テスト
         let self_ref = self.clone();
-        join_set.spawn(async move {
-            self_ref.run_unit_tests().await
-        });
+        join_set.spawn(async move { self_ref.run_unit_tests().await });
 
         // 2. 統合テスト
         let self_ref = self.clone();
-        join_set.spawn(async move {
-            self_ref.run_integration_tests().await
-        });
+        join_set.spawn(async move { self_ref.run_integration_tests().await });
 
         // 3. パフォーマンステスト
         let self_ref = self.clone();
-        join_set.spawn(async move {
-            self_ref.run_performance_tests().await
-        });
+        join_set.spawn(async move { self_ref.run_performance_tests().await });
 
         // 4. セキュリティテスト
         let self_ref = self.clone();
-        join_set.spawn(async move {
-            self_ref.run_security_tests().await
-        });
+        join_set.spawn(async move { self_ref.run_security_tests().await });
 
         // 5. 互換性テスト
         let self_ref = self.clone();
-        join_set.spawn(async move {
-            self_ref.run_compatibility_tests().await
-        });
+        join_set.spawn(async move { self_ref.run_compatibility_tests().await });
 
         // 6. エンドツーエンドテスト
         let self_ref = self.clone();
-        join_set.spawn(async move {
-            self_ref.run_end_to_end_tests().await
-        });
+        join_set.spawn(async move { self_ref.run_end_to_end_tests().await });
 
         // 7. ストレステスト
         let self_ref = self.clone();
-        join_set.spawn(async move {
-            self_ref.run_stress_tests().await
-        });
+        join_set.spawn(async move { self_ref.run_stress_tests().await });
 
         // 全テスト完了を待機
         let mut all_results = Vec::new();
-    while let Some(result) = join_set.join_next().await {
+        while let Some(result) = join_set.join_next().await {
             match result {
                 Ok(Ok(results)) => all_results.extend(results),
                 Ok(Err(e)) => {
-            eprintln!("❌ Test execution error: {e}");
+                    eprintln!("❌ Test execution error: {e}");
                 }
                 Err(e) => {
-            eprintln!("❌ Task join error: {e}");
+                    eprintln!("❌ Task join error: {e}");
                 }
             }
         }
@@ -204,7 +190,7 @@ impl IntegrationTestSystem {
     /// 単体テストを実行
     async fn run_unit_tests(&self) -> Result<Vec<TestResult>> {
         let _permit = self.semaphore.acquire().await?;
-        
+
         println!("🔍 Running Unit Tests...");
         let start_time = Instant::now();
 
@@ -245,14 +231,14 @@ impl IntegrationTestSystem {
         results.push(result.clone());
         self.test_results.write().await.push(result);
 
-    println!("   ✅ Unit tests completed in {duration:?}");
+        println!("   ✅ Unit tests completed in {duration:?}");
         Ok(results)
     }
 
     /// 統合テストを実行
     async fn run_integration_tests(&self) -> Result<Vec<TestResult>> {
         let _permit = self.semaphore.acquire().await?;
-        
+
         println!("🔧 Running Integration Tests...");
         let start_time = Instant::now();
 
@@ -261,7 +247,7 @@ impl IntegrationTestSystem {
         // コンポーネント間統合テスト
         let test_names = vec![
             "Parser-Executor Integration",
-            "Plugin System Integration", 
+            "Plugin System Integration",
             "UI System Integration",
             "Theme System Integration",
         ];
@@ -281,7 +267,11 @@ impl IntegrationTestSystem {
                 test_id: Uuid::new_v4().to_string(),
                 test_name: test_name.to_string(),
                 category: TestCategory::Integration,
-                status: if test_result.is_ok() { TestStatus::Passed } else { TestStatus::Failed },
+                status: if test_result.is_ok() {
+                    TestStatus::Passed
+                } else {
+                    TestStatus::Failed
+                },
                 duration,
                 output: format!("Integration test: {test_name}"),
                 error_message: test_result.err().map(|e| e.to_string()),
@@ -293,14 +283,14 @@ impl IntegrationTestSystem {
         }
 
         let total_duration = start_time.elapsed();
-    println!("   ✅ Integration tests completed in {total_duration:?}");
+        println!("   ✅ Integration tests completed in {total_duration:?}");
         Ok(results)
     }
 
     /// パフォーマンステストを実行
     async fn run_performance_tests(&self) -> Result<Vec<TestResult>> {
         let _permit = self.semaphore.acquire().await?;
-        
+
         println!("⚡ Running Performance Tests...");
         let start_time = Instant::now();
 
@@ -316,15 +306,19 @@ impl IntegrationTestSystem {
         // メモリ使用量テスト
         let memory_usage = self.measure_memory_usage().await?;
 
-    let performance_metrics = PerformanceMetrics {
+        let performance_metrics = PerformanceMetrics {
             startup_time: avg_startup,
-            command_execution_time: response_times.values().sum::<Duration>() / response_times.len() as u32,
+            command_execution_time: response_times.values().sum::<Duration>()
+                / response_times.len() as u32,
             memory_usage,
             cpu_usage: self.measure_cpu_usage().await,
             response_times,
         };
 
-        self.performance_metrics.write().await.push(performance_metrics.clone());
+        self.performance_metrics
+            .write()
+            .await
+            .push(performance_metrics.clone());
 
         // パフォーマンス基準チェック
         let startup_pass = avg_startup <= self.config.max_startup_time;
@@ -336,7 +330,11 @@ impl IntegrationTestSystem {
             test_id: Uuid::new_v4().to_string(),
             test_name: "Performance Benchmarks".to_string(),
             category: TestCategory::Performance,
-            status: if startup_pass && memory_pass { TestStatus::Passed } else { TestStatus::Failed },
+            status: if startup_pass && memory_pass {
+                TestStatus::Passed
+            } else {
+                TestStatus::Failed
+            },
             duration: start_time.elapsed(),
             output: format!(
                 "Startup: {avg_startup:?}, Memory: {mem_mb}MB, Commands: {commands_count} tested"
@@ -358,14 +356,14 @@ impl IntegrationTestSystem {
         self.test_results.write().await.push(result);
 
         let total_duration = start_time.elapsed();
-    println!("   ✅ Performance tests completed in {total_duration:?}");
+        println!("   ✅ Performance tests completed in {total_duration:?}");
         Ok(results)
     }
 
     /// セキュリティテストを実行
     async fn run_security_tests(&self) -> Result<Vec<TestResult>> {
         let _permit = self.semaphore.acquire().await?;
-        
+
         println!("🔒 Running Security Tests...");
         let start_time = Instant::now();
 
@@ -375,7 +373,7 @@ impl IntegrationTestSystem {
         let test_names = vec![
             "Privilege Escalation",
             "Input Sanitization",
-            "Plugin Sandboxing", 
+            "Plugin Sandboxing",
             "Cryptographic Functions",
         ];
 
@@ -394,7 +392,11 @@ impl IntegrationTestSystem {
                 test_id: Uuid::new_v4().to_string(),
                 test_name: test_name.to_string(),
                 category: TestCategory::Security,
-                status: if test_result.is_ok() { TestStatus::Passed } else { TestStatus::Failed },
+                status: if test_result.is_ok() {
+                    TestStatus::Passed
+                } else {
+                    TestStatus::Failed
+                },
                 duration,
                 output: format!("Security test: {test_name}"),
                 error_message: test_result.err().map(|e| e.to_string()),
@@ -406,14 +408,14 @@ impl IntegrationTestSystem {
         }
 
         let total_duration = start_time.elapsed();
-    println!("   ✅ Security tests completed in {total_duration:?}");
+        println!("   ✅ Security tests completed in {total_duration:?}");
         Ok(results)
     }
 
     /// 互換性テストを実行
     async fn run_compatibility_tests(&self) -> Result<Vec<TestResult>> {
         let _permit = self.semaphore.acquire().await?;
-        
+
         println!("🌐 Running Compatibility Tests...");
         let start_time = Instant::now();
 
@@ -435,7 +437,11 @@ impl IntegrationTestSystem {
                 test_id: Uuid::new_v4().to_string(),
                 test_name: test_name.to_string(),
                 category: TestCategory::Compatibility,
-                status: if test_result.is_ok() { TestStatus::Passed } else { TestStatus::Failed },
+                status: if test_result.is_ok() {
+                    TestStatus::Passed
+                } else {
+                    TestStatus::Failed
+                },
                 duration: Duration::from_millis(100), // 簡略化
                 output: format!("Compatibility test: {test_name}"),
                 error_message: test_result.err().map(|e| e.to_string()),
@@ -447,14 +453,14 @@ impl IntegrationTestSystem {
         }
 
         let total_duration = start_time.elapsed();
-    println!("   ✅ Compatibility tests completed in {total_duration:?}");
+        println!("   ✅ Compatibility tests completed in {total_duration:?}");
         Ok(results)
     }
 
     /// エンドツーエンドテストを実行
     async fn run_end_to_end_tests(&self) -> Result<Vec<TestResult>> {
         let _permit = self.semaphore.acquire().await?;
-        
+
         println!("🎯 Running End-to-End Tests...");
         let start_time = Instant::now();
 
@@ -483,7 +489,11 @@ impl IntegrationTestSystem {
                 test_id: Uuid::new_v4().to_string(),
                 test_name: scenario_name.to_string(),
                 category: TestCategory::EndToEnd,
-                status: if test_result.is_ok() { TestStatus::Passed } else { TestStatus::Failed },
+                status: if test_result.is_ok() {
+                    TestStatus::Passed
+                } else {
+                    TestStatus::Failed
+                },
                 duration,
                 output: format!("E2E scenario: {scenario_name}"),
                 error_message: test_result.err().map(|e| e.to_string()),
@@ -495,14 +505,14 @@ impl IntegrationTestSystem {
         }
 
         let total_duration = start_time.elapsed();
-    println!("   ✅ End-to-End tests completed in {total_duration:?}");
+        println!("   ✅ End-to-End tests completed in {total_duration:?}");
         Ok(results)
     }
 
     /// ストレステストを実行
     async fn run_stress_tests(&self) -> Result<Vec<TestResult>> {
         let _permit = self.semaphore.acquire().await?;
-        
+
         println!("💪 Running Stress Tests...");
         let start_time = Instant::now();
 
@@ -511,10 +521,7 @@ impl IntegrationTestSystem {
         // 短縮されたストレステスト（実際は設定時間）
         let stress_duration = Duration::from_secs(10); // 実演用に短縮
 
-        let stress_result = timeout(
-            stress_duration,
-            self.run_concurrent_stress_test()
-        ).await;
+        let stress_result = timeout(stress_duration, self.run_concurrent_stress_test()).await;
 
         let status = match stress_result {
             Ok(Ok(_)) => TestStatus::Passed,
@@ -541,7 +548,7 @@ impl IntegrationTestSystem {
         self.test_results.write().await.push(result);
 
         let total_duration = start_time.elapsed();
-    println!("   ✅ Stress tests completed in {total_duration:?}");
+        println!("   ✅ Stress tests completed in {total_duration:?}");
         Ok(results)
     }
 
@@ -573,17 +580,17 @@ impl IntegrationTestSystem {
 
     async fn measure_startup_performance(&self) -> Result<Vec<Duration>> {
         let mut times = Vec::new();
-        
+
         for _ in 0..5 {
             let start = Instant::now();
-            
+
             // Measure actual shell startup time
             let output = TokioCommand::new("bash")
                 .arg("-c")
                 .arg("echo 'startup complete'")
                 .output()
                 .await?;
-            
+
             if output.status.success() {
                 times.push(start.elapsed());
             } else {
@@ -592,13 +599,13 @@ impl IntegrationTestSystem {
                 times.push(start.elapsed());
             }
         }
-        
+
         Ok(times)
     }
 
     async fn measure_command_response_times(&self) -> Result<HashMap<String, Duration>> {
         let mut response_times = HashMap::new();
-        
+
         let commands = vec![
             ("ls", vec!["-la"]),
             ("echo", vec!["test"]),
@@ -607,16 +614,13 @@ impl IntegrationTestSystem {
             ("grep", vec!["test"]),
             ("find", vec![".", "-name", "*.rs", "-type", "f"]),
         ];
-        
+
         for (cmd, args) in commands {
             let start = Instant::now();
-            
+
             // Measure actual command execution time
-            let output = TokioCommand::new(cmd)
-                .args(args)
-                .output()
-                .await;
-                
+            let output = TokioCommand::new(cmd).args(args).output().await;
+
             match output {
                 Ok(_) => {
                     response_times.insert(cmd.to_string(), start.elapsed());
@@ -628,7 +632,7 @@ impl IntegrationTestSystem {
                 }
             }
         }
-        
+
         Ok(response_times)
     }
 
@@ -649,15 +653,18 @@ impl IntegrationTestSystem {
                 }
             }
         }
-        
+
         // Method 2: Try PowerShell on Windows
         #[cfg(target_os = "windows")]
         {
             let output = TokioCommand::new("powershell")
-                .args(["-Command", "Get-Process -Id $PID | Select-Object WorkingSet64"])
+                .args([
+                    "-Command",
+                    "Get-Process -Id $PID | Select-Object WorkingSet64",
+                ])
                 .output()
                 .await;
-                
+
             if let Ok(output) = output {
                 if output.status.success() {
                     let output_str = String::from_utf8_lossy(&output.stdout);
@@ -669,7 +676,7 @@ impl IntegrationTestSystem {
                 }
             }
         }
-        
+
         // Method 3: Use ps command (Unix-like systems)
         #[cfg(unix)]
         {
@@ -678,7 +685,7 @@ impl IntegrationTestSystem {
                 .args(["-o", "rss=", "-p", pid.as_str()])
                 .output()
                 .await;
-                
+
             if let Ok(output) = output {
                 if output.status.success() {
                     let output_str = String::from_utf8_lossy(&output.stdout);
@@ -688,26 +695,26 @@ impl IntegrationTestSystem {
                 }
             }
         }
-        
+
         // Fallback: Estimated memory usage
         Ok(32 * 1024 * 1024) // 32MB baseline estimate
     }
-    
+
     /// Perfect CPU usage measurement
     async fn measure_cpu_usage(&self) -> f64 {
         // Method 1: Sample CPU usage over a short period
         let samples = 5;
         let mut total_usage = 0.0;
-        
+
         for _ in 0..samples {
             let cpu_usage = self.get_current_cpu_usage().await;
             total_usage += cpu_usage;
             sleep(Duration::from_millis(200)).await;
         }
-        
+
         total_usage / samples as f64
     }
-    
+
     /// Get current CPU usage percentage
     async fn get_current_cpu_usage(&self) -> f64 {
         // Method 1: Try /proc/stat on Linux
@@ -720,7 +727,7 @@ impl IntegrationTestSystem {
                 }
             }
         }
-        
+
         // Method 2: Try top command
         let pid = std::process::id().to_string();
         if let Ok(output) = TokioCommand::new("top")
@@ -733,7 +740,7 @@ impl IntegrationTestSystem {
                 return self.parse_top_cpu_usage(&output_str);
             }
         }
-        
+
         // Method 3: Try ps command
         let pid = std::process::id().to_string();
         if let Ok(output) = TokioCommand::new("ps")
@@ -748,28 +755,26 @@ impl IntegrationTestSystem {
                 }
             }
         }
-        
+
         // Fallback: Estimated CPU usage based on activity
         2.5 // Conservative estimate
     }
-    
+
     #[cfg(target_os = "linux")]
     async fn read_proc_stat(&self) -> Result<Vec<u64>> {
         let content = tokio::fs::read_to_string("/proc/stat").await?;
         let first_line = content.lines().next().unwrap_or("");
         let parts: Vec<&str> = first_line.split_whitespace().collect();
-        
+
         if parts.len() >= 5 && parts[0] == "cpu" {
-            let values: Result<Vec<u64>, _> = parts[1..5]
-                .iter()
-                .map(|s| s.parse::<u64>())
-                .collect();
+            let values: Result<Vec<u64>, _> =
+                parts[1..5].iter().map(|s| s.parse::<u64>()).collect();
             return Ok(values?);
         }
-        
-    Err(crate::anyhow!("Failed to parse /proc/stat"))
+
+        Err(crate::anyhow!("Failed to parse /proc/stat"))
     }
-    
+
     #[cfg(target_os = "linux")]
     fn calculate_cpu_usage_from_proc_stat(&self, stat1: Vec<u64>, stat2: Vec<u64>) -> f64 {
         if stat1.len() >= 4 && stat2.len() >= 4 {
@@ -777,18 +782,18 @@ impl IntegrationTestSystem {
             let total2 = stat2.iter().sum::<u64>();
             let idle1 = stat1[3];
             let idle2 = stat2[3];
-            
+
             let total_diff = total2 - total1;
             let idle_diff = idle2 - idle1;
-            
+
             if total_diff > 0 {
                 return (100.0 * (total_diff - idle_diff) as f64) / total_diff as f64;
             }
         }
-        
+
         0.0
     }
-    
+
     fn parse_top_cpu_usage(&self, output: &str) -> f64 {
         // Parse top output to extract CPU usage
         for line in output.lines() {
@@ -801,7 +806,7 @@ impl IntegrationTestSystem {
                 }
             }
         }
-        
+
         0.0
     }
 
@@ -874,7 +879,7 @@ impl IntegrationTestSystem {
     async fn run_concurrent_stress_test(&self) -> Result<()> {
         // 並行ストレステスト
         let mut join_set = JoinSet::new();
-        
+
         for i in 0..10 {
             join_set.spawn(async move {
                 for _ in 0..100 {
@@ -896,8 +901,8 @@ impl IntegrationTestSystem {
         let mut file = File::create(&report_path)?;
         let json = serde_json::to_string_pretty(report)?;
         file.write_all(json.as_bytes())?;
-        
-    println!("   📄 Test report generated: {report_path:?}");
+
+        println!("   📄 Test report generated: {report_path:?}");
         Ok(())
     }
 }
@@ -951,9 +956,18 @@ impl TestSuiteReport {
         config: &QaConfig,
     ) -> Self {
         let total_tests = test_results.len();
-        let passed_tests = test_results.iter().filter(|r| r.status == TestStatus::Passed).count();
-        let failed_tests = test_results.iter().filter(|r| r.status == TestStatus::Failed).count();
-        let skipped_tests = test_results.iter().filter(|r| r.status == TestStatus::Skipped).count();
+        let passed_tests = test_results
+            .iter()
+            .filter(|r| r.status == TestStatus::Passed)
+            .count();
+        let failed_tests = test_results
+            .iter()
+            .filter(|r| r.status == TestStatus::Failed)
+            .count();
+        let skipped_tests = test_results
+            .iter()
+            .filter(|r| r.status == TestStatus::Skipped)
+            .count();
 
         let test_coverage = if total_tests > 0 {
             (passed_tests as f64 / total_tests as f64) * 100.0
@@ -976,7 +990,7 @@ impl TestSuiteReport {
                 .iter()
                 .filter(|r| r.category == category)
                 .collect();
-            
+
             let total = category_tests.len();
             let passed = category_tests
                 .iter()
@@ -986,19 +1000,22 @@ impl TestSuiteReport {
                 .iter()
                 .filter(|r| r.status == TestStatus::Failed)
                 .count();
-            
+
             let pass_rate = if total > 0 {
                 (passed as f64 / total as f64) * 100.0
             } else {
                 0.0
             };
 
-            category_breakdown.insert(category, CategoryStats {
-                total,
-                passed,
-                failed,
-                pass_rate,
-            });
+            category_breakdown.insert(
+                category,
+                CategoryStats {
+                    total,
+                    passed,
+                    failed,
+                    pass_rate,
+                },
+            );
         }
 
         // パフォーマンス要約
@@ -1006,17 +1023,20 @@ impl TestSuiteReport {
             let avg_startup = performance_metrics
                 .iter()
                 .map(|m| m.startup_time)
-                .sum::<Duration>() / performance_metrics.len() as u32;
-            
+                .sum::<Duration>()
+                / performance_metrics.len() as u32;
+
             let avg_response = performance_metrics
                 .iter()
                 .map(|m| m.command_execution_time)
-                .sum::<Duration>() / performance_metrics.len() as u32;
-            
+                .sum::<Duration>()
+                / performance_metrics.len() as u32;
+
             let avg_memory = performance_metrics
                 .iter()
                 .map(|m| m.memory_usage)
-                .sum::<u64>() / performance_metrics.len() as u64;
+                .sum::<u64>()
+                / performance_metrics.len() as u64;
 
             let performance_grade = if avg_startup <= config.max_startup_time
                 && avg_response <= config.max_command_response
@@ -1054,10 +1074,7 @@ impl TestSuiteReport {
         };
         let quality_score = (coverage_score * 0.7 + performance_score * 0.3).min(100.0);
 
-        let execution_time = test_results
-            .iter()
-            .map(|r| r.duration)
-            .sum::<Duration>();
+        let execution_time = test_results.iter().map(|r| r.duration).sum::<Duration>();
 
         Self {
             total_tests,

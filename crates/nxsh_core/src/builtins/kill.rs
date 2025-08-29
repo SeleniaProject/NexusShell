@@ -2,14 +2,14 @@
 //!
 //! This module provides a comprehensive kill command implementation with:
 //! - Signal sending to processes by PID
-//! - Job control integration 
+//! - Job control integration
 //! - Multiple signal types (TERM, KILL, HUP, etc.)
 //! - Process validation and error handling
 //! - Cross-platform compatibility
 
 use crate::context::ShellContext;
-use crate::executor::{Builtin, ExecutionResult, ExecutionStrategy, ExecutionMetrics};
 use crate::error::ShellResult;
+use crate::executor::{Builtin, ExecutionMetrics, ExecutionResult, ExecutionStrategy};
 use std::time::Instant;
 
 /// Comprehensive kill builtin with signal support
@@ -32,9 +32,13 @@ impl Builtin for KillBuiltin {
         "kill [-s SIGNAL | -SIGNAL] PID...\nkill -l [SIGNAL]"
     }
 
-    fn execute(&self, _context: &mut ShellContext, args: &[String]) -> ShellResult<ExecutionResult> {
+    fn execute(
+        &self,
+        _context: &mut ShellContext,
+        args: &[String],
+    ) -> ShellResult<ExecutionResult> {
         let start_time = Instant::now();
-        
+
         if args.is_empty() {
             return Ok(ExecutionResult {
                 exit_code: 1,
@@ -54,7 +58,7 @@ impl Builtin for KillBuiltin {
 
         while i < args.len() {
             let arg = &args[i];
-            
+
             if arg == "-l" || arg == "--list" {
                 list_signals = true;
             } else if let Some(stripped) = arg.strip_prefix("-s") {
@@ -206,14 +210,37 @@ impl KillBuiltin {
     /// Get list of available signals
     fn get_signal_list(&self) -> String {
         let signals = [
-            ("HUP", 1), ("INT", 2), ("QUIT", 3), ("ILL", 4),
-            ("TRAP", 5), ("ABRT", 6), ("BUS", 7), ("FPE", 8),
-            ("KILL", 9), ("USR1", 10), ("SEGV", 11), ("USR2", 12),
-            ("PIPE", 13), ("ALRM", 14), ("TERM", 15), ("STKFLT", 16),
-            ("CHLD", 17), ("CONT", 18), ("STOP", 19), ("TSTP", 20),
-            ("TTIN", 21), ("TTOU", 22), ("URG", 23), ("XCPU", 24),
-            ("XFSZ", 25), ("VTALRM", 26), ("PROF", 27), ("WINCH", 28),
-            ("IO", 29), ("PWR", 30), ("SYS", 31),
+            ("HUP", 1),
+            ("INT", 2),
+            ("QUIT", 3),
+            ("ILL", 4),
+            ("TRAP", 5),
+            ("ABRT", 6),
+            ("BUS", 7),
+            ("FPE", 8),
+            ("KILL", 9),
+            ("USR1", 10),
+            ("SEGV", 11),
+            ("USR2", 12),
+            ("PIPE", 13),
+            ("ALRM", 14),
+            ("TERM", 15),
+            ("STKFLT", 16),
+            ("CHLD", 17),
+            ("CONT", 18),
+            ("STOP", 19),
+            ("TSTP", 20),
+            ("TTIN", 21),
+            ("TTOU", 22),
+            ("URG", 23),
+            ("XCPU", 24),
+            ("XFSZ", 25),
+            ("VTALRM", 26),
+            ("PROF", 27),
+            ("WINCH", 28),
+            ("IO", 29),
+            ("PWR", 30),
+            ("SYS", 31),
         ];
 
         let mut output = String::new();
@@ -275,9 +302,9 @@ impl KillBuiltin {
     /// Kill a process by PID string
     fn kill_process(&self, pid_str: &str, signal: i32) -> Result<String, String> {
         // Parse PID
-        let pid = pid_str.parse::<u32>().map_err(|_| {
-            format!("invalid process ID: {pid_str}")
-        })?;
+        let pid = pid_str
+            .parse::<u32>()
+            .map_err(|_| format!("invalid process ID: {pid_str}"))?;
 
         // Platform-specific signal sending
         #[cfg(unix)]
@@ -292,7 +319,10 @@ impl KillBuiltin {
                 }
             } else {
                 let errno = std::io::Error::last_os_error();
-                Err(format!("operation not permitted or no such process: {}", errno))
+                Err(format!(
+                    "operation not permitted or no such process: {}",
+                    errno
+                ))
             }
         }
 
@@ -314,8 +344,9 @@ impl KillBuiltin {
                         .args(["/FI", &format!("PID eq {pid}")])
                         .output()
                         .map(|output| {
-                            output.status.success() && 
-                            String::from_utf8_lossy(&output.stdout).contains(&pid.to_string())
+                            output.status.success()
+                                && String::from_utf8_lossy(&output.stdout)
+                                    .contains(&pid.to_string())
                         })
                         .unwrap_or(false)
                 }

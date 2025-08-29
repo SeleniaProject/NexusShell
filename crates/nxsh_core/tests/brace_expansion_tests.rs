@@ -3,7 +3,12 @@ use nxsh_parser::ast::AstNode;
 use std::sync::Once;
 
 static INIT: Once = Once::new();
-fn init() { INIT.call_once(|| { let _ = nxsh_core::initialize(); let _ = nxsh_hal::initialize(); }); }
+fn init() {
+    INIT.call_once(|| {
+        let _ = nxsh_core::initialize();
+        let _ = nxsh_hal::initialize();
+    });
+}
 
 fn run(input: &str) -> Vec<String> {
     init();
@@ -45,7 +50,11 @@ fn test_numeric_range() {
 #[test]
 fn test_numeric_range_step() {
     let out = run("v{2..6..2}");
-    assert_eq!(out, vec!["v2", "v4", "v6"], "numeric stepped range expansion");
+    assert_eq!(
+        out,
+        vec!["v2", "v4", "v6"],
+        "numeric stepped range expansion"
+    );
 }
 
 #[test]
@@ -57,7 +66,11 @@ fn test_alpha_range() {
 #[test]
 fn test_multiple_groups() {
     let out = run("{a,b}{1..2}");
-    assert_eq!(out, vec!["a1", "a2", "b1", "b2"], "cartesian product of groups");
+    assert_eq!(
+        out,
+        vec!["a1", "a2", "b1", "b2"],
+        "cartesian product of groups"
+    );
 }
 
 // === DETAILED UNIT TESTS FOR ENHANCED COVERAGE ===
@@ -68,7 +81,7 @@ fn test_expansion_order_consistency() {
     let out = run("{c,a,b}{3,1,2}");
     // Should expand in left-to-right, comma-separated order
     assert_eq!(
-        out, 
+        out,
         vec!["c3", "c1", "c2", "a3", "a1", "a2", "b3", "b1", "b2"],
         "expansion order should be deterministic"
     );
@@ -108,7 +121,7 @@ fn test_escape_sequences_mixed() {
     let out = run("pre\\{mix{a,b}post\\}end");
     // Only the middle part should expand, escaped parts remain literal
     assert_eq!(
-        out, 
+        out,
         vec!["pre\\{mixapost\\}end", "pre\\{mixbpost\\}end"],
         "mixed escapes should preserve literals and expand valid braces"
     );
@@ -119,64 +132,95 @@ fn test_empty_elements() {
     // Test empty elements in comma lists (e.g., {a,,b})
     let out = run("x{a,,b}y");
     // Empty element should produce empty string in that position
-    assert_eq!(out, vec!["xay", "xy", "xby"], "empty elements should produce empty strings");
+    assert_eq!(
+        out,
+        vec!["xay", "xy", "xby"],
+        "empty elements should produce empty strings"
+    );
 }
 
 #[test]
 fn test_empty_elements_multiple() {
     // Test multiple consecutive empty elements
     let out = run("{,,,test}");
-    assert_eq!(out, vec!["", "", "", "test"], "multiple empty elements should all be preserved");
+    assert_eq!(
+        out,
+        vec!["", "", "", "test"],
+        "multiple empty elements should all be preserved"
+    );
 }
 
 #[test]
 fn test_empty_elements_mixed() {
     // Test empty elements mixed with ranges
     let out = run("{a,,{1..2}}");
-    assert_eq!(out, vec!["a", "", "1", "2"], "empty elements mixed with ranges");
+    assert_eq!(
+        out,
+        vec!["a", "", "1", "2"],
+        "empty elements mixed with ranges"
+    );
 }
 
 #[test]
 fn test_range_edge_cases() {
     // Test edge cases in numeric ranges
     let out1 = run("{5..5}"); // Same start and end
-    assert_eq!(out1, vec!["5"], "same start/end should produce single value");
-    
+    assert_eq!(
+        out1,
+        vec!["5"],
+        "same start/end should produce single value"
+    );
+
     let out2 = run("{3..1}"); // Reverse range
     assert_eq!(out2, vec!["3", "2", "1"], "reverse ranges should work");
-    
+
     let out3 = run("{1..5..3}"); // Step that doesn't evenly divide
-    assert_eq!(out3, vec!["1", "4"], "uneven steps should stop before overflow");
+    assert_eq!(
+        out3,
+        vec!["1", "4"],
+        "uneven steps should stop before overflow"
+    );
 }
 
 #[test]
 fn test_alpha_range_edge_cases() {
     // Test alphabetic range edge cases
     let out1 = run("{z..a}"); // Reverse alpha range
-    assert_eq!(out1, vec!["z", "y", "x", "w", "v", "u", "t", "s", "r", "q", "p", "o", "n", "m", "l", "k", "j", "i", "h", "g", "f", "e", "d", "c", "b", "a"], "reverse alpha ranges");
-    
+    assert_eq!(
+        out1,
+        vec![
+            "z", "y", "x", "w", "v", "u", "t", "s", "r", "q", "p", "o", "n", "m", "l", "k", "j",
+            "i", "h", "g", "f", "e", "d", "c", "b", "a"
+        ],
+        "reverse alpha ranges"
+    );
+
     let out2 = run("{A..C}"); // Uppercase range
     assert_eq!(out2, vec!["A", "B", "C"], "uppercase alpha ranges");
 }
 
-#[test] 
+#[test]
 fn test_complex_nesting() {
     // Test deeply nested brace expansions
     let out = run("{a,{b,{c,d}}}");
-    assert_eq!(out, vec!["a", "b", "c", "d"], "deeply nested expansions should flatten properly");
+    assert_eq!(
+        out,
+        vec!["a", "b", "c", "d"],
+        "deeply nested expansions should flatten properly"
+    );
 }
 
 #[test]
 fn test_no_expansion_cases() {
     // Test cases that should NOT trigger brace expansion
     let cases = vec![
-        ("single_brace}", "single_brace}"), // Unmatched closing brace
-        ("{single_brace", "{single_brace"), // Unmatched opening brace  
+        ("single_brace}", "single_brace}"),   // Unmatched closing brace
+        ("{single_brace", "{single_brace"),   // Unmatched opening brace
         ("no_braces_here", "no_braces_here"), // No braces at all
-        ("{}", "{}"), // Empty braces
-        ("{single}", "{single}"), // Single element (no comma or range)
+        ("{}", "{}"),                         // Empty braces
+        ("{single}", "{single}"),             // Single element (no comma or range)
     ];
-    
+
     for (input, expected) in cases {
         let out = run(input);
         assert_eq!(out, vec![expected], "input '{input}' should not expand");
@@ -188,19 +232,29 @@ fn test_large_expansion_safety() {
     // Test that very large expansions are handled safely
     // This should trigger the safety limits mentioned in the task
     std::env::set_var("NXSH_BRACE_EXPANSION_TRUNCATED", "0"); // Reset
-    
+
     let out = run("{1..1000}"); // Large range that might hit limits
-    
+
     // Check if truncation environment variable was set
     let truncated = std::env::var("NXSH_BRACE_EXPANSION_TRUNCATED").unwrap_or("0".to_string());
-    
+
     if truncated == "1" {
         // If truncated, result should be limited but non-empty
-        assert!(!out.is_empty(), "truncated expansion should still produce some results");
-        assert!(out.len() <= 4096, "truncated expansion should not exceed safety limit");
+        assert!(
+            !out.is_empty(),
+            "truncated expansion should still produce some results"
+        );
+        assert!(
+            out.len() <= 4096,
+            "truncated expansion should not exceed safety limit"
+        );
     } else {
         // If not truncated, should be complete
-        assert_eq!(out.len(), 1000, "complete expansion should have all 1000 elements");
+        assert_eq!(
+            out.len(),
+            1000,
+            "complete expansion should have all 1000 elements"
+        );
         assert_eq!(out[0], "1");
         assert_eq!(out[999], "1000");
     }
@@ -210,15 +264,18 @@ fn test_large_expansion_safety() {
 fn test_truncation_environment_variable() {
     // Explicitly test the truncation environment variable behavior
     std::env::set_var("NXSH_BRACE_EXPANSION_TRUNCATED", "0"); // Reset
-    
+
     // Create an expansion that should trigger truncation
     let out = run("{a,b}{1..2500}"); // 2*2500 = 5000 combinations > 4096 limit
-    
+
     let truncated = std::env::var("NXSH_BRACE_EXPANSION_TRUNCATED").unwrap_or("0".to_string());
-    
+
     if truncated == "1" {
         // Verify that truncation was properly signaled
-        assert!(out.len() <= 4096, "truncated result should not exceed limit");
+        assert!(
+            out.len() <= 4096,
+            "truncated result should not exceed limit"
+        );
         println!("Truncation correctly triggered and signaled via environment variable");
     } else {
         // If implementation doesn't have truncation yet, that's also valid
@@ -235,10 +292,13 @@ fn test_step_ranges_comprehensive() {
         ("{1..10..3}", vec!["1", "4", "7", "10"]),
         ("{a..z..5}", vec!["a", "f", "k", "p", "u", "z"]), // Alpha with step
     ];
-    
+
     for (input, expected) in test_cases {
         let out = run(input);
-        assert_eq!(out, expected, "step range '{input}' should expand correctly");
+        assert_eq!(
+            out, expected,
+            "step range '{input}' should expand correctly"
+        );
     }
 }
 
@@ -246,48 +306,76 @@ fn test_step_ranges_comprehensive() {
 fn test_whitespace_handling() {
     // Test how whitespace is handled in expansions
     let out1 = run("{a, b,c }"); // Spaces around elements
-    assert_eq!(out1, vec!["a", " b", "c "], "whitespace in elements should be preserved");
-    
+    assert_eq!(
+        out1,
+        vec!["a", " b", "c "],
+        "whitespace in elements should be preserved"
+    );
+
     let out2 = run("{ a , b }"); // Spaces around commas
-    assert_eq!(out2, vec![" a ", " b "], "whitespace around commas should be preserved");
+    assert_eq!(
+        out2,
+        vec![" a ", " b "],
+        "whitespace around commas should be preserved"
+    );
 }
 
 #[test]
 fn test_special_characters() {
     // Test expansion with special characters
     let out1 = run("{@,#,$}test");
-    assert_eq!(out1, vec!["@test", "#test", "$test"], "special characters should be preserved");
-    
+    assert_eq!(
+        out1,
+        vec!["@test", "#test", "$test"],
+        "special characters should be preserved"
+    );
+
     let out2 = run("test{-,_,.}end");
-    assert_eq!(out2, vec!["test-end", "test_end", "test.end"], "punctuation should be preserved");
+    assert_eq!(
+        out2,
+        vec!["test-end", "test_end", "test.end"],
+        "punctuation should be preserved"
+    );
 }
 
-#[test] 
+#[test]
 fn test_utf8_support() {
     // Test UTF-8 character support in brace expansion
     let out1 = run("{α,β,γ}");
-    assert_eq!(out1, vec!["α", "β", "γ"], "UTF-8 characters should be supported");
-    
+    assert_eq!(
+        out1,
+        vec!["α", "β", "γ"],
+        "UTF-8 characters should be supported"
+    );
+
     let out2 = run("prefix{🌟,🚀,💯}suffix");
-    assert_eq!(out2, vec!["prefix🌟suffix", "prefix🚀suffix", "prefix💯suffix"], "UTF-8 emojis should be supported");
+    assert_eq!(
+        out2,
+        vec!["prefix🌟suffix", "prefix🚀suffix", "prefix💯suffix"],
+        "UTF-8 emojis should be supported"
+    );
 }
 
 #[test]
 fn test_error_recovery() {
     // Test that malformed brace patterns don't crash and fall back gracefully
     let malformed_cases = vec![
-        "{a,b", // Missing closing brace
-        "a,b}", // Missing opening brace
+        "{a,b",     // Missing closing brace
+        "a,b}",     // Missing opening brace
         "{a,{b,c}", // Unmatched nested brace
-        "{..}", // Invalid range syntax
-        "{1..}", // Incomplete range
-        "{..5}", // Incomplete range start
+        "{..}",     // Invalid range syntax
+        "{1..}",    // Incomplete range
+        "{..5}",    // Incomplete range start
     ];
-    
+
     for input in malformed_cases {
         let out = run(input);
         // Should not crash, should fall back to literal treatment
-        assert_eq!(out.len(), 1, "malformed input '{input}' should fall back to literal");
+        assert_eq!(
+            out.len(),
+            1,
+            "malformed input '{input}' should fall back to literal"
+        );
         assert_eq!(out[0], input, "malformed input should be returned as-is");
     }
 }

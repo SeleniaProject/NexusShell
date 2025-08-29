@@ -3,14 +3,14 @@
 //! This module provides job control functionality including background jobs,
 //! process groups, signal handling, and job status tracking.
 
-use crate::error::{ShellError, ErrorKind, ShellResult};
+use crate::error::{ErrorKind, ShellError, ShellResult};
 use std::collections::HashMap;
 use std::fmt;
 use std::process::ExitStatus;
-use std::sync::{Arc, Mutex, RwLock, mpsc};
+use std::sync::LazyLock;
+use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
-use std::sync::LazyLock;
 
 /// Job identifier type
 pub type JobId = u32;
@@ -98,12 +98,18 @@ impl ProcessInfo {
 
     /// Check if process is running
     pub fn is_running(&self) -> bool {
-        matches!(self.status, JobStatus::Running | JobStatus::Background | JobStatus::Foreground)
+        matches!(
+            self.status,
+            JobStatus::Running | JobStatus::Background | JobStatus::Foreground
+        )
     }
 
     /// Check if process is finished
     pub fn is_finished(&self) -> bool {
-        matches!(self.status, JobStatus::Done(_) | JobStatus::Terminated(_) | JobStatus::Failed(_))
+        matches!(
+            self.status,
+            JobStatus::Done(_) | JobStatus::Terminated(_) | JobStatus::Failed(_)
+        )
     }
 
     /// Get runtime duration
@@ -204,7 +210,11 @@ impl Job {
 
         let running_count = self.processes.iter().filter(|p| p.is_running()).count();
         let finished_count = self.processes.iter().filter(|p| p.is_finished()).count();
-        let stopped_count = self.processes.iter().filter(|p| p.status == JobStatus::Stopped).count();
+        let stopped_count = self
+            .processes
+            .iter()
+            .filter(|p| p.status == JobStatus::Stopped)
+            .count();
 
         self.status = if running_count > 0 {
             if self.foreground {
@@ -216,10 +226,12 @@ impl Job {
             JobStatus::Stopped
         } else if finished_count == self.processes.len() {
             // All processes finished - determine overall status
-            let failed_processes: Vec<_> = self.processes.iter()
+            let failed_processes: Vec<_> = self
+                .processes
+                .iter()
                 .filter(|p| matches!(p.status, JobStatus::Failed(_) | JobStatus::Terminated(_)))
                 .collect();
-            
+
             if !failed_processes.is_empty() {
                 if let JobStatus::Failed(ref msg) = failed_processes[0].status {
                     JobStatus::Failed(msg.clone())
@@ -230,7 +242,9 @@ impl Job {
                 }
             } else {
                 // Get exit code from last process (traditional shell behavior)
-                let exit_code = self.processes.last()
+                let exit_code = self
+                    .processes
+                    .last()
                     .and_then(|p| match p.status {
                         JobStatus::Done(code) => Some(code),
                         _ => None,
@@ -255,12 +269,18 @@ impl Job {
 
     /// Check if job is running
     pub fn is_running(&self) -> bool {
-        matches!(self.status, JobStatus::Running | JobStatus::Background | JobStatus::Foreground)
+        matches!(
+            self.status,
+            JobStatus::Running | JobStatus::Background | JobStatus::Foreground
+        )
     }
 
     /// Check if job is finished
     pub fn is_finished(&self) -> bool {
-        matches!(self.status, JobStatus::Done(_) | JobStatus::Terminated(_) | JobStatus::Failed(_))
+        matches!(
+            self.status,
+            JobStatus::Done(_) | JobStatus::Terminated(_) | JobStatus::Failed(_)
+        )
     }
 
     /// Check if job is stopped
@@ -376,18 +396,20 @@ pub struct JobManager {
 // ---------------------------------------------------------------------------
 // Global JobManager (singleton) for builtins needing job control access
 // ---------------------------------------------------------------------------
-static GLOBAL_JOB_MANAGER: LazyLock<Mutex<JobManager>> = LazyLock::new(|| Mutex::new(JobManager::new()));
+static GLOBAL_JOB_MANAGER: LazyLock<Mutex<JobManager>> =
+    LazyLock::new(|| Mutex::new(JobManager::new()));
 
 /// Execute a closure with mutable access to the global JobManager.
 /// Keep critical section short to avoid blocking other builtin operations.
 pub fn with_global_job_manager<F, R>(f: F) -> R
 where
-    F: FnOnce(&mut JobManager) -> R
+    F: FnOnce(&mut JobManager) -> R,
 {
-    let mut guard = GLOBAL_JOB_MANAGER.lock().expect("GLOBAL_JOB_MANAGER poisoned");
+    let mut guard = GLOBAL_JOB_MANAGER
+        .lock()
+        .expect("GLOBAL_JOB_MANAGER poisoned");
     f(&mut guard)
 }
-
 
 impl fmt::Debug for JobManager {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -421,21 +443,16 @@ pub enum JobNotification {
         process_id: ProcessId,
     },
     /// Job created
-    JobCreated {
-        job_id: JobId,
-        description: String,
-    },
+    JobCreated { job_id: JobId, description: String },
     /// Job removed
-    JobRemoved {
-        job_id: JobId,
-    },
+    JobRemoved { job_id: JobId },
 }
 
 impl JobManager {
     /// Create a new job manager
     pub fn new() -> Self {
         let (notification_tx, notification_rx) = mpsc::channel();
-        
+
         Self {
             jobs: Arc::new(RwLock::new(HashMap::new())),
             next_job_id: Arc::new(Mutex::new(1)),
@@ -449,34 +466,42 @@ impl JobManager {
 
     /// Safely acquire a read lock on jobs
     fn get_jobs_read(&self) -> ShellResult<std::sync::RwLockReadGuard<'_, HashMap<JobId, Job>>> {
-        self.jobs.read().map_err(|_| ShellError::new(
-            ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
-            "Failed to acquire read lock on jobs".to_string()
-        ))
+        self.jobs.read().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Failed to acquire read lock on jobs".to_string(),
+            )
+        })
     }
 
     /// Safely acquire a write lock on jobs  
     fn get_jobs_write(&self) -> ShellResult<std::sync::RwLockWriteGuard<'_, HashMap<JobId, Job>>> {
-        self.jobs.write().map_err(|_| ShellError::new(
-            ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
-            "Failed to acquire write lock on jobs".to_string()
-        ))
+        self.jobs.write().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Failed to acquire write lock on jobs".to_string(),
+            )
+        })
     }
 
     /// Safely acquire a lock on next job ID
     fn get_next_job_id_lock(&self) -> ShellResult<std::sync::MutexGuard<'_, JobId>> {
-        self.next_job_id.lock().map_err(|_| ShellError::new(
-            ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
-            "Failed to acquire lock on next job ID".to_string()
-        ))
+        self.next_job_id.lock().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Failed to acquire lock on next job ID".to_string(),
+            )
+        })
     }
 
     /// Safely acquire a lock on foreground job
     fn get_foreground_job_lock(&self) -> ShellResult<std::sync::MutexGuard<'_, Option<JobId>>> {
-        self.foreground_job.lock().map_err(|_| ShellError::new(
-            ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
-            "Failed to acquire lock on foreground job".to_string()
-        ))
+        self.foreground_job.lock().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Failed to acquire lock on foreground job".to_string(),
+            )
+        })
     }
 
     /// Enable or disable job control
@@ -499,7 +524,7 @@ impl JobManager {
         };
 
         let job = Job::new(job_id, description.clone());
-        
+
         {
             let mut jobs = self.get_jobs_write()?;
             jobs.insert(job_id, job);
@@ -521,7 +546,7 @@ impl JobManager {
     }
 
     /// Get a mutable reference to a job by ID
-    /// 
+    ///
     /// This method provides temporary mutable access to a job for updating
     /// its state. The caller receives a closure that can modify the job.
     pub fn with_job_mut<T, F>(&self, job_id: JobId, f: F) -> Option<T>
@@ -533,7 +558,7 @@ impl JobManager {
     }
 
     /// Get a mutable job by ID (alternative implementation)
-    /// 
+    ///
     /// Returns a clone of the job that can be modified and then updated back
     /// using update_job method. This approach avoids holding locks for extended periods.
     pub fn get_job_mut(&self, job_id: JobId) -> Option<Job> {
@@ -542,7 +567,7 @@ impl JobManager {
     }
 
     /// Update an existing job
-    /// 
+    ///
     /// This method should be used in conjunction with get_job_mut to update
     /// a job after modification.
     pub fn update_job(&mut self, job: Job) -> bool {
@@ -566,13 +591,19 @@ impl JobManager {
     /// Get running jobs
     pub fn get_running_jobs(&self) -> Vec<Job> {
         let jobs = self.jobs.read().unwrap();
-        jobs.values().filter(|job| job.is_running()).cloned().collect()
+        jobs.values()
+            .filter(|job| job.is_running())
+            .cloned()
+            .collect()
     }
 
     /// Get stopped jobs
     pub fn get_stopped_jobs(&self) -> Vec<Job> {
         let jobs = self.jobs.read().unwrap();
-        jobs.values().filter(|job| job.is_stopped()).cloned().collect()
+        jobs.values()
+            .filter(|job| job.is_stopped())
+            .cloned()
+            .collect()
     }
 
     /// Remove a job
@@ -584,7 +615,9 @@ impl JobManager {
 
         if job.is_some() {
             // Send notification
-            let _ = self.notification_tx.send(JobNotification::JobRemoved { job_id });
+            let _ = self
+                .notification_tx
+                .send(JobNotification::JobRemoved { job_id });
         }
 
         job
@@ -592,103 +625,150 @@ impl JobManager {
 
     /// Add a process to a job
     pub fn add_process_to_job(&mut self, job_id: JobId, process: ProcessInfo) -> ShellResult<()> {
-        let mut jobs = self.jobs.write()
-            .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Jobs lock poisoned"))?;
-        
+        let mut jobs = self.jobs.write().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Jobs lock poisoned",
+            )
+        })?;
+
         if let Some(job) = jobs.get_mut(&job_id) {
             let process_id = process.pid;
             job.add_process(process);
-            
+
             // Send notification
-            let _ = self.notification_tx.send(JobNotification::ProcessAdded {
-                job_id,
-                process_id,
-            });
-            
+            let _ = self
+                .notification_tx
+                .send(JobNotification::ProcessAdded { job_id, process_id });
+
             Ok(())
         } else {
-            Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {job_id} not found")))
+            Err(ShellError::new(
+                ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
+                format!("Job {job_id} not found"),
+            ))
         }
     }
 
     /// Remove a process from a job
-    pub fn remove_process_from_job(&mut self, job_id: JobId, process_id: ProcessId) -> ShellResult<Option<ProcessInfo>> {
-        let mut jobs = self.jobs.write()
-            .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Jobs lock poisoned"))?;
-        
+    pub fn remove_process_from_job(
+        &mut self,
+        job_id: JobId,
+        process_id: ProcessId,
+    ) -> ShellResult<Option<ProcessInfo>> {
+        let mut jobs = self.jobs.write().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Jobs lock poisoned",
+            )
+        })?;
+
         if let Some(job) = jobs.get_mut(&job_id) {
             let process = job.remove_process(process_id);
-            
+
             if process.is_some() {
                 // Send notification
-                let _ = self.notification_tx.send(JobNotification::ProcessRemoved {
-                    job_id,
-                    process_id,
-                });
+                let _ = self
+                    .notification_tx
+                    .send(JobNotification::ProcessRemoved { job_id, process_id });
             }
-            
+
             Ok(process)
         } else {
-            Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {job_id} not found")))
+            Err(ShellError::new(
+                ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
+                format!("Job {job_id} not found"),
+            ))
         }
     }
 
     /// Update job status
     pub fn update_job_status(&mut self, job_id: JobId, new_status: JobStatus) -> ShellResult<()> {
-        let mut jobs = self.jobs.write()
-            .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Jobs lock poisoned"))?;
-        
+        let mut jobs = self.jobs.write().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Jobs lock poisoned",
+            )
+        })?;
+
         if let Some(job) = jobs.get_mut(&job_id) {
             let old_status = job.status.clone();
             job.status = new_status.clone();
-            
+
             // Send notification
             let _ = self.notification_tx.send(JobNotification::StatusChanged {
                 job_id,
                 old_status,
                 new_status,
             });
-            
+
             Ok(())
         } else {
-            Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {job_id} not found")))
+            Err(ShellError::new(
+                ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
+                format!("Job {job_id} not found"),
+            ))
         }
     }
 
     /// Send signal to a job (all processes in the job)
     pub fn send_signal_to_job(&self, job_id: JobId, signal: JobSignal) -> ShellResult<()> {
-        let jobs = self.jobs.read()
-            .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Jobs lock poisoned"))?;
-        
+        let jobs = self.jobs.read().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Jobs lock poisoned",
+            )
+        })?;
+
         if let Some(job) = jobs.get(&job_id) {
             // Send signal to process group
             self.send_signal_to_process_group(job.pgid, signal)
         } else {
-            Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {job_id} not found")))
+            Err(ShellError::new(
+                ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
+                format!("Job {job_id} not found"),
+            ))
         }
     }
 
     /// Send signal to a process group
-    pub fn send_signal_to_process_group(&self, pgid: ProcessGroupId, signal: JobSignal) -> ShellResult<()> {
+    pub fn send_signal_to_process_group(
+        &self,
+        pgid: ProcessGroupId,
+        signal: JobSignal,
+    ) -> ShellResult<()> {
         #[cfg(unix)]
         {
             use nix::sys::signal::{self, Signal};
             use nix::unistd::Pid;
-            
+
             let signal_num = signal.to_signal_number();
-            let nix_signal = Signal::try_from(signal_num)
-                .map_err(|e| ShellError::new(ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError), format!("Invalid signal: {}", e)))?;
-            
-            signal::killpg(Pid::from_raw(pgid as i32), nix_signal)
-                .map_err(|e| ShellError::new(ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError), format!("Failed to send signal: {}", e)))?;
+            let nix_signal = Signal::try_from(signal_num).map_err(|e| {
+                ShellError::new(
+                    ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
+                    format!("Invalid signal: {}", e),
+                )
+            })?;
+
+            signal::killpg(Pid::from_raw(pgid as i32), nix_signal).map_err(|e| {
+                ShellError::new(
+                    ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
+                    format!("Failed to send signal: {}", e),
+                )
+            })?;
         }
-        
+
         #[cfg(windows)]
         {
             use std::process::Command;
             use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
-            use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Thread32First, Thread32Next, THREADENTRY32, TH32CS_SNAPTHREAD};
-            use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, SuspendThread, THREAD_SUSPEND_RESUME};
+            use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+                CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD,
+                THREADENTRY32,
+            };
+            use windows_sys::Win32::System::Threading::{
+                OpenThread, ResumeThread, SuspendThread, THREAD_SUSPEND_RESUME,
+            };
 
             // Helper: suspend all threads of the process identified by pid
             unsafe fn suspend_process_threads(pid: u32) -> Result<(), String> {
@@ -710,7 +790,9 @@ impl JobManager {
                             CloseHandle(hthread);
                         }
                     }
-                    if Thread32Next(snapshot, &mut entry) == 0 { break; }
+                    if Thread32Next(snapshot, &mut entry) == 0 {
+                        break;
+                    }
                 }
                 CloseHandle(snapshot);
                 Ok(())
@@ -736,7 +818,9 @@ impl JobManager {
                             CloseHandle(hthread);
                         }
                     }
-                    if Thread32Next(snapshot, &mut entry) == 0 { break; }
+                    if Thread32Next(snapshot, &mut entry) == 0 {
+                        break;
+                    }
                 }
                 CloseHandle(snapshot);
                 Ok(())
@@ -745,163 +829,205 @@ impl JobManager {
             match signal {
                 JobSignal::Terminate | JobSignal::Kill => {
                     // Use taskkill for termination on Windows (works across consoles)
-                    let kill_flag = if signal == JobSignal::Kill { "/F" } else { "/T" };
+                    let kill_flag = if signal == JobSignal::Kill {
+                        "/F"
+                    } else {
+                        "/T"
+                    };
                     Command::new("taskkill")
                         .args([kill_flag, "/PID", &pgid.to_string()])
                         .output()
-                        .map_err(|e| ShellError::new(
-                            ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                            format!("Failed to send signal on Windows: {e}")
-                        ))?;
+                        .map_err(|e| {
+                            ShellError::new(
+                                ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
+                                format!("Failed to send signal on Windows: {e}"),
+                            )
+                        })?;
                 }
                 JobSignal::Stop => {
                     // Suspend all threads of the target process (best-effort)
-                    unsafe { suspend_process_threads(pgid) }
-                        .map_err(|e| ShellError::new(
+                    unsafe { suspend_process_threads(pgid) }.map_err(|e| {
+                        ShellError::new(
                             ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                            format!("Failed to suspend process {pgid}: {e}")
-                        ))?;
+                            format!("Failed to suspend process {pgid}: {e}"),
+                        )
+                    })?;
                 }
                 JobSignal::Continue => {
                     // Resume all threads of the target process (best-effort)
-                    unsafe { resume_process_threads(pgid) }
-                        .map_err(|e| ShellError::new(
+                    unsafe { resume_process_threads(pgid) }.map_err(|e| {
+                        ShellError::new(
                             ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                            format!("Failed to resume process {pgid}: {e}")
-                        ))?;
+                            format!("Failed to resume process {pgid}: {e}"),
+                        )
+                    })?;
                 }
                 _ => {
                     return Err(ShellError::new(
                         ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                        format!("Signal {signal:?} not supported on Windows")
+                        format!("Signal {signal:?} not supported on Windows"),
                     ));
                 }
             }
         }
-        
+
         Ok(())
     }
 
     /// Spawn a background job
-    pub fn spawn_background_job(&mut self, command: String, args: Vec<String>) -> ShellResult<JobId> {
+    pub fn spawn_background_job(
+        &mut self,
+        command: String,
+        args: Vec<String>,
+    ) -> ShellResult<JobId> {
         // Reuse a temporary buffer to avoid intermediate allocations from format!/join in hot path
-        let mut cmd_buf = String::with_capacity(command.len() + 1 + args.iter().map(|a| a.len()+1).sum::<usize>());
-    cmd_buf.push_str(&command);
-        if !args.is_empty() { cmd_buf.push(' '); }
+        let mut cmd_buf = String::with_capacity(
+            command.len() + 1 + args.iter().map(|a| a.len() + 1).sum::<usize>(),
+        );
+        cmd_buf.push_str(&command);
+        if !args.is_empty() {
+            cmd_buf.push(' ');
+        }
         for (i, a) in args.iter().enumerate() {
             cmd_buf.push_str(a);
-            if i + 1 != args.len() { cmd_buf.push(' '); }
+            if i + 1 != args.len() {
+                cmd_buf.push(' ');
+            }
         }
         let job_id = self.create_job(cmd_buf)?;
-        
+
         // Spawn the process
         #[cfg(unix)]
         {
-            use std::process::{Command, Stdio};
             use nix::unistd::{setpgid, Pid};
-            
+            use std::process::{Command, Stdio};
+
             let mut cmd = Command::new(&command);
             cmd.args(&args)
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
-            
-            let child = cmd.spawn()
-                .map_err(|e| ShellError::new(
+
+            let child = cmd.spawn().map_err(|e| {
+                ShellError::new(
                     ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                    format!("Failed to spawn background process: {}", e)
-                ))?;
-            
+                    format!("Failed to spawn background process: {}", e),
+                )
+            })?;
+
             let pid = child.id();
             let pgid = pid; // Use PID as PGID for new process group
-            
+
             // Set process group for job control
             if let Err(e) = setpgid(Pid::from_raw(pid as i32), Pid::from_raw(pgid as i32)) {
                 eprintln!("Warning: Failed to set process group: {}", e);
             }
-            
-            let process_info = crate::job::ProcessInfo::new(pid, pgid, format!("{} {}", command, args.join(" ")));
+
+            let process_info =
+                crate::job::ProcessInfo::new(pid, pgid, format!("{} {}", command, args.join(" ")));
             self.add_process_to_job(job_id, process_info)?;
-            
+
             // Start monitoring thread for this job
             self.start_job_monitor(job_id, child);
         }
-        
+
         #[cfg(windows)]
         {
-            use std::process::{Command, Stdio};
             use std::io::ErrorKind as IoErrorKind;
-            
+            use std::process::{Command, Stdio};
+
             // First attempt direct spawn (works for real executables)
             let mut direct = Command::new(&command);
-            direct.args(&args)
+            direct
+                .args(&args)
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
 
-            let child = match direct.spawn() {
-                Ok(c) => c,
-                Err(e) => {
-                    if e.kind() == IoErrorKind::NotFound {
-                        // Fallback for common shell builtins not available as executables
-                        let lower = command.to_ascii_lowercase();
-                        if lower == "echo" {
-                            let mut fb = Command::new("cmd.exe");
-                            let mut full = String::from("echo");
-                            for a in &args { full.push(' '); full.push_str(a); }
-                            fb.args(["/C", &full])
-                                .stdin(Stdio::null())
-                                .stdout(Stdio::null())
-                                .stderr(Stdio::null());
-                            fb.spawn().map_err(|e2| ShellError::new(
+            let child =
+                match direct.spawn() {
+                    Ok(c) => c,
+                    Err(e) => {
+                        if e.kind() == IoErrorKind::NotFound {
+                            // Fallback for common shell builtins not available as executables
+                            let lower = command.to_ascii_lowercase();
+                            if lower == "echo" {
+                                let mut fb = Command::new("cmd.exe");
+                                let mut full = String::from("echo");
+                                for a in &args {
+                                    full.push(' ');
+                                    full.push_str(a);
+                                }
+                                fb.args(["/C", &full])
+                                    .stdin(Stdio::null())
+                                    .stdout(Stdio::null())
+                                    .stderr(Stdio::null());
+                                fb.spawn().map_err(|e2| {
+                                    ShellError::new(
                                 ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
                                 format!("Failed to spawn background process (fallback echo): {e2}")
-                            ))?
-                        } else if lower == "sleep" {
-                            let seconds = args.first().and_then(|s| s.parse::<u64>().ok()).unwrap_or(1);
-                            let mut fb = Command::new("powershell.exe");
-                            fb.args(["-NoProfile", "-Command", &format!("Start-Sleep -Seconds {seconds}")])
+                            )
+                                })?
+                            } else if lower == "sleep" {
+                                let seconds = args
+                                    .first()
+                                    .and_then(|s| s.parse::<u64>().ok())
+                                    .unwrap_or(1);
+                                let mut fb = Command::new("powershell.exe");
+                                fb.args([
+                                    "-NoProfile",
+                                    "-Command",
+                                    &format!("Start-Sleep -Seconds {seconds}"),
+                                ])
                                 .stdin(Stdio::null())
                                 .stdout(Stdio::null())
                                 .stderr(Stdio::null());
-                            fb.spawn().map_err(|e2| ShellError::new(
+                                fb.spawn().map_err(|e2| {
+                                    ShellError::new(
                                 ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
                                 format!("Failed to spawn background process (fallback sleep): {e2}")
-                            ))?
+                            )
+                                })?
+                            } else {
+                                return Err(ShellError::new(
+                                    ErrorKind::SystemError(
+                                        crate::error::SystemErrorKind::ProcessError,
+                                    ),
+                                    "Failed to spawn background process: program not found"
+                                        .to_string(),
+                                ));
+                            }
                         } else {
                             return Err(ShellError::new(
                                 ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                                "Failed to spawn background process: program not found".to_string()));
+                                format!("Failed to spawn background process: {e}"),
+                            ));
                         }
-                    } else {
-                        return Err(ShellError::new(
-                            ErrorKind::SystemError(crate::error::SystemErrorKind::ProcessError),
-                            format!("Failed to spawn background process: {e}")));
                     }
-                }
-            };
-            
+                };
+
             let pid = child.id();
             let pgid = pid; // Windows doesn't have process groups like Unix
-            
-            let process_info = crate::job::ProcessInfo::new(pid, pgid, format!("{} {}", command, args.join(" ")));
+
+            let process_info =
+                crate::job::ProcessInfo::new(pid, pgid, format!("{} {}", command, args.join(" ")));
             self.add_process_to_job(job_id, process_info)?;
-            
+
             // Start monitoring thread for this job
             self.start_job_monitor(job_id, child);
         }
-        
+
         // Move job to background
         self.move_job_to_background(job_id)?;
-        
+
         Ok(job_id)
     }
-    
+
     /// Start a monitoring thread for a background job
     fn start_job_monitor(&self, job_id: JobId, mut child: std::process::Child) {
         let jobs = Arc::clone(&self.jobs);
         let notification_tx = self.notification_tx.clone();
-        
+
         std::thread::spawn(move || {
             // Wait for process completion
             match child.wait() {
@@ -909,24 +1035,26 @@ impl JobManager {
                     let new_status = if exit_status.success() {
                         JobStatus::Done(exit_status.code().unwrap_or(0))
                     } else {
-                        JobStatus::Failed(format!("Process exited with code: {}",
-                            exit_status.code().unwrap_or(-1)))
+                        JobStatus::Failed(format!(
+                            "Process exited with code: {}",
+                            exit_status.code().unwrap_or(-1)
+                        ))
                     };
-                    
+
                     // Update job status
                     if let Ok(mut jobs_guard) = jobs.write() {
                         if let Some(job) = jobs_guard.get_mut(&job_id) {
                             let old_status = job.status.clone();
                             job.status = new_status.clone();
                             job.completed_at = Some(std::time::Instant::now());
-                            
+
                             // Update process status
                             if let Some(process) = job.processes.get_mut(0) {
                                 process.status = new_status.clone();
                                 process.end_time = Some(std::time::Instant::now());
                                 process.exit_status = Some(exit_status);
                             }
-                            
+
                             // Send notification
                             let _ = notification_tx.send(JobNotification::StatusChanged {
                                 job_id,
@@ -938,7 +1066,7 @@ impl JobManager {
                 }
                 Err(e) => {
                     eprintln!("Error waiting for background job {job_id}: {e}");
-                    
+
                     // Update job as failed
                     if let Ok(mut jobs_guard) = jobs.write() {
                         if let Some(job) = jobs_guard.get_mut(&job_id) {
@@ -946,7 +1074,7 @@ impl JobManager {
                             let new_status = JobStatus::Failed(format!("Wait error: {e}"));
                             job.status = new_status.clone();
                             job.completed_at = Some(std::time::Instant::now());
-                            
+
                             // Send notification
                             let _ = notification_tx.send(JobNotification::StatusChanged {
                                 job_id,
@@ -961,20 +1089,22 @@ impl JobManager {
     }
 
     /// Get job notifications channel receiver
-    pub fn get_notification_receiver(&self) -> Arc<std::sync::Mutex<std::sync::mpsc::Receiver<JobNotification>>> {
+    pub fn get_notification_receiver(
+        &self,
+    ) -> Arc<std::sync::Mutex<std::sync::mpsc::Receiver<JobNotification>>> {
         Arc::clone(&self.notification_rx)
     }
 
     /// Process pending job notifications
     pub fn process_notifications(&self) -> Vec<JobNotification> {
         let mut notifications = Vec::new();
-        
+
         if let Ok(rx) = self.notification_rx.lock() {
             while let Ok(notification) = rx.try_recv() {
                 notifications.push(notification);
             }
         }
-        
+
         notifications
     }
 
@@ -982,25 +1112,36 @@ impl JobManager {
     pub fn move_job_to_foreground(&mut self, job_id: JobId) -> ShellResult<()> {
         // Set current foreground job
         {
-            let mut fg_job = self.foreground_job.lock()
-                .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Foreground job lock poisoned"))?;
+            let mut fg_job = self.foreground_job.lock().map_err(|_| {
+                ShellError::new(
+                    ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                    "Foreground job lock poisoned",
+                )
+            })?;
             *fg_job = Some(job_id);
         }
 
         // Update job status
         {
-            let mut jobs = self.jobs.write()
-                .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Jobs lock poisoned"))?;
-            
+            let mut jobs = self.jobs.write().map_err(|_| {
+                ShellError::new(
+                    ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                    "Jobs lock poisoned",
+                )
+            })?;
+
             if let Some(job) = jobs.get_mut(&job_id) {
                 job.move_to_foreground();
-                
+
                 // Continue the job if it was stopped
                 if job.is_stopped() {
                     self.send_signal_to_job(job_id, JobSignal::Continue)?;
                 }
             } else {
-                return Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {job_id} not found")));
+                return Err(ShellError::new(
+                    ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
+                    format!("Job {job_id} not found"),
+                ));
             }
         }
 
@@ -1011,8 +1152,12 @@ impl JobManager {
     pub fn move_job_to_background(&mut self, job_id: JobId) -> ShellResult<()> {
         // Clear foreground job if this was it
         {
-            let mut fg_job = self.foreground_job.lock()
-                .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Foreground job lock poisoned"))?;
+            let mut fg_job = self.foreground_job.lock().map_err(|_| {
+                ShellError::new(
+                    ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                    "Foreground job lock poisoned",
+                )
+            })?;
             if *fg_job == Some(job_id) {
                 *fg_job = None;
             }
@@ -1020,18 +1165,25 @@ impl JobManager {
 
         // Update job status
         {
-            let mut jobs = self.jobs.write()
-                .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Jobs lock poisoned"))?;
-            
+            let mut jobs = self.jobs.write().map_err(|_| {
+                ShellError::new(
+                    ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                    "Jobs lock poisoned",
+                )
+            })?;
+
             if let Some(job) = jobs.get_mut(&job_id) {
                 job.move_to_background();
-                
+
                 // Continue the job if it was stopped
                 if job.is_stopped() {
                     self.send_signal_to_job(job_id, JobSignal::Continue)?;
                 }
             } else {
-                return Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {job_id} not found")));
+                return Err(ShellError::new(
+                    ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
+                    format!("Job {job_id} not found"),
+                ));
             }
         }
 
@@ -1048,18 +1200,25 @@ impl JobManager {
     pub fn wait_for_job(&self, job_id: JobId) -> ShellResult<JobStatus> {
         loop {
             {
-                let jobs = self.jobs.read()
-                    .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Jobs lock poisoned"))?;
-                
+                let jobs = self.jobs.read().map_err(|_| {
+                    ShellError::new(
+                        ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                        "Jobs lock poisoned",
+                    )
+                })?;
+
                 if let Some(job) = jobs.get(&job_id) {
                     if job.is_finished() {
                         return Ok(job.status.clone());
                     }
                 } else {
-                    return Err(ShellError::new(ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument), format!("Job {job_id} not found")));
+                    return Err(ShellError::new(
+                        ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
+                        format!("Job {job_id} not found"),
+                    ));
                 }
             }
-            
+
             // Sleep briefly before checking again
             thread::sleep(Duration::from_millis(10));
         }
@@ -1078,19 +1237,19 @@ impl JobManager {
         for job_id in finished_jobs {
             let _ = self.remove_job(job_id); // Ignore return value since we only want cleanup
         }
-        
+
         Ok(())
     }
 
     /// Get job statistics
     pub fn get_statistics(&self) -> ShellResult<JobStatistics> {
         let jobs = self.get_jobs_read()?;
-        
+
         let total_jobs = jobs.len();
         let running_jobs = jobs.values().filter(|job| job.is_running()).count();
         let stopped_jobs = jobs.values().filter(|job| job.is_stopped()).count();
         let finished_jobs = jobs.values().filter(|job| job.is_finished()).count();
-        
+
         let total_processes: usize = jobs.values().map(|job| job.processes.len()).sum();
         let total_cpu_time: Duration = jobs.values().map(|job| job.total_cpu_time()).sum();
         let total_memory_usage: u64 = jobs.values().map(|job| job.total_memory_usage()).sum();
@@ -1129,7 +1288,7 @@ impl Default for JobManager {
 pub fn init() {
     // This function can be used to set up signal handlers and other
     // job control initialization if needed
-    
+
     #[cfg(unix)]
     {
         // Set up signal handlers for job control
@@ -1145,11 +1304,16 @@ mod tests {
     #[test]
     fn test_job_creation() {
         let mut manager = JobManager::new();
-        let job_id = manager.create_job("test command".to_string()).expect("Failed to create job");
-        
+        let job_id = manager
+            .create_job("test command".to_string())
+            .expect("Failed to create job");
+
         assert_eq!(job_id, 1);
-        
-        let job = manager.get_job(job_id).expect("Failed to get job").expect("Job not found");
+
+        let job = manager
+            .get_job(job_id)
+            .expect("Failed to get job")
+            .expect("Job not found");
         assert_eq!(job.description, "test command");
         assert_eq!(job.processes.len(), 0);
     }
@@ -1157,12 +1321,19 @@ mod tests {
     #[test]
     fn test_process_management() {
         let mut manager = JobManager::new();
-        let job_id = manager.create_job("test command".to_string()).expect("Failed to create job");
-        
+        let job_id = manager
+            .create_job("test command".to_string())
+            .expect("Failed to create job");
+
         let process = ProcessInfo::new(12345, 12345, "test".to_string());
-        manager.add_process_to_job(job_id, process).expect("Failed to add process");
-        
-        let job = manager.get_job(job_id).expect("Failed to get job").expect("Job not found");
+        manager
+            .add_process_to_job(job_id, process)
+            .expect("Failed to add process");
+
+        let job = manager
+            .get_job(job_id)
+            .expect("Failed to get job")
+            .expect("Job not found");
         assert_eq!(job.processes.len(), 1);
         assert_eq!(job.processes[0].pid, 12345);
     }
@@ -1170,11 +1341,18 @@ mod tests {
     #[test]
     fn test_job_status_updates() {
         let mut manager = JobManager::new();
-        let job_id = manager.create_job("test command".to_string()).expect("Failed to create job");
-        
-        manager.update_job_status(job_id, JobStatus::Stopped).expect("Failed to update job status");
-        
-        let job = manager.get_job(job_id).expect("Failed to get job").expect("Job not found");
+        let job_id = manager
+            .create_job("test command".to_string())
+            .expect("Failed to create job");
+
+        manager
+            .update_job_status(job_id, JobStatus::Stopped)
+            .expect("Failed to update job status");
+
+        let job = manager
+            .get_job(job_id)
+            .expect("Failed to get job")
+            .expect("Job not found");
         assert_eq!(job.status, JobStatus::Stopped);
     }
-} 
+}

@@ -1,13 +1,13 @@
 type I18nHook = std::sync::Arc<dyn Fn(&LanguagePack) -> Result<()> + Send + Sync>;
 use crate::compat::Result; // Removed unused Context import
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    time::SystemTime,
-    sync::{Arc, Mutex},
     fs,
     path::PathBuf, // Re-added PathBuf needed by multiple function signatures
+    sync::{Arc, Mutex},
+    time::SystemTime,
 };
-use serde::{Deserialize, Serialize};
 
 /// Comprehensive internationalization and localization system  
 #[derive(Debug, Clone)]
@@ -55,7 +55,10 @@ impl InternationalizationSystem {
     /// Set the current locale
     pub fn set_locale(&mut self, locale: &str) -> Result<()> {
         if !self.language_packs.contains_key(locale) {
-            return Err(crate::anyhow!("Language pack for locale '{}' not found", locale));
+            return Err(crate::anyhow!(
+                "Language pack for locale '{}' not found",
+                locale
+            ));
         }
 
         // Clear message cache when locale changes
@@ -115,13 +118,13 @@ impl InternationalizationSystem {
         }
 
         // If no message found, return the key itself
-    format!("[{key}]")
+        format!("[{key}]")
     }
 
     /// Interpolate parameters into message template
     fn interpolate_message(&self, template: &str, params: &HashMap<String, String>) -> String {
         let mut result = template.to_string();
-        
+
         for (key, value) in params {
             result = result.replace(&format!("{{{key}}}"), value);
         }
@@ -130,17 +133,26 @@ impl InternationalizationSystem {
     }
 
     /// Get pluralized message
-    pub fn get_plural_message(&self, key: &str, count: i64, params: Option<HashMap<String, String>>) -> String {
+    pub fn get_plural_message(
+        &self,
+        key: &str,
+        count: i64,
+        params: Option<HashMap<String, String>>,
+    ) -> String {
         // Determine plural form based on current locale
         let plural_form = if let Some(rule) = self.pluralization_rules.get(&self.current_locale) {
             (rule.rule_function)(count)
         } else {
             // Default English pluralization
-            if count == 1 { PluralForm::One } else { PluralForm::Other }
+            if count == 1 {
+                PluralForm::One
+            } else {
+                PluralForm::Other
+            }
         };
 
         let plural_key = format!("{}_{}", key, plural_form.to_key());
-        
+
         let mut final_params = params.unwrap_or_default();
         final_params.insert("count".to_string(), count.to_string());
 
@@ -179,7 +191,8 @@ impl InternationalizationSystem {
 
     /// Get text direction for current locale
     pub fn get_text_direction(&self) -> TextDirection {
-        self.text_direction.get(&self.current_locale)
+        self.text_direction
+            .get(&self.current_locale)
             .cloned()
             .unwrap_or(TextDirection::LeftToRight)
     }
@@ -188,8 +201,9 @@ impl InternationalizationSystem {
     pub fn load_language_pack(&mut self, locale: &str, file_path: &PathBuf) -> Result<()> {
         let content = fs::read_to_string(file_path)?;
         let language_pack: LanguagePack = serde_json::from_str(&content)?;
-        
-        self.language_packs.insert(locale.to_string(), language_pack);
+
+        self.language_packs
+            .insert(locale.to_string(), language_pack);
         Ok(())
     }
 
@@ -200,7 +214,10 @@ impl InternationalizationSystem {
             fs::write(file_path, content)?;
             Ok(())
         } else {
-            Err(crate::anyhow!("Language pack for locale '{}' not found", locale))
+            Err(crate::anyhow!(
+                "Language pack for locale '{}' not found",
+                locale
+            ))
         }
     }
 
@@ -215,23 +232,30 @@ impl InternationalizationSystem {
             extra_keys: HashMap::new(),
         };
 
-        let base_keys: std::collections::HashSet<String> = if let Some(base_pack) = self.language_packs.get(&self.fallback_locale) {
-            base_pack.messages.keys().cloned().collect()
-        } else {
-            return Err(crate::anyhow!("Base language pack '{}' not found", self.fallback_locale)); 
-        };
+        let base_keys: std::collections::HashSet<String> =
+            if let Some(base_pack) = self.language_packs.get(&self.fallback_locale) {
+                base_pack.messages.keys().cloned().collect()
+            } else {
+                return Err(crate::anyhow!(
+                    "Base language pack '{}' not found",
+                    self.fallback_locale
+                ));
+            };
 
         for (locale, language_pack) in &self.language_packs {
             // Run custom validators
             for validator in &self.validators {
                 if let Err(e) = (validator.validate_function)(language_pack) {
-                    report.errors.push(format!("Validation error in '{locale}': {e}"));
+                    report
+                        .errors
+                        .push(format!("Validation error in '{locale}': {e}"));
                     continue;
                 }
             }
 
-            let pack_keys: std::collections::HashSet<String> = language_pack.messages.keys().cloned().collect();
-            
+            let pack_keys: std::collections::HashSet<String> =
+                language_pack.messages.keys().cloned().collect();
+
             // Check for missing keys
             let missing: Vec<String> = base_keys.difference(&pack_keys).cloned().collect();
             if !missing.is_empty() {
@@ -252,7 +276,7 @@ impl InternationalizationSystem {
 
     /// Extract all translatable strings from source code
     pub fn extract_strings(&self, source_dirs: Vec<PathBuf>) -> Result<ExtractionReport> {
-    let mut report = ExtractionReport {
+        let mut report = ExtractionReport {
             extracted_strings: Vec::new(),
             files_processed: 0,
             total_strings: 0,
@@ -272,13 +296,13 @@ impl InternationalizationSystem {
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
             let path = entry.path();
-            
+
             if path.is_dir() {
                 self.extract_from_directory(&path, report)?;
             } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
                 // Extract strings from Rust files
                 let content = fs::read_to_string(&path)?;
-                
+
                 // Simple regex-based extraction (in practice, use a proper parser)
                 for line in content.lines() {
                     if line.contains("get_message(") || line.contains("t!(") {
@@ -298,7 +322,7 @@ impl InternationalizationSystem {
                         }
                     }
                 }
-                
+
                 report.files_processed += 1;
             }
         }
@@ -321,16 +345,33 @@ impl InternationalizationSystem {
             },
         };
 
-        en_us.messages.insert("welcome".to_string(), "Welcome to NexusShell".to_string());
-        en_us.messages.insert("goodbye".to_string(), "Goodbye!".to_string());
-        en_us.messages.insert("error_command_not_found".to_string(), "Command not found: {command}".to_string());
-        en_us.messages.insert("file_not_found".to_string(), "File not found: {filename}".to_string());
-        en_us.messages.insert("permission_denied".to_string(), "Permission denied".to_string());
+        en_us
+            .messages
+            .insert("welcome".to_string(), "Welcome to NexusShell".to_string());
+        en_us
+            .messages
+            .insert("goodbye".to_string(), "Goodbye!".to_string());
+        en_us.messages.insert(
+            "error_command_not_found".to_string(),
+            "Command not found: {command}".to_string(),
+        );
+        en_us.messages.insert(
+            "file_not_found".to_string(),
+            "File not found: {filename}".to_string(),
+        );
+        en_us.messages.insert(
+            "permission_denied".to_string(),
+            "Permission denied".to_string(),
+        );
 
         // Plural forms
-        en_us.messages.insert("files_count_one".to_string(), "{count} file".to_string());
-        en_us.messages.insert("files_count_other".to_string(), "{count} files".to_string());
-        
+        en_us
+            .messages
+            .insert("files_count_one".to_string(), "{count} file".to_string());
+        en_us
+            .messages
+            .insert("files_count_other".to_string(), "{count} files".to_string());
+
         self.language_packs.insert("en-US".to_string(), en_us);
 
         // Spanish
@@ -346,11 +387,24 @@ impl InternationalizationSystem {
             },
         };
 
-        es_es.messages.insert("welcome".to_string(), "Bienvenido a NexusShell".to_string());
-        es_es.messages.insert("goodbye".to_string(), "¡Adiós!".to_string());
-        es_es.messages.insert("error_command_not_found".to_string(), "Comando no encontrado: {command}".to_string());
-        es_es.messages.insert("file_not_found".to_string(), "Archivo no encontrado: {filename}".to_string());
-        es_es.messages.insert("permission_denied".to_string(), "Permiso denegado".to_string());
+        es_es
+            .messages
+            .insert("welcome".to_string(), "Bienvenido a NexusShell".to_string());
+        es_es
+            .messages
+            .insert("goodbye".to_string(), "¡Adiós!".to_string());
+        es_es.messages.insert(
+            "error_command_not_found".to_string(),
+            "Comando no encontrado: {command}".to_string(),
+        );
+        es_es.messages.insert(
+            "file_not_found".to_string(),
+            "Archivo no encontrado: {filename}".to_string(),
+        );
+        es_es.messages.insert(
+            "permission_denied".to_string(),
+            "Permiso denegado".to_string(),
+        );
 
         self.language_packs.insert("es-ES".to_string(), es_es);
 
@@ -367,11 +421,25 @@ impl InternationalizationSystem {
             },
         };
 
-        fr_fr.messages.insert("welcome".to_string(), "Bienvenue dans NexusShell".to_string());
-        fr_fr.messages.insert("goodbye".to_string(), "Au revoir!".to_string());
-        fr_fr.messages.insert("error_command_not_found".to_string(), "Commande introuvable: {command}".to_string());
-        fr_fr.messages.insert("file_not_found".to_string(), "Fichier introuvable: {filename}".to_string());
-        fr_fr.messages.insert("permission_denied".to_string(), "Permission refusée".to_string());
+        fr_fr.messages.insert(
+            "welcome".to_string(),
+            "Bienvenue dans NexusShell".to_string(),
+        );
+        fr_fr
+            .messages
+            .insert("goodbye".to_string(), "Au revoir!".to_string());
+        fr_fr.messages.insert(
+            "error_command_not_found".to_string(),
+            "Commande introuvable: {command}".to_string(),
+        );
+        fr_fr.messages.insert(
+            "file_not_found".to_string(),
+            "Fichier introuvable: {filename}".to_string(),
+        );
+        fr_fr.messages.insert(
+            "permission_denied".to_string(),
+            "Permission refusée".to_string(),
+        );
 
         self.language_packs.insert("fr-FR".to_string(), fr_fr);
 
@@ -388,11 +456,25 @@ impl InternationalizationSystem {
             },
         };
 
-        de_de.messages.insert("welcome".to_string(), "Willkommen bei NexusShell".to_string());
-        de_de.messages.insert("goodbye".to_string(), "Auf Wiedersehen!".to_string());
-        de_de.messages.insert("error_command_not_found".to_string(), "Befehl nicht gefunden: {command}".to_string());
-        de_de.messages.insert("file_not_found".to_string(), "Datei nicht gefunden: {filename}".to_string());
-        de_de.messages.insert("permission_denied".to_string(), "Zugriff verweigert".to_string());
+        de_de.messages.insert(
+            "welcome".to_string(),
+            "Willkommen bei NexusShell".to_string(),
+        );
+        de_de
+            .messages
+            .insert("goodbye".to_string(), "Auf Wiedersehen!".to_string());
+        de_de.messages.insert(
+            "error_command_not_found".to_string(),
+            "Befehl nicht gefunden: {command}".to_string(),
+        );
+        de_de.messages.insert(
+            "file_not_found".to_string(),
+            "Datei nicht gefunden: {filename}".to_string(),
+        );
+        de_de.messages.insert(
+            "permission_denied".to_string(),
+            "Zugriff verweigert".to_string(),
+        );
 
         self.language_packs.insert("de-DE".to_string(), de_de);
 
@@ -409,50 +491,78 @@ impl InternationalizationSystem {
             },
         };
 
-        ja_jp.messages.insert("welcome".to_string(), "NexusShellへようこそ".to_string());
-        ja_jp.messages.insert("goodbye".to_string(), "さようなら！".to_string());
-        ja_jp.messages.insert("error_command_not_found".to_string(), "コマンドが見つかりません: {command}".to_string());
-        ja_jp.messages.insert("file_not_found".to_string(), "ファイルが見つかりません: {filename}".to_string());
-        ja_jp.messages.insert("permission_denied".to_string(), "アクセスが拒否されました".to_string());
+        ja_jp
+            .messages
+            .insert("welcome".to_string(), "NexusShellへようこそ".to_string());
+        ja_jp
+            .messages
+            .insert("goodbye".to_string(), "さようなら！".to_string());
+        ja_jp.messages.insert(
+            "error_command_not_found".to_string(),
+            "コマンドが見つかりません: {command}".to_string(),
+        );
+        ja_jp.messages.insert(
+            "file_not_found".to_string(),
+            "ファイルが見つかりません: {filename}".to_string(),
+        );
+        ja_jp.messages.insert(
+            "permission_denied".to_string(),
+            "アクセスが拒否されました".to_string(),
+        );
 
         self.language_packs.insert("ja-JP".to_string(), ja_jp);
     }
 
     fn register_default_formatters(&mut self) {
         // English formatters
-        self.date_formatters.insert("en-US".to_string(), DateFormatter {
-            short_format: "%m/%d/%Y".to_string(),
-            medium_format: "%b %d, %Y".to_string(),
-            long_format: "%B %d, %Y".to_string(),
-            full_format: "%A, %B %d, %Y".to_string(),
-        });
+        self.date_formatters.insert(
+            "en-US".to_string(),
+            DateFormatter {
+                short_format: "%m/%d/%Y".to_string(),
+                medium_format: "%b %d, %Y".to_string(),
+                long_format: "%B %d, %Y".to_string(),
+                full_format: "%A, %B %d, %Y".to_string(),
+            },
+        );
 
-        self.number_formatters.insert("en-US".to_string(), NumberFormatter {
-            decimal_separator: ".".to_string(),
-            group_separator: ",".to_string(),
-            group_size: 3,
-        });
+        self.number_formatters.insert(
+            "en-US".to_string(),
+            NumberFormatter {
+                decimal_separator: ".".to_string(),
+                group_separator: ",".to_string(),
+                group_size: 3,
+            },
+        );
 
-        self.currency_formatters.insert("en-US".to_string(), CurrencyFormatter {
-            symbol_position: CurrencySymbolPosition::Before,
-            decimal_places: 2,
-            group_separator: ",".to_string(),
-            decimal_separator: ".".to_string(),
-        });
+        self.currency_formatters.insert(
+            "en-US".to_string(),
+            CurrencyFormatter {
+                symbol_position: CurrencySymbolPosition::Before,
+                decimal_places: 2,
+                group_separator: ",".to_string(),
+                decimal_separator: ".".to_string(),
+            },
+        );
 
         // German formatters
-        self.date_formatters.insert("de-DE".to_string(), DateFormatter {
-            short_format: "%d.%m.%Y".to_string(),
-            medium_format: "%d. %b %Y".to_string(),
-            long_format: "%d. %B %Y".to_string(),
-            full_format: "%A, %d. %B %Y".to_string(),
-        });
+        self.date_formatters.insert(
+            "de-DE".to_string(),
+            DateFormatter {
+                short_format: "%d.%m.%Y".to_string(),
+                medium_format: "%d. %b %Y".to_string(),
+                long_format: "%d. %B %Y".to_string(),
+                full_format: "%A, %d. %B %Y".to_string(),
+            },
+        );
 
-        self.number_formatters.insert("de-DE".to_string(), NumberFormatter {
-            decimal_separator: ",".to_string(),
-            group_separator: ".".to_string(),
-            group_size: 3,
-        });
+        self.number_formatters.insert(
+            "de-DE".to_string(),
+            NumberFormatter {
+                decimal_separator: ",".to_string(),
+                group_separator: ".".to_string(),
+                group_size: 3,
+            },
+        );
 
         // Add more formatters for other locales...
     }
@@ -462,7 +572,11 @@ impl InternationalizationSystem {
         let en_rule = PluralizationRule {
             locale: "en-US".to_string(),
             rule_function: std::sync::Arc::new(|n| {
-                if n == 1 { PluralForm::One } else { PluralForm::Other }
+                if n == 1 {
+                    PluralForm::One
+                } else {
+                    PluralForm::Other
+                }
             }),
         };
 
@@ -470,7 +584,11 @@ impl InternationalizationSystem {
         let fr_rule = PluralizationRule {
             locale: "fr-FR".to_string(),
             rule_function: std::sync::Arc::new(|n| {
-                if n <= 1 { PluralForm::One } else { PluralForm::Other }
+                if n <= 1 {
+                    PluralForm::One
+                } else {
+                    PluralForm::Other
+                }
             }),
         };
 
@@ -478,13 +596,20 @@ impl InternationalizationSystem {
         let de_rule = PluralizationRule {
             locale: "de-DE".to_string(),
             rule_function: std::sync::Arc::new(|n| {
-                if n == 1 { PluralForm::One } else { PluralForm::Other }
+                if n == 1 {
+                    PluralForm::One
+                } else {
+                    PluralForm::Other
+                }
             }),
         };
 
-        self.pluralization_rules.insert("en-US".to_string(), en_rule);
-        self.pluralization_rules.insert("fr-FR".to_string(), fr_rule);
-        self.pluralization_rules.insert("de-DE".to_string(), de_rule);
+        self.pluralization_rules
+            .insert("en-US".to_string(), en_rule);
+        self.pluralization_rules
+            .insert("fr-FR".to_string(), fr_rule);
+        self.pluralization_rules
+            .insert("de-DE".to_string(), de_rule);
     }
 
     fn register_collation_rules(&mut self) {
@@ -535,9 +660,12 @@ impl InternationalizationSystem {
                     // Check for unclosed parameter placeholders
                     let open_braces = message.matches('{').count();
                     let close_braces = message.matches('}').count();
-                    
+
                     if open_braces != close_braces {
-                        return Err(crate::anyhow!("Mismatched parameter braces in key: {}", key)); 
+                        return Err(crate::anyhow!(
+                            "Mismatched parameter braces in key: {}",
+                            key
+                        ));
                     }
                 }
 
@@ -552,13 +680,18 @@ impl InternationalizationSystem {
     /// Set text direction for specific locales
     pub fn set_text_directions(&mut self) {
         // Left-to-right languages
-        for locale in ["en-US", "es-ES", "fr-FR", "de-DE", "ja-JP", "ko-KR", "zh-CN", "pt-BR", "it-IT", "ru-RU"] {
-            self.text_direction.insert(locale.to_string(), TextDirection::LeftToRight);
+        for locale in [
+            "en-US", "es-ES", "fr-FR", "de-DE", "ja-JP", "ko-KR", "zh-CN", "pt-BR", "it-IT",
+            "ru-RU",
+        ] {
+            self.text_direction
+                .insert(locale.to_string(), TextDirection::LeftToRight);
         }
 
         // Right-to-left languages
         for locale in ["ar-SA", "he-IL", "fa-IR", "ur-PK"] {
-            self.text_direction.insert(locale.to_string(), TextDirection::RightToLeft);
+            self.text_direction
+                .insert(locale.to_string(), TextDirection::RightToLeft);
         }
     }
 }
@@ -612,7 +745,7 @@ pub struct NumberFormatter {
 impl NumberFormatter {
     pub fn format(&self, number: f64, _format: NumberFormat) -> String {
         // Simplified implementation
-    format!("{number}")
+        format!("{number}")
     }
 }
 

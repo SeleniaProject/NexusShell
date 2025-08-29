@@ -1,5 +1,5 @@
 //! SIMD-accelerated operations for world-class performance
-//! 
+//!
 //! This module provides SIMD (Single Instruction, Multiple Data) optimizations
 //! for performance-critical operations in NexusShell.
 
@@ -37,7 +37,10 @@ impl SimdStringOps {
             }
 
             // Handle remaining bytes
-            haystack[pos..].iter().position(|&b| b == needle).map(|i| pos + i)
+            haystack[pos..]
+                .iter()
+                .position(|&b| b == needle)
+                .map(|i| pos + i)
         }
     }
 
@@ -224,15 +227,29 @@ impl CpuOptimizer {
     /// Get CPU optimization level based on available features
     pub fn optimization_level(&self) -> u8 {
         let mut level = 0;
-        
-        if self.cpu_features.sse2 { level += 1; }
-        if self.cpu_features.sse3 { level += 1; }
-        if self.cpu_features.sse41 { level += 1; }
-        if self.cpu_features.sse42 { level += 1; }
-        if self.cpu_features.avx { level += 2; }
-        if self.cpu_features.avx2 { level += 2; }
-        if self.cpu_features.popcnt { level += 1; }
-        
+
+        if self.cpu_features.sse2 {
+            level += 1;
+        }
+        if self.cpu_features.sse3 {
+            level += 1;
+        }
+        if self.cpu_features.sse41 {
+            level += 1;
+        }
+        if self.cpu_features.sse42 {
+            level += 1;
+        }
+        if self.cpu_features.avx {
+            level += 2;
+        }
+        if self.cpu_features.avx2 {
+            level += 2;
+        }
+        if self.cpu_features.popcnt {
+            level += 1;
+        }
+
         level
     }
 
@@ -255,13 +272,13 @@ impl CpuOptimizer {
     pub fn optimal_buffer_size(&self) -> usize {
         // L1 cache optimized sizes based on CPU features
         if self.cpu_features.avx2 {
-            64 * 1024  // 64KB for AVX2 systems
+            64 * 1024 // 64KB for AVX2 systems
         } else if self.cpu_features.avx {
-            32 * 1024  // 32KB for AVX systems
+            32 * 1024 // 32KB for AVX systems
         } else if self.cpu_features.sse42 {
-            16 * 1024  // 16KB for SSE4.2 systems
+            16 * 1024 // 16KB for SSE4.2 systems
         } else {
-            8 * 1024   // 8KB fallback
+            8 * 1024 // 8KB fallback
         }
     }
 }
@@ -295,7 +312,7 @@ mod tests {
         let a = b"Hello, World!";
         let b = b"Hello, World!";
         let c = b"Hello, World?";
-        
+
         assert!(SimdStringOps::memory_equal_simd(a, b));
         assert!(!SimdStringOps::memory_equal_simd(a, c));
     }

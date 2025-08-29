@@ -3,11 +3,11 @@
 //! This module provides comprehensive i18n support including message translation,
 //! locale detection, and culture-specific formatting.
 
+use chrono::{DateTime, Utc};
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
 };
-use chrono::{DateTime, Utc};
 use tracing::{debug, error};
 
 #[cfg(test)]
@@ -96,46 +96,50 @@ impl I18nManager {
 
     /// Load translations for a locale
     pub fn load_locale(&self, locale: &str) -> crate::error::ShellResult<()> {
-    let locale_file = self.locale_dir.join(format!("{locale}.ftl"));
-        
+        let locale_file = self.locale_dir.join(format!("{locale}.ftl"));
+
         if !locale_file.exists() {
             return Err(crate::error::ShellError::new(
                 crate::error::ErrorKind::IoError(crate::error::IoErrorKind::NotFound),
-                format!("Locale file not found: {locale_file:?}")
+                format!("Locale file not found: {locale_file:?}"),
             ));
         }
 
-        let content = std::fs::read_to_string(&locale_file)
-            .map_err(|e| crate::error::ShellError::new(
+        let content = std::fs::read_to_string(&locale_file).map_err(|e| {
+            crate::error::ShellError::new(
                 crate::error::ErrorKind::IoError(crate::error::IoErrorKind::FileReadError),
-                format!("Failed to read locale file: {e}")
-            ))?;
+                format!("Failed to read locale file: {e}"),
+            )
+        })?;
 
         let translations = self.parse_fluent_file(&content)?;
-        
+
         if let Ok(mut trans) = self.translations.write() {
             trans.insert(locale.to_string(), translations);
         }
 
-    debug!("Loaded translations for locale: {locale}");
+        debug!("Loaded translations for locale: {locale}");
         Ok(())
     }
 
     /// Parse Fluent (.ftl) file format
-    fn parse_fluent_file(&self, content: &str) -> crate::error::ShellResult<HashMap<String, String>> {
+    fn parse_fluent_file(
+        &self,
+        content: &str,
+    ) -> crate::error::ShellResult<HashMap<String, String>> {
         let mut translations = HashMap::new();
         let mut current_key = String::new();
         let mut current_value = String::new();
         let mut in_multiline = false;
-        
+
         for (line_num, original_line) in content.lines().enumerate() {
             let line = original_line.trim();
-            
+
             // Skip empty lines and comments
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
-            
+
             // Handle multiline values
             if in_multiline {
                 if original_line.starts_with(' ') || original_line.starts_with('\t') {
@@ -156,20 +160,26 @@ impl I18nManager {
                     // Fall through to process this line as a potential new key-value pair
                 }
             }
-            
+
             // Parse key-value pairs
             if let Some(eq_pos) = line.find('=') {
                 current_key = line[..eq_pos].trim().to_string();
                 let value_part = line[eq_pos + 1..].trim();
-                
+
                 // Validate key format
                 if !Self::is_valid_fluent_key(&current_key) {
                     return Err(crate::error::ShellError::new(
-                        crate::error::ErrorKind::ParseError(crate::error::ParseErrorKind::SyntaxError),
-                        format!("Invalid Fluent key '{}' at line {}", current_key, line_num + 1)
+                        crate::error::ErrorKind::ParseError(
+                            crate::error::ParseErrorKind::SyntaxError,
+                        ),
+                        format!(
+                            "Invalid Fluent key '{}' at line {}",
+                            current_key,
+                            line_num + 1
+                        ),
                     ));
                 }
-                
+
                 if value_part.is_empty() {
                     // Start of multiline value
                     in_multiline = true;
@@ -181,45 +191,49 @@ impl I18nManager {
                     current_key.clear();
                     current_value.clear();
                 }
-            } else if !original_line.starts_with(' ') && !original_line.starts_with('\t') && !in_multiline {
+            } else if !original_line.starts_with(' ')
+                && !original_line.starts_with('\t')
+                && !in_multiline
+            {
                 // Invalid syntax - line without '=' that's not indented and not in multiline
                 return Err(crate::error::ShellError::new(
                     crate::error::ErrorKind::ParseError(crate::error::ParseErrorKind::SyntaxError),
-                    format!("Invalid Fluent syntax at line {}: {}", line_num + 1, line)
+                    format!("Invalid Fluent syntax at line {}: {}", line_num + 1, line),
                 ));
             }
         }
-        
+
         // Handle final multiline value
         if in_multiline && !current_key.is_empty() && !current_value.is_empty() {
             translations.insert(current_key, current_value);
         }
-        
+
         debug!("Parsed {} Fluent translations", translations.len());
         Ok(translations)
     }
-    
+
     /// Validate Fluent key format
     fn is_valid_fluent_key(key: &str) -> bool {
         if key.is_empty() {
             return false;
         }
-        
+
         // Fluent keys must start with letter or underscore
         let first_char = key.chars().next().unwrap();
         if !first_char.is_ascii_alphabetic() && first_char != '_' {
             return false;
         }
-        
+
         // Fluent keys can contain letters, numbers, hyphens, underscores, and dots
-        key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+        key.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
     }
-    
+
     /// Process Fluent value with escape sequences and placeholders
     fn process_fluent_value(value: &str) -> crate::error::ShellResult<String> {
         let mut result = String::new();
         let mut chars = value.chars().peekable();
-        
+
         while let Some(ch) = chars.next() {
             match ch {
                 '\\' => {
@@ -270,7 +284,7 @@ impl I18nManager {
                 _ => result.push(ch),
             }
         }
-        
+
         Ok(result.trim().to_string())
     }
 
@@ -278,8 +292,10 @@ impl I18nManager {
     pub fn set_locale(&mut self, locale: &str) -> crate::error::ShellResult<()> {
         if !self.supported_locales.contains(&locale.to_string()) {
             return Err(crate::error::ShellError::new(
-                crate::error::ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
-                format!("Unsupported locale: {locale}")
+                crate::error::ErrorKind::RuntimeError(
+                    crate::error::RuntimeErrorKind::InvalidArgument,
+                ),
+                format!("Unsupported locale: {locale}"),
             ));
         }
 
@@ -332,21 +348,21 @@ impl I18nManager {
     /// Get translated message with arguments
     pub fn get_with_args(&self, key: &str, args: &HashMap<String, String>) -> String {
         let mut message = self.get(key);
-        
+
         // Advanced placeholder replacement with support for:
         // - Positional arguments: {0}, {1}, etc.
         // - Named arguments: {name}, {value}, etc.
         // - Pluralization: {count} with |one|other syntax
         // - Date/time formatting: {date:format}
-        
+
         for (arg_key, arg_value) in args {
             // Handle different placeholder formats
             let placeholders = vec![
-                format!("{{{}}}", arg_key),           // {name}
-                format!("{{{}:.*}}", arg_key),        // {name:format}
-                format!("{{{}|.*|.*}}", arg_key),     // {name|singular|plural}
+                format!("{{{}}}", arg_key),       // {name}
+                format!("{{{}:.*}}", arg_key),    // {name:format}
+                format!("{{{}|.*|.*}}", arg_key), // {name|singular|plural}
             ];
-            
+
             for placeholder_pattern in placeholders {
                 if placeholder_pattern.contains(".*") {
                     // Handle format specifiers and pluralization
@@ -357,47 +373,49 @@ impl I18nManager {
                 }
             }
         }
-        
+
         message
     }
 
     /// Handle advanced placeholder replacement with formatting and pluralization
     fn replace_advanced_placeholder(&self, message: &str, key: &str, value: &str) -> String {
         let mut result = message.to_string();
-        
+
         // Handle format specifiers like {date:yyyy-MM-dd}
-    let format_pattern = format!("{{{key}:");
+        let format_pattern = format!("{{{key}:");
         if let Some(start) = result.find(&format_pattern) {
             if let Some(end) = result[start..].find('}') {
                 let full_placeholder = &result[start..start + end + 1];
-                let format_spec = &full_placeholder[format_pattern.len()..full_placeholder.len()-1];
-                
+                let format_spec =
+                    &full_placeholder[format_pattern.len()..full_placeholder.len() - 1];
+
                 // Apply formatting based on type
                 let formatted_value = self.apply_format(value, format_spec);
                 result = result.replace(full_placeholder, &formatted_value);
             }
         }
-        
+
         // Handle pluralization like {count|item|items}
-    let plural_pattern = format!("{{{key}|");
+        let plural_pattern = format!("{{{key}|");
         if let Some(start) = result.find(&plural_pattern) {
             if let Some(end) = result[start..].find('}') {
                 let full_placeholder = &result[start..start + end + 1];
-                let plural_spec = &full_placeholder[plural_pattern.len()..full_placeholder.len()-1];
-                
+                let plural_spec =
+                    &full_placeholder[plural_pattern.len()..full_placeholder.len() - 1];
+
                 if let Some(pipe_pos) = plural_spec.find('|') {
                     let singular = &plural_spec[..pipe_pos];
                     let plural = &plural_spec[pipe_pos + 1..];
-                    
+
                     // Determine if singular or plural based on value
                     let count: i32 = value.parse().unwrap_or(0);
                     let chosen_form = if count == 1 { singular } else { plural };
-                    
+
                     result = result.replace(full_placeholder, &format!("{value} {chosen_form}"));
                 }
             }
         }
-        
+
         result
     }
 
@@ -410,7 +428,9 @@ impl I18nManager {
                 let mut chars = value.chars();
                 match chars.next() {
                     None => String::new(),
-                    Some(first) => first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase(),
+                    Some(first) => {
+                        first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase()
+                    }
                 }
             }
             "number" => {
@@ -440,7 +460,7 @@ impl I18nManager {
     pub fn format_number(&self, number: f64) -> String {
         self.format_number_with_precision(number, 2)
     }
-    
+
     /// Format number with specified decimal precision according to locale
     pub fn format_number_with_precision(&self, number: f64, precision: usize) -> String {
         match self.current_locale.as_str() {
@@ -453,7 +473,7 @@ impl I18nManager {
                 } else {
                     (formatted.as_str(), "")
                 };
-                
+
                 // Add thousands separators
                 let integer_with_sep = Self::add_thousands_separator(integer, " ");
                 if decimal.is_empty() || precision == 0 {
@@ -471,7 +491,7 @@ impl I18nManager {
                 } else {
                     (formatted.as_str(), "")
                 };
-                
+
                 let integer_with_sep = Self::add_thousands_separator(integer, " ");
                 if decimal.is_empty() || precision == 0 {
                     integer_with_sep
@@ -488,7 +508,7 @@ impl I18nManager {
                 } else {
                     (formatted.as_str(), "")
                 };
-                
+
                 let integer_with_sep = Self::add_thousands_separator(integer, ".");
                 if decimal.is_empty() || precision == 0 {
                     integer_with_sep
@@ -496,7 +516,7 @@ impl I18nManager {
                     format!("{integer_with_sep},{decimal}")
                 }
             }
-            // Portuguese (Brazil): 1.234,56 
+            // Portuguese (Brazil): 1.234,56
             "pt-BR" => {
                 let formatted = format!("{number:.precision$}");
                 let (integer, decimal) = if formatted.contains('.') {
@@ -505,7 +525,7 @@ impl I18nManager {
                 } else {
                     (formatted.as_str(), "")
                 };
-                
+
                 let integer_with_sep = Self::add_thousands_separator(integer, ".");
                 if decimal.is_empty() || precision == 0 {
                     integer_with_sep
@@ -522,7 +542,7 @@ impl I18nManager {
                 } else {
                     (formatted.as_str(), "")
                 };
-                
+
                 let integer_with_sep = Self::add_thousands_separator(integer, " ");
                 if decimal.is_empty() || precision == 0 {
                     integer_with_sep
@@ -539,7 +559,7 @@ impl I18nManager {
                 } else {
                     (formatted.as_str(), "")
                 };
-                
+
                 let integer_with_sep = Self::add_thousands_separator(integer, ",");
                 if decimal.is_empty() || precision == 0 {
                     integer_with_sep
@@ -547,7 +567,7 @@ impl I18nManager {
                     format!("{integer_with_sep}.{decimal}")
                 }
             }
-            // Chinese locale: 1,234.56 
+            // Chinese locale: 1,234.56
             "zh-CN" => {
                 let formatted = format!("{number:.precision$}");
                 let (integer, decimal) = if formatted.contains('.') {
@@ -556,7 +576,7 @@ impl I18nManager {
                 } else {
                     (formatted.as_str(), "")
                 };
-                
+
                 let integer_with_sep = Self::add_thousands_separator(integer, ",");
                 if decimal.is_empty() || precision == 0 {
                     integer_with_sep
@@ -573,7 +593,7 @@ impl I18nManager {
                 } else {
                     (formatted.as_str(), "")
                 };
-                
+
                 let integer_with_sep = Self::add_thousands_separator(integer, ",");
                 if decimal.is_empty() || precision == 0 {
                     integer_with_sep
@@ -590,7 +610,7 @@ impl I18nManager {
                 } else {
                     (formatted.as_str(), "")
                 };
-                
+
                 let integer_with_sep = Self::add_thousands_separator(integer, ",");
                 if decimal.is_empty() || precision == 0 {
                     integer_with_sep
@@ -600,36 +620,36 @@ impl I18nManager {
             }
         }
     }
-    
+
     /// Add thousands separator to integer part
     fn add_thousands_separator(integer: &str, separator: &str) -> String {
         let mut result = String::new();
         let chars: Vec<char> = integer.chars().collect();
-        
+
         // Handle negative numbers
-    let (sign, digits) = if chars.first() == Some(&'-') {
+        let (sign, digits) = if chars.first() == Some(&'-') {
             ("-", &chars[1..])
         } else {
             ("", &chars[..])
         };
-        
+
         result.push_str(sign);
-        
+
         for (i, &ch) in digits.iter().enumerate() {
             if i > 0 && (digits.len() - i) % 3 == 0 {
                 result.push_str(separator);
             }
             result.push(ch);
         }
-        
+
         result
     }
-    
+
     /// Format integer according to locale
     pub fn format_integer(&self, number: i64) -> String {
         self.format_number_with_precision(number as f64, 0)
     }
-    
+
     /// Format percentage according to locale
     pub fn format_percentage(&self, ratio: f64) -> String {
         let percentage = ratio * 100.0;
@@ -681,7 +701,11 @@ impl I18nManager {
             "ru-RU" => format!("{} ₽", self.format_number_with_precision(amount, 2)),
             "zh-CN" => format!("¥{}", self.format_number_with_precision(amount, 2)),
             "ko-KR" => format!("₩{}", self.format_number_with_precision(amount, 0)),
-            _ => format!("{} {}", self.format_number_with_precision(amount, 2), currency),
+            _ => format!(
+                "{} {}",
+                self.format_number_with_precision(amount, 2),
+                currency
+            ),
         }
     }
 
@@ -731,35 +755,36 @@ impl I18nManager {
     /// Get translation statistics
     pub fn get_translation_stats(&self) -> HashMap<String, usize> {
         let mut stats = HashMap::new();
-        
+
         if let Ok(trans) = self.translations.read() {
             for (locale, translations) in trans.iter() {
                 stats.insert(locale.clone(), translations.len());
             }
         }
-        
+
         stats
     }
 
     /// Validate locale file
     pub fn validate_locale_file(&self, locale: &str) -> crate::error::ShellResult<bool> {
-    let locale_file = self.locale_dir.join(format!("{locale}.ftl"));
-        
+        let locale_file = self.locale_dir.join(format!("{locale}.ftl"));
+
         if !locale_file.exists() {
             return Ok(false);
         }
 
-        let content = std::fs::read_to_string(&locale_file)
-            .map_err(|e| crate::error::ShellError::new(
+        let content = std::fs::read_to_string(&locale_file).map_err(|e| {
+            crate::error::ShellError::new(
                 crate::error::ErrorKind::IoError(crate::error::IoErrorKind::FileReadError),
-                format!("Failed to read locale file: {e}")
-            ))?;
+                format!("Failed to read locale file: {e}"),
+            )
+        })?;
 
         // Validate Fluent file syntax
         self.validate_fluent_syntax(&content)?;
         Ok(true)
     }
-    
+
     /// Validate Fluent file syntax
     pub fn validate_fluent_syntax(&self, content: &str) -> crate::error::ShellResult<Vec<String>> {
         let mut errors = Vec::new();
@@ -767,27 +792,34 @@ impl I18nManager {
         let mut in_multiline = false;
         let mut brace_depth = 0;
         let mut in_select_expression = false;
-        
+
         for (line_num, line) in content.lines().enumerate() {
             let trimmed = line.trim();
-            
+
             // Skip empty lines and comments
             if trimmed.is_empty() || trimmed.starts_with('#') {
                 continue;
             }
-            
+
             // Handle multiline values
             if in_multiline {
                 if line.starts_with(' ') || line.starts_with('\t') {
                     // Validate multiline continuation
-                    if let Err(error) = Self::validate_fluent_value_line(trimmed, &mut brace_depth, &mut in_select_expression) {
+                    if let Err(error) = Self::validate_fluent_value_line(
+                        trimmed,
+                        &mut brace_depth,
+                        &mut in_select_expression,
+                    ) {
                         errors.push(format!("Line {}: {}", line_num + 1, error));
                     }
                     continue;
                 } else {
                     // End of multiline value
                     if brace_depth != 0 {
-                        errors.push(format!("Line {}: Unmatched braces in multiline value for key '{current_key}'", line_num + 1));
+                        errors.push(format!(
+                            "Line {}: Unmatched braces in multiline value for key '{current_key}'",
+                            line_num + 1
+                        ));
                     }
                     current_key.clear();
                     in_multiline = false;
@@ -795,26 +827,34 @@ impl I18nManager {
                     in_select_expression = false;
                 }
             }
-            
+
             // Parse key-value pairs
             if let Some(eq_pos) = trimmed.find('=') {
                 current_key = trimmed[..eq_pos].trim().to_string();
                 let value_part = trimmed[eq_pos + 1..].trim();
-                
+
                 // Validate key format
                 if !Self::is_valid_fluent_key(&current_key) {
-                    errors.push(format!("Line {}: Invalid Fluent key '{}'", line_num + 1, current_key));
+                    errors.push(format!(
+                        "Line {}: Invalid Fluent key '{}'",
+                        line_num + 1,
+                        current_key
+                    ));
                 }
-                
+
                 // Check for duplicate keys
                 if let Ok(trans) = self.translations.read() {
                     if let Some(locale_trans) = trans.get(&self.current_locale) {
                         if locale_trans.contains_key(&current_key) {
-                            errors.push(format!("Line {}: Duplicate key '{}'", line_num + 1, current_key));
+                            errors.push(format!(
+                                "Line {}: Duplicate key '{}'",
+                                line_num + 1,
+                                current_key
+                            ));
                         }
                     }
                 }
-                
+
                 if value_part.is_empty() {
                     // Start of multiline value
                     in_multiline = true;
@@ -822,7 +862,11 @@ impl I18nManager {
                     in_select_expression = false;
                 } else {
                     // Single line value
-                    if let Err(error) = Self::validate_fluent_value_line(value_part, &mut brace_depth, &mut in_select_expression) {
+                    if let Err(error) = Self::validate_fluent_value_line(
+                        value_part,
+                        &mut brace_depth,
+                        &mut in_select_expression,
+                    ) {
                         errors.push(format!("Line {}: {}", line_num + 1, error));
                     }
                     if brace_depth != 0 {
@@ -834,34 +878,43 @@ impl I18nManager {
                 }
             } else if !trimmed.starts_with(' ') && !trimmed.starts_with('\t') {
                 // Invalid syntax - line without '=' that's not indented
-                errors.push(format!("Line {}: Invalid Fluent syntax - missing '=' or incorrect indentation", line_num + 1));
+                errors.push(format!(
+                    "Line {}: Invalid Fluent syntax - missing '=' or incorrect indentation",
+                    line_num + 1
+                ));
             }
         }
-        
+
         // Check final state
         if in_multiline && brace_depth != 0 {
-            errors.push(format!("End of file: Unmatched braces in multiline value for key '{current_key}'"));
+            errors.push(format!(
+                "End of file: Unmatched braces in multiline value for key '{current_key}'"
+            ));
         }
-        
+
         if errors.is_empty() {
             Ok(Vec::new())
         } else {
             Ok(errors)
         }
     }
-    
+
     /// Validate a single Fluent value line
-    fn validate_fluent_value_line(value: &str, brace_depth: &mut i32, in_select: &mut bool) -> crate::error::ShellResult<()> {
+    fn validate_fluent_value_line(
+        value: &str,
+        brace_depth: &mut i32,
+        in_select: &mut bool,
+    ) -> crate::error::ShellResult<()> {
         let mut chars = value.chars().peekable();
         let mut in_string = false;
         let mut escape_next = false;
-        
+
         while let Some(ch) = chars.next() {
             if escape_next {
                 escape_next = false;
                 continue;
             }
-            
+
             match ch {
                 '\\' => {
                     escape_next = true;
@@ -876,7 +929,8 @@ impl I18nManager {
                         if next_ch.is_ascii_alphabetic() || next_ch == '$' {
                             // Look ahead for select keyword
                             let remaining: String = chars.clone().collect();
-                            if remaining.trim_start().starts_with("$") || remaining.contains(" ->") {
+                            if remaining.trim_start().starts_with("$") || remaining.contains(" ->")
+                            {
                                 *in_select = true;
                             }
                         }
@@ -886,8 +940,10 @@ impl I18nManager {
                     *brace_depth -= 1;
                     if *brace_depth < 0 {
                         return Err(crate::error::ShellError::new(
-                            crate::error::ErrorKind::ParseError(crate::error::ParseErrorKind::SyntaxError),
-                            "Unmatched closing brace '}'".to_string()
+                            crate::error::ErrorKind::ParseError(
+                                crate::error::ParseErrorKind::SyntaxError,
+                            ),
+                            "Unmatched closing brace '}'".to_string(),
                         ));
                     }
                     if *brace_depth == 0 {
@@ -897,30 +953,30 @@ impl I18nManager {
                 '-' if !in_string && *in_select => {
                     if let Some(&'>') = chars.peek() {
                         chars.next(); // consume '>'
-                        // This is a select branch separator, which is valid
+                                      // This is a select branch separator, which is valid
                     }
                 }
                 _ => {}
             }
         }
-        
+
         if in_string {
             return Err(crate::error::ShellError::new(
                 crate::error::ErrorKind::ParseError(crate::error::ParseErrorKind::SyntaxError),
-                "Unterminated string literal".to_string()
+                "Unterminated string literal".to_string(),
             ));
         }
-        
+
         Ok(())
     }
-    
+
     /// Get validation report for all loaded locales
     pub fn get_validation_report(&self) -> HashMap<String, Vec<String>> {
         let mut report = HashMap::new();
-        
+
         for locale in &self.supported_locales {
             let locale_file = self.locale_dir.join(format!("{locale}.ftl"));
-            
+
             if locale_file.exists() {
                 if let Ok(content) = std::fs::read_to_string(&locale_file) {
                     match self.validate_fluent_syntax(&content) {
@@ -930,17 +986,21 @@ impl I18nManager {
                             }
                         }
                         Err(e) => {
-                            report.insert(locale.clone(), vec![format!("Failed to validate: {}", e)]);
+                            report
+                                .insert(locale.clone(), vec![format!("Failed to validate: {}", e)]);
                         }
                     }
                 } else {
-                    report.insert(locale.clone(), vec!["Failed to read locale file".to_string()]);
+                    report.insert(
+                        locale.clone(),
+                        vec!["Failed to read locale file".to_string()],
+                    );
                 }
             } else {
                 report.insert(locale.clone(), vec!["Locale file not found".to_string()]);
             }
         }
-        
+
         report
     }
 }
@@ -1076,58 +1136,58 @@ impl I18nManager {
             _ => None,
         }
     }
-    
+
     /// Get text direction for current locale
     pub fn get_text_direction(&self) -> TextDirection {
         self.get_locale_info(&self.current_locale)
             .map(|info| info.direction)
             .unwrap_or(TextDirection::LeftToRight)
     }
-    
+
     /// Format file size according to locale
     pub fn format_file_size(&self, bytes: u64) -> String {
         const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB", "PB"];
         const BINARY_UNITS: &[&str] = &["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
-        
+
         if bytes == 0 {
             return format!("0 {}", UNITS[0]);
         }
-        
+
         let use_binary = match self.current_locale.as_str() {
             "de-DE" | "fr-FR" => true, // Some European locales prefer binary
             _ => false,
         };
-        
+
         let (units, divisor) = if use_binary {
             (BINARY_UNITS, 1024.0)
         } else {
             (UNITS, 1000.0)
         };
-        
+
         let mut size = bytes as f64;
         let mut unit_index = 0;
-        
+
         while size >= divisor && unit_index < units.len() - 1 {
             size /= divisor;
             unit_index += 1;
         }
-        
+
         let formatted_size = if unit_index == 0 {
             let v = size as u64;
             format!("{v}")
         } else {
             self.format_number_with_precision(size, 1)
         };
-        
+
         format!("{formatted_size} {}", units[unit_index])
     }
-    
+
     /// Format duration according to locale
     pub fn format_duration(&self, seconds: u64) -> String {
         let hours = seconds / 3600;
         let minutes = (seconds % 3600) / 60;
         let secs = seconds % 60;
-        
+
         match self.current_locale.as_str() {
             "ja-JP" => {
                 if hours > 0 {
@@ -1185,12 +1245,16 @@ impl I18nManager {
             }
         }
     }
-    
+
     /// Get pluralization rule for current locale
     pub fn get_plural_form(&self, count: i64) -> PluralForm {
         match self.current_locale.as_str() {
             "en-US" => {
-                if count == 1 { PluralForm::One } else { PluralForm::Other }
+                if count == 1 {
+                    PluralForm::One
+                } else {
+                    PluralForm::Other
+                }
             }
             "ja-JP" | "zh-CN" | "ko-KR" => {
                 // These languages don't have plural forms
@@ -1200,7 +1264,7 @@ impl I18nManager {
                 // Russian has complex plural rules
                 let n = count % 100;
                 let n10 = count % 10;
-                
+
                 if n10 == 1 && n != 11 {
                     PluralForm::One
                 } else if (2..=4).contains(&n10) && !(12..=14).contains(&n) {
@@ -1210,14 +1274,22 @@ impl I18nManager {
                 }
             }
             "de-DE" | "fr-FR" | "es-ES" | "it-IT" | "pt-BR" => {
-                if count == 1 { PluralForm::One } else { PluralForm::Other }
+                if count == 1 {
+                    PluralForm::One
+                } else {
+                    PluralForm::Other
+                }
             }
             _ => {
-                if count == 1 { PluralForm::One } else { PluralForm::Other }
+                if count == 1 {
+                    PluralForm::One
+                } else {
+                    PluralForm::Other
+                }
             }
         }
     }
-    
+
     /// Get localized message with plural support
     pub fn get_plural(&self, key: &str, count: i64) -> String {
         let plural_form = self.get_plural_form(count);
@@ -1229,7 +1301,7 @@ impl I18nManager {
             PluralForm::Many => format!("{key}.many"),
             PluralForm::Other => format!("{key}.other"),
         };
-        
+
         let message = self.get(&plural_key);
         if message == plural_key {
             // Fallback to base key if plural form not found
@@ -1250,4 +1322,4 @@ pub enum PluralForm {
     Few,
     Many,
     Other,
-} 
+}

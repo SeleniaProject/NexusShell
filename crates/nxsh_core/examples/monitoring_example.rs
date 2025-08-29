@@ -1,8 +1,12 @@
 //! Example demonstrating basic monitoring features of NexusShell
 //! (functionality executes only when the `logging` feature is enabled)
 
-#[cfg(feature = "logging")] use nxsh_core::{logging::{LoggingConfig, LoggingSystem}};
-use nxsh_core::{crash_handler::{CrashHandlerConfig, CrashHandler}, nxsh_log_info, nxsh_log_warn, nxsh_log_debug};
+#[cfg(feature = "logging")]
+use nxsh_core::logging::{LoggingConfig, LoggingSystem};
+use nxsh_core::{
+    crash_handler::{CrashHandler, CrashHandlerConfig},
+    nxsh_log_debug, nxsh_log_info, nxsh_log_warn,
+};
 use std::{path::PathBuf, time::Duration};
 use tokio::time::sleep;
 
@@ -26,7 +30,10 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "logging")]
     let mut logging_system = LoggingSystem::new(logging_config)?;
     #[cfg(feature = "logging")]
-    { logging_system.initialize().await?; println!("✅ Logging system initialized"); }
+    {
+        logging_system.initialize().await?;
+        println!("✅ Logging system initialized");
+    }
 
     // Initialize crash handler
     let crash_config = CrashHandlerConfig::default();
@@ -45,30 +52,30 @@ async fn main() -> anyhow::Result<()> {
 #[cfg(feature = "logging")]
 async fn demonstrate_logging(_logging: &LoggingSystem) -> anyhow::Result<()> {
     println!("\n📝 Demonstrating Basic Logging:");
-    
+
     // Log some example messages via tracing
     nxsh_log_info!("System initialization complete");
     nxsh_log_debug!("Debug information logged");
     nxsh_log_warn!("Warning message logged");
-    
+
     // Get statistics
     let stats = _logging.get_statistics();
     println!("   Total log entries: {}", stats.messages_logged);
     println!("   Errors logged: {}", stats.errors_logged);
-    
+
     Ok(())
 }
 
 async fn demonstrate_crash_handler(_crash_handler: &CrashHandler) -> anyhow::Result<()> {
     println!("\n🔧 Demonstrating Crash Handler:");
-    
+
     // Test crash detection
     println!("   Testing crash detection capabilities...");
-    
+
     // Simulate a brief delay
     sleep(Duration::from_millis(100)).await;
-    
+
     println!("   ✅ Crash handler is monitoring system");
-    
+
     Ok(())
 }

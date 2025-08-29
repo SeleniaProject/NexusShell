@@ -1,9 +1,9 @@
 //! Structured data processing commands
-//! 
+//!
 //! Nushell-inspired commands for working with structured data
 
+use crate::structured_data::{PipelineData, StructuredCommand, StructuredValue};
 use anyhow::Result;
-use crate::structured_data::{StructuredValue, PipelineData, StructuredCommand};
 use std::collections::HashMap;
 
 /// `from json` command - parse JSON data
@@ -102,7 +102,9 @@ impl StructuredCommand for WhereCommand {
                         _ => Ok(false),
                     },
                     "contains" => {
-                        if let (Some(haystack), Some(needle)) = (field_value.as_string(), self.value.as_string()) {
+                        if let (Some(haystack), Some(needle)) =
+                            (field_value.as_string(), self.value.as_string())
+                        {
                             Ok(haystack.contains(needle))
                         } else {
                             Ok(false)
@@ -137,7 +139,9 @@ impl StructuredCommand for SortByCommand {
                         (Some(a), Some(b)) => {
                             // Try numeric comparison first
                             if let (Some(a_num), Some(b_num)) = (a.as_float(), b.as_float()) {
-                                a_num.partial_cmp(&b_num).unwrap_or(std::cmp::Ordering::Equal)
+                                a_num
+                                    .partial_cmp(&b_num)
+                                    .unwrap_or(std::cmp::Ordering::Equal)
                             } else {
                                 // Fall back to string comparison
                                 a.to_string().cmp(&b.to_string())
@@ -148,7 +152,11 @@ impl StructuredCommand for SortByCommand {
                         (None, None) => std::cmp::Ordering::Equal,
                     };
 
-                    if self.reverse { cmp.reverse() } else { cmp }
+                    if self.reverse {
+                        cmp.reverse()
+                    } else {
+                        cmp
+                    }
                 });
 
                 Ok(PipelineData::new(StructuredValue::Table(rows)))
@@ -167,13 +175,15 @@ impl StructuredCommand for GroupByCommand {
     fn process(&self, input: PipelineData) -> Result<PipelineData> {
         match input.value {
             StructuredValue::Table(rows) => {
-                let mut groups: HashMap<String, Vec<HashMap<String, StructuredValue>>> = HashMap::new();
+                let mut groups: HashMap<String, Vec<HashMap<String, StructuredValue>>> =
+                    HashMap::new();
 
                 for row in rows {
-                    let key = row.get(&self.column)
+                    let key = row
+                        .get(&self.column)
                         .map(|v| v.to_string())
                         .unwrap_or_else(|| "null".to_string());
-                    
+
                     groups.entry(key).or_default().push(row);
                 }
 
@@ -272,22 +282,34 @@ pub fn files_to_table(files: Vec<std::fs::DirEntry>) -> Result<StructuredValue> 
     for file in files {
         let mut row = HashMap::new();
         let metadata = file.metadata()?;
-        
-        row.insert("name".to_string(), StructuredValue::String(
-            file.file_name().to_string_lossy().to_string()
-        ));
-        
-        row.insert("type".to_string(), StructuredValue::String(
-            if metadata.is_dir() { "directory" } else { "file" }.to_string()
-        ));
-        
-        row.insert("size".to_string(), StructuredValue::Int(metadata.len() as i64));
-        
+
+        row.insert(
+            "name".to_string(),
+            StructuredValue::String(file.file_name().to_string_lossy().to_string()),
+        );
+
+        row.insert(
+            "type".to_string(),
+            StructuredValue::String(
+                if metadata.is_dir() {
+                    "directory"
+                } else {
+                    "file"
+                }
+                .to_string(),
+            ),
+        );
+
+        row.insert(
+            "size".to_string(),
+            StructuredValue::Int(metadata.len() as i64),
+        );
+
         if let Ok(modified) = metadata.modified() {
             let datetime = chrono::DateTime::<chrono::Utc>::from(modified);
             row.insert("modified".to_string(), StructuredValue::Date(datetime));
         }
-        
+
         rows.push(row);
     }
 
@@ -297,35 +319,49 @@ pub fn files_to_table(files: Vec<std::fs::DirEntry>) -> Result<StructuredValue> 
 /// Convert a list of file paths to a structured table
 pub fn paths_to_table(paths: &[std::path::PathBuf]) -> anyhow::Result<StructuredValue> {
     let mut rows = Vec::new();
-    
+
     for path in paths {
         let mut row = std::collections::HashMap::new();
-        
-        row.insert("name".to_string(), StructuredValue::String(
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_string()
-        ));
-        
+
+        row.insert(
+            "name".to_string(),
+            StructuredValue::String(
+                path.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_string(),
+            ),
+        );
+
         row.insert("path".to_string(), StructuredValue::Path(path.clone()));
-        
+
         if let Ok(metadata) = path.metadata() {
-            row.insert("type".to_string(), StructuredValue::String(
-                if metadata.is_dir() { "directory" } else { "file" }.to_string()
-            ));
-            
-            row.insert("size".to_string(), StructuredValue::Int(metadata.len() as i64));
-            
+            row.insert(
+                "type".to_string(),
+                StructuredValue::String(
+                    if metadata.is_dir() {
+                        "directory"
+                    } else {
+                        "file"
+                    }
+                    .to_string(),
+                ),
+            );
+
+            row.insert(
+                "size".to_string(),
+                StructuredValue::Int(metadata.len() as i64),
+            );
+
             if let Ok(modified) = metadata.modified() {
                 let datetime = chrono::DateTime::<chrono::Utc>::from(modified);
                 row.insert("modified".to_string(), StructuredValue::Date(datetime));
             }
         }
-        
+
         rows.push(row);
     }
-    
+
     Ok(StructuredValue::Table(rows))
 }
 
@@ -336,14 +372,26 @@ mod tests {
     #[test]
     fn test_select_command() {
         let mut row1 = HashMap::new();
-        row1.insert("name".to_string(), StructuredValue::String("Alice".to_string()));
+        row1.insert(
+            "name".to_string(),
+            StructuredValue::String("Alice".to_string()),
+        );
         row1.insert("age".to_string(), StructuredValue::Int(30));
-        row1.insert("city".to_string(), StructuredValue::String("Tokyo".to_string()));
+        row1.insert(
+            "city".to_string(),
+            StructuredValue::String("Tokyo".to_string()),
+        );
 
         let mut row2 = HashMap::new();
-        row2.insert("name".to_string(), StructuredValue::String("Bob".to_string()));
+        row2.insert(
+            "name".to_string(),
+            StructuredValue::String("Bob".to_string()),
+        );
         row2.insert("age".to_string(), StructuredValue::Int(25));
-        row2.insert("city".to_string(), StructuredValue::String("Osaka".to_string()));
+        row2.insert(
+            "city".to_string(),
+            StructuredValue::String("Osaka".to_string()),
+        );
 
         let table = StructuredValue::Table(vec![row1, row2]);
         let input = PipelineData::new(table);
@@ -353,7 +401,7 @@ mod tests {
         };
 
         let result = select_cmd.process(input).unwrap();
-        
+
         if let StructuredValue::Table(rows) = result.value {
             assert_eq!(rows.len(), 2);
             assert!(rows[0].contains_key("name"));
@@ -367,11 +415,17 @@ mod tests {
     #[test]
     fn test_where_command() {
         let mut row1 = HashMap::new();
-        row1.insert("name".to_string(), StructuredValue::String("Alice".to_string()));
+        row1.insert(
+            "name".to_string(),
+            StructuredValue::String("Alice".to_string()),
+        );
         row1.insert("age".to_string(), StructuredValue::Int(30));
 
         let mut row2 = HashMap::new();
-        row2.insert("name".to_string(), StructuredValue::String("Bob".to_string()));
+        row2.insert(
+            "name".to_string(),
+            StructuredValue::String("Bob".to_string()),
+        );
         row2.insert("age".to_string(), StructuredValue::Int(25));
 
         let table = StructuredValue::Table(vec![row1, row2]);
@@ -384,7 +438,7 @@ mod tests {
         };
 
         let result = where_cmd.process(input).unwrap();
-        
+
         if let StructuredValue::Table(rows) = result.value {
             assert_eq!(rows.len(), 1);
             assert_eq!(rows[0].get("name").unwrap().as_string(), Some("Alice"));

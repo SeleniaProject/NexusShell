@@ -1,11 +1,11 @@
+use crate::compat::Result;
 use std::{
-    io::{BufReader, BufWriter, Read, Write, BufRead},
     fs::{File, OpenOptions},
+    io::{BufRead, BufReader, BufWriter, Read, Write},
     path::Path,
     sync::{Arc, RwLock},
     time::{Duration, Instant},
 };
-use crate::compat::Result;
 
 /// High-performance I/O manager with smart optimizations
 pub struct IoManager {
@@ -24,7 +24,7 @@ impl IoManager {
     /// Optimized file reading with smart buffer sizing  
     pub fn read_file_buffered(&self, path: &Path) -> Result<String> {
         let start = Instant::now();
-        
+
         // For small files, use pre-allocated capacity optimization
         let file = File::open(path)?;
         let metadata = file.metadata()?;
@@ -32,7 +32,7 @@ impl IoManager {
 
         // Optimize based on file size
         let mut content = if file_size > 0 && file_size <= 64 * 1024 {
-            // For small to medium files, pre-allocate exact capacity  
+            // For small to medium files, pre-allocate exact capacity
             String::with_capacity(file_size)
         } else {
             // For large files or unknown size, use default
@@ -41,11 +41,11 @@ impl IoManager {
 
         // Use optimal buffer size based on file size
         let optimal_buffer_size = if file_size <= 4096 {
-            file_size.max(512)  // Minimum 512 bytes
+            file_size.max(512) // Minimum 512 bytes
         } else if file_size <= 64 * 1024 {
-            8192  // 8KB for medium files
+            8192 // 8KB for medium files
         } else {
-            self.buffer_size  // Use configured size for large files
+            self.buffer_size // Use configured size for large files
         };
 
         let mut reader = BufReader::with_capacity(optimal_buffer_size, file);
@@ -58,11 +58,13 @@ impl IoManager {
     /// Optimized line reading with efficient buffer sizing
     pub fn read_file_lines(&self, path: &Path) -> Result<Vec<String>> {
         let start = Instant::now();
-        
+
         // For line reading, use a simple direct read approach for consistency
         let file = File::open(path)?;
         let reader = BufReader::with_capacity(self.buffer_size, file);
-        let lines: Vec<String> = reader.lines().collect::<std::result::Result<Vec<_>, _>>()
+        let lines: Vec<String> = reader
+            .lines()
+            .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(crate::error::ShellError::io)?;
 
         self.update_read_stats(lines.len() as u64, start.elapsed());
@@ -72,21 +74,21 @@ impl IoManager {
     /// Optimized file writing with smart buffer sizing
     pub fn write_file_buffered(&self, path: &Path, content: &str) -> Result<()> {
         let start = Instant::now();
-        
+
         // Use optimal buffer size based on content size
         let optimal_buffer_size = if content.len() <= 4096 {
-            content.len().max(512)  // Minimum 512 bytes
+            content.len().max(512) // Minimum 512 bytes
         } else if content.len() <= 64 * 1024 {
-            8192  // 8KB for medium content
+            8192 // 8KB for medium content
         } else {
-            self.buffer_size  // Use configured size for large content
+            self.buffer_size // Use configured size for large content
         };
 
         let file = File::create(path)?;
         let mut writer = BufWriter::with_capacity(optimal_buffer_size, file);
         writer.write_all(content.as_bytes())?;
         writer.flush()?;
-        
+
         self.update_write_stats(content.len() as u64, start.elapsed());
         Ok(())
     }
@@ -94,22 +96,19 @@ impl IoManager {
     /// Optimized append operation with smart buffering
     pub fn append_file_buffered(&self, path: &Path, content: &str) -> Result<()> {
         let start = Instant::now();
-        
+
         let optimal_buffer_size = if content.len() <= 4096 {
-            content.len().max(512)  
+            content.len().max(512)
         } else {
-            8192  
+            8192
         };
-        
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)?;
-            
+
+        let file = OpenOptions::new().create(true).append(true).open(path)?;
+
         let mut writer = BufWriter::with_capacity(optimal_buffer_size, file);
         writer.write_all(content.as_bytes())?;
         writer.flush()?;
-        
+
         self.update_write_stats(content.len() as u64, start.elapsed());
         Ok(())
     }
@@ -197,20 +196,19 @@ impl AsyncIoManager {
     }
 
     pub async fn read_multiple_files(&self, paths: Vec<&Path>) -> Result<Vec<String>> {
-        use tokio::fs;
         use futures::future::join_all;
-        
+        use tokio::fs;
+
         let start = Instant::now();
         let chunks: Vec<_> = paths.chunks(self.concurrent_limit).collect();
         let mut all_results = Vec::new();
-        
+
         for chunk in chunks {
-            let tasks: Vec<_> = chunk.iter().map(|&path| {
-                async move {
-                    fs::read_to_string(path).await
-                }
-            }).collect();
-            
+            let tasks: Vec<_> = chunk
+                .iter()
+                .map(|&path| async move { fs::read_to_string(path).await })
+                .collect();
+
             let results = join_all(tasks).await;
             for result in results {
                 all_results.push(result?);
@@ -219,24 +217,23 @@ impl AsyncIoManager {
 
         let total_bytes: u64 = all_results.iter().map(|s| s.len() as u64).sum();
         self.update_read_stats(total_bytes, start.elapsed());
-        
+
         Ok(all_results)
     }
 
     pub async fn write_multiple_files(&self, data: Vec<(&Path, &str)>) -> Result<()> {
-        use tokio::fs;
         use futures::future::join_all;
-        
+        use tokio::fs;
+
         let start = Instant::now();
         let chunks: Vec<_> = data.chunks(self.concurrent_limit).collect();
-        
+
         for chunk in chunks {
-            let tasks: Vec<_> = chunk.iter().map(|&(path, content)| {
-                async move {
-                    fs::write(path, content).await
-                }
-            }).collect();
-            
+            let tasks: Vec<_> = chunk
+                .iter()
+                .map(|&(path, content)| async move { fs::write(path, content).await })
+                .collect();
+
             let results = join_all(tasks).await;
             for result in results {
                 result?;
@@ -245,7 +242,7 @@ impl AsyncIoManager {
 
         let total_bytes: u64 = data.iter().map(|(_, content)| content.len() as u64).sum();
         self.update_write_stats(total_bytes, start.elapsed());
-        
+
         Ok(())
     }
 
@@ -275,9 +272,11 @@ use std::sync::OnceLock;
 static GLOBAL_IO_MANAGER: OnceLock<Arc<IoManager>> = OnceLock::new();
 
 pub fn global_io_manager() -> Arc<IoManager> {
-    GLOBAL_IO_MANAGER.get_or_init(|| {
-        Arc::new(IoManager::new(8192)) // 8KB buffer by default
-    }).clone()
+    GLOBAL_IO_MANAGER
+        .get_or_init(|| {
+            Arc::new(IoManager::new(8192)) // 8KB buffer by default
+        })
+        .clone()
 }
 
 /// Convenient functions for global I/O operations
@@ -300,32 +299,34 @@ pub fn read_lines_fast(path: &Path) -> Result<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use tempfile::tempdir;
 
     #[test]
     fn test_io_manager_buffered_operations() {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("test.txt");
-        
+
         let io_manager = IoManager::new(1024);
-        
+
         // Test write
         let content = "Hello, World!";
         io_manager.write_file_buffered(&file_path, content).unwrap();
-        
+
         // Test read
         let read_content = io_manager.read_file_buffered(&file_path).unwrap();
         assert_eq!(content, read_content);
-        
+
         // Test append
         let append_content = "\nAppended line";
-        io_manager.append_file_buffered(&file_path, append_content).unwrap();
-        
+        io_manager
+            .append_file_buffered(&file_path, append_content)
+            .unwrap();
+
         let final_content = io_manager.read_file_buffered(&file_path).unwrap();
         assert!(final_content.contains("Hello, World!"));
         assert!(final_content.contains("Appended line"));
-        
+
         let stats = io_manager.stats();
         assert!(stats.bytes_read > 0);
         assert!(stats.bytes_written > 0);
@@ -333,7 +334,7 @@ mod tests {
         assert!(stats.write_operations >= 2);
     }
 
-    #[test] 
+    #[test]
     fn test_io_stats_calculations() {
         let stats = IoStats {
             bytes_read: 1024 * 1024, // 1MB
@@ -341,7 +342,7 @@ mod tests {
             total_read_time: Duration::from_millis(100),
             ..Default::default()
         };
-        
+
         assert!(stats.read_throughput_mbps() > 0.0);
         assert_eq!(stats.avg_read_time_ms(), 10.0);
     }

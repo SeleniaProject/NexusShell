@@ -8,18 +8,18 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
- #[cfg(feature = "logging")]
- use tracing_appender::non_blocking::WorkerGuard;
- #[cfg(not(feature = "logging"))]
- type WorkerGuard = (); // stub type when logging disabled
- #[cfg(feature = "logging")]
- use tracing_subscriber::{
-     fmt::{self, format::FmtSpan},
-     layer::SubscriberExt,
-     util::SubscriberInitExt,
-     EnvFilter,
- };
+#[cfg(feature = "logging")]
+use tracing_appender::non_blocking::WorkerGuard;
+#[cfg(not(feature = "logging"))]
+type WorkerGuard = (); // stub type when logging disabled
 use std::sync::Arc;
+#[cfg(feature = "logging")]
+use tracing_subscriber::{
+    fmt::{self, format::FmtSpan},
+    layer::SubscriberExt,
+    util::SubscriberInitExt,
+    EnvFilter,
+};
 
 /// ログ設定
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,23 +131,25 @@ impl StructuredLogger {
         let logger = base;
 
         #[cfg(feature = "logging")]
-        { logger.initialize_logger(&config)?; }
-        
+        {
+            logger.initialize_logger(&config)?;
+        }
+
         info!(
             event = "logger_initialized",
             level = %config.level,
             json_format = config.json_format,
             "NexusShell structured logger initialized"
         );
-        
+
         Ok(logger)
     }
-    
+
     /// デフォルト設定でロガーを初期化
     pub fn init_default() -> Result<Self> {
         Self::new(LogConfig::default())
     }
-    
+
     /// 開発環境用のロガーを初期化
     pub fn init_development() -> Result<Self> {
         let config = LogConfig {
@@ -165,7 +167,7 @@ impl StructuredLogger {
         };
         Self::new(config)
     }
-    
+
     /// 本番環境用のロガーを初期化
     pub fn init_production() -> Result<Self> {
         let config = LogConfig {
@@ -178,21 +180,21 @@ impl StructuredLogger {
                 path: PathBuf::from("/var/log/nexusshell/nxsh.log"),
                 rotation: RotationConfig::Daily,
                 max_file_size: 500, // 500MB
-                max_files: 90, // 3ヶ月間保持
+                max_files: 90,      // 3ヶ月間保持
             }),
         };
         Self::new(config)
     }
-    
+
     /// ロガーを初期化
     #[cfg(feature = "logging")]
     fn initialize_logger(&mut self, config: &LogConfig) -> Result<()> {
-        let env_filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new(&config.level));
-        
+        let env_filter =
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&config.level));
+
         // ベースとなる設定
         let registry = tracing_subscriber::registry().with(env_filter);
-        
+
         if !Self::is_file_logging_disabled() && config.file_output.is_some() {
             let file_config = config.file_output.as_ref().unwrap();
             #[cfg(not(feature = "logging"))]
@@ -204,30 +206,50 @@ impl StructuredLogger {
             // ファイル出力設定がある場合
             let (file_writer, guard) = self.create_file_writer(file_config)?;
             self._guard = Some(guard);
-            
+
             if config.console_output {
                 // コンソールとファイルの両方に出力
                 let fmt_layer = fmt::layer()
                     .with_span_events(FmtSpan::CLOSE)
                     .with_ansi(config.use_colors);
-                
-                 let file_layer = {
-                     #[cfg(feature = "logging-json")]
-                     { fmt::layer().json().with_writer(file_writer).with_ansi(false) }
-                     #[cfg(not(feature = "logging-json"))]
-                     { fmt::layer().compact().with_writer(file_writer).with_ansi(false) }
-                 };
-                
+
+                let file_layer = {
+                    #[cfg(feature = "logging-json")]
+                    {
+                        fmt::layer()
+                            .json()
+                            .with_writer(file_writer)
+                            .with_ansi(false)
+                    }
+                    #[cfg(not(feature = "logging-json"))]
+                    {
+                        fmt::layer()
+                            .compact()
+                            .with_writer(file_writer)
+                            .with_ansi(false)
+                    }
+                };
+
                 registry.with(fmt_layer).with(file_layer).init();
             } else {
                 // ファイルのみに出力
                 let file_layer = {
                     #[cfg(feature = "logging-json")]
-                    { fmt::layer().json().with_writer(file_writer).with_ansi(false) }
+                    {
+                        fmt::layer()
+                            .json()
+                            .with_writer(file_writer)
+                            .with_ansi(false)
+                    }
                     #[cfg(not(feature = "logging-json"))]
-                    { fmt::layer().compact().with_writer(file_writer).with_ansi(false) }
+                    {
+                        fmt::layer()
+                            .compact()
+                            .with_writer(file_writer)
+                            .with_ansi(false)
+                    }
                 };
-                
+
                 registry.with(file_layer).init();
             }
         } else if config.console_output {
@@ -236,61 +258,56 @@ impl StructuredLogger {
                 LogFormat::Json => {
                     #[cfg(feature = "logging-json")]
                     {
-                        let fmt_layer = fmt::layer()
-                            .json()
-                            .with_ansi(config.use_colors);
+                        let fmt_layer = fmt::layer().json().with_ansi(config.use_colors);
                         registry.with(fmt_layer).init();
                     }
                     #[cfg(not(feature = "logging-json"))]
                     {
-                        let fmt_layer = fmt::layer()
-                            .compact()
-                            .with_ansi(config.use_colors);
+                        let fmt_layer = fmt::layer().compact().with_ansi(config.use_colors);
                         registry.with(fmt_layer).init();
                     }
-                },
+                }
                 LogFormat::Compact => {
-                    let fmt_layer = fmt::layer()
-                        .compact()
-                        .with_ansi(config.use_colors);
+                    let fmt_layer = fmt::layer().compact().with_ansi(config.use_colors);
                     registry.with(fmt_layer).init();
-                },
+                }
                 LogFormat::Pretty => {
-                    let fmt_layer = fmt::layer()
-                        .pretty()
-                        .with_ansi(config.use_colors);
+                    let fmt_layer = fmt::layer().pretty().with_ansi(config.use_colors);
                     registry.with(fmt_layer).init();
-                },
+                }
             }
         } else {
             // 出力なし（基本レジストリのみ）
             registry.init();
         }
-        
+
         Ok(())
     }
-    
+
     /// ファイル書き込み設定を作成
     #[cfg(feature = "logging")]
-    fn create_file_writer(&self, config: &FileOutputConfig) -> Result<(tracing_appender::non_blocking::NonBlocking, WorkerGuard)> {
+    fn create_file_writer(
+        &self,
+        config: &FileOutputConfig,
+    ) -> Result<(tracing_appender::non_blocking::NonBlocking, WorkerGuard)> {
         // ログディレクトリを作成
         if let Some(parent) = config.path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| crate::anyhow!("Failed to create log directory: {parent:?}: {e}"))?;
         }
-        
+
         // ローテーションファイルアペンダーを作成
         let file_appender = match config.rotation {
             RotationConfig::Daily => {
                 let dir = config.path.parent().unwrap_or_else(|| Path::new("."));
                 let prefix = config.path.file_stem().unwrap().to_string_lossy();
                 tracing_appender::rolling::daily(dir, prefix.as_ref())
-            },
+            }
             RotationConfig::Hourly => {
                 let dir = config.path.parent().unwrap_or_else(|| Path::new("."));
                 let prefix = config.path.file_stem().unwrap().to_string_lossy();
                 tracing_appender::rolling::hourly(dir, prefix.as_ref())
-            },
+            }
             _ => {
                 // サイズベースやNeverの場合は日次に fallback
                 let dir = config.path.parent().unwrap_or_else(|| Path::new("."));
@@ -298,7 +315,7 @@ impl StructuredLogger {
                 tracing_appender::rolling::daily(dir, prefix.as_ref())
             }
         };
-        
+
         let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
         Ok((non_blocking, guard))
     }
@@ -309,27 +326,27 @@ impl StructuredLogger {
         // Logging disabled: stub implementation never called
         Ok(((), ()))
     }
-    
+
     /// ログ設定を更新
     pub async fn update_config(&self, config: LogConfig) -> Result<()> {
         let mut current_config = self.config.write().await;
         *current_config = config.clone();
-        
+
         info!(
             event = "config_updated",
             level = %config.level,
             json_format = config.json_format,
             "Log configuration updated"
         );
-        
+
         Ok(())
     }
-    
+
     /// 現在のログ設定を取得
     pub async fn get_config(&self) -> LogConfig {
         self.config.read().await.clone()
     }
-    
+
     /// ログ統計を取得
     pub async fn get_stats(&self) -> LogStats {
         // 実装は省略 - 実際には統計情報を収集
@@ -342,27 +359,27 @@ impl StructuredLogger {
             trace_count: 0,
         }
     }
-    
+
     /// ログファイルのローテーションを手動で実行
     pub async fn rotate_logs(&self) -> Result<()> {
         let config = self.config.read().await;
-        
+
         if let Some(file_config) = &config.file_output {
             info!(
                 event = "log_rotation_started",
                 path = %file_config.path.display(),
                 "Starting manual log rotation"
             );
-            
+
             // ローテーション処理の実装
             // 実際の実装では、現在のログファイルをアーカイブして新しいファイルを作成
-            
+
             info!(
                 event = "log_rotation_completed",
                 "Log rotation completed successfully"
             );
         }
-        
+
         Ok(())
     }
 }
@@ -415,9 +432,13 @@ impl CommandExecutionLog {
             working_dir: working_dir.to_path_buf(),
             user: {
                 #[cfg(feature = "system-info")]
-                { whoami::username() }
+                {
+                    whoami::username()
+                }
                 #[cfg(not(feature = "system-info"))]
-                { "unknown".to_string() }
+                {
+                    "unknown".to_string()
+                }
             },
             start_time: std::time::SystemTime::now(),
             duration_ms: None,
@@ -427,7 +448,7 @@ impl CommandExecutionLog {
             error_message: None,
         }
     }
-    
+
     /// コマンド完了時の情報を更新
     pub fn complete(&mut self, exit_code: i32, pid: Option<u32>, memory_usage: Option<u64>) {
         self.event = "command_completed".to_string();
@@ -436,14 +457,14 @@ impl CommandExecutionLog {
         self.pid = pid;
         self.memory_usage = memory_usage;
     }
-    
+
     /// エラー情報を設定
     pub fn set_error(&mut self, error: &str) {
         self.event = "command_failed".to_string();
         self.error_message = Some(error.to_string());
         self.duration_ms = self.start_time.elapsed().ok().map(|d| d.as_millis() as u64);
     }
-    
+
     /// ログエントリを出力
     pub fn log(&self) {
         match self.event.as_str() {
@@ -457,7 +478,7 @@ impl CommandExecutionLog {
                     pid = ?self.pid,
                     "Command execution started"
                 );
-            },
+            }
             "command_completed" => {
                 info!(
                     event = %self.event,
@@ -468,7 +489,7 @@ impl CommandExecutionLog {
                     pid = ?self.pid,
                     "Command execution completed"
                 );
-            },
+            }
             "command_failed" => {
                 error!(
                     event = %self.event,
@@ -477,7 +498,7 @@ impl CommandExecutionLog {
                     duration_ms = ?self.duration_ms,
                     "Command execution failed"
                 );
-            },
+            }
             _ => {
                 warn!(
                     event = %self.event,
@@ -493,7 +514,7 @@ impl CommandExecutionLog {
 mod tests {
     use super::*;
     use tempfile::TempDir;
-    
+
     #[test]
     fn test_log_config_default() {
         let config = LogConfig::default();
@@ -503,12 +524,12 @@ mod tests {
         assert!(!config.json_format);
         assert!(config.use_colors);
     }
-    
+
     #[tokio::test]
     async fn test_structured_logger_creation() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let log_path = temp_dir.path().join("test.log");
-        
+
         let config = LogConfig {
             level: "debug".to_string(),
             format: LogFormat::Json,
@@ -522,32 +543,29 @@ mod tests {
                 max_files: 5,
             }),
         };
-        
-        // Note: This test would fail in the current environment due to 
+
+        // Note: This test would fail in the current environment due to
         // tracing subscriber already being initialized. In a real test environment,
         // each test should run in isolation.
-        
+
         assert_eq!(config.level, "debug");
         assert!(config.json_format);
     }
-    
+
     #[test]
     fn test_command_execution_log() {
-        let mut log = CommandExecutionLog::start(
-            "ls",
-            &["-la".to_string()],
-            &PathBuf::from("/home/user")
-        );
-        
+        let mut log =
+            CommandExecutionLog::start("ls", &["-la".to_string()], &PathBuf::from("/home/user"));
+
         assert_eq!(log.command, "ls");
         assert_eq!(log.args, vec!["-la"]);
         assert_eq!(log.event, "command_started");
-        
+
         log.complete(0, Some(12345), Some(1024));
         assert_eq!(log.event, "command_completed");
         assert_eq!(log.exit_code, Some(0));
         assert_eq!(log.pid, Some(12345));
-        
+
         log.set_error("Permission denied");
         assert_eq!(log.event, "command_failed");
         assert!(log.error_message.is_some());

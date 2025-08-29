@@ -1,5 +1,5 @@
 //! Startup optimization system for NexusShell
-//! 
+//!
 //! This module provides startup time optimization targeting ≤ 5ms startup.
 //! Key strategies:
 //! - Lazy initialization of heavy components
@@ -7,12 +7,8 @@
 //! - Fast path execution for simple commands
 //! - Cached configuration loading
 
-use std::{
-    sync::OnceLock,
-    time::Instant,
-    collections::HashMap,
-};
 use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, sync::OnceLock, time::Instant};
 
 /// Startup configuration for performance optimization
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,10 +84,17 @@ impl StartupTimer {
     pub fn report(&self) -> StartupReport {
         let total_ms = self.elapsed().as_millis();
         let target_ms = self.config.max_startup_ms as u128;
-        
-        let checkpoints = self.checkpoints.iter().map(|(name, time)| {
-            (name.clone(), self.start_time.elapsed().as_millis() - time.elapsed().as_millis())
-        }).collect();
+
+        let checkpoints = self
+            .checkpoints
+            .iter()
+            .map(|(name, time)| {
+                (
+                    name.clone(),
+                    self.start_time.elapsed().as_millis() - time.elapsed().as_millis(),
+                )
+            })
+            .collect();
 
         StartupReport {
             total_ms,
@@ -114,9 +117,11 @@ pub struct StartupReport {
 impl StartupReport {
     pub fn print_summary(&self) {
         let status = if self.within_target { "✅" } else { "❌" };
-        println!("{} Startup: {}ms (target: ≤{}ms)", 
-                status, self.total_ms, self.target_ms);
-        
+        println!(
+            "{} Startup: {}ms (target: ≤{}ms)",
+            status, self.total_ms, self.target_ms
+        );
+
         if !self.checkpoints.is_empty() {
             println!("Checkpoints:");
             for (name, time) in &self.checkpoints {
@@ -143,7 +148,10 @@ impl LazyInitializer {
 
     /// Check if a component is initialized
     pub fn is_initialized(&self, component: &str) -> bool {
-        self.initialized_components.get(component).copied().unwrap_or(false)
+        self.initialized_components
+            .get(component)
+            .copied()
+            .unwrap_or(false)
     }
 
     /// Mark a component as initialized
@@ -157,7 +165,7 @@ impl LazyInitializer {
         F: FnOnce() -> R,
     {
         // Initialize when either not yet initialized under lazy mode, or when lazy loading is disabled.
-    if !self.is_initialized(component) || !self.config.lazy_loading {
+        if !self.is_initialized(component) || !self.config.lazy_loading {
             let result = initializer();
             self.mark_initialized(component);
             return Some(result);
@@ -183,7 +191,7 @@ impl StartupOptimizer {
         STARTUP_OPTIMIZER.get_or_init(|| {
             let timer = StartupTimer::new(config.clone());
             let lazy_init = LazyInitializer::new(config.clone());
-            
+
             Self {
                 config,
                 timer,
@@ -236,7 +244,11 @@ impl OptimizedModuleLoader {
         }
     }
 
-    pub fn register_module(&mut self, name: impl Into<String>, initializer: Box<dyn ModuleInitializer>) {
+    pub fn register_module(
+        &mut self,
+        name: impl Into<String>,
+        initializer: Box<dyn ModuleInitializer>,
+    ) {
         self.modules.insert(name.into(), initializer);
     }
 
@@ -256,23 +268,27 @@ impl OptimizedModuleLoader {
     pub fn load_essential_modules(&mut self) -> crate::compat::Result<()> {
         // Load only the most essential modules for startup
         let essential = ["parser", "executor", "builtin_commands"];
-        
+
         for module in essential {
             self.load_module(module)?;
         }
-        
+
         Ok(())
     }
 }
 
 impl Default for OptimizedModuleLoader {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 pub trait ModuleInitializer: Send + Sync {
     fn initialize(&self) -> crate::compat::Result<()>;
     fn name(&self) -> &str;
-    fn is_essential(&self) -> bool { false }
+    fn is_essential(&self) -> bool {
+        false
+    }
 }
 
 /// Fast path execution for simple commands
@@ -292,7 +308,9 @@ pub fn execute_fast_path_command(cmd: &str) -> Option<crate::compat::Result<()>>
                 println!("{}", dir.display());
                 Some(Ok(()))
             } else {
-                Some(Err(crate::compat::anyhow("Failed to get current directory")))
+                Some(Err(crate::compat::anyhow(
+                    "Failed to get current directory",
+                )))
             }
         }
         "help" | "--help" | "-h" => {

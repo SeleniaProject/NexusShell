@@ -1,10 +1,10 @@
 //! Memory optimization utilities for NexusShell
-//! 
+//!
 //! This module provides memory-efficient utilities for common operations
 //! like string building, buffer management, and frequent allocations.
 
+use crate::memory::{get_buffer, intern_string, return_buffer};
 use std::sync::Arc;
-use crate::memory::{get_buffer, return_buffer, intern_string};
 
 /// Memory-efficient string builder with buffer pooling
 #[allow(dead_code)]
@@ -33,20 +33,20 @@ impl MemoryEfficientStringBuilder {
     pub fn push_str(&mut self, s: &str) {
         let bytes = s.as_bytes();
         let required_capacity = self.buffer.len() + bytes.len();
-        
+
         // Ensure we have enough capacity with growth strategy
         if required_capacity > self.buffer.capacity() {
             let new_capacity = (required_capacity * 3 / 2).max(self.buffer.capacity() * 2);
             self.buffer.reserve(new_capacity - self.buffer.capacity());
         }
-        
+
         // Use SIMD-optimized copy for large strings when available
         if bytes.len() > 32 {
             let start_pos = self.buffer.len();
             self.buffer.resize(required_capacity, 0);
             crate::simd_optimization::SimdStringOps::copy_memory_simd(
-                bytes, 
-                &mut self.buffer[start_pos..]
+                bytes,
+                &mut self.buffer[start_pos..],
             );
         } else {
             self.buffer.extend_from_slice(bytes);
@@ -70,39 +70,38 @@ impl MemoryEfficientStringBuilder {
         let mut temp = [0u8; 32]; // Enough for any i64
         let mut idx = temp.len();
         let mut num = n.unsigned_abs();
-        
+
         while num > 0 {
             idx -= 1;
             temp[idx] = (num % 10) as u8 + b'0';
             num /= 10;
         }
-        
+
         if n < 0 {
             idx -= 1;
             temp[idx] = b'-';
         }
-        
+
         self.buffer.extend_from_slice(&temp[idx..]);
     }
 
     /// Convert to final string (returning buffer to pool)
     pub fn into_string(mut self) -> String {
         // Convert buffer to String, ensuring only valid UTF-8 data
-        let result = String::from_utf8(self.buffer.clone())
-            .unwrap_or_else(|_| {
-                // If conversion fails, try to recover by using valid parts
-                String::from_utf8_lossy(&self.buffer).into_owned()
-            });
-        
+        let result = String::from_utf8(self.buffer.clone()).unwrap_or_else(|_| {
+            // If conversion fails, try to recover by using valid parts
+            String::from_utf8_lossy(&self.buffer).into_owned()
+        });
+
         // Return buffer to pool if it's worth reusing
         if self.buffer.capacity() >= 64 {
             self.buffer.clear();
             return_buffer(std::mem::take(&mut self.buffer));
         }
-        
+
         result
     }
-    
+
     /// Get string view without consuming the builder
     pub fn as_string(&self) -> String {
         String::from_utf8_lossy(&self.buffer).into_owned()
@@ -119,10 +118,10 @@ impl MemoryEfficientStringBuilder {
     pub fn build(mut self) -> String {
         // Shrink to exact size
         self.buffer.shrink_to_fit();
-        
+
         // Take ownership of buffer to avoid Drop trait issues
         let buffer = std::mem::take(&mut self.buffer);
-        
+
         // Convert to string
         String::from_utf8(buffer).unwrap_or_default()
     }
@@ -137,7 +136,8 @@ impl MemoryEfficientStringBuilder {
 impl Drop for MemoryEfficientStringBuilder {
     fn drop(&mut self) {
         // Return buffer to pool if it's a reasonable size
-        if self.buffer.capacity() <= 16384 { // 16KB max for pooling
+        if self.buffer.capacity() <= 16384 {
+            // 16KB max for pooling
             return_buffer(std::mem::take(&mut self.buffer));
         }
     }
@@ -206,20 +206,20 @@ mod tests {
         builder.push_char(' ');
         builder.push_str("World");
         builder.push_char('!');
-        
+
         assert_eq!(builder.build(), "Hello World!");
     }
 
-    #[test] 
+    #[test]
     fn test_number_formatting() {
         let mut builder = MemoryEfficientStringBuilder::new(10);
         builder.push_number(42);
         assert_eq!(builder.build(), "42");
-        
+
         let mut builder = MemoryEfficientStringBuilder::new(10);
         builder.push_number(-123);
         assert_eq!(builder.build(), "-123");
-        
+
         let mut builder = MemoryEfficientStringBuilder::new(10);
         builder.push_number(0);
         assert_eq!(builder.build(), "0");
@@ -228,7 +228,10 @@ mod tests {
     #[test]
     fn test_fast_format() {
         assert_eq!(fast_format::name_value("name", "value"), "name: value");
-        assert_eq!(fast_format::showing_items(10, 100), "Showing 10 of 100 items");
+        assert_eq!(
+            fast_format::showing_items(10, 100),
+            "Showing 10 of 100 items"
+        );
         assert_eq!(fast_format::exit_code(1), " (exit code: 1)");
         assert_eq!(fast_format::total_count(5, "rows"), "Total: 5 rows");
     }

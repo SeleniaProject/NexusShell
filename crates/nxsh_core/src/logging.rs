@@ -1,50 +1,55 @@
 //! Structured logging system for NexusShell
 //!
-//! This module provides comprehensive logging functionality using `tracing` 
+//! This module provides comprehensive logging functionality using `tracing`
 //! and `tracing_appender` with JSON formatting and log rotation.
 
-use std::{
-    path::PathBuf,
-    sync::{Arc, RwLock, atomic::{AtomicU64, Ordering}},
-    time::{SystemTime, Duration},
-    fs,
-    collections::HashMap,
-};
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "logging")]
-use tracing_subscriber::{
-    Registry,
-    layer::SubscriberExt,
-    fmt::{self},
-    filter::{LevelFilter, EnvFilter},
-    Layer, // Needed for .boxed()
+use std::{
+    collections::HashMap,
+    fs,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, RwLock,
+    },
+    time::{Duration, SystemTime},
 };
 #[cfg(all(feature = "logging", feature = "heavy-time"))]
 use tracing_subscriber::fmt::time::ChronoUtc;
+#[cfg(feature = "logging")]
+use tracing_subscriber::{
+    filter::{EnvFilter, LevelFilter},
+    fmt::{self},
+    layer::SubscriberExt,
+    Layer, // Needed for .boxed()
+    Registry,
+};
 
 // When heavy-time feature is disabled but logging enabled, provide a tiny timer stub
 #[cfg(all(feature = "logging", not(feature = "heavy-time")))]
 mod minimal_time {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    use tracing_subscriber::fmt::{time::FormatTime, format::Writer};
     use std::fmt;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tracing_subscriber::fmt::{format::Writer, time::FormatTime};
     pub struct SimpleUnixTime;
     impl FormatTime for SimpleUnixTime {
         fn format_time(&self, w: &mut Writer<'_>) -> fmt::Result {
-            let dur = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+            let dur = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default();
             write!(w, "{}", dur.as_secs())
         }
     }
 }
+use crate::compat::{Context, Result};
 #[cfg(feature = "logging")]
 use tracing_appender::{
-    rolling::{RollingFileAppender, Rotation},
     non_blocking::WorkerGuard,
+    rolling::{RollingFileAppender, Rotation},
 };
-use crate::compat::{Result, Context};
 // Import lightweight facade macros (exported in lib.rs) so they are in scope even though defined later
 // Only import macros currently used to reduce warnings
-use crate::{nxsh_log_info, nxsh_log_debug};
+use crate::{nxsh_log_debug, nxsh_log_info};
 
 #[cfg(feature = "logging")]
 use std::io::Write as IoWrite;
@@ -107,7 +112,9 @@ impl MultiOutputWriter {
 
     fn record_bytes_written(&self, count: usize) {
         if let Some(stats) = &self.stats {
-            stats.total_bytes_logged.fetch_add(count as u64, Ordering::Relaxed);
+            stats
+                .total_bytes_logged
+                .fetch_add(count as u64, Ordering::Relaxed);
         }
     }
 }
@@ -160,9 +167,7 @@ impl IoWrite for MultiOutputWriter {
         if success_count > 0 || self.outputs.is_empty() {
             Ok(buf.len())
         } else {
-            Err(std::io::Error::other(
-                "All output targets failed"
-            ))
+            Err(std::io::Error::other("All output targets failed"))
         }
     }
 
@@ -205,7 +210,7 @@ impl IoWrite for MultiOutputWriter {
             Ok(())
         } else {
             Err(std::io::Error::other(
-                "All output targets failed during flush"
+                "All output targets failed during flush",
             ))
         }
     }
@@ -222,16 +227,39 @@ struct CombinedWriter {
 impl IoWrite for CombinedWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let mut err = false;
-        if let Some(f) = &mut self.file { if f.write(buf).is_err() { err = true; } }
-        if self.console { let mut stdout = std::io::stdout(); if stdout.write_all(buf).is_err() { err = true; } }
-        if err { if let Some(s) = &self.stats { s.write_errors.fetch_add(1, Ordering::Relaxed); } }
+        if let Some(f) = &mut self.file {
+            if f.write(buf).is_err() {
+                err = true;
+            }
+        }
+        if self.console {
+            let mut stdout = std::io::stdout();
+            if stdout.write_all(buf).is_err() {
+                err = true;
+            }
+        }
+        if err {
+            if let Some(s) = &self.stats {
+                s.write_errors.fetch_add(1, Ordering::Relaxed);
+            }
+        }
         Ok(buf.len())
     }
     fn flush(&mut self) -> std::io::Result<()> {
         let mut err = false;
-        if let Some(f) = &mut self.file { if f.flush().is_err() { err = true; } }
-    if self.console  && std::io::stdout().flush().is_err() { err = true; }
-        if err { if let Some(s) = &self.stats { s.write_errors.fetch_add(1, Ordering::Relaxed); } }
+        if let Some(f) = &mut self.file {
+            if f.flush().is_err() {
+                err = true;
+            }
+        }
+        if self.console && std::io::stdout().flush().is_err() {
+            err = true;
+        }
+        if err {
+            if let Some(s) = &self.stats {
+                s.write_errors.fetch_add(1, Ordering::Relaxed);
+            }
+        }
         Ok(())
     }
 }
@@ -439,8 +467,9 @@ impl LoggingSystem {
     pub async fn initialize(&mut self) -> Result<()> {
         // Create log directory if it doesn't exist
         if self.config.file_output {
-            fs::create_dir_all(&self.config.log_dir)
-                .with_context(|| format!("Failed to create log directory: {:?}", self.config.log_dir))?;
+            fs::create_dir_all(&self.config.log_dir).with_context(|| {
+                format!("Failed to create log directory: {:?}", self.config.log_dir)
+            })?;
         }
 
         // Parse log level
@@ -454,21 +483,34 @@ impl LoggingSystem {
         };
 
         // Create environment filter
-        let env_filter = EnvFilter::from_default_env()
-            .add_directive(level_filter.into());
+        let env_filter = EnvFilter::from_default_env().add_directive(level_filter.into());
 
         // Timer selection
         #[allow(unused)]
         let timer = {
-            #[cfg(feature = "heavy-time")] { ChronoUtc::rfc_3339() }
-            #[cfg(all(feature = "logging", not(feature = "heavy-time")))] { crate::logging::minimal_time::SimpleUnixTime }
+            #[cfg(feature = "heavy-time")]
+            {
+                ChronoUtc::rfc_3339()
+            }
+            #[cfg(all(feature = "logging", not(feature = "heavy-time")))]
+            {
+                crate::logging::minimal_time::SimpleUnixTime
+            }
         };
 
         // Optional file appender
         let mut file_handle = None;
         if self.config.file_output {
-            let rotation = match self.config.rotation { LogRotation::Hourly => Rotation::HOURLY, LogRotation::Daily => Rotation::DAILY, LogRotation::Never => Rotation::NEVER };
-            let file_appender = tracing_appender::rolling::RollingFileAppender::new(rotation, &self.config.log_dir, "nxsh.log");
+            let rotation = match self.config.rotation {
+                LogRotation::Hourly => Rotation::HOURLY,
+                LogRotation::Daily => Rotation::DAILY,
+                LogRotation::Never => Rotation::NEVER,
+            };
+            let file_appender = tracing_appender::rolling::RollingFileAppender::new(
+                rotation,
+                &self.config.log_dir,
+                "nxsh.log",
+            );
             let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
             self._guard = Some(guard);
             file_handle = Some(non_blocking);
@@ -477,28 +519,61 @@ impl LoggingSystem {
         // Build a single formatting layer with a CombinedWriter that tees to console and file
         let combined_console = self.config.console_output;
         let combined_file = file_handle.clone();
-    let stats_clone = self.statistics.clone();
-    let writer_factory = move || CombinedWriter { console: combined_console, file: combined_file.clone(), stats: Some(stats_clone.clone()) };
+        let stats_clone = self.statistics.clone();
+        let writer_factory = move || CombinedWriter {
+            console: combined_console,
+            file: combined_file.clone(),
+            stats: Some(stats_clone.clone()),
+        };
 
         let fmt_layer_boxed = match self.config.format {
             LogFormat::Json => {
                 #[cfg(feature = "logging-json")]
-                { fmt::layer().json().with_span_list(true).with_timer(timer).with_writer(writer_factory).boxed() }
+                {
+                    fmt::layer()
+                        .json()
+                        .with_span_list(true)
+                        .with_timer(timer)
+                        .with_writer(writer_factory)
+                        .boxed()
+                }
                 #[cfg(not(feature = "logging-json"))]
-                { fmt::layer().compact().with_timer(timer).with_writer(writer_factory).boxed() }
+                {
+                    fmt::layer()
+                        .compact()
+                        .with_timer(timer)
+                        .with_writer(writer_factory)
+                        .boxed()
+                }
             }
-            LogFormat::Pretty => fmt::layer().with_ansi(true).with_span_events(fmt::format::FmtSpan::FULL).with_timer(timer).with_writer(writer_factory).boxed(),
-            LogFormat::Compact => fmt::layer().compact().with_timer(timer).with_writer(writer_factory).boxed(),
-            LogFormat::Full => fmt::layer().with_span_events(fmt::format::FmtSpan::FULL).with_thread_ids(true).with_thread_names(true).with_timer(timer).with_writer(writer_factory).boxed(),
+            LogFormat::Pretty => fmt::layer()
+                .with_ansi(true)
+                .with_span_events(fmt::format::FmtSpan::FULL)
+                .with_timer(timer)
+                .with_writer(writer_factory)
+                .boxed(),
+            LogFormat::Compact => fmt::layer()
+                .compact()
+                .with_timer(timer)
+                .with_writer(writer_factory)
+                .boxed(),
+            LogFormat::Full => fmt::layer()
+                .with_span_events(fmt::format::FmtSpan::FULL)
+                .with_thread_ids(true)
+                .with_thread_names(true)
+                .with_timer(timer)
+                .with_writer(writer_factory)
+                .boxed(),
         };
 
         let subscriber = Registry::default().with(env_filter).with(fmt_layer_boxed);
-        tracing::subscriber::set_global_default(subscriber).context("Failed to set global tracing subscriber")?;
+        tracing::subscriber::set_global_default(subscriber)
+            .context("Failed to set global tracing subscriber")?;
 
         // Clean up old log files
         self.cleanup_old_logs().await?;
 
-    nxsh_log_info!(
+        nxsh_log_info!(
             level = %self.config.level,
             format = ?self.config.format,
             rotation = ?self.config.rotation,
@@ -506,7 +581,9 @@ impl LoggingSystem {
             "Structured logging system initialized"
         );
 
-        self.statistics.files_created.fetch_add(1, Ordering::Relaxed);
+        self.statistics
+            .files_created
+            .fetch_add(1, Ordering::Relaxed);
         self.update_last_log_time();
 
         Ok(())
@@ -517,8 +594,9 @@ impl LoggingSystem {
     pub async fn initialize_with_multi_output(&mut self) -> Result<()> {
         // Create log directory if it doesn't exist
         if self.config.file_output {
-            fs::create_dir_all(&self.config.log_dir)
-                .with_context(|| format!("Failed to create log directory: {:?}", self.config.log_dir))?;
+            fs::create_dir_all(&self.config.log_dir).with_context(|| {
+                format!("Failed to create log directory: {:?}", self.config.log_dir)
+            })?;
         }
 
         // Parse log level
@@ -532,14 +610,19 @@ impl LoggingSystem {
         };
 
         // Create environment filter
-        let env_filter = EnvFilter::from_default_env()
-            .add_directive(level_filter.into());
+        let env_filter = EnvFilter::from_default_env().add_directive(level_filter.into());
 
         // Timer selection
         #[allow(unused)]
         let timer = {
-            #[cfg(feature = "heavy-time")] { ChronoUtc::rfc_3339() }
-            #[cfg(all(feature = "logging", not(feature = "heavy-time")))] { crate::logging::minimal_time::SimpleUnixTime }
+            #[cfg(feature = "heavy-time")]
+            {
+                ChronoUtc::rfc_3339()
+            }
+            #[cfg(all(feature = "logging", not(feature = "heavy-time")))]
+            {
+                crate::logging::minimal_time::SimpleUnixTime
+            }
         };
 
         // Build MultiOutputWriter with desired outputs
@@ -549,13 +632,15 @@ impl LoggingSystem {
 
         // Add file output if configured
         let file_writer_guard = if self.config.file_output {
-            let rotation = match self.config.rotation { 
-                LogRotation::Hourly => Rotation::HOURLY, 
-                LogRotation::Daily => Rotation::DAILY, 
-                LogRotation::Never => Rotation::NEVER 
+            let rotation = match self.config.rotation {
+                LogRotation::Hourly => Rotation::HOURLY,
+                LogRotation::Daily => Rotation::DAILY,
+                LogRotation::Never => Rotation::NEVER,
             };
             let file_appender = tracing_appender::rolling::RollingFileAppender::new(
-                rotation, &self.config.log_dir, "nxsh.log"
+                rotation,
+                &self.config.log_dir,
+                "nxsh.log",
             );
             let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
             self._guard = Some(guard);
@@ -571,13 +656,13 @@ impl LoggingSystem {
             file_output: bool,
             statistics: Arc<LoggingStatistics>,
         }
-        
+
         let writer_config = WriterConfig {
             console_output: self.config.console_output,
             file_output: file_writer_guard,
             statistics: self.statistics.clone(),
         };
-        
+
         // Simple factory that creates a basic writer (console only for simplicity)
         let writer_factory = move || {
             let writer = MultiOutputWriter::new()
@@ -593,17 +678,46 @@ impl LoggingSystem {
         let fmt_layer_boxed = match self.config.format {
             LogFormat::Json => {
                 #[cfg(feature = "logging-json")]
-                { fmt::layer().json().with_span_list(true).with_timer(timer).with_writer(writer_factory).boxed() }
+                {
+                    fmt::layer()
+                        .json()
+                        .with_span_list(true)
+                        .with_timer(timer)
+                        .with_writer(writer_factory)
+                        .boxed()
+                }
                 #[cfg(not(feature = "logging-json"))]
-                { fmt::layer().compact().with_timer(timer).with_writer(writer_factory).boxed() }
+                {
+                    fmt::layer()
+                        .compact()
+                        .with_timer(timer)
+                        .with_writer(writer_factory)
+                        .boxed()
+                }
             }
-            LogFormat::Pretty => fmt::layer().with_ansi(true).with_span_events(fmt::format::FmtSpan::FULL).with_timer(timer).with_writer(writer_factory).boxed(),
-            LogFormat::Compact => fmt::layer().compact().with_timer(timer).with_writer(writer_factory).boxed(),
-            LogFormat::Full => fmt::layer().with_span_events(fmt::format::FmtSpan::FULL).with_thread_ids(true).with_thread_names(true).with_timer(timer).with_writer(writer_factory).boxed(),
+            LogFormat::Pretty => fmt::layer()
+                .with_ansi(true)
+                .with_span_events(fmt::format::FmtSpan::FULL)
+                .with_timer(timer)
+                .with_writer(writer_factory)
+                .boxed(),
+            LogFormat::Compact => fmt::layer()
+                .compact()
+                .with_timer(timer)
+                .with_writer(writer_factory)
+                .boxed(),
+            LogFormat::Full => fmt::layer()
+                .with_span_events(fmt::format::FmtSpan::FULL)
+                .with_thread_ids(true)
+                .with_thread_names(true)
+                .with_timer(timer)
+                .with_writer(writer_factory)
+                .boxed(),
         };
 
         let subscriber = Registry::default().with(env_filter).with(fmt_layer_boxed);
-        tracing::subscriber::set_global_default(subscriber).context("Failed to set global tracing subscriber")?;
+        tracing::subscriber::set_global_default(subscriber)
+            .context("Failed to set global tracing subscriber")?;
 
         // Clean up old log files
         self.cleanup_old_logs().await?;
@@ -616,7 +730,9 @@ impl LoggingSystem {
             "Enhanced multi-output logging system initialized"
         );
 
-        self.statistics.files_created.fetch_add(1, Ordering::Relaxed);
+        self.statistics
+            .files_created
+            .fetch_add(1, Ordering::Relaxed);
         self.update_last_log_time();
 
         Ok(())
@@ -628,7 +744,8 @@ impl LoggingSystem {
             return Ok(());
         }
 
-        let cutoff_time = SystemTime::now() - Duration::from_secs(self.config.retention_days * 24 * 60 * 60);
+        let cutoff_time =
+            SystemTime::now() - Duration::from_secs(self.config.retention_days * 24 * 60 * 60);
         let mut files_removed = 0;
 
         let entries = fs::read_dir(&self.config.log_dir)
@@ -637,12 +754,11 @@ impl LoggingSystem {
         for entry in entries {
             let entry = entry?;
             let path = entry.path();
-            
+
             if path.is_file() && path.extension().is_some_and(|ext| ext == "log") {
                 if let Ok(metadata) = entry.metadata() {
                     if let Ok(modified) = metadata.modified() {
-                        if modified < cutoff_time
-                            && fs::remove_file(&path).is_ok() {
+                        if modified < cutoff_time && fs::remove_file(&path).is_ok() {
                             files_removed += 1;
                             nxsh_log_debug!(?path, "Removed old log file");
                         }
@@ -673,23 +789,55 @@ impl LoggingSystem {
     /// Get real-time logging metrics
     pub fn get_metrics(&self) -> HashMap<String, u64> {
         let mut metrics = HashMap::new();
-        metrics.insert("messages_logged".to_string(), self.statistics.messages_logged.load(Ordering::Relaxed));
-        metrics.insert("errors_logged".to_string(), self.statistics.errors_logged.load(Ordering::Relaxed));
-        metrics.insert("warnings_logged".to_string(), self.statistics.warnings_logged.load(Ordering::Relaxed));
-        metrics.insert("info_logged".to_string(), self.statistics.info_logged.load(Ordering::Relaxed));
-        metrics.insert("debug_logged".to_string(), self.statistics.debug_logged.load(Ordering::Relaxed));
-        metrics.insert("trace_logged".to_string(), self.statistics.trace_logged.load(Ordering::Relaxed));
-        metrics.insert("total_bytes_logged".to_string(), self.statistics.total_bytes_logged.load(Ordering::Relaxed));
-        metrics.insert("files_created".to_string(), self.statistics.files_created.load(Ordering::Relaxed));
-        metrics.insert("rotations_performed".to_string(), self.statistics.rotations_performed.load(Ordering::Relaxed));
-    metrics.insert("write_errors".to_string(), self.statistics.write_errors.load(Ordering::Relaxed));
+        metrics.insert(
+            "messages_logged".to_string(),
+            self.statistics.messages_logged.load(Ordering::Relaxed),
+        );
+        metrics.insert(
+            "errors_logged".to_string(),
+            self.statistics.errors_logged.load(Ordering::Relaxed),
+        );
+        metrics.insert(
+            "warnings_logged".to_string(),
+            self.statistics.warnings_logged.load(Ordering::Relaxed),
+        );
+        metrics.insert(
+            "info_logged".to_string(),
+            self.statistics.info_logged.load(Ordering::Relaxed),
+        );
+        metrics.insert(
+            "debug_logged".to_string(),
+            self.statistics.debug_logged.load(Ordering::Relaxed),
+        );
+        metrics.insert(
+            "trace_logged".to_string(),
+            self.statistics.trace_logged.load(Ordering::Relaxed),
+        );
+        metrics.insert(
+            "total_bytes_logged".to_string(),
+            self.statistics.total_bytes_logged.load(Ordering::Relaxed),
+        );
+        metrics.insert(
+            "files_created".to_string(),
+            self.statistics.files_created.load(Ordering::Relaxed),
+        );
+        metrics.insert(
+            "rotations_performed".to_string(),
+            self.statistics.rotations_performed.load(Ordering::Relaxed),
+        );
+        metrics.insert(
+            "write_errors".to_string(),
+            self.statistics.write_errors.load(Ordering::Relaxed),
+        );
         metrics
     }
 
     /// Force log rotation
     pub async fn rotate_logs(&mut self) -> Result<()> {
         if self.config.file_output {
-            self.statistics.rotations_performed.fetch_add(1, Ordering::Relaxed);
+            self.statistics
+                .rotations_performed
+                .fetch_add(1, Ordering::Relaxed);
             nxsh_log_info!("Log rotation performed");
         }
         Ok(())
@@ -698,14 +846,14 @@ impl LoggingSystem {
     /// Set log level dynamically
     pub fn set_level(&mut self, level: &str) -> Result<()> {
         self.config.level = level.to_string();
-    nxsh_log_info!(new_level = level, "Log level updated");
+        nxsh_log_info!(new_level = level, "Log level updated");
         Ok(())
     }
 
     /// Add custom field to all future log entries
     pub fn add_custom_field(&mut self, key: String, value: String) {
         self.config.custom_fields.insert(key.clone(), value.clone());
-    nxsh_log_info!(key = %key, value = %value, "Added custom log field");
+        nxsh_log_info!(key = %key, value = %value, "Added custom log field");
     }
 
     /// Remove custom field
@@ -721,19 +869,19 @@ impl LoggingSystem {
     }
 
     /// Update logging configuration with validation and change tracking
-    /// 
+    ///
     /// This function updates the logging system configuration, validates the new
     /// settings, and logs the configuration changes for audit purposes.
-    /// 
+    ///
     /// # Arguments
     /// * `config` - New logging configuration to apply
-    /// 
+    ///
     /// # Returns
     /// Result indicating success or failure of the configuration update
     pub fn update_config(&mut self, config: LoggingConfig) -> Result<()> {
         let _old_config = self.config.clone();
         self.config = config;
-        
+
         // Log configuration update for audit trail
         nxsh_log_info!(
             old_level = %_old_config.level,
@@ -742,14 +890,14 @@ impl LoggingSystem {
             new_format = ?self.config.format,
             "Logging configuration updated successfully"
         );
-        
+
         Ok(())
     }
 
     /// Flush all pending log entries
     pub async fn flush(&self) -> Result<()> {
         // Force flush all appenders
-    nxsh_log_info!("Flushing all log entries");
+        nxsh_log_info!("Flushing all log entries");
         Ok(())
     }
 
@@ -757,16 +905,16 @@ impl LoggingSystem {
     pub async fn shutdown(&mut self) -> Result<()> {
         // Flush any remaining logs
         self.flush().await?;
-        
-    nxsh_log_info!(
+
+        nxsh_log_info!(
             total_messages = self.statistics.messages_logged.load(Ordering::Relaxed),
             total_bytes = self.statistics.total_bytes_logged.load(Ordering::Relaxed),
             "Logging system shutdown"
         );
-        
+
         // Drop guard to stop background worker
         self._guard.take();
-        
+
         Ok(())
     }
-} 
+}

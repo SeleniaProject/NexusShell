@@ -1,13 +1,13 @@
 //! NexusShell Structured Data System
-//! 
+//!
 //! Provides NexusShell-like structured data processing capabilities with type safety
 //! and powerful pipeline operations.
 
+use anyhow::Result;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
-use chrono::{DateTime, Utc};
-use anyhow::Result;
 
 /// Structured value types supported by NexusShell
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -184,7 +184,7 @@ impl PipelineData {
 
                 // Format as table
                 let mut result = String::new();
-                
+
                 // Header
                 result.push('┌');
                 for (i, col) in columns.iter().enumerate() {
@@ -347,7 +347,7 @@ mod tests {
     fn test_pipeline_data() {
         let data = PipelineData::new(StructuredValue::Int(42))
             .add_metadata("source".to_string(), "test".to_string());
-        
+
         assert_eq!(data.value.as_int(), Some(42));
         assert_eq!(data.metadata.get("source"), Some(&"test".to_string()));
     }
@@ -360,13 +360,15 @@ mod tests {
             StructuredValue::Int(3),
         ]);
 
-        let doubled = list.map(|v| {
-            if let Some(i) = v.as_int() {
-                Ok(StructuredValue::Int(i * 2))
-            } else {
-                Ok(v.clone())
-            }
-        }).unwrap();
+        let doubled = list
+            .map(|v| {
+                if let Some(i) = v.as_int() {
+                    Ok(StructuredValue::Int(i * 2))
+                } else {
+                    Ok(v.clone())
+                }
+            })
+            .unwrap();
 
         if let StructuredValue::List(items) = doubled {
             assert_eq!(items.len(), 3);

@@ -1,11 +1,11 @@
 use crate::compat::Result;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    time::{Duration, SystemTime, UNIX_EPOCH},
     sync::{Arc, Mutex},
     thread,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use serde::{Deserialize, Serialize};
 
 /// Advanced system optimization and tuning engine
 #[derive(Debug, Clone)]
@@ -29,7 +29,7 @@ impl SystemOptimizer {
             tuning_parameters: TuningParameters::default(),
             resource_monitors: Vec::new(),
         };
-        
+
         optimizer.register_default_rules();
         optimizer.register_performance_profiles();
         optimizer.initialize_resource_monitors();
@@ -37,9 +37,12 @@ impl SystemOptimizer {
     }
 
     /// Perform comprehensive system optimization
-    pub fn optimize_system(&mut self, profile: OptimizationProfile) -> Result<SystemOptimizationReport> {
+    pub fn optimize_system(
+        &mut self,
+        profile: OptimizationProfile,
+    ) -> Result<SystemOptimizationReport> {
         let start_time = SystemTime::now();
-        
+
         let mut report = SystemOptimizationReport {
             optimization_id: Self::generate_optimization_id(),
             start_time,
@@ -59,7 +62,7 @@ impl SystemOptimizer {
                 match self.apply_optimization_rule(rule) {
                     Ok(result) => {
                         report.optimizations_applied.push(result);
-                    },
+                    }
                     Err(e) => {
                         eprintln!("Failed to apply optimization rule {}: {}", rule.name, e);
                     }
@@ -75,9 +78,9 @@ impl SystemOptimizer {
 
         // Calculate improvements
         if let Some(ref after_metrics) = report.after_metrics {
-            report.performance_improvement = 
+            report.performance_improvement =
                 self.calculate_performance_improvement(&report.before_metrics, after_metrics);
-            report.resource_savings = 
+            report.resource_savings =
                 self.calculate_resource_savings(&report.before_metrics, after_metrics);
         }
 
@@ -85,7 +88,7 @@ impl SystemOptimizer {
         report.recommendations = self.generate_optimization_recommendations(&report);
 
         report.end_time = Some(SystemTime::now());
-        
+
         // Store result in history
         self.optimization_history.push(OptimizationResult {
             timestamp: report.start_time,
@@ -114,28 +117,28 @@ impl SystemOptimizer {
             WorkloadType::ComputeIntensive => {
                 self.tune_cpu_parameters(&mut result)?;
                 self.tune_memory_parameters(&mut result)?;
-            },
+            }
             WorkloadType::IOIntensive => {
                 self.tune_io_parameters(&mut result)?;
                 self.tune_filesystem_parameters(&mut result)?;
-            },
+            }
             WorkloadType::NetworkIntensive => {
                 self.tune_network_parameters(&mut result)?;
                 self.tune_buffer_parameters(&mut result)?;
-            },
+            }
             WorkloadType::Interactive => {
                 self.tune_responsiveness_parameters(&mut result)?;
                 self.tune_latency_parameters(&mut result)?;
-            },
+            }
             WorkloadType::Batch => {
                 self.tune_throughput_parameters(&mut result)?;
                 self.tune_resource_utilization_parameters(&mut result)?;
-            },
+            }
         }
 
         // Test performance after tuning
         let after_metrics = self.capture_system_metrics()?;
-        result.performance_gain = 
+        result.performance_gain =
             self.calculate_performance_improvement(&baseline_metrics, &after_metrics);
 
         result.tuning_end = Some(SystemTime::now());
@@ -143,10 +146,13 @@ impl SystemOptimizer {
     }
 
     /// Monitor system performance and suggest optimizations
-    pub fn monitor_and_optimize(&mut self, duration: Duration) -> Result<ContinuousOptimizationReport> {
+    pub fn monitor_and_optimize(
+        &mut self,
+        duration: Duration,
+    ) -> Result<ContinuousOptimizationReport> {
         let start_time = SystemTime::now();
         let end_time = start_time + duration;
-        
+
         let mut report = ContinuousOptimizationReport {
             monitoring_start: start_time,
             monitoring_end: end_time,
@@ -157,12 +163,12 @@ impl SystemOptimizer {
         };
 
         let mut last_metrics = self.capture_system_metrics()?;
-        
+
         while SystemTime::now() < end_time {
             thread::sleep(Duration::from_secs(60)); // Check every minute
-            
+
             let current_metrics = self.capture_system_metrics()?;
-            
+
             // Detect performance issues
             if let Some(issue) = self.detect_performance_issue(&last_metrics, &current_metrics) {
                 let optimization_event = OptimizationEvent {
@@ -172,14 +178,14 @@ impl SystemOptimizer {
                     severity: issue.severity.clone(),
                     action_taken: None,
                 };
-                
+
                 // Apply automatic optimization if applicable
                 if issue.severity >= IssueSeverity::Medium {
                     if let Ok(auto_opt) = self.apply_automatic_optimization(&issue) {
                         report.automatic_optimizations.push(auto_opt);
                     }
                 }
-                
+
                 report.optimization_events.push(optimization_event);
             }
 
@@ -191,7 +197,7 @@ impl SystemOptimizer {
                 io_wait: current_metrics.io_wait,
                 network_throughput: current_metrics.network_throughput,
             });
-            
+
             last_metrics = current_metrics;
         }
 
@@ -202,7 +208,11 @@ impl SystemOptimizer {
     }
 
     /// Optimize specific resource usage
-    pub fn optimize_resource(&mut self, resource: ResourceType, target: OptimizationTarget) -> Result<ResourceOptimizationResult> {
+    pub fn optimize_resource(
+        &mut self,
+        resource: ResourceType,
+        target: OptimizationTarget,
+    ) -> Result<ResourceOptimizationResult> {
         let mut result = ResourceOptimizationResult {
             resource_type: resource.clone(),
             target: target.clone(),
@@ -225,16 +235,16 @@ impl SystemOptimizer {
         match resource {
             ResourceType::CPU => {
                 self.optimize_cpu_usage(&mut result, &target)?;
-            },
+            }
             ResourceType::Memory => {
                 self.optimize_memory_usage(&mut result, &target)?;
-            },
+            }
             ResourceType::Disk => {
                 self.optimize_disk_usage(&mut result, &target)?;
-            },
+            }
             ResourceType::Network => {
                 self.optimize_network_usage(&mut result, &target)?;
-            },
+            }
         }
 
         // Measure results
@@ -246,7 +256,8 @@ impl SystemOptimizer {
             ResourceType::Network => after_metrics.network_usage,
         };
 
-        result.improvement = ((result.before_usage - result.after_usage) / result.before_usage) * 100.0;
+        result.improvement =
+            ((result.before_usage - result.after_usage) / result.before_usage) * 100.0;
         result.optimization_end = Some(SystemTime::now());
 
         Ok(result)
@@ -344,8 +355,13 @@ impl SystemOptimizer {
     }
 
     /// Apply optimization profile
-    pub fn apply_performance_profile(&mut self, profile_name: &str) -> Result<ProfileApplicationResult> {
-        let profile = self.performance_profiles.get(profile_name)
+    pub fn apply_performance_profile(
+        &mut self,
+        profile_name: &str,
+    ) -> Result<ProfileApplicationResult> {
+        let profile = self
+            .performance_profiles
+            .get(profile_name)
             .ok_or_else(|| crate::anyhow!("Performance profile '{}' not found", profile_name))?
             .clone();
 
@@ -362,10 +378,14 @@ impl SystemOptimizer {
         for setting in &profile.settings {
             match self.apply_performance_setting(setting) {
                 Ok(()) => {
-                    result.settings_applied.push(format!("Applied: {}", setting.name));
-                },
+                    result
+                        .settings_applied
+                        .push(format!("Applied: {}", setting.name));
+                }
                 Err(e) => {
-                    result.settings_applied.push(format!("Failed: {} - {}", setting.name, e));
+                    result
+                        .settings_applied
+                        .push(format!("Failed: {} - {}", setting.name, e));
                 }
             }
         }
@@ -374,7 +394,9 @@ impl SystemOptimizer {
         thread::sleep(Duration::from_secs(3));
 
         result.after_metrics = Some(self.capture_system_metrics()?);
-        result.success = result.settings_applied.iter()
+        result.success = result
+            .settings_applied
+            .iter()
             .any(|s| s.starts_with("Applied"));
 
         Ok(result)
@@ -389,36 +411,24 @@ impl SystemOptimizer {
                 description: "Enable CPU frequency scaling for power efficiency".to_string(),
                 category: OptimizationCategory::Performance,
                 priority: OptimizationPriority::Medium,
-                conditions: vec![
-                    OptimizationCondition::CpuUsageBelowThreshold(50.0),
-                ],
-                actions: vec![
-                    OptimizationAction::SetCpuGovernor("powersave".to_string()),
-                ],
+                conditions: vec![OptimizationCondition::CpuUsageBelowThreshold(50.0)],
+                actions: vec![OptimizationAction::SetCpuGovernor("powersave".to_string())],
             },
             OptimizationRule {
                 name: "Memory Compression".to_string(),
                 description: "Enable memory compression to reduce memory pressure".to_string(),
                 category: OptimizationCategory::Resource,
                 priority: OptimizationPriority::High,
-                conditions: vec![
-                    OptimizationCondition::MemoryUsageAboveThreshold(80.0),
-                ],
-                actions: vec![
-                    OptimizationAction::EnableMemoryCompression,
-                ],
+                conditions: vec![OptimizationCondition::MemoryUsageAboveThreshold(80.0)],
+                actions: vec![OptimizationAction::EnableMemoryCompression],
             },
             OptimizationRule {
                 name: "I/O Scheduling".to_string(),
                 description: "Optimize I/O scheduler for workload type".to_string(),
                 category: OptimizationCategory::Performance,
                 priority: OptimizationPriority::Medium,
-                conditions: vec![
-                    OptimizationCondition::IoWaitAboveThreshold(15.0),
-                ],
-                actions: vec![
-                    OptimizationAction::SetIoScheduler("deadline".to_string()),
-                ],
+                conditions: vec![OptimizationCondition::IoWaitAboveThreshold(15.0)],
+                actions: vec![OptimizationAction::SetIoScheduler("deadline".to_string())],
             },
         ];
     }
@@ -483,9 +493,12 @@ impl SystemOptimizer {
             ],
         };
 
-        self.performance_profiles.insert("high_performance".to_string(), high_performance);
-        self.performance_profiles.insert("power_saving".to_string(), power_saving);
-        self.performance_profiles.insert("balanced".to_string(), balanced);
+        self.performance_profiles
+            .insert("high_performance".to_string(), high_performance);
+        self.performance_profiles
+            .insert("power_saving".to_string(), power_saving);
+        self.performance_profiles
+            .insert("balanced".to_string(), balanced);
     }
 
     fn initialize_resource_monitors(&mut self) {
@@ -523,11 +536,15 @@ impl SystemOptimizer {
         for action in &rule.actions {
             match self.apply_optimization_action(action) {
                 Ok(()) => {
-                    application.actions_performed.push(format!("Applied: {action:?}"));
+                    application
+                        .actions_performed
+                        .push(format!("Applied: {action:?}"));
                     application.success = true;
-                },
+                }
                 Err(e) => {
-                    application.actions_performed.push(format!("Failed: {action:?} - {e}"));
+                    application
+                        .actions_performed
+                        .push(format!("Failed: {action:?} - {e}"));
                 }
             }
         }
@@ -541,27 +558,27 @@ impl SystemOptimizer {
                 // Simulate setting CPU governor
                 println!("Setting CPU governor to: {governor}");
                 Ok(())
-            },
+            }
             OptimizationAction::EnableMemoryCompression => {
                 // Simulate enabling memory compression
                 println!("Enabling memory compression");
                 Ok(())
-            },
+            }
             OptimizationAction::SetIoScheduler(scheduler) => {
                 // Simulate setting I/O scheduler
                 println!("Setting I/O scheduler to: {scheduler}");
                 Ok(())
-            },
+            }
             OptimizationAction::SetNetworkBufferSize(size) => {
                 // Simulate setting network buffer size
                 println!("Setting network buffer size to: {size}");
                 Ok(())
-            },
+            }
             OptimizationAction::ClearSystemCaches => {
                 // Simulate clearing system caches
                 println!("Clearing system caches");
                 Ok(())
-            },
+            }
         }
     }
 
@@ -573,113 +590,180 @@ impl SystemOptimizer {
             memory_usage: 60.0 + (rand::random::<f64>() * 30.0), // 60-90%
             disk_usage: 70.0 + (rand::random::<f64>() * 20.0), // 70-90%
             network_usage: 20.0 + (rand::random::<f64>() * 60.0), // 20-80%
-            io_wait: 5.0 + (rand::random::<f64>() * 15.0), // 5-20%
+            io_wait: 5.0 + (rand::random::<f64>() * 15.0),    // 5-20%
             network_latency: 50.0 + (rand::random::<f64>() * 100.0), // 50-150ms
             network_throughput: 100.0 + (rand::random::<f64>() * 900.0), // 100-1000 Mbps
-            processes: 150 + (rand::random::<u32>() % 200), // 150-350
+            processes: 150 + (rand::random::<u32>() % 200),   // 150-350
             load_average: 1.0 + (rand::random::<f64>() * 3.0), // 1.0-4.0
         })
     }
 
-    fn calculate_performance_improvement(&self, before: &SystemMetrics, after: &SystemMetrics) -> f64 {
+    fn calculate_performance_improvement(
+        &self,
+        before: &SystemMetrics,
+        after: &SystemMetrics,
+    ) -> f64 {
         // Calculate weighted performance improvement
         let cpu_improvement = (before.cpu_usage - after.cpu_usage) / before.cpu_usage * 30.0;
-        let memory_improvement = (before.memory_usage - after.memory_usage) / before.memory_usage * 25.0;
+        let memory_improvement =
+            (before.memory_usage - after.memory_usage) / before.memory_usage * 25.0;
         let io_improvement = (before.io_wait - after.io_wait) / before.io_wait * 25.0;
-        let network_improvement = (before.network_latency - after.network_latency) / before.network_latency * 20.0;
+        let network_improvement =
+            (before.network_latency - after.network_latency) / before.network_latency * 20.0;
 
         (cpu_improvement + memory_improvement + io_improvement + network_improvement).max(0.0)
     }
 
-    fn calculate_resource_savings(&self, before: &SystemMetrics, after: &SystemMetrics) -> ResourceSavings {
+    fn calculate_resource_savings(
+        &self,
+        before: &SystemMetrics,
+        after: &SystemMetrics,
+    ) -> ResourceSavings {
         ResourceSavings {
             cpu_savings: ((before.cpu_usage - after.cpu_usage) / before.cpu_usage * 100.0).max(0.0),
-            memory_savings: ((before.memory_usage - after.memory_usage) / before.memory_usage * 100.0).max(0.0),
-            disk_savings: ((before.disk_usage - after.disk_usage) / before.disk_usage * 100.0).max(0.0),
-            network_savings: ((before.network_usage - after.network_usage) / before.network_usage * 100.0).max(0.0),
+            memory_savings: ((before.memory_usage - after.memory_usage) / before.memory_usage
+                * 100.0)
+                .max(0.0),
+            disk_savings: ((before.disk_usage - after.disk_usage) / before.disk_usage * 100.0)
+                .max(0.0),
+            network_savings: ((before.network_usage - after.network_usage) / before.network_usage
+                * 100.0)
+                .max(0.0),
         }
     }
 
-    fn generate_optimization_recommendations(&self, report: &SystemOptimizationReport) -> Vec<String> {
+    fn generate_optimization_recommendations(
+        &self,
+        report: &SystemOptimizationReport,
+    ) -> Vec<String> {
         let mut recommendations = Vec::new();
 
         if report.performance_improvement < 5.0 {
-            recommendations.push("Consider applying more aggressive optimization rules".to_string());
+            recommendations
+                .push("Consider applying more aggressive optimization rules".to_string());
         }
 
         if report.resource_savings.cpu_savings < 10.0 {
-            recommendations.push("CPU optimization had limited impact, consider workload analysis".to_string());
+            recommendations.push(
+                "CPU optimization had limited impact, consider workload analysis".to_string(),
+            );
         }
 
-        recommendations.push("Monitor system performance over time to validate improvements".to_string());
+        recommendations
+            .push("Monitor system performance over time to validate improvements".to_string());
         recommendations
     }
 
     fn tune_cpu_parameters(&mut self, result: &mut AutoTuningResult) -> Result<()> {
         result.parameters_tuned.push("CPU Governor".to_string());
-        result.parameters_tuned.push("CPU Frequency Scaling".to_string());
-        result.optimal_configuration.insert("cpu_governor".to_string(), "performance".to_string());
+        result
+            .parameters_tuned
+            .push("CPU Frequency Scaling".to_string());
+        result
+            .optimal_configuration
+            .insert("cpu_governor".to_string(), "performance".to_string());
         Ok(())
     }
 
     fn tune_memory_parameters(&mut self, result: &mut AutoTuningResult) -> Result<()> {
-        result.parameters_tuned.push("Memory Allocation Policy".to_string());
-        result.parameters_tuned.push("Swap Configuration".to_string());
-        result.optimal_configuration.insert("vm_swappiness".to_string(), "10".to_string());
+        result
+            .parameters_tuned
+            .push("Memory Allocation Policy".to_string());
+        result
+            .parameters_tuned
+            .push("Swap Configuration".to_string());
+        result
+            .optimal_configuration
+            .insert("vm_swappiness".to_string(), "10".to_string());
         Ok(())
     }
 
     fn tune_io_parameters(&mut self, result: &mut AutoTuningResult) -> Result<()> {
         result.parameters_tuned.push("I/O Scheduler".to_string());
         result.parameters_tuned.push("Read-ahead Size".to_string());
-        result.optimal_configuration.insert("io_scheduler".to_string(), "deadline".to_string());
+        result
+            .optimal_configuration
+            .insert("io_scheduler".to_string(), "deadline".to_string());
         Ok(())
     }
 
     fn tune_filesystem_parameters(&mut self, result: &mut AutoTuningResult) -> Result<()> {
-        result.parameters_tuned.push("Filesystem Mount Options".to_string());
-        result.parameters_tuned.push("Directory Cache Size".to_string());
+        result
+            .parameters_tuned
+            .push("Filesystem Mount Options".to_string());
+        result
+            .parameters_tuned
+            .push("Directory Cache Size".to_string());
         Ok(())
     }
 
     fn tune_network_parameters(&mut self, result: &mut AutoTuningResult) -> Result<()> {
-        result.parameters_tuned.push("Network Buffer Sizes".to_string());
-        result.parameters_tuned.push("TCP Window Scaling".to_string());
-        result.optimal_configuration.insert("net_core_rmem_max".to_string(), "16777216".to_string());
+        result
+            .parameters_tuned
+            .push("Network Buffer Sizes".to_string());
+        result
+            .parameters_tuned
+            .push("TCP Window Scaling".to_string());
+        result
+            .optimal_configuration
+            .insert("net_core_rmem_max".to_string(), "16777216".to_string());
         Ok(())
     }
 
     fn tune_buffer_parameters(&mut self, result: &mut AutoTuningResult) -> Result<()> {
-        result.parameters_tuned.push("Socket Buffer Sizes".to_string());
+        result
+            .parameters_tuned
+            .push("Socket Buffer Sizes".to_string());
         result.parameters_tuned.push("Queue Lengths".to_string());
         Ok(())
     }
 
     fn tune_responsiveness_parameters(&mut self, result: &mut AutoTuningResult) -> Result<()> {
-        result.parameters_tuned.push("Process Scheduling Policy".to_string());
-        result.parameters_tuned.push("Interactive Process Priority".to_string());
+        result
+            .parameters_tuned
+            .push("Process Scheduling Policy".to_string());
+        result
+            .parameters_tuned
+            .push("Interactive Process Priority".to_string());
         Ok(())
     }
 
     fn tune_latency_parameters(&mut self, result: &mut AutoTuningResult) -> Result<()> {
-        result.parameters_tuned.push("Interrupt Handling".to_string());
-        result.parameters_tuned.push("Context Switch Optimization".to_string());
+        result
+            .parameters_tuned
+            .push("Interrupt Handling".to_string());
+        result
+            .parameters_tuned
+            .push("Context Switch Optimization".to_string());
         Ok(())
     }
 
     fn tune_throughput_parameters(&mut self, result: &mut AutoTuningResult) -> Result<()> {
-        result.parameters_tuned.push("Batch Processing Settings".to_string());
+        result
+            .parameters_tuned
+            .push("Batch Processing Settings".to_string());
         result.parameters_tuned.push("Resource Pooling".to_string());
         Ok(())
     }
 
-    fn tune_resource_utilization_parameters(&mut self, result: &mut AutoTuningResult) -> Result<()> {
-        result.parameters_tuned.push("Resource Allocation Policies".to_string());
-        result.parameters_tuned.push("Load Balancing Settings".to_string());
+    fn tune_resource_utilization_parameters(
+        &mut self,
+        result: &mut AutoTuningResult,
+    ) -> Result<()> {
+        result
+            .parameters_tuned
+            .push("Resource Allocation Policies".to_string());
+        result
+            .parameters_tuned
+            .push("Load Balancing Settings".to_string());
         Ok(())
     }
 
-    fn detect_performance_issue(&self, before: &SystemMetrics, current: &SystemMetrics) -> Option<PerformanceIssue> {
+    fn detect_performance_issue(
+        &self,
+        before: &SystemMetrics,
+        current: &SystemMetrics,
+    ) -> Option<PerformanceIssue> {
         if current.cpu_usage > before.cpu_usage * 1.5 && current.cpu_usage > 80.0 {
             return Some(PerformanceIssue {
                 issue_type: IssueType::HighCpuUsage,
@@ -701,7 +785,10 @@ impl SystemOptimizer {
         None
     }
 
-    fn apply_automatic_optimization(&self, issue: &PerformanceIssue) -> Result<AutomaticOptimization> {
+    fn apply_automatic_optimization(
+        &self,
+        issue: &PerformanceIssue,
+    ) -> Result<AutomaticOptimization> {
         let optimization = match issue.issue_type {
             IssueType::HighCpuUsage => {
                 AutomaticOptimization {
@@ -710,7 +797,7 @@ impl SystemOptimizer {
                     timestamp: SystemTime::now(),
                     effectiveness: 0.7, // 70% effective
                 }
-            },
+            }
             IssueType::HighMemoryUsage => {
                 AutomaticOptimization {
                     trigger: issue.issue_type.clone(),
@@ -718,7 +805,7 @@ impl SystemOptimizer {
                     timestamp: SystemTime::now(),
                     effectiveness: 0.6, // 60% effective
                 }
-            },
+            }
             _ => {
                 AutomaticOptimization {
                     trigger: issue.issue_type.clone(),
@@ -737,15 +824,18 @@ impl SystemOptimizer {
 
         if let (Some(first), Some(last)) = (trends.first(), trends.last()) {
             if last.cpu_usage > first.cpu_usage * 1.2 {
-                recommendations.push("CPU usage trend is increasing, consider optimization".to_string());
+                recommendations
+                    .push("CPU usage trend is increasing, consider optimization".to_string());
             }
 
             if last.memory_usage > first.memory_usage * 1.15 {
-                recommendations.push("Memory usage trend is increasing, monitor for leaks".to_string());
+                recommendations
+                    .push("Memory usage trend is increasing, monitor for leaks".to_string());
             }
 
             if trends.iter().all(|t| t.io_wait > 10.0) {
-                recommendations.push("Consistently high I/O wait, consider storage optimization".to_string());
+                recommendations
+                    .push("Consistently high I/O wait, consider storage optimization".to_string());
             }
         }
 
@@ -756,74 +846,136 @@ impl SystemOptimizer {
         recommendations
     }
 
-    fn optimize_cpu_usage(&self, result: &mut ResourceOptimizationResult, target: &OptimizationTarget) -> Result<()> {
+    fn optimize_cpu_usage(
+        &self,
+        result: &mut ResourceOptimizationResult,
+        target: &OptimizationTarget,
+    ) -> Result<()> {
         match target {
             OptimizationTarget::Minimize => {
-                result.techniques_applied.push("Applied CPU frequency scaling".to_string());
-                result.techniques_applied.push("Enabled power-saving governor".to_string());
-            },
+                result
+                    .techniques_applied
+                    .push("Applied CPU frequency scaling".to_string());
+                result
+                    .techniques_applied
+                    .push("Enabled power-saving governor".to_string());
+            }
             OptimizationTarget::Maximize => {
-                result.techniques_applied.push("Set performance governor".to_string());
-                result.techniques_applied.push("Disabled CPU throttling".to_string());
-            },
+                result
+                    .techniques_applied
+                    .push("Set performance governor".to_string());
+                result
+                    .techniques_applied
+                    .push("Disabled CPU throttling".to_string());
+            }
             OptimizationTarget::Balance => {
-                result.techniques_applied.push("Applied ondemand governor".to_string());
-                result.techniques_applied.push("Configured adaptive scaling".to_string());
-            },
+                result
+                    .techniques_applied
+                    .push("Applied ondemand governor".to_string());
+                result
+                    .techniques_applied
+                    .push("Configured adaptive scaling".to_string());
+            }
         }
         Ok(())
     }
 
-    fn optimize_memory_usage(&self, result: &mut ResourceOptimizationResult, target: &OptimizationTarget) -> Result<()> {
+    fn optimize_memory_usage(
+        &self,
+        result: &mut ResourceOptimizationResult,
+        target: &OptimizationTarget,
+    ) -> Result<()> {
         match target {
             OptimizationTarget::Minimize => {
-                result.techniques_applied.push("Cleared system caches".to_string());
-                result.techniques_applied.push("Enabled memory compression".to_string());
-            },
+                result
+                    .techniques_applied
+                    .push("Cleared system caches".to_string());
+                result
+                    .techniques_applied
+                    .push("Enabled memory compression".to_string());
+            }
             OptimizationTarget::Maximize => {
                 result.techniques_applied.push("Disabled swap".to_string());
-                result.techniques_applied.push("Increased cache sizes".to_string());
-            },
+                result
+                    .techniques_applied
+                    .push("Increased cache sizes".to_string());
+            }
             OptimizationTarget::Balance => {
-                result.techniques_applied.push("Optimized swap usage".to_string());
-                result.techniques_applied.push("Tuned memory allocation".to_string());
-            },
+                result
+                    .techniques_applied
+                    .push("Optimized swap usage".to_string());
+                result
+                    .techniques_applied
+                    .push("Tuned memory allocation".to_string());
+            }
         }
         Ok(())
     }
 
-    fn optimize_disk_usage(&self, result: &mut ResourceOptimizationResult, target: &OptimizationTarget) -> Result<()> {
+    fn optimize_disk_usage(
+        &self,
+        result: &mut ResourceOptimizationResult,
+        target: &OptimizationTarget,
+    ) -> Result<()> {
         match target {
             OptimizationTarget::Minimize => {
-                result.techniques_applied.push("Cleaned temporary files".to_string());
-                result.techniques_applied.push("Compressed old files".to_string());
-            },
+                result
+                    .techniques_applied
+                    .push("Cleaned temporary files".to_string());
+                result
+                    .techniques_applied
+                    .push("Compressed old files".to_string());
+            }
             OptimizationTarget::Maximize => {
-                result.techniques_applied.push("Optimized I/O scheduler".to_string());
-                result.techniques_applied.push("Increased read-ahead".to_string());
-            },
+                result
+                    .techniques_applied
+                    .push("Optimized I/O scheduler".to_string());
+                result
+                    .techniques_applied
+                    .push("Increased read-ahead".to_string());
+            }
             OptimizationTarget::Balance => {
-                result.techniques_applied.push("Balanced I/O priorities".to_string());
-                result.techniques_applied.push("Optimized file system layout".to_string());
-            },
+                result
+                    .techniques_applied
+                    .push("Balanced I/O priorities".to_string());
+                result
+                    .techniques_applied
+                    .push("Optimized file system layout".to_string());
+            }
         }
         Ok(())
     }
 
-    fn optimize_network_usage(&self, result: &mut ResourceOptimizationResult, target: &OptimizationTarget) -> Result<()> {
+    fn optimize_network_usage(
+        &self,
+        result: &mut ResourceOptimizationResult,
+        target: &OptimizationTarget,
+    ) -> Result<()> {
         match target {
             OptimizationTarget::Minimize => {
-                result.techniques_applied.push("Enabled network compression".to_string());
-                result.techniques_applied.push("Optimized connection pooling".to_string());
-            },
+                result
+                    .techniques_applied
+                    .push("Enabled network compression".to_string());
+                result
+                    .techniques_applied
+                    .push("Optimized connection pooling".to_string());
+            }
             OptimizationTarget::Maximize => {
-                result.techniques_applied.push("Increased buffer sizes".to_string());
-                result.techniques_applied.push("Optimized TCP settings".to_string());
-            },
+                result
+                    .techniques_applied
+                    .push("Increased buffer sizes".to_string());
+                result
+                    .techniques_applied
+                    .push("Optimized TCP settings".to_string());
+            }
             OptimizationTarget::Balance => {
-                result.techniques_applied.push("Balanced network parameters".to_string());
-                result.techniques_applied.push("Adaptive QoS settings".to_string());
-            },
+                result
+                    .techniques_applied
+                    .push("Balanced network parameters".to_string());
+                result
+                    .techniques_applied
+                    .push("Adaptive QoS settings".to_string());
+            }
         }
         Ok(())
     }
@@ -834,15 +986,21 @@ impl SystemOptimizer {
     }
 
     fn generate_optimization_id() -> String {
-        format!("OPT_{}", 
+        format!(
+            "OPT_{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
-                .as_secs())
+                .as_secs()
+        )
     }
 }
 
-impl Default for SystemOptimizer { fn default() -> Self { Self::new() } }
+impl Default for SystemOptimizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 // Supporting types and structures
 
@@ -956,27 +1114,27 @@ impl OptimizationRule {
 
     pub fn should_apply(&self, optimizer: &SystemOptimizer) -> Result<bool> {
         let metrics = optimizer.capture_system_metrics()?;
-        
+
         for condition in &self.conditions {
             match condition {
                 OptimizationCondition::CpuUsageBelowThreshold(threshold) => {
                     if metrics.cpu_usage >= *threshold {
                         return Ok(false);
                     }
-                },
+                }
                 OptimizationCondition::MemoryUsageAboveThreshold(threshold) => {
                     if metrics.memory_usage <= *threshold {
                         return Ok(false);
                     }
-                },
+                }
                 OptimizationCondition::IoWaitAboveThreshold(threshold) => {
                     if metrics.io_wait <= *threshold {
                         return Ok(false);
                     }
-                },
+                }
             }
         }
-        
+
         Ok(true)
     }
 }
@@ -1242,8 +1400,10 @@ mod tests {
     #[test]
     fn test_auto_tuning() {
         let mut optimizer = SystemOptimizer::new();
-        let result = optimizer.auto_tune_for_workload(WorkloadType::ComputeIntensive).unwrap();
-        
+        let result = optimizer
+            .auto_tune_for_workload(WorkloadType::ComputeIntensive)
+            .unwrap();
+
         assert!(!result.parameters_tuned.is_empty());
         assert!(result.performance_gain >= 0.0);
     }
@@ -1251,11 +1411,10 @@ mod tests {
     #[test]
     fn test_resource_optimization() {
         let mut optimizer = SystemOptimizer::new();
-        let result = optimizer.optimize_resource(
-            ResourceType::CPU, 
-            OptimizationTarget::Balance
-        ).unwrap();
-        
+        let result = optimizer
+            .optimize_resource(ResourceType::CPU, OptimizationTarget::Balance)
+            .unwrap();
+
         assert!(!result.techniques_applied.is_empty());
     }
 
@@ -1263,7 +1422,7 @@ mod tests {
     fn test_performance_recommendations() {
         let optimizer = SystemOptimizer::new();
         let recommendations = optimizer.generate_recommendations().unwrap();
-        
+
         assert!(!recommendations.is_empty());
     }
 
@@ -1271,7 +1430,7 @@ mod tests {
     fn test_performance_profile_application() {
         let mut optimizer = SystemOptimizer::new();
         let result = optimizer.apply_performance_profile("balanced").unwrap();
-        
+
         assert_eq!(result.profile_name, "balanced");
     }
 }

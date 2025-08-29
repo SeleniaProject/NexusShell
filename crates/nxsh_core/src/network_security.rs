@@ -3,13 +3,13 @@
 //! This module provides network security features including firewall rules,
 //! intrusion detection, and secure network communication.
 
-use crate::compat::{Result, Context};
+use crate::compat::{Context, Result};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    time::{Duration, SystemTime},
     sync::{Arc, Mutex, RwLock},
+    time::{Duration, SystemTime},
 };
-use serde::{Deserialize, Serialize};
 
 /// Comprehensive network monitoring and security system for NexusShell
 #[derive(Debug, Clone)]
@@ -52,7 +52,7 @@ impl NetworkMonitor {
         }
 
         self.monitoring_enabled = true;
-        
+
         // Start connection monitoring thread
         let connections = Arc::clone(&self.connections);
         std::thread::spawn(move || {
@@ -96,10 +96,10 @@ impl NetworkMonitor {
                     RuleAction::Deny => return Ok(AccessDecision::Deny(rule.reason.clone())),
                     RuleAction::Log => {
                         self.log_access_attempt(host, port, &rule.reason);
-                    },
+                    }
                     RuleAction::Monitor => {
                         self.add_monitoring_target(host, port);
-                    },
+                    }
                 }
             }
         }
@@ -110,14 +110,22 @@ impl NetworkMonitor {
     }
 
     /// Analyze network traffic for threats
-    pub fn analyze_traffic(&mut self, data: &[u8], source: &str, destination: &str) -> Result<ThreatAnalysis> {
-        let analysis = self.threat_detector.analyze_packet(data, source, destination)?;
-        
+    pub fn analyze_traffic(
+        &mut self,
+        data: &[u8],
+        source: &str,
+        destination: &str,
+    ) -> Result<ThreatAnalysis> {
+        let analysis = self
+            .threat_detector
+            .analyze_packet(data, source, destination)?;
+
         if analysis.threat_level > ThreatLevel::Low {
             self.handle_threat(&analysis)?;
         }
 
-        self.traffic_analyzer.record_traffic(data.len(), source, destination);
+        self.traffic_analyzer
+            .record_traffic(data.len(), source, destination);
         Ok(analysis)
     }
 
@@ -125,7 +133,7 @@ impl NetworkMonitor {
     pub fn get_network_stats(&self) -> NetworkStatistics {
         let connections = self.connections.lock().unwrap();
         let active_connections = connections.len();
-        
+
         NetworkStatistics {
             active_connections,
             total_bytes_sent: self.traffic_analyzer.total_bytes_sent(),
@@ -165,8 +173,7 @@ impl NetworkMonitor {
         }
 
         let host = parts[0].to_string();
-        let port: u16 = parts[1].parse()
-            .context("Invalid port number")?;
+        let port: u16 = parts[1].parse().context("Invalid port number")?;
 
         Ok(EndpointMonitor::new(host, port))
     }
@@ -180,7 +187,7 @@ impl NetworkMonitor {
     /// Perform network security audit
     pub fn security_audit(&self) -> SecurityAuditReport {
         let mut report = SecurityAuditReport::new();
-        
+
         // Check for suspicious patterns
         let connections = self.connections.lock().unwrap();
         for (id, conn) in connections.iter() {
@@ -258,12 +265,12 @@ impl NetworkMonitor {
         if pattern == "*" {
             return true;
         }
-        
+
         if pattern.contains('/') {
             // CIDR notation - simplified check
             return host.starts_with(&pattern[..pattern.find('/').unwrap_or(0)]);
         }
-        
+
         // Exact match or wildcard
         pattern == host || pattern.replace('*', "") == host.replace(&pattern.replace('*', ""), "")
     }
@@ -275,19 +282,21 @@ impl NetworkMonitor {
     fn add_monitoring_target(&self, host: &str, port: u16) {
         let connection_id = format!("{host}:{port}");
         let mut connections = self.connections.lock().unwrap();
-        
-        connections.entry(connection_id.clone()).or_insert_with(|| NetworkConnection {
-            id: connection_id,
-            host: host.to_string(),
-            port,
-            protocol: Protocol::TCP,
-            state: ConnectionState::Monitoring,
-            bytes_sent: 0,
-            bytes_received: 0,
-            start_time: SystemTime::now(),
-            last_activity: SystemTime::now(),
-            encrypted: port == 443 || port == 22,
-        });
+
+        connections
+            .entry(connection_id.clone())
+            .or_insert_with(|| NetworkConnection {
+                id: connection_id,
+                host: host.to_string(),
+                port,
+                protocol: Protocol::TCP,
+                state: ConnectionState::Monitoring,
+                bytes_sent: 0,
+                bytes_received: 0,
+                start_time: SystemTime::now(),
+                last_activity: SystemTime::now(),
+                encrypted: port == 443 || port == 22,
+            });
     }
 
     fn handle_threat(&self, analysis: &ThreatAnalysis) -> Result<()> {
@@ -295,16 +304,16 @@ impl NetworkMonitor {
             ThreatLevel::Critical => {
                 eprintln!("CRITICAL THREAT DETECTED: {}", analysis.description);
                 // Could implement automatic blocking here
-            },
+            }
             ThreatLevel::High => {
                 eprintln!("HIGH THREAT DETECTED: {}", analysis.description);
-            },
+            }
             ThreatLevel::Medium => {
                 println!("Medium threat detected: {}", analysis.description);
-            },
+            }
             ThreatLevel::Low => {
                 // Just log
-            },
+            }
         }
         Ok(())
     }
@@ -321,18 +330,21 @@ impl NetworkMonitor {
 
     fn is_suspicious_connection(&self, conn: &NetworkConnection) -> bool {
         // Check for suspicious patterns
-        let duration = SystemTime::now().duration_since(conn.start_time).unwrap_or_default();
-        
+        let duration = SystemTime::now()
+            .duration_since(conn.start_time)
+            .unwrap_or_default();
+
         // Long-running connections to unusual ports
         if duration > Duration::from_secs(3600) && conn.port > 10000 {
             return true;
         }
-        
+
         // High traffic volume
-        if conn.bytes_sent + conn.bytes_received > 100_000_000 { // 100MB
+        if conn.bytes_sent + conn.bytes_received > 100_000_000 {
+            // 100MB
             return true;
         }
-        
+
         false
     }
 
@@ -365,7 +377,7 @@ impl TrafficAnalyzer {
     pub fn record_traffic(&self, bytes: usize, source: &str, destination: &str) {
         let mut sent = self.total_bytes_sent.lock().unwrap();
         let mut received = self.total_bytes_received.lock().unwrap();
-        
+
         if source == "localhost" {
             *sent += bytes as u64;
         } else {
@@ -411,7 +423,12 @@ impl ThreatDetector {
     }
 
     // Default implementation declared at module scope below
-    pub fn analyze_packet(&self, data: &[u8], source: &str, destination: &str) -> Result<ThreatAnalysis> {
+    pub fn analyze_packet(
+        &self,
+        data: &[u8],
+        source: &str,
+        destination: &str,
+    ) -> Result<ThreatAnalysis> {
         let mut threat_level = ThreatLevel::Low;
         let mut description = "Normal traffic".to_string();
 
@@ -420,10 +437,10 @@ impl ThreatDetector {
             if signature.matches(data) {
                 threat_level = signature.threat_level.clone();
                 description = signature.description.clone();
-                
+
                 let mut count = self.threat_count.lock().unwrap();
                 *count += 1;
-                
+
                 break;
             }
         }
@@ -503,24 +520,27 @@ impl ConnectionMonitor {
     pub fn run(&mut self) -> Result<()> {
         loop {
             std::thread::sleep(Duration::from_secs(1));
-            
+
             let mut connections = self.connections.lock().unwrap();
             let current_time = SystemTime::now();
-            
+
             // Update connection states and clean up old connections
             let mut to_remove = Vec::new();
-            
+
             for (id, conn) in connections.iter_mut() {
-                let idle_time = current_time.duration_since(conn.last_activity).unwrap_or_default();
-                
-                if idle_time > Duration::from_secs(300) { // 5 minutes idle
+                let idle_time = current_time
+                    .duration_since(conn.last_activity)
+                    .unwrap_or_default();
+
+                if idle_time > Duration::from_secs(300) {
+                    // 5 minutes idle
                     to_remove.push(id.clone());
                 } else if conn.state == ConnectionState::Monitoring {
                     // Update connection state based on activity
                     conn.state = ConnectionState::Active;
                 }
             }
-            
+
             for id in to_remove {
                 connections.remove(&id);
             }
@@ -574,31 +594,31 @@ impl SecurityRule {
     pub fn matches(&self, host: &str, port: u16) -> bool {
         let host_matches = self.matches_host_pattern(host);
         let port_matches = port >= self.port_range.0 && port <= self.port_range.1;
-        
+
         host_matches && port_matches
     }
-    
+
     fn matches_host_pattern(&self, host: &str) -> bool {
         if self.host_pattern == "*" {
             return true;
         }
-        
+
         if self.host_pattern == host {
             return true;
         }
-        
+
         // Handle wildcard patterns like "*.example.com"
         if self.host_pattern.starts_with("*.") {
             let suffix = &self.host_pattern[2..]; // Remove "*."
             return host.ends_with(suffix) && (host.len() > suffix.len());
         }
-        
+
         // Handle patterns like "example.*"
         if self.host_pattern.ends_with(".*") {
             let prefix = &self.host_pattern[..self.host_pattern.len() - 2]; // Remove ".*"
             return host.starts_with(prefix);
         }
-        
+
         // Fallback to simple contains check
         host.contains(&self.host_pattern)
     }
@@ -648,8 +668,10 @@ impl ThreatSignature {
         // Convert both data and pattern to lowercase for case-insensitive matching
         let data_lower = data.to_ascii_lowercase();
         let pattern_lower = self.pattern.to_ascii_lowercase();
-        
-        data_lower.windows(pattern_lower.len()).any(|window| window == pattern_lower)
+
+        data_lower
+            .windows(pattern_lower.len())
+            .any(|window| window == pattern_lower)
     }
 }
 
@@ -691,10 +713,10 @@ impl EndpointMonitor {
         // Simplified connectivity check - would use actual network testing
         use std::net::TcpStream;
         use std::time::Duration;
-        
+
         match TcpStream::connect_timeout(
             &format!("{}:{}", self.host, self.port).parse()?,
-            Duration::from_secs(3)
+            Duration::from_secs(3),
         ) {
             Ok(_) => Ok(true),
             Err(_) => Ok(false),
@@ -776,19 +798,27 @@ impl NetworkSecurityManager {
 
 // Default implementations (module scope)
 impl Default for NetworkMonitor {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Default for TrafficAnalyzer {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Default for ThreatDetector {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Default for SecurityAuditReport {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
@@ -806,11 +836,11 @@ mod tests {
     #[test]
     fn test_access_validation() {
         let monitor = NetworkMonitor::new();
-        
+
         // Test whitelist
         let result = monitor.validate_access("127.0.0.1", 8080).unwrap();
         assert!(matches!(result, AccessDecision::Allow));
-        
+
         // Test blacklist
         let result = monitor.validate_access("0.0.0.0", 8080).unwrap();
         assert!(matches!(result, AccessDecision::Deny(_)));
@@ -819,10 +849,12 @@ mod tests {
     #[test]
     fn test_threat_detection() {
         let detector = ThreatDetector::new();
-        
+
         let malicious_data = b"'; DROP TABLE users; --";
-        let result = detector.analyze_packet(malicious_data, "192.168.1.1", "localhost").unwrap();
-        
+        let result = detector
+            .analyze_packet(malicious_data, "192.168.1.1", "localhost")
+            .unwrap();
+
         assert_ne!(result.threat_level, ThreatLevel::Low);
     }
 
@@ -835,7 +867,8 @@ mod tests {
         // Build a payload containing a Critical signature and make it large.
         let mut data = Vec::new();
         let signature = b"DROP TABLE"; // Critical per load_signatures
-        for _ in 0..7000 { // ~77KB when including delimiter
+        for _ in 0..7000 {
+            // ~77KB when including delimiter
             data.extend_from_slice(signature);
             data.push(b' ');
         }
@@ -844,7 +877,11 @@ mod tests {
             .analyze_packet(&data, "10.0.0.1", "localhost")
             .expect("analysis should succeed");
 
-        assert_eq!(result.threat_level, ThreatLevel::Critical, "Severity must not be downgraded for large malicious packets");
+        assert_eq!(
+            result.threat_level,
+            ThreatLevel::Critical,
+            "Severity must not be downgraded for large malicious packets"
+        );
     }
 
     #[test]
@@ -856,7 +893,7 @@ mod tests {
             action: RuleAction::Allow,
             reason: "Test".to_string(),
         };
-        
+
         assert!(rule.matches("api.example.com", 80));
         assert!(rule.matches("www.example.com", 443));
         assert!(!rule.matches("example.org", 80));
@@ -867,7 +904,7 @@ mod tests {
     fn test_security_audit() {
         let monitor = NetworkMonitor::new();
         let report = monitor.security_audit();
-        
+
         assert!(!report.findings.is_empty());
     }
 
@@ -880,7 +917,7 @@ mod tests {
             require_auth: false,
             timeout: Duration::from_secs(30),
         };
-        
+
         assert!(manager.add_policy(policy).is_ok());
     }
 }

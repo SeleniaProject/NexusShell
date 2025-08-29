@@ -8,13 +8,15 @@
 //! - Scoped symbol resolution and conflict detection
 //! - Dynamic module loading and hot-reloading
 
-use crate::error::{ShellError, ErrorKind, ShellResult, RuntimeErrorKind, IoErrorKind, SystemErrorKind};
+use crate::error::{
+    ErrorKind, IoErrorKind, RuntimeErrorKind, ShellError, ShellResult, SystemErrorKind,
+};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
-use serde::{Serialize, Deserialize};
 use tracing::{debug, info, warn};
 
 /// Namespace management system with module resolution
@@ -264,10 +266,7 @@ pub enum ImportType {
     /// Import the module itself
     Module,
     /// Import with renaming
-    Renamed {
-        original: String,
-        alias: String,
-    },
+    Renamed { original: String, alias: String },
 }
 
 /// An imported symbol with optional alias
@@ -362,11 +361,18 @@ impl NamespaceSystem {
 
         // Add to cache
         if self.config.enable_caching {
-            self.module_cache.write().unwrap().insert(name.to_string(), module.clone());
+            self.module_cache
+                .write()
+                .unwrap()
+                .insert(name.to_string(), module.clone());
         }
 
         // Add to root namespace
-        self.root_namespace.write().unwrap().modules.insert(name.to_string(), module);
+        self.root_namespace
+            .write()
+            .unwrap()
+            .modules
+            .insert(name.to_string(), module);
 
         self.statistics.modules_loaded += 1;
         debug!(name = %name, "Module created successfully");
@@ -377,17 +383,20 @@ impl NamespaceSystem {
     pub fn load_module(&mut self, path: &Path) -> ShellResult<String> {
         info!(path = ?path, "Loading module from file");
 
-        let module_name = path.file_stem()
+        let module_name = path
+            .file_stem()
             .and_then(|s| s.to_str())
-            .ok_or_else(|| ShellError::new(
-                ErrorKind::RuntimeError(RuntimeErrorKind::PathNotFound),
-                format!("Invalid module path: {path:?}"),
-            ))?
+            .ok_or_else(|| {
+                ShellError::new(
+                    ErrorKind::RuntimeError(RuntimeErrorKind::PathNotFound),
+                    format!("Invalid module path: {path:?}"),
+                )
+            })?
             .to_string();
 
         // Check cache first
         if self.config.enable_caching {
-                if let Some(_cached_module) = self.module_cache.read().unwrap().get(&module_name) {
+            if let Some(_cached_module) = self.module_cache.read().unwrap().get(&module_name) {
                 self.statistics.cache_hits += 1;
                 debug!(name = %module_name, "Module loaded from cache");
                 return Ok(module_name);
@@ -397,22 +406,30 @@ impl NamespaceSystem {
         self.statistics.cache_misses += 1;
 
         // Read module file
-    let content = std::fs::read_to_string(path)
-            .map_err(|e| ShellError::new(
+        let content = std::fs::read_to_string(path).map_err(|e| {
+            ShellError::new(
                 ErrorKind::IoError(IoErrorKind::FileReadError),
-        format!("Failed to read module file {path:?}: {e}"),
-            ))?;
+                format!("Failed to read module file {path:?}: {e}"),
+            )
+        })?;
 
         // Parse module content (simplified)
         let module = self.parse_module_content(&module_name, &content, Some(path.to_path_buf()))?;
 
         // Cache the module
         if self.config.enable_caching {
-            self.module_cache.write().unwrap().insert(module_name.clone(), module.clone());
+            self.module_cache
+                .write()
+                .unwrap()
+                .insert(module_name.clone(), module.clone());
         }
 
         // Add to namespace
-        self.root_namespace.write().unwrap().modules.insert(module_name.clone(), module);
+        self.root_namespace
+            .write()
+            .unwrap()
+            .modules
+            .insert(module_name.clone(), module);
 
         self.statistics.modules_loaded += 1;
         info!(name = %module_name, "Module loaded successfully");
@@ -420,7 +437,12 @@ impl NamespaceSystem {
     }
 
     /// Parse module content and extract symbols
-    fn parse_module_content(&self, name: &str, content: &str, path: Option<PathBuf>) -> ShellResult<Module> {
+    fn parse_module_content(
+        &self,
+        name: &str,
+        content: &str,
+        path: Option<PathBuf>,
+    ) -> ShellResult<Module> {
         debug!(name = %name, content_len = content.len(), "Parsing module content");
 
         let mut module = Module {
@@ -445,14 +467,18 @@ impl NamespaceSystem {
         // Simplified parsing - in real implementation, use the AST parser
         for line in content.lines() {
             let line = line.trim();
-            
+
             // Parse function definitions
             if line.starts_with("function ") || line.starts_with("fn ") {
                 if let Some(func_name) = self.extract_function_name(line) {
                     let symbol = Symbol {
                         name: func_name.clone(),
                         symbol_type: SymbolType::Function,
-                        visibility: if line.starts_with("pub ") { Visibility::Public } else { Visibility::Private },
+                        visibility: if line.starts_with("pub ") {
+                            Visibility::Public
+                        } else {
+                            Visibility::Private
+                        },
                         definition: SymbolDefinition::Function {
                             parameters: vec![], // Simplified
                             return_type: None,
@@ -469,14 +495,17 @@ impl NamespaceSystem {
                     }
                 }
             }
-            
             // Parse variable assignments
             else if line.contains('=') && !line.starts_with('#') {
                 if let Some((var_name, value)) = self.extract_variable_assignment(line) {
                     let symbol = Symbol {
                         name: var_name.clone(),
                         symbol_type: SymbolType::Variable,
-                        visibility: if line.starts_with("export ") { Visibility::Public } else { Visibility::Private },
+                        visibility: if line.starts_with("export ") {
+                            Visibility::Public
+                        } else {
+                            Visibility::Private
+                        },
                         definition: SymbolDefinition::Variable {
                             value_type: None,
                             value: value.to_string(),
@@ -493,7 +522,6 @@ impl NamespaceSystem {
                     }
                 }
             }
-            
             // Parse import statements
             else if line.starts_with("use ") || line.starts_with("import ") {
                 if let Some(import) = self.parse_import_statement(line) {
@@ -515,7 +543,10 @@ impl NamespaceSystem {
 
     /// Extract function name from function definition line
     fn extract_function_name(&self, line: &str) -> Option<String> {
-        let line = line.trim_start_matches("pub ").trim_start_matches("function ").trim_start_matches("fn ");
+        let line = line
+            .trim_start_matches("pub ")
+            .trim_start_matches("function ")
+            .trim_start_matches("fn ");
         if let Some(paren_pos) = line.find('(') {
             let name = line[..paren_pos].trim();
             if !name.is_empty() {
@@ -527,7 +558,9 @@ impl NamespaceSystem {
 
     /// Extract variable assignment
     fn extract_variable_assignment(&self, line: &str) -> Option<(String, String)> {
-        let line = line.trim_start_matches("export ").trim_start_matches("local ");
+        let line = line
+            .trim_start_matches("export ")
+            .trim_start_matches("local ");
         if let Some(eq_pos) = line.find('=') {
             let name = line[..eq_pos].trim();
             let value = line[eq_pos + 1..].trim();
@@ -540,8 +573,13 @@ impl NamespaceSystem {
 
     /// Parse import statement
     fn parse_import_statement(&self, line: &str) -> Option<ImportStatement> {
-        let raw = line.trim_start_matches("use ").trim_start_matches("import ").trim();
-        if raw.is_empty() { return None; }
+        let raw = line
+            .trim_start_matches("use ")
+            .trim_start_matches("import ")
+            .trim();
+        if raw.is_empty() {
+            return None;
+        }
 
         // Support patterns:
         // use net::*
@@ -552,52 +590,108 @@ impl NamespaceSystem {
 
         // Split alias (" as ") if present (only top-level alias e.g. module as alias)
         let (path_part, alias_part) = if let Some(idx) = raw.find(" as ") {
-            (&raw[..idx], Some(raw[idx+4..].trim()))
-        } else { (raw, None) };
+            (&raw[..idx], Some(raw[idx + 4..].trim()))
+        } else {
+            (raw, None)
+        };
 
         // Detect named import block {...}
         if let Some(open_brace) = path_part.find('{') {
             if path_part.ends_with('}') {
                 let prefix = path_part[..open_brace].trim_end_matches("::").trim();
-                let inner = &path_part[open_brace+1..path_part.len()-1];
-                let items: Vec<&str> = inner.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+                let inner = &path_part[open_brace + 1..path_part.len() - 1];
+                let items: Vec<&str> = inner
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .collect();
                 let mut imported = Vec::new();
                 for item in items {
-                    if item == "*" { // glob inside braces -> treat as glob of prefix
-                        let path_parts: Vec<String> = prefix.split("::").filter(|s|!s.is_empty()).map(|s| s.to_string()).collect();
-                        return Some(ImportStatement { source: ModulePath::Absolute(path_parts), import_type: ImportType::Glob, alias: alias_part.map(|a| a.to_string()), visibility: Visibility::Private });
+                    if item == "*" {
+                        // glob inside braces -> treat as glob of prefix
+                        let path_parts: Vec<String> = prefix
+                            .split("::")
+                            .filter(|s| !s.is_empty())
+                            .map(|s| s.to_string())
+                            .collect();
+                        return Some(ImportStatement {
+                            source: ModulePath::Absolute(path_parts),
+                            import_type: ImportType::Glob,
+                            alias: alias_part.map(|a| a.to_string()),
+                            visibility: Visibility::Private,
+                        });
                     }
                     // Handle rename "Name as Alias"
                     let (name, alias) = if let Some(pos) = item.find(" as ") {
-                        (item[..pos].trim(), Some(item[pos+4..].trim()))
-                    } else { (item, None) };
-                    imported.push(ImportedSymbol { name: name.to_string(), alias: alias.map(|a| a.to_string()), source: prefix.to_string(), symbol: None });
+                        (item[..pos].trim(), Some(item[pos + 4..].trim()))
+                    } else {
+                        (item, None)
+                    };
+                    imported.push(ImportedSymbol {
+                        name: name.to_string(),
+                        alias: alias.map(|a| a.to_string()),
+                        source: prefix.to_string(),
+                        symbol: None,
+                    });
                 }
-                let path_parts: Vec<String> = prefix.split("::").filter(|s|!s.is_empty()).map(|s| s.to_string()).collect();
-                return Some(ImportStatement { source: ModulePath::Absolute(path_parts), import_type: ImportType::Named(imported), alias: alias_part.map(|a| a.to_string()), visibility: Visibility::Private });
+                let path_parts: Vec<String> = prefix
+                    .split("::")
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect();
+                return Some(ImportStatement {
+                    source: ModulePath::Absolute(path_parts),
+                    import_type: ImportType::Named(imported),
+                    alias: alias_part.map(|a| a.to_string()),
+                    visibility: Visibility::Private,
+                });
             }
         }
 
         // Glob form module::*
         if path_part.ends_with("::*") {
             let base = path_part.trim_end_matches("::*");
-            let path_parts: Vec<String> = base.split("::").filter(|s|!s.is_empty()).map(|s| s.to_string()).collect();
-            return Some(ImportStatement { source: ModulePath::Absolute(path_parts), import_type: ImportType::Glob, alias: alias_part.map(|a| a.to_string()), visibility: Visibility::Private });
+            let path_parts: Vec<String> = base
+                .split("::")
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .collect();
+            return Some(ImportStatement {
+                source: ModulePath::Absolute(path_parts),
+                import_type: ImportType::Glob,
+                alias: alias_part.map(|a| a.to_string()),
+                visibility: Visibility::Private,
+            });
         }
 
         // Plain module path
-        let path_parts: Vec<String> = path_part.split("::").filter(|s|!s.is_empty()).map(|s| s.to_string()).collect();
-        if path_parts.is_empty() { return None; }
-        Some(ImportStatement { source: ModulePath::Absolute(path_parts), import_type: ImportType::Module, alias: alias_part.map(|a| a.to_string()), visibility: Visibility::Private })
+        let path_parts: Vec<String> = path_part
+            .split("::")
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect();
+        if path_parts.is_empty() {
+            return None;
+        }
+        Some(ImportStatement {
+            source: ModulePath::Absolute(path_parts),
+            import_type: ImportType::Module,
+            alias: alias_part.map(|a| a.to_string()),
+            visibility: Visibility::Private,
+        })
     }
 
     /// Resolve an import statement
-    pub fn resolve_import(&mut self, module_name: &str, import: &ImportStatement) -> ShellResult<ImportResolution> {
+    pub fn resolve_import(
+        &mut self,
+        module_name: &str,
+        import: &ImportStatement,
+    ) -> ShellResult<ImportResolution> {
         info!(module = %module_name, import = ?import, "Resolving import");
         self.statistics.imports_resolved += 1;
 
         // Check cache first
-    let cache_key = format!("{module_name}::{import:?}");
+        let cache_key = format!("{module_name}::{import:?}");
         if self.config.enable_caching {
             if let Some(cached) = self.import_cache.read().unwrap().get(&cache_key) {
                 debug!("Import resolution found in cache");
@@ -608,28 +702,30 @@ impl NamespaceSystem {
         let resolution = match &import.source {
             ModulePath::Absolute(path) => {
                 self.resolve_absolute_import(path, &import.import_type)?
-            },
+            }
             ModulePath::Relative(path) => {
                 self.resolve_relative_import(module_name, path, &import.import_type)?
-            },
+            }
             ModulePath::External(crate_name) => {
                 self.resolve_external_import(crate_name, &import.import_type)?
-            },
-            ModulePath::SelfPath => {
-                self.resolve_self_import(module_name, &import.import_type)?
-            },
-            ModulePath::Super => {
-                self.resolve_super_import(module_name, &import.import_type)?
-            },
+            }
+            ModulePath::SelfPath => self.resolve_self_import(module_name, &import.import_type)?,
+            ModulePath::Super => self.resolve_super_import(module_name, &import.import_type)?,
         };
 
         // Cache the resolution
         if self.config.enable_caching {
-            self.import_cache.write().unwrap().insert(cache_key, resolution.clone());
+            self.import_cache
+                .write()
+                .unwrap()
+                .insert(cache_key, resolution.clone());
         }
 
         if resolution.success {
-            debug!(symbols_count = resolution.symbols.len(), "Import resolved successfully");
+            debug!(
+                symbols_count = resolution.symbols.len(),
+                "Import resolved successfully"
+            );
         } else {
             self.statistics.import_failures += 1;
             warn!(error = ?resolution.error, "Import resolution failed");
@@ -639,7 +735,11 @@ impl NamespaceSystem {
     }
 
     /// Resolve absolute import path
-    fn resolve_absolute_import(&self, path: &[String], import_type: &ImportType) -> ShellResult<ImportResolution> {
+    fn resolve_absolute_import(
+        &self,
+        path: &[String],
+        import_type: &ImportType,
+    ) -> ShellResult<ImportResolution> {
         if path.is_empty() {
             return Ok(ImportResolution {
                 success: false,
@@ -651,7 +751,7 @@ impl NamespaceSystem {
 
         let module_name = &path[0];
         let namespace = self.root_namespace.read().unwrap();
-        
+
         if let Some(module) = namespace.modules.get(module_name) {
             match import_type {
                 ImportType::Module => {
@@ -668,31 +768,36 @@ impl NamespaceSystem {
                         error: None,
                         warnings: vec![],
                     })
-                },
+                }
                 ImportType::Named(imports) => {
                     let mut symbols = HashMap::new();
                     let mut warnings = vec![];
-                    
+
                     for imported in imports {
                         if let Some(symbol) = module.symbols.get(&imported.name) {
-                            if symbol.visibility == Visibility::Public || !self.config.strict_visibility {
+                            if symbol.visibility == Visibility::Public
+                                || !self.config.strict_visibility
+                            {
                                 let key = imported.alias.as_ref().unwrap_or(&imported.name);
                                 symbols.insert(key.clone(), symbol.clone());
                             } else {
                                 warnings.push(format!("Symbol '{}' is not public", imported.name));
                             }
                         } else {
-                            warnings.push(format!("Symbol '{}' not found in module '{}'", imported.name, module_name));
+                            warnings.push(format!(
+                                "Symbol '{}' not found in module '{}'",
+                                imported.name, module_name
+                            ));
                         }
                     }
-                    
+
                     Ok(ImportResolution {
                         success: !symbols.is_empty(),
                         symbols,
                         error: None,
                         warnings,
                     })
-                },
+                }
                 ImportType::Glob => {
                     let mut symbols = HashMap::new();
                     // Import all public symbols
@@ -707,10 +812,11 @@ impl NamespaceSystem {
                         error: None,
                         warnings: vec![],
                     })
-                },
+                }
                 ImportType::Renamed { original, alias } => {
                     if let Some(symbol) = module.symbols.get(original) {
-                        if symbol.visibility == Visibility::Public || !self.config.strict_visibility {
+                        if symbol.visibility == Visibility::Public || !self.config.strict_visibility
+                        {
                             let mut symbols = HashMap::new();
                             symbols.insert(alias.clone(), symbol.clone());
                             Ok(ImportResolution {
@@ -735,7 +841,7 @@ impl NamespaceSystem {
                             warnings: vec![],
                         })
                     }
-                },
+                }
             }
         } else {
             Ok(ImportResolution {
@@ -748,14 +854,23 @@ impl NamespaceSystem {
     }
 
     /// Resolve relative import (simplified)
-    fn resolve_relative_import(&self, current_module: &str, path: &[String], import_type: &ImportType) -> ShellResult<ImportResolution> {
+    fn resolve_relative_import(
+        &self,
+        current_module: &str,
+        path: &[String],
+        import_type: &ImportType,
+    ) -> ShellResult<ImportResolution> {
         debug!(current = %current_module, path = ?path, "Resolving relative import");
         // For simplicity, treat relative imports as absolute for now
         self.resolve_absolute_import(path, import_type)
     }
 
     /// Resolve external import (simplified)
-    fn resolve_external_import(&self, crate_name: &str, _import_type: &ImportType) -> ShellResult<ImportResolution> {
+    fn resolve_external_import(
+        &self,
+        crate_name: &str,
+        _import_type: &ImportType,
+    ) -> ShellResult<ImportResolution> {
         debug!(crate_name = %crate_name, "Resolving external import");
         // Placeholder for external crate resolution
         Ok(ImportResolution {
@@ -767,20 +882,40 @@ impl NamespaceSystem {
     }
 
     /// Resolve self import
-    fn resolve_self_import(&self, module_name: &str, import_type: &ImportType) -> ShellResult<ImportResolution> {
+    fn resolve_self_import(
+        &self,
+        module_name: &str,
+        import_type: &ImportType,
+    ) -> ShellResult<ImportResolution> {
         debug!(module = %module_name, "Resolving self import");
         self.resolve_absolute_import(&[module_name.to_string()], import_type)
     }
 
     /// Resolve super import (simplified)
-    fn resolve_super_import(&self, module_name: &str, import_type: &ImportType) -> ShellResult<ImportResolution> {
+    fn resolve_super_import(
+        &self,
+        module_name: &str,
+        import_type: &ImportType,
+    ) -> ShellResult<ImportResolution> {
         debug!(module = %module_name, "Resolving super import");
         // Determine parent by splitting module name on '::' and dropping the last segment.
         let mut parts: Vec<&str> = module_name.split("::").collect();
-        if parts.is_empty() { return Ok(ImportResolution { success: false, symbols: HashMap::new(), error: Some("Invalid module path".to_string()), warnings: vec![] }); }
+        if parts.is_empty() {
+            return Ok(ImportResolution {
+                success: false,
+                symbols: HashMap::new(),
+                error: Some("Invalid module path".to_string()),
+                warnings: vec![],
+            });
+        }
         parts.pop();
         if parts.is_empty() {
-            return Ok(ImportResolution { success: false, symbols: HashMap::new(), error: Some("No parent module".to_string()), warnings: vec![] });
+            return Ok(ImportResolution {
+                success: false,
+                symbols: HashMap::new(),
+                error: Some("No parent module".to_string()),
+                warnings: vec![],
+            });
         }
         let parent = parts.join("::");
         // Delegate to absolute import using the parent module
@@ -788,25 +923,29 @@ impl NamespaceSystem {
     }
 
     /// Lookup a symbol by name
-    pub fn lookup_symbol(&mut self, module_name: &str, symbol_name: &str) -> ShellResult<Option<Symbol>> {
+    pub fn lookup_symbol(
+        &mut self,
+        module_name: &str,
+        symbol_name: &str,
+    ) -> ShellResult<Option<Symbol>> {
         debug!(module = %module_name, symbol = %symbol_name, "Looking up symbol");
         self.statistics.symbol_lookups += 1;
 
         let namespace = self.root_namespace.read().unwrap();
-        
+
         if let Some(module) = namespace.modules.get(module_name) {
             // Check module's own symbols first
             if let Some(symbol) = module.symbols.get(symbol_name) {
                 return Ok(Some(symbol.clone()));
             }
-            
+
             // Check private symbols if not in strict mode
             if !self.config.strict_visibility {
                 if let Some(symbol) = module.private_symbols.get(symbol_name) {
                     return Ok(Some(symbol.clone()));
                 }
             }
-            
+
             // Check imported symbols
             if let Some(imported) = module.imports.iter().find_map(|_import| {
                 // Simplified lookup in imports
@@ -829,7 +968,7 @@ impl NamespaceSystem {
     /// List all symbols in a module
     pub fn list_symbols(&self, module_name: &str) -> ShellResult<Vec<String>> {
         let namespace = self.root_namespace.read().unwrap();
-        
+
         if let Some(module) = namespace.modules.get(module_name) {
             let mut symbols: Vec<String> = module.symbols.keys().cloned().collect();
             if !self.config.strict_visibility {
@@ -848,7 +987,7 @@ impl NamespaceSystem {
     /// Get module information
     pub fn get_module_info(&self, module_name: &str) -> ShellResult<ModuleMetadata> {
         let namespace = self.root_namespace.read().unwrap();
-        
+
         if let Some(module) = namespace.modules.get(module_name) {
             Ok(module.metadata.clone())
         } else {
@@ -881,11 +1020,14 @@ impl NamespaceSystem {
         }
 
         info!(module = %module_name, "Reloading module");
-        
+
         // Remove from cache
         self.module_cache.write().unwrap().remove(module_name);
-    self.import_cache.write().unwrap().retain(|k, _| !k.starts_with(&format!("{module_name}::")));
-        
+        self.import_cache
+            .write()
+            .unwrap()
+            .retain(|k, _| !k.starts_with(&format!("{module_name}::")));
+
         // Find module path and reload
         let path_opt = {
             let namespace = self.root_namespace.read().unwrap();
@@ -908,7 +1050,7 @@ impl NamespaceSystem {
                 format!("Module '{module_name}' has no associated file path"),
             ));
         }
-        
+
         Ok(())
     }
 }
@@ -922,8 +1064,6 @@ impl Default for NamespaceSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
-    
 
     #[test]
     fn test_module_creation() {
@@ -936,7 +1076,7 @@ mod tests {
     fn test_symbol_lookup() {
         let mut ns = NamespaceSystem::default();
         ns.create_module("test_module", None).unwrap();
-        
+
         // In a real test, we would add symbols to the module
         let result = ns.lookup_symbol("test_module", "test_symbol");
         assert!(result.is_ok());
@@ -946,14 +1086,14 @@ mod tests {
     fn test_import_resolution() {
         let mut ns = NamespaceSystem::default();
         ns.create_module("source_module", None).unwrap();
-        
+
         let import = ImportStatement {
             source: ModulePath::Absolute(vec!["source_module".to_string()]),
             import_type: ImportType::Module,
             alias: None,
             visibility: Visibility::Private,
         };
-        
+
         let result = ns.resolve_import("target_module", &import);
         assert!(result.is_ok());
     }

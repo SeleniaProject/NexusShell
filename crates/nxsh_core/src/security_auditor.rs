@@ -1,13 +1,13 @@
 type RuleFn = std::sync::Arc<dyn Fn(&SecurityAuditor) -> Result<Vec<AuditFinding>> + Send + Sync>;
 type ScanFn = std::sync::Arc<dyn Fn(&AuditScope) -> Result<ScanResult> + Send + Sync>;
 use crate::compat::Result;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    time::{Duration, SystemTime},
-    sync::{Arc, Mutex},
     path::PathBuf,
+    sync::{Arc, Mutex},
+    time::{Duration, SystemTime},
 };
-use serde::{Deserialize, Serialize};
 
 /// Comprehensive security audit and compliance system
 #[derive(Debug, Clone)]
@@ -31,7 +31,7 @@ impl SecurityAuditor {
             security_policies: SecurityPolicies::default(),
             scan_results: HashMap::new(),
         };
-        
+
         auditor.register_default_rules();
         auditor.register_compliance_frameworks();
         auditor.register_vulnerability_scanners();
@@ -41,7 +41,7 @@ impl SecurityAuditor {
     /// Perform comprehensive security audit
     pub fn perform_security_audit(&mut self, scope: AuditScope) -> Result<SecurityAuditReport> {
         let start_time = SystemTime::now();
-        
+
         let mut report = SecurityAuditReport {
             audit_id: Self::generate_audit_id(),
             start_time,
@@ -75,7 +75,9 @@ impl SecurityAuditor {
         for (framework_name, framework) in &self.compliance_frameworks {
             if scope.includes_compliance_check(framework_name) {
                 let compliance_result = self.check_compliance(framework)?;
-                report.compliance_results.insert(framework_name.clone(), compliance_result);
+                report
+                    .compliance_results
+                    .insert(framework_name.clone(), compliance_result);
             }
         }
 
@@ -103,13 +105,15 @@ impl SecurityAuditor {
         report.recommendations = self.generate_recommendations(&report);
 
         report.end_time = Some(SystemTime::now());
-        
+
         // Log completion
         self.log_audit_event(AuditEvent {
             timestamp: SystemTime::now(),
             event_type: AuditEventType::AuditCompleted,
-            description: format!("Security audit {} completed with risk score {:.2}", 
-                               report.audit_id, report.risk_score),
+            description: format!(
+                "Security audit {} completed with risk score {:.2}",
+                report.audit_id, report.risk_score
+            ),
             severity: AuditSeverity::Info,
         });
 
@@ -133,21 +137,21 @@ impl SecurityAuditor {
             match self.evaluate_control(control)? {
                 ControlEvaluation::Compliant => {
                     result.compliant_controls += 1;
-                },
+                }
                 ControlEvaluation::NonCompliant(finding) => {
                     result.non_compliant_controls.push(control.id.clone());
                     result.findings.push(finding);
-                },
+                }
                 ControlEvaluation::NotApplicable => {
                     result.not_applicable_controls.push(control.id.clone());
-                },
+                }
             }
         }
 
         // Calculate compliance percentage
         let applicable_controls = result.total_controls - result.not_applicable_controls.len();
         if applicable_controls > 0 {
-            result.compliance_percentage = 
+            result.compliance_percentage =
                 (result.compliant_controls as f64 / applicable_controls as f64) * 100.0;
         }
 
@@ -155,7 +159,10 @@ impl SecurityAuditor {
     }
 
     /// Run vulnerability assessment
-    pub fn run_vulnerability_assessment(&mut self, target: &str) -> Result<VulnerabilityAssessment> {
+    pub fn run_vulnerability_assessment(
+        &mut self,
+        target: &str,
+    ) -> Result<VulnerabilityAssessment> {
         let mut assessment = VulnerabilityAssessment {
             target: target.to_string(),
             scan_time: SystemTime::now(),
@@ -165,19 +172,26 @@ impl SecurityAuditor {
         };
 
         // File permission vulnerabilities
-        assessment.vulnerabilities.extend(self.scan_file_permissions(target)?);
+        assessment
+            .vulnerabilities
+            .extend(self.scan_file_permissions(target)?);
 
         // Configuration vulnerabilities
-        assessment.vulnerabilities.extend(self.scan_configuration_issues(target)?);
+        assessment
+            .vulnerabilities
+            .extend(self.scan_configuration_issues(target)?);
 
         // Network security vulnerabilities
-        assessment.vulnerabilities.extend(self.scan_network_security(target)?);
+        assessment
+            .vulnerabilities
+            .extend(self.scan_network_security(target)?);
 
         // Calculate overall risk level
         assessment.risk_level = self.calculate_vulnerability_risk(&assessment.vulnerabilities);
 
         // Generate specific recommendations
-        assessment.recommendations = self.generate_vulnerability_recommendations(&assessment.vulnerabilities);
+        assessment.recommendations =
+            self.generate_vulnerability_recommendations(&assessment.vulnerabilities);
 
         Ok(assessment)
     }
@@ -228,7 +242,9 @@ impl SecurityAuditor {
         });
 
         // Identify priority actions based on risk
-        guide.priority_actions = guide.recommendations.iter()
+        guide.priority_actions = guide
+            .recommendations
+            .iter()
             .filter(|rec| matches!(rec.risk_reduction, RiskLevel::High | RiskLevel::Critical))
             .map(|rec| rec.title.clone())
             .collect();
@@ -245,7 +261,7 @@ impl SecurityAuditor {
     /// Monitor for security events in real-time
     pub fn start_security_monitoring(&mut self) -> Result<SecurityMonitor> {
         let monitor = SecurityMonitor::new(Arc::clone(&self.audit_log))?;
-        
+
         self.log_audit_event(AuditEvent {
             timestamp: SystemTime::now(),
             event_type: AuditEventType::MonitoringStarted,
@@ -257,32 +273,39 @@ impl SecurityAuditor {
     }
 
     /// Export audit results
-    pub fn export_audit_results(&self, report: &SecurityAuditReport, format: ExportFormat) -> Result<Vec<u8>> {
+    pub fn export_audit_results(
+        &self,
+        report: &SecurityAuditReport,
+        format: ExportFormat,
+    ) -> Result<Vec<u8>> {
         match format {
-            ExportFormat::Json => {
-                Ok(serde_json::to_vec_pretty(report)?)
-            },
+            ExportFormat::Json => Ok(serde_json::to_vec_pretty(report)?),
             ExportFormat::Pdf => {
                 // Generate PDF report - simplified implementation
                 let content = self.generate_pdf_content(report)?;
                 Ok(content.into_bytes())
-            },
+            }
             ExportFormat::Html => {
                 let html = self.generate_html_report(report)?;
                 Ok(html.into_bytes())
-            },
+            }
             ExportFormat::Xml => {
                 // Generate XML report - simplified implementation
-                let xml = format!(r#"
+                let xml = format!(
+                    r#"
                     <?xml version="1.0" encoding="UTF-8"?>
                     <SecurityAuditReport>
                         <AuditId>{}</AuditId>
                         <RiskScore>{}</RiskScore>
                         <FindingsCount>{}</FindingsCount>
                     </SecurityAuditReport>
-                "#, report.audit_id, report.risk_score, report.findings.len());
+                "#,
+                    report.audit_id,
+                    report.risk_score,
+                    report.findings.len()
+                );
                 Ok(xml.into_bytes())
-            },
+            }
         }
     }
 
@@ -335,16 +358,14 @@ impl SecurityAuditor {
                     title: "Inventory and Control of Enterprise Assets".to_string(),
                     description: "Actively manage all enterprise assets".to_string(),
                     requirements: vec![
-                        "Maintain accurate inventory of enterprise assets".to_string(),
+                        "Maintain accurate inventory of enterprise assets".to_string()
                     ],
                 },
                 ComplianceControl {
                     id: "CIS-2".to_string(),
                     title: "Inventory and Control of Software Assets".to_string(),
                     description: "Actively manage all software on the network".to_string(),
-                    requirements: vec![
-                        "Maintain accurate inventory of software assets".to_string(),
-                    ],
+                    requirements: vec!["Maintain accurate inventory of software assets".to_string()],
                 },
             ],
         };
@@ -354,20 +375,18 @@ impl SecurityAuditor {
             name: "NIST CSF".to_string(),
             version: "1.1".to_string(),
             description: "NIST Cybersecurity Framework".to_string(),
-            controls: vec![
-                ComplianceControl {
-                    id: "ID.AM-1".to_string(),
-                    title: "Physical devices and systems are inventoried".to_string(),
-                    description: "Maintain inventory of physical devices and systems".to_string(),
-                    requirements: vec![
-                        "Inventory all physical devices".to_string(),
-                    ],
-                },
-            ],
+            controls: vec![ComplianceControl {
+                id: "ID.AM-1".to_string(),
+                title: "Physical devices and systems are inventoried".to_string(),
+                description: "Maintain inventory of physical devices and systems".to_string(),
+                requirements: vec!["Inventory all physical devices".to_string()],
+            }],
         };
 
-        self.compliance_frameworks.insert("CIS".to_string(), cis_framework);
-        self.compliance_frameworks.insert("NIST".to_string(), nist_framework);
+        self.compliance_frameworks
+            .insert("CIS".to_string(), cis_framework);
+        self.compliance_frameworks
+            .insert("NIST".to_string(), nist_framework);
     }
 
     fn register_vulnerability_scanners(&mut self) {
@@ -405,7 +424,11 @@ impl SecurityAuditor {
         }
     }
 
-    fn run_vulnerability_scan(&self, scanner: &VulnerabilityScanner, scope: &AuditScope) -> Result<ScanResult> {
+    fn run_vulnerability_scan(
+        &self,
+        scanner: &VulnerabilityScanner,
+        scope: &AuditScope,
+    ) -> Result<ScanResult> {
         (scanner.scan_function)(scope)
     }
 
@@ -454,7 +477,7 @@ impl SecurityAuditor {
 
     fn calculate_risk_score(&self, report: &SecurityAuditReport) -> f64 {
         let mut score: f64 = 0.0;
-        
+
         // Weight findings by severity
         for finding in &report.findings {
             score += match finding.severity {
@@ -465,7 +488,7 @@ impl SecurityAuditor {
                 AuditSeverity::Info => 1.0,
             };
         }
-        
+
         // Weight vulnerability scans
         for scan_result in &report.vulnerability_scan_results {
             for vulnerability in &scan_result.vulnerabilities {
@@ -477,17 +500,18 @@ impl SecurityAuditor {
                 };
             }
         }
-        
+
         // Normalize to 0-100 scale with explicit type
-    score.min(100.0)
+        score.min(100.0)
     }
 
     fn calculate_vulnerability_risk(&self, vulnerabilities: &[Vulnerability]) -> RiskLevel {
-        let max_severity = vulnerabilities.iter()
+        let max_severity = vulnerabilities
+            .iter()
             .map(|v| &v.severity)
             .max()
             .unwrap_or(&VulnerabilitySeverity::Low);
-        
+
         match max_severity {
             VulnerabilitySeverity::Critical => RiskLevel::Critical,
             VulnerabilitySeverity::High => RiskLevel::High,
@@ -498,9 +522,10 @@ impl SecurityAuditor {
 
     fn generate_recommendations(&self, report: &SecurityAuditReport) -> Vec<String> {
         let mut recommendations = Vec::new();
-        
+
         if report.risk_score > 80.0 {
-            recommendations.push("Immediate action required: Critical security issues detected".to_string());
+            recommendations
+                .push("Immediate action required: Critical security issues detected".to_string());
             recommendations.push("Review and remediate all high-severity findings".to_string());
         } else if report.risk_score > 60.0 {
             recommendations.push("Address medium and high severity security findings".to_string());
@@ -517,8 +542,12 @@ impl SecurityAuditor {
         recommendations
     }
 
-    fn generate_vulnerability_recommendations(&self, vulnerabilities: &[Vulnerability]) -> Vec<String> {
-        vulnerabilities.iter()
+    fn generate_vulnerability_recommendations(
+        &self,
+        vulnerabilities: &[Vulnerability],
+    ) -> Vec<String> {
+        vulnerabilities
+            .iter()
             .map(|v| v.remediation.clone())
             .collect()
     }
@@ -543,19 +572,23 @@ blocked_ports = [23, 25, 135]
 enable_logging = true
 log_level = "INFO"
 audit_file = "/var/log/nxsh/audit.log"
-"#.to_string())
+"#
+        .to_string())
     }
 
     fn generate_pdf_content(&self, report: &SecurityAuditReport) -> Result<String> {
         // Simplified PDF content generation
         Ok(format!(
             "Security Audit Report\nAudit ID: {}\nRisk Score: {:.2}\nFindings: {}\n",
-            report.audit_id, report.risk_score, report.findings.len()
+            report.audit_id,
+            report.risk_score,
+            report.findings.len()
         ))
     }
 
     fn generate_html_report(&self, report: &SecurityAuditReport) -> Result<String> {
-        Ok(format!(r#"
+        Ok(format!(
+            r#"
             <!DOCTYPE html>
             <html>
             <head><title>Security Audit Report</title></head>
@@ -570,11 +603,13 @@ audit_file = "/var/log/nxsh/audit.log"
                 </ul>
             </body>
             </html>
-        "#, 
-            report.audit_id, 
-            report.risk_score, 
+        "#,
+            report.audit_id,
+            report.risk_score,
             report.findings.len(),
-            report.recommendations.iter()
+            report
+                .recommendations
+                .iter()
                 .map(|r| format!("<li>{r}</li>"))
                 .collect::<Vec<_>>()
                 .join("")
@@ -584,7 +619,7 @@ audit_file = "/var/log/nxsh/audit.log"
     fn log_audit_event(&self, event: AuditEvent) {
         if let Ok(mut log) = self.audit_log.try_lock() {
             log.push(event);
-            
+
             // Keep log size manageable
             if log.len() > 10000 {
                 log.drain(0..5000);
@@ -593,16 +628,20 @@ audit_file = "/var/log/nxsh/audit.log"
     }
 
     fn generate_audit_id() -> String {
-        format!("AUDIT_{}", 
+        format!(
+            "AUDIT_{}",
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap_or_default()
-                .as_secs())
+                .as_secs()
+        )
     }
 }
 
 impl Default for SecurityAuditor {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // Supporting types and structures
@@ -799,7 +838,8 @@ pub mod system_time_serde {
     where
         S: Serializer,
     {
-        let duration_since_epoch = time.duration_since(UNIX_EPOCH)
+        let duration_since_epoch = time
+            .duration_since(UNIX_EPOCH)
             .map_err(serde::ser::Error::custom)?;
         duration_since_epoch.as_secs().serialize(serializer)
     }
@@ -902,8 +942,7 @@ pub struct SystemInfo {
     pub architecture: String,
 }
 
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct SecurityPolicies {
     pub password_policy: PasswordPolicy,
     pub network_policy: NetworkPolicy,
@@ -961,10 +1000,7 @@ impl Default for FileAccessPolicy {
     fn default() -> Self {
         Self {
             max_permissions: 0o644,
-            restricted_paths: vec![
-                PathBuf::from("/etc/shadow"),
-                PathBuf::from("/etc/passwd"),
-            ],
+            restricted_paths: vec![PathBuf::from("/etc/shadow"), PathBuf::from("/etc/passwd")],
             require_encryption: false,
         }
     }
@@ -1054,7 +1090,7 @@ mod tests {
     fn test_vulnerability_assessment() {
         let mut auditor = SecurityAuditor::new();
         let assessment = auditor.run_vulnerability_assessment("test_target").unwrap();
-        
+
         assert_eq!(assessment.target, "test_target");
         assert!(!assessment.vulnerabilities.is_empty());
     }
@@ -1064,7 +1100,7 @@ mod tests {
         let auditor = SecurityAuditor::new();
         let framework = auditor.compliance_frameworks.get("CIS").unwrap();
         let result = auditor.check_compliance(framework).unwrap();
-        
+
         assert_eq!(result.framework_name, "CIS Controls");
         assert!(result.compliance_percentage >= 0.0);
     }

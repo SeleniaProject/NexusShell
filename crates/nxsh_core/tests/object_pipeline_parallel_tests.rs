@@ -24,7 +24,11 @@ fn object_pipeline_map_and_filter() {
     })
     .add_stage(|st| {
         st.filter(|d| match d {
-            StreamData::Json(v) => v.get("i").and_then(|x| x.as_i64()).map(|i| i % 2 == 0).unwrap_or(false),
+            StreamData::Json(v) => v
+                .get("i")
+                .and_then(|x| x.as_i64())
+                .map(|i| i % 2 == 0)
+                .unwrap_or(false),
             _ => true,
         })
     });
@@ -33,5 +37,3 @@ fn object_pipeline_map_and_filter() {
     let items = out.collect().expect("collect");
     assert_eq!(items.len(), 5);
 }
-
-

@@ -33,19 +33,22 @@ fn create_test_context() -> ShellContext {
 fn test_single_command_execution() {
     let mut executor = create_test_executor();
     let mut context = create_test_context();
-    
+
     // Parse a simple echo command
     let input = "echo hello world";
     let parser = Parser::new();
     let ast = parser.parse(input).expect("Failed to parse command");
-    
+
     // Execute the command
     let result = executor.execute(&ast, &mut context);
-    
+
     // Verify execution completed (success may depend on system state)
     match result {
         Ok(execution_result) => {
-            println!("Command executed successfully with exit code: {}", execution_result.exit_code);
+            println!(
+                "Command executed successfully with exit code: {}",
+                execution_result.exit_code
+            );
         }
         Err(e) => {
             println!("Command execution failed (expected for builtin echo): {e:?}");
@@ -58,37 +61,43 @@ fn test_single_command_execution() {
 fn test_empty_pipeline_handling() {
     let mut executor = create_test_executor();
     let mut context = create_test_context();
-    
+
     // Create an empty pipeline
-    let pipeline_ast = nxsh_parser::ast::AstNode::Pipeline { 
-        elements: vec![], 
-        operators: vec![] 
+    let pipeline_ast = nxsh_parser::ast::AstNode::Pipeline {
+        elements: vec![],
+        operators: vec![],
     };
     let result = executor.execute(&pipeline_ast, &mut context);
-    
+
     // Should succeed with exit code 0
     assert!(result.is_ok(), "Empty pipeline should execute successfully");
     let execution_result = result.unwrap();
-    assert_eq!(execution_result.exit_code, 0, "Empty pipeline should have exit code 0");
+    assert_eq!(
+        execution_result.exit_code, 0,
+        "Empty pipeline should have exit code 0"
+    );
 }
 
 #[test]
 fn test_single_command_pipeline() {
     let mut executor = create_test_executor();
     let mut context = create_test_context();
-    
+
     // Parse a single command pipeline
     let input = "echo test";
     let parser = Parser::new();
     let ast = parser.parse(input).expect("Failed to parse command");
-    
+
     // Execute the pipeline
     let result = executor.execute(&ast, &mut context);
-    
+
     // Check if execution completes (success may depend on implementation)
     match result {
         Ok(execution_result) => {
-            println!("Pipeline executed successfully with exit code: {}", execution_result.exit_code);
+            println!(
+                "Pipeline executed successfully with exit code: {}",
+                execution_result.exit_code
+            );
         }
         Err(e) => {
             println!("Pipeline execution failed (may be expected): {e:?}");
@@ -101,18 +110,18 @@ fn test_single_command_pipeline() {
 fn test_execution_statistics() {
     let mut executor = create_test_executor();
     let mut context = create_test_context();
-    
+
     // Get initial stats
     let initial_stats = executor.stats();
     let initial_commands = initial_stats.total_commands;
-    
+
     // Execute a simple command (may fail but stats should still update)
     let input = "echo stats_test";
     let parser = Parser::new();
     let ast = parser.parse(input).expect("Failed to parse command");
-    
+
     let _result = executor.execute(&ast, &mut context);
-    
+
     // Check that statistics were updated
     let final_stats = executor.stats();
     assert!(
@@ -124,10 +133,10 @@ fn test_execution_statistics() {
 #[test]
 fn test_builtin_command_detection() {
     let executor = create_test_executor();
-    
+
     // Test common builtin commands
     let builtin_commands = vec!["cd", "echo", "export", "alias", "history"];
-    
+
     for cmd in builtin_commands {
         // Check if the builtin is registered (this will typically be false in tests)
         let has_builtin = executor.stats().total_commands == 0; // Just test that stats work
@@ -140,18 +149,24 @@ fn test_builtin_command_detection() {
 #[test]
 fn test_executor_initialization() {
     let executor = create_test_executor();
-    
+
     // Verify executor is properly initialized
     let stats = executor.stats();
-    assert_eq!(stats.total_commands, 0, "New executor should have zero commands executed");
-    assert_eq!(stats.ast_interpreter_count, 0, "New executor should have zero AST interpreter count");
+    assert_eq!(
+        stats.total_commands, 0,
+        "New executor should have zero commands executed"
+    );
+    assert_eq!(
+        stats.ast_interpreter_count, 0,
+        "New executor should have zero AST interpreter count"
+    );
 }
 
 #[test]
 fn test_context_integration() {
     let _executor = create_test_executor();
     let context = create_test_context();
-    
+
     // Verify context is properly initialized
     assert!(context.cwd.exists(), "Current directory should exist");
 }

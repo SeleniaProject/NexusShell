@@ -7,15 +7,18 @@
 
 use std::{env, fs, io::Write};
 
-use nxsh_core::{PowerShellCompat, PowerShellObject};
 use nxsh_core::context::ShellContext;
+use nxsh_core::{PowerShellCompat, PowerShellObject};
 
 // Serialize access to process-global environment variables across tests
 static ENV_TEST_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
 
 #[test]
 fn ps_alias_injection_enabled_by_env() {
-    let _guard = ENV_TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
+    let _guard = ENV_TEST_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap();
 
     // Ensure a clean slate
     env::remove_var("NXSH_DISABLE_PS_ALIASES");
@@ -30,7 +33,10 @@ fn ps_alias_injection_enabled_by_env() {
 
 #[test]
 fn ps_alias_injection_respects_disable() {
-    let _guard = ENV_TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
+    let _guard = ENV_TEST_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap();
 
     env::set_var("NXSH_ENABLE_PS_ALIASES", "1");
     env::set_var("NXSH_DISABLE_PS_ALIASES", "1");
@@ -56,8 +62,15 @@ fn pipeline_get_content_measure_object_counts_lines() {
     let pipeline = format!("Get-Content {} | Measure-Object", tmp_path.display());
     let objs = ps.execute_pipeline(&pipeline).expect("pipeline executes");
 
-    assert_eq!(objs.len(), 1, "Measure-Object should return a single object");
-    assert!(matches!(objs[0], PowerShellObject::Integer(3)), "Expected line count = 3");
+    assert_eq!(
+        objs.len(),
+        1,
+        "Measure-Object should return a single object"
+    );
+    assert!(
+        matches!(objs[0], PowerShellObject::Integer(3)),
+        "Expected line count = 3"
+    );
 
     // Clean up
     let _ = fs::remove_file(&tmp_path);
@@ -67,8 +80,8 @@ fn pipeline_get_content_measure_object_counts_lines() {
 fn get_help_on_alias_reports_mapping() {
     let mut ps = PowerShellCompat::new();
     // Ensure default aliases include ls -> Get-ChildItem
-    let res = ps.execute_command("Get-Help", vec!["ls".to_string()]).expect("exec Get-Help");
+    let res = ps
+        .execute_command("Get-Help", vec!["ls".to_string()])
+        .expect("exec Get-Help");
     assert!(res.output.contains("Alias: ls -> Get-ChildItem"));
 }
-
-

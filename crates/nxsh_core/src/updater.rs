@@ -9,24 +9,31 @@
 //! - Progress tracking and resumable downloads
 //! - Automated backup and recovery
 
-use std::{
-    sync::{Arc, RwLock, atomic::{AtomicU64, AtomicBool, Ordering}},
-    time::{Duration, SystemTime},
-    path::{Path, PathBuf},
-    fs,
-    collections::HashMap,
-};
-use serde::{Deserialize, Serialize};
-use tracing::{info, warn, error, debug};
-use crate::compat::{Result, Context};
-use sha2::{Sha256, Digest};
+use crate::compat::{Context, Result};
 use base64::Engine;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, RwLock,
+    },
+    time::{Duration, SystemTime},
+};
+use tracing::{debug, error, info, warn};
 // Note: bring IO traits locally only when needed to avoid unused warnings
 
 fn home_dir_fallback() -> Option<std::path::PathBuf> {
-    if let Ok(h) = std::env::var("HOME") { return Some(std::path::PathBuf::from(h)); }
+    if let Ok(h) = std::env::var("HOME") {
+        return Some(std::path::PathBuf::from(h));
+    }
     if cfg!(windows) {
-        if let Ok(p) = std::env::var("USERPROFILE") { return Some(std::path::PathBuf::from(p)); }
+        if let Ok(p) = std::env::var("USERPROFILE") {
+            return Some(std::path::PathBuf::from(p));
+        }
     }
     None
 }
@@ -267,14 +274,14 @@ impl Default for VerificationKeys {
     fn default() -> Self {
         let mut public_keys = HashMap::new();
         let mut fingerprint_to_name = HashMap::new();
-        
+
         // Add default NexusShell signing key (placeholder)
         let default_key = "placeholder_ed25519_public_key";
         let default_fingerprint = "nxsh_default_key_fingerprint";
-        
+
         public_keys.insert("nxsh-release".to_string(), default_key.to_string());
         fingerprint_to_name.insert(default_fingerprint.to_string(), "nxsh-release".to_string());
-        
+
         Self {
             public_keys,
             fingerprint_to_name,
@@ -329,8 +336,9 @@ impl UpdateSystem {
         // Create necessary directories
         fs::create_dir_all(&config.cache_dir)
             .with_context(|| format!("Failed to create cache directory: {:?}", config.cache_dir))?;
-        fs::create_dir_all(&config.backup_dir)
-            .with_context(|| format!("Failed to create backup directory: {:?}", config.backup_dir))?;
+        fs::create_dir_all(&config.backup_dir).with_context(|| {
+            format!("Failed to create backup directory: {:?}", config.backup_dir)
+        })?;
 
         let system = Self {
             config,
@@ -374,17 +382,25 @@ impl UpdateSystem {
             if let Some(key) = &self.config.api_key {
                 req = req.set("Authorization", &format!("Bearer {key}"));
             }
-            let resp = req.call().map_err(|e| crate::anyhow!("update check failed: {e}"))?;
+            let resp = req
+                .call()
+                .map_err(|e| crate::anyhow!("update check failed: {e}"))?;
             if resp.status() == 204 {
                 info!("No updates available");
                 return Ok(None);
             }
             if resp.status() != 200 {
-                warn!(status = resp.status(), "Unexpected status from update server");
+                warn!(
+                    status = resp.status(),
+                    "Unexpected status from update server"
+                );
                 return Ok(None);
             }
-            let body = resp.into_string().map_err(|e| crate::anyhow!("failed to read response: {e}"))?;
-            let info: UpdateInfo = serde_json::from_str(&body).map_err(|e| crate::anyhow!("invalid update info JSON: {e}"))?;
+            let body = resp
+                .into_string()
+                .map_err(|e| crate::anyhow!("failed to read response: {e}"))?;
+            let info: UpdateInfo = serde_json::from_str(&body)
+                .map_err(|e| crate::anyhow!("invalid update info JSON: {e}"))?;
             Ok(Some(info))
         }
 
@@ -409,9 +425,15 @@ impl UpdateSystem {
     }
 
     async fn apply_update_internal(&self, update_info: &UpdateInfo) -> Result<()> {
-        let update_id = format!("update_{}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs());
+        let update_id = format!(
+            "update_{}",
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+        );
         let start_time = SystemTime::now();
-        
+
         info!(
             version = %update_info.version,
             channel = %update_info.channel,
@@ -436,7 +458,11 @@ impl UpdateSystem {
         let result = async {
             // Determine update method (delta vs full)
             let use_delta = self.should_use_delta_update(update_info)?;
-            let method = if use_delta { UpdateMethod::Delta } else { UpdateMethod::Full };
+            let method = if use_delta {
+                UpdateMethod::Delta
+            } else {
+                UpdateMethod::Full
+            };
 
             // Download update
             let download_path = self.download_update(update_info, use_delta).await?;
@@ -468,7 +494,8 @@ impl UpdateSystem {
             self.cleanup_old_backups().await?;
 
             Ok::<(), crate::compat::Error>(())
-        }.await;
+        }
+        .await;
 
         // Record update attempt
         let duration = start_time.elapsed().unwrap_or_default();
@@ -477,7 +504,11 @@ impl UpdateSystem {
             from_version: env!("CARGO_PKG_VERSION").to_string(),
             to_version: update_info.version.clone(),
             timestamp: start_time,
-            method: if self.should_use_delta_update(update_info).unwrap_or(false) { UpdateMethod::Delta } else { UpdateMethod::Full },
+            method: if self.should_use_delta_update(update_info).unwrap_or(false) {
+                UpdateMethod::Delta
+            } else {
+                UpdateMethod::Full
+            },
             success: result.is_ok(),
             error_message: result.as_ref().err().map(|e| e.to_string()),
             duration,
@@ -488,15 +519,16 @@ impl UpdateSystem {
 
         if let Err(e) = result {
             error!(error = %e, "Update failed");
-            
+
             // Attempt rollback if enabled and backup exists
             if self.config.auto_rollback && backup_path.is_some() {
                 warn!("Attempting automatic rollback");
-                if let Err(rollback_err) = self.rollback_update(backup_path.as_ref().unwrap()).await {
+                if let Err(rollback_err) = self.rollback_update(backup_path.as_ref().unwrap()).await
+                {
                     error!(rollback_error = %rollback_err, "Rollback failed");
                 }
             }
-            
+
             return Err(e);
         }
 
@@ -511,7 +543,7 @@ impl UpdateSystem {
         }
 
         let current_version = env!("CARGO_PKG_VERSION");
-        
+
         // Check if current version is compatible with delta update
         if let Some(min_version) = &update_info.min_delta_version {
             // In production, implement proper semver comparison
@@ -525,7 +557,8 @@ impl UpdateSystem {
         // Delta updates are beneficial if delta is significantly smaller
         if let Some(delta_size) = update_info.delta_size {
             let efficiency = (delta_size as f64) / (update_info.file_size as f64);
-            if efficiency < 0.7 { // Use delta if it's less than 70% of full size
+            if efficiency < 0.7 {
+                // Use delta if it's less than 70% of full size
                 info!(efficiency = %efficiency, "Using delta update for efficiency");
                 return Ok(true);
             }
@@ -536,14 +569,18 @@ impl UpdateSystem {
 
     /// Download update file (full or delta)
     async fn download_update(&self, update_info: &UpdateInfo, use_delta: bool) -> Result<PathBuf> {
-    let (url, expected_size, _checksum) = if use_delta {
+        let (url, expected_size, _checksum) = if use_delta {
             (
                 update_info.delta_url.as_ref().unwrap(),
                 update_info.delta_size.unwrap(),
                 update_info.delta_checksum.as_ref().unwrap(),
             )
         } else {
-            (&update_info.download_url, update_info.file_size, &update_info.checksum)
+            (
+                &update_info.download_url,
+                update_info.file_size,
+                &update_info.checksum,
+            )
         };
 
         let filename = if use_delta {
@@ -553,7 +590,7 @@ impl UpdateSystem {
         };
 
         let download_path = self.config.cache_dir.join(filename);
-        
+
         // Update progress
         {
             let progress = self.download_progress.write().unwrap();
@@ -570,14 +607,18 @@ impl UpdateSystem {
             use std::io::Read;
             let mut req = ureq::get(url)
                 .set("User-Agent", &self.config.user_agent)
-                .timeout(std::time::Duration::from_secs(self.config.download_timeout_secs));
+                .timeout(std::time::Duration::from_secs(
+                    self.config.download_timeout_secs,
+                ));
             if let Some(key) = &self.config.api_key {
                 req = req.set("Authorization", &format!("Bearer {key}"));
             }
 
-            let resp = req.call().map_err(|e| crate::anyhow!("download failed: {e}"))?;
+            let resp = req
+                .call()
+                .map_err(|e| crate::anyhow!("download failed: {e}"))?;
             if resp.status() != 200 {
-                return Err(crate::anyhow!("download HTTP status {}", resp.status()))
+                return Err(crate::anyhow!("download HTTP status {}", resp.status()));
             }
 
             let mut out = std::fs::File::create(&download_path)
@@ -587,18 +628,34 @@ impl UpdateSystem {
             let mut buf = [0u8; 64 * 1024];
             let mut downloaded: u64 = 0;
             loop {
-                if self.download_progress.read().unwrap().is_paused.load(Ordering::Relaxed) {
+                if self
+                    .download_progress
+                    .read()
+                    .unwrap()
+                    .is_paused
+                    .load(Ordering::Relaxed)
+                {
                     std::thread::sleep(std::time::Duration::from_millis(50));
                     continue;
                 }
-                let n = reader.read(&mut buf).map_err(|e| crate::anyhow!("read error: {e}"))?;
-                if n == 0 { break; }
+                let n = reader
+                    .read(&mut buf)
+                    .map_err(|e| crate::anyhow!("read error: {e}"))?;
+                if n == 0 {
+                    break;
+                }
                 std::io::Write::write_all(&mut out, &buf[..n])
                     .map_err(|e| crate::anyhow!("write error: {e}"))?;
                 downloaded += n as u64;
                 let progress = self.download_progress.read().unwrap();
-                progress.downloaded_bytes.store(downloaded, Ordering::Relaxed);
-                let elapsed = progress.start_time.elapsed().unwrap_or_default().as_secs_f64();
+                progress
+                    .downloaded_bytes
+                    .store(downloaded, Ordering::Relaxed);
+                let elapsed = progress
+                    .start_time
+                    .elapsed()
+                    .unwrap_or_default()
+                    .as_secs_f64();
                 if elapsed > 0.0 {
                     let speed = (downloaded as f64 / elapsed) as u64;
                     progress.speed_bps.store(speed, Ordering::Relaxed);
@@ -613,13 +670,21 @@ impl UpdateSystem {
 
         #[cfg(not(feature = "updates"))]
         {
-            fs::write(&download_path, format!("Placeholder update data for version {}", update_info.version))?;
+            fs::write(
+                &download_path,
+                format!(
+                    "Placeholder update data for version {}",
+                    update_info.version
+                ),
+            )?;
         }
 
         // Update progress to complete
         {
             let progress = self.download_progress.write().unwrap();
-            progress.downloaded_bytes.store(expected_size, Ordering::Relaxed);
+            progress
+                .downloaded_bytes
+                .store(expected_size, Ordering::Relaxed);
             let mut stage = progress.stage.write().unwrap();
             *stage = DownloadStage::Verifying;
         }
@@ -642,10 +707,10 @@ impl UpdateSystem {
         let file_data = fs::read(file_path)
             .with_context(|| format!("Failed to read update file: {file_path:?}"))?;
 
-    let mut hasher = Sha256::new();
-    hasher.update(&file_data);
-    let calculated_hash = hasher.finalize();
-    let calculated_hex = format!("{calculated_hash:x}");
+        let mut hasher = Sha256::new();
+        hasher.update(&file_data);
+        let calculated_hash = hasher.finalize();
+        let calculated_hex = format!("{calculated_hash:x}");
 
         if !expected_checksum_hex.is_empty()
             && expected_checksum_hex.to_ascii_lowercase() != calculated_hex
@@ -668,35 +733,47 @@ impl UpdateSystem {
     }
 
     /// Verify cryptographic signature using ed25519 algorithm
-    /// 
+    ///
     /// This function performs cryptographic verification of digital signatures
     /// using the Ed25519 signature scheme. It validates that the provided signature
     /// was created by the holder of the private key corresponding to the specified
     /// public key fingerprint.
-    /// 
+    ///
     /// # Arguments
     /// * `data` - The raw data that was signed
     /// * `signature_b64` - Base64-encoded signature to verify
     /// * `key_fingerprint` - Fingerprint identifying the public key to use for verification
-    /// 
+    ///
     /// # Returns
     /// * `Ok(())` if signature verification succeeds
     /// * `Err` if verification fails or key is not trusted
-    fn verify_signature(&self, _data: &[u8], _signature_b64: &str, key_fingerprint: &str) -> Result<()> {
+    fn verify_signature(
+        &self,
+        _data: &[u8],
+        _signature_b64: &str,
+        key_fingerprint: &str,
+    ) -> Result<()> {
         let keys = self.verification_keys.read().unwrap();
-        
-        let key_name = keys.fingerprint_to_name.get(key_fingerprint)
+
+        let key_name = keys
+            .fingerprint_to_name
+            .get(key_fingerprint)
             .ok_or_else(|| crate::anyhow!("Unknown key fingerprint: {}", key_fingerprint))?;
 
         if !keys.trusted_authorities.contains(key_name) {
-            return Err(crate::anyhow!("Key not in trusted authorities: {}", key_name));
+            return Err(crate::anyhow!(
+                "Key not in trusted authorities: {}",
+                key_name
+            ));
         }
 
         #[cfg(feature = "crypto-ed25519")]
         {
-            use ed25519_dalek::{Signature, Verifier, VerifyingKey};
             use ed25519_dalek::pkcs8::DecodePublicKey;
-            let pk_material = keys.public_keys.get(key_name)
+            use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+            let pk_material = keys
+                .public_keys
+                .get(key_name)
                 .ok_or_else(|| crate::anyhow!("No public key material for {key_name}"))?;
             let verifying_key = {
                 // Try PEM first if it looks like PEM format
@@ -711,8 +788,9 @@ impl UpdateSystem {
                         .decode(pk_material.as_bytes())
                         .map_err(|e| crate::anyhow!("invalid base64 public key: {e}"))?;
                     if raw.len() == 32 {
-                        VerifyingKey::from_bytes(raw.as_slice().try_into().unwrap())
-                            .map_err(|e| crate::anyhow!("invalid ed25519 public key (raw 32 bytes): {e}"))?
+                        VerifyingKey::from_bytes(raw.as_slice().try_into().unwrap()).map_err(
+                            |e| crate::anyhow!("invalid ed25519 public key (raw 32 bytes): {e}"),
+                        )?
                     } else {
                         VerifyingKey::from_public_key_der(&raw)
                             .map_err(|e| crate::anyhow!("invalid DER public key (base64): {e}"))?
@@ -724,7 +802,8 @@ impl UpdateSystem {
                 .map_err(|e| crate::anyhow!("invalid base64 signature: {e}"))?;
             let sig = Signature::from_slice(&sig_bytes)
                 .map_err(|e| crate::anyhow!("invalid signature length: {e}"))?;
-            verifying_key.verify(_data, &sig)
+            verifying_key
+                .verify(_data, &sig)
                 .map_err(|_| crate::anyhow!("signature verification failed"))?;
             info!("Signature verification completed successfully");
             Ok(())
@@ -738,15 +817,22 @@ impl UpdateSystem {
 
     fn verify_tuf_like_metadata(&self, info: &UpdateInfo) -> Result<()> {
         if let Some(role) = info.metadata.get("tuf_role") {
-            if role != "targets" { return Err(crate::anyhow!("invalid TUF role: {}", role)); }
-        } else { return Err(crate::anyhow!("missing TUF role metadata")); }
+            if role != "targets" {
+                return Err(crate::anyhow!("invalid TUF role: {}", role));
+            }
+        } else {
+            return Err(crate::anyhow!("missing TUF role metadata"));
+        }
         if let Some(exp) = info.metadata.get("tuf_expires") {
-            let dt = time::OffsetDateTime::parse(exp, &time::format_description::well_known::Rfc3339)
-                .map_err(|e| crate::anyhow!("invalid tuf_expires: {}", e))?;
+            let dt =
+                time::OffsetDateTime::parse(exp, &time::format_description::well_known::Rfc3339)
+                    .map_err(|e| crate::anyhow!("invalid tuf_expires: {}", e))?;
             if dt < time::OffsetDateTime::now_utc() {
                 return Err(crate::anyhow!("TUF metadata expired: {}", exp));
             }
-        } else { return Err(crate::anyhow!("missing tuf_expires metadata")); }
+        } else {
+            return Err(crate::anyhow!("missing tuf_expires metadata"));
+        }
         Ok(())
     }
 
@@ -758,16 +844,24 @@ impl UpdateSystem {
                     let fp = compute_key_fingerprint(&material)?;
                     keys.public_keys.insert(name.clone(), material.clone());
                     keys.fingerprint_to_name.insert(fp.clone(), name.clone());
-                    if !keys.trusted_authorities.contains(&name) { keys.trusted_authorities.push(name); }
+                    if !keys.trusted_authorities.contains(&name) {
+                        keys.trusted_authorities.push(name);
+                    }
                 }
             }
         }
-        for (name, var) in [("nxsh-release", "NXSH_OFFICIAL_PUBKEY"), ("community", "NXSH_COMMUNITY_PUBKEY")] {
+        for (name, var) in [
+            ("nxsh-release", "NXSH_OFFICIAL_PUBKEY"),
+            ("community", "NXSH_COMMUNITY_PUBKEY"),
+        ] {
             if let Ok(material) = std::env::var(var) {
                 let fp = compute_key_fingerprint(&material)?;
                 keys.public_keys.insert(name.to_string(), material.clone());
-                keys.fingerprint_to_name.insert(fp.clone(), name.to_string());
-                if !keys.trusted_authorities.contains(&name.to_string()) { keys.trusted_authorities.push(name.to_string()); }
+                keys.fingerprint_to_name
+                    .insert(fp.clone(), name.to_string());
+                if !keys.trusted_authorities.contains(&name.to_string()) {
+                    keys.trusted_authorities.push(name.to_string());
+                }
             }
         }
         Ok(())
@@ -794,7 +888,9 @@ impl UpdateSystem {
                 self.apply_delta_patch(update_path)?;
             }
             UpdateMethod::Rollback => {
-                return Err(crate::anyhow!("Rollback should not be handled in install_update"));
+                return Err(crate::anyhow!(
+                    "Rollback should not be handled in install_update"
+                ));
             }
         }
 
@@ -835,8 +931,8 @@ impl UpdateSystem {
 
         #[cfg(feature = "delta-bspatch")]
         {
-            use std::io::{Cursor, Read};
             use bzip2_rs::DecoderReader;
+            use std::io::{Cursor, Read};
 
             // Helper: decode signed 64-bit number in BSDIFF offtin format
             fn offtin(buf: [u8; 8]) -> i64 {
@@ -844,7 +940,11 @@ impl UpdateSystem {
                 for i in (0..7).rev() {
                     y = (y << 8) + (buf[i] as i64);
                 }
-                if (buf[7] & 0x80) != 0 { -y } else { y }
+                if (buf[7] & 0x80) != 0 {
+                    -y
+                } else {
+                    y
+                }
             }
 
             if delta.len() < 32 {
@@ -887,7 +987,8 @@ impl UpdateSystem {
             // Helper to read an offtin i64 from a reader
             fn read_offtin<R: Read>(r: &mut R) -> Result<i64> {
                 let mut b = [0u8; 8];
-                r.read_exact(&mut b).map_err(|e| crate::anyhow!("failed to read control block: {}", e))?;
+                r.read_exact(&mut b)
+                    .map_err(|e| crate::anyhow!("failed to read control block: {}", e))?;
                 Ok(offtin(b))
             }
 
@@ -905,13 +1006,17 @@ impl UpdateSystem {
 
                 // Bounds checks
                 if new_pos + x_usize > new_size_usize {
-                    return Err(crate::anyhow!("patch would write beyond new size (diff phase)"));
+                    return Err(crate::anyhow!(
+                        "patch would write beyond new size (diff phase)"
+                    ));
                 }
                 if old_pos < 0 || (old_pos as usize) > _old_bytes.len() {
                     return Err(crate::anyhow!("old position out of range"));
                 }
                 if (old_pos as usize) + x_usize > _old_bytes.len() {
-                    return Err(crate::anyhow!("patch would read beyond old size (diff phase)"));
+                    return Err(crate::anyhow!(
+                        "patch would read beyond old size (diff phase)"
+                    ));
                 }
 
                 // Read x bytes from diff and add to old
@@ -921,7 +1026,8 @@ impl UpdateSystem {
                     let mut buf = vec![0u8; chunk];
                     diff.read_exact(&mut buf)
                         .map_err(|e| crate::anyhow!("failed to read diff block: {}", e))?;
-                    let old_slice = &_old_bytes[(old_pos as usize) + processed..(old_pos as usize) + processed + chunk];
+                    let old_slice = &_old_bytes
+                        [(old_pos as usize) + processed..(old_pos as usize) + processed + chunk];
                     for i in 0..chunk {
                         new_bytes[new_pos + processed + i] = buf[i].wrapping_add(old_slice[i]);
                     }
@@ -933,7 +1039,9 @@ impl UpdateSystem {
 
                 // Bounds check for extra copy
                 if new_pos + y_usize > new_size_usize {
-                    return Err(crate::anyhow!("patch would write beyond new size (extra phase)"));
+                    return Err(crate::anyhow!(
+                        "patch would write beyond new size (extra phase)"
+                    ));
                 }
 
                 // Read y bytes from extra
@@ -941,7 +1049,8 @@ impl UpdateSystem {
                 while processed_extra < y_usize {
                     let chunk = (y_usize - processed_extra).min(64 * 1024);
                     let mut buf = vec![0u8; chunk];
-                    extra.read_exact(&mut buf)
+                    extra
+                        .read_exact(&mut buf)
                         .map_err(|e| crate::anyhow!("failed to read extra block: {}", e))?;
                     new_bytes[new_pos..new_pos + chunk].copy_from_slice(&buf);
                     new_pos += chunk;
@@ -951,12 +1060,16 @@ impl UpdateSystem {
                 // Adjust old_pos by z
                 old_pos += z;
                 if old_pos < 0 || old_pos as usize > _old_bytes.len() {
-                    return Err(crate::anyhow!("old position moved out of range after z adjustment"));
+                    return Err(crate::anyhow!(
+                        "old position moved out of range after z adjustment"
+                    ));
                 }
             }
 
             if new_pos != new_size_usize {
-                return Err(crate::anyhow!("patch application finished with size mismatch"));
+                return Err(crate::anyhow!(
+                    "patch application finished with size mismatch"
+                ));
             }
 
             // Persist resulting bytes
@@ -981,7 +1094,7 @@ impl UpdateSystem {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-    let tmp_path = dir.join(format!("nxsh_new_{ts}.tmp"));
+        let tmp_path = dir.join(format!("nxsh_new_{ts}.tmp"));
         fs::write(&tmp_path, new_bytes)?;
 
         // On Unix, attempt atomic replacement; on Windows, use marker for next restart
@@ -989,14 +1102,20 @@ impl UpdateSystem {
         {
             if let Err(e) = std::fs::rename(&tmp_path, current_exe) {
                 warn!(error = %e, "Atomic replace failed; falling back to marker file for next restart");
-        let marker = dir.join("nxsh_update_pending.txt");
-        fs::write(&marker, tmp_path.file_name().unwrap().to_string_lossy().as_bytes())?;
+                let marker = dir.join("nxsh_update_pending.txt");
+                fs::write(
+                    &marker,
+                    tmp_path.file_name().unwrap().to_string_lossy().as_bytes(),
+                )?;
             }
         }
         #[cfg(windows)]
         {
             let marker = dir.join("nxsh_update_pending.txt");
-            fs::write(&marker, tmp_path.file_name().unwrap().to_string_lossy().as_bytes())?;
+            fs::write(
+                &marker,
+                tmp_path.file_name().unwrap().to_string_lossy().as_bytes(),
+            )?;
         }
 
         info!(tmp = ?tmp_path, "New binary written; update finalized or pending on restart");
@@ -1012,12 +1131,12 @@ impl UpdateSystem {
             .config
             .backup_dir
             .join(format!("nxsh-backup-{update_id}.bin"));
-        
+
         info!(path = ?backup_path, "Creating backup");
         fs::create_dir_all(&self.config.backup_dir)?;
         fs::copy(&current_exe, &backup_path)
             .map_err(|e| crate::anyhow!("failed to create backup: {}", e))?;
-        
+
         info!(path = ?backup_path, "Backup created successfully");
         Ok(backup_path)
     }
@@ -1039,7 +1158,7 @@ impl UpdateSystem {
                 .map_err(|e| crate::anyhow!("failed to stage rollback file: {}", e))?;
             std::fs::rename(&tmp, &current_exe)
                 .map_err(|e| crate::anyhow!("failed to replace current binary: {}", e))?;
-        info!("Rollback completed successfully");
+            info!("Rollback completed successfully");
             Ok(())
         }
         #[cfg(windows)]
@@ -1049,7 +1168,10 @@ impl UpdateSystem {
             fs::copy(backup_path, &staged)
                 .map_err(|e| crate::anyhow!("failed to stage rollback file: {}", e))?;
             let marker = dir.join("nxsh_rollback_pending.txt");
-            fs::write(&marker, staged.file_name().unwrap().to_string_lossy().as_bytes())?;
+            fs::write(
+                &marker,
+                staged.file_name().unwrap().to_string_lossy().as_bytes(),
+            )?;
             info!("Rollback staged; will be applied on next restart");
             Ok(())
         }
@@ -1069,7 +1191,8 @@ impl UpdateSystem {
 
         // Sort by modification time (oldest first)
         backup_files.sort_by_key(|entry| {
-            entry.metadata()
+            entry
+                .metadata()
                 .and_then(|m| m.modified())
                 .unwrap_or(SystemTime::UNIX_EPOCH)
         });
@@ -1103,14 +1226,22 @@ impl UpdateSystem {
 
     /// Pause download
     pub fn pause_download(&self) -> Result<()> {
-        self.download_progress.read().unwrap().is_paused.store(true, Ordering::Relaxed);
+        self.download_progress
+            .read()
+            .unwrap()
+            .is_paused
+            .store(true, Ordering::Relaxed);
         info!("Download paused");
         Ok(())
     }
 
     /// Resume download
     pub fn resume_download(&self) -> Result<()> {
-        self.download_progress.read().unwrap().is_paused.store(false, Ordering::Relaxed);
+        self.download_progress
+            .read()
+            .unwrap()
+            .is_paused
+            .store(false, Ordering::Relaxed);
         info!("Download resumed");
         Ok(())
     }
@@ -1124,11 +1255,11 @@ impl UpdateSystem {
     pub fn update_config(&mut self, config: UpdateConfig) -> Result<()> {
         let old_channel = self.config.channel;
         self.config = config;
-        
+
         if old_channel != self.config.channel {
             info!(old_channel = ?old_channel, new_channel = ?self.config.channel, "Update channel changed");
         }
-        
+
         Ok(())
     }
 
@@ -1145,17 +1276,21 @@ impl UpdateSystem {
         } else {
             return Ok(());
         };
-        if !path.exists() { return Ok(()); }
-        let contents = std::fs::read_to_string(&path)
-            .with_context(|| format!("Failed to read {path:?}"))?;
-        let map: HashMap<String, String> = serde_json::from_str(&contents)
-            .with_context(|| format!("Invalid JSON in {path:?}"))?;
+        if !path.exists() {
+            return Ok(());
+        }
+        let contents =
+            std::fs::read_to_string(&path).with_context(|| format!("Failed to read {path:?}"))?;
+        let map: HashMap<String, String> =
+            serde_json::from_str(&contents).with_context(|| format!("Invalid JSON in {path:?}"))?;
         let mut keys = self.verification_keys.write().unwrap();
         for (name, material) in map {
             let fp = compute_key_fingerprint(&material)?;
             keys.public_keys.insert(name.clone(), material.clone());
             keys.fingerprint_to_name.insert(fp.clone(), name.clone());
-            if !keys.trusted_authorities.contains(&name) { keys.trusted_authorities.push(name); }
+            if !keys.trusted_authorities.contains(&name) {
+                keys.trusted_authorities.push(name);
+            }
         }
         Ok(())
     }
@@ -1163,8 +1298,13 @@ impl UpdateSystem {
     /// Rotate update keys file when requested via environment
     /// Controls: NXSH_UPDATE_ROTATE=1 and NXSH_UPDATE_KEYS_JSON_NEW with JSON map
     fn rotate_update_keys_if_requested(&self) -> Result<()> {
-        let rotate = std::env::var("NXSH_UPDATE_ROTATE").ok().map(|v| v=="1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
-        if !rotate { return Ok(()); }
+        let rotate = std::env::var("NXSH_UPDATE_ROTATE")
+            .ok()
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        if !rotate {
+            return Ok(());
+        }
         let new_json = match std::env::var("NXSH_UPDATE_KEYS_JSON_NEW") {
             Ok(v) if !v.trim().is_empty() => v,
             _ => return Ok(()),
@@ -1177,7 +1317,9 @@ impl UpdateSystem {
             let _ = std::fs::create_dir_all(&home);
             home.push("update_keys.json");
             home
-        } else { return Ok(()); };
+        } else {
+            return Ok(());
+        };
         // Backup with epoch suffix
         if path.exists() {
             if let Ok(dur) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
@@ -1189,11 +1331,10 @@ impl UpdateSystem {
         let tmp = path.with_extension("json.tmp");
         std::fs::write(&tmp, new_json.as_bytes())
             .with_context(|| format!("Failed to write temp file for {path:?}"))?;
-        std::fs::rename(&tmp, &path)
-            .with_context(|| format!("Failed to replace {path:?}"))?;
+        std::fs::rename(&tmp, &path).with_context(|| format!("Failed to replace {path:?}"))?;
         Ok(())
     }
-} 
+}
 
 #[cfg(test)]
 mod tests {

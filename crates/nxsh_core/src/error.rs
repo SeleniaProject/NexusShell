@@ -3,9 +3,9 @@
 //! This module provides structured error types for all shell operations,
 //! enabling precise error reporting, recovery, and debugging capabilities.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
-use std::collections::HashMap;
 use std::time::SystemTimeError;
 
 // Additional external error types frequently bubbled up via `?` in subsystems
@@ -39,37 +39,37 @@ pub struct ShellError {
 pub enum ErrorKind {
     // Parsing errors
     ParseError(ParseErrorKind),
-    
+
     // Runtime errors
     RuntimeError(RuntimeErrorKind),
-    
+
     // I/O errors
     IoError(IoErrorKind),
-    
+
     // Security errors
     SecurityError(SecurityErrorKind),
-    
+
     // System errors
     SystemError(SystemErrorKind),
-    
+
     // Plugin errors
     PluginError(PluginErrorKind),
-    
+
     // Configuration errors
     ConfigError(ConfigErrorKind),
-    
+
     // Network errors
     NetworkError(NetworkErrorKind),
-    
+
     // Cryptography errors
     CryptoError(CryptoErrorKind),
-    
+
     // Serialization errors
     SerializationError(SerializationErrorKind),
-    
+
     // Internal errors
     InternalError(InternalErrorKind),
-    
+
     // Argument errors
     InvalidArgument,
 }
@@ -170,7 +170,7 @@ pub enum SecurityErrorKind {
     SandboxViolation,
     PolicyViolation,
     UnsafeOperation,
-    InvalidInput,  // Added for command injection prevention
+    InvalidInput, // Added for command injection prevention
 }
 
 /// System error subcategories
@@ -314,7 +314,7 @@ impl ShellError {
     pub fn io(err: std::io::Error) -> Self {
         Self::new(
             ErrorKind::SystemError(SystemErrorKind::SystemCallError),
-            format!("I/O error: {err}")
+            format!("I/O error: {err}"),
         )
     }
 
@@ -322,25 +322,25 @@ impl ShellError {
     pub fn command_not_found(command: &str) -> Self {
         Self::new(
             ErrorKind::RuntimeError(RuntimeErrorKind::CommandNotFound),
-            format!("Command not found: {command}")
+            format!("Command not found: {command}"),
         )
     }
 
     /// Create an error with source location
     pub fn with_location(mut self, location: SourceLocation) -> Self {
-    self.source_location = Some(Box::new(location));
+        self.source_location = Some(Box::new(location));
         self
     }
 
     /// Add context information to the error
     pub fn with_context(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-    self.context.insert(key.into(), value.into());
+        self.context.insert(key.into(), value.into());
         self
     }
 
     /// Add multiple context entries
     pub fn with_contexts(mut self, contexts: HashMap<String, String>) -> Self {
-    self.context.extend(contexts);
+        self.context.extend(contexts);
         self
     }
 
@@ -391,7 +391,10 @@ impl ShellError {
             ),
             ErrorKind::IoError(kind) => matches!(
                 kind,
-                IoErrorKind::NotFound | IoErrorKind::PermissionError | IoErrorKind::InvalidPath | IoErrorKind::AlreadyExists
+                IoErrorKind::NotFound
+                    | IoErrorKind::PermissionError
+                    | IoErrorKind::InvalidPath
+                    | IoErrorKind::AlreadyExists
             ),
             ErrorKind::SecurityError(_) => false,
             ErrorKind::SystemError(_) => false,
@@ -484,15 +487,21 @@ impl fmt::Display for ShellError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {}", self.kind, self.message)?;
 
-    if let Some(ref location) = self.source_location {
+        if let Some(ref location) = self.source_location {
             if let Some(ref file) = location.file {
-                write!(f, " at {}:{}:{}", file.display(), location.line, location.column)?;
+                write!(
+                    f,
+                    " at {}:{}:{}",
+                    file.display(),
+                    location.line,
+                    location.column
+                )?;
             } else {
                 write!(f, " at line {}, column {}", location.line, location.column)?;
             }
         }
 
-    if !self.context.is_empty() {
+        if !self.context.is_empty() {
             write!(f, " (")?;
             let mut first = true;
             for (key, value) in self.context.iter() {
@@ -542,10 +551,16 @@ impl From<std::io::Error> for ShellError {
     fn from(err: std::io::Error) -> Self {
         let kind = match err.kind() {
             std::io::ErrorKind::NotFound => ErrorKind::IoError(IoErrorKind::NotFound),
-            std::io::ErrorKind::PermissionDenied => ErrorKind::IoError(IoErrorKind::PermissionError),
-            std::io::ErrorKind::ConnectionRefused => ErrorKind::IoError(IoErrorKind::ConnectionRefused),
+            std::io::ErrorKind::PermissionDenied => {
+                ErrorKind::IoError(IoErrorKind::PermissionError)
+            }
+            std::io::ErrorKind::ConnectionRefused => {
+                ErrorKind::IoError(IoErrorKind::ConnectionRefused)
+            }
             std::io::ErrorKind::ConnectionReset => ErrorKind::IoError(IoErrorKind::ConnectionReset),
-            std::io::ErrorKind::ConnectionAborted => ErrorKind::IoError(IoErrorKind::ConnectionAborted),
+            std::io::ErrorKind::ConnectionAborted => {
+                ErrorKind::IoError(IoErrorKind::ConnectionAborted)
+            }
             std::io::ErrorKind::NotConnected => ErrorKind::IoError(IoErrorKind::ConnectionRefused),
             std::io::ErrorKind::AddrInUse => ErrorKind::IoError(IoErrorKind::AlreadyExists),
             std::io::ErrorKind::AddrNotAvailable => ErrorKind::IoError(IoErrorKind::NotFound),
@@ -556,7 +571,9 @@ impl From<std::io::Error> for ShellError {
             std::io::ErrorKind::InvalidData => ErrorKind::IoError(IoErrorKind::InvalidData),
             std::io::ErrorKind::TimedOut => ErrorKind::IoError(IoErrorKind::TimedOut),
             std::io::ErrorKind::WriteZero => ErrorKind::IoError(IoErrorKind::WriteZero),
-            std::io::ErrorKind::Interrupted => ErrorKind::RuntimeError(RuntimeErrorKind::Interrupted),
+            std::io::ErrorKind::Interrupted => {
+                ErrorKind::RuntimeError(RuntimeErrorKind::Interrupted)
+            }
             std::io::ErrorKind::UnexpectedEof => ErrorKind::IoError(IoErrorKind::UnexpectedEof),
             _ => ErrorKind::IoError(IoErrorKind::DeviceError),
         };
@@ -578,19 +595,34 @@ impl From<nxsh_hal::HalError> for ShellError {
                 let kind = ErrorKind::SystemError(SystemErrorKind::ProcessError);
                 ShellError::new(kind, proc_err.message)
                     .with_context("operation", proc_err.operation)
-                    .with_context("pid", proc_err.pid.map(|p| p.to_string()).unwrap_or_else(|| "unknown".to_string()))
+                    .with_context(
+                        "pid",
+                        proc_err
+                            .pid
+                            .map(|p| p.to_string())
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    )
             }
             nxsh_hal::HalError::Memory(mem_err) => {
                 let kind = ErrorKind::SystemError(SystemErrorKind::OutOfMemory);
                 ShellError::new(kind, mem_err.message)
                     .with_context("operation", mem_err.operation)
-                    .with_context("requested_size", mem_err.requested_size.map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string()))
+                    .with_context(
+                        "requested_size",
+                        mem_err
+                            .requested_size
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    )
             }
             nxsh_hal::HalError::Network(net_err) => {
                 let kind = ErrorKind::NetworkError(NetworkErrorKind::ConnectionError);
                 ShellError::new(kind, net_err.message)
                     .with_context("operation", net_err.operation)
-                    .with_context("address", net_err.address.unwrap_or_else(|| "unknown".to_string()))
+                    .with_context(
+                        "address",
+                        net_err.address.unwrap_or_else(|| "unknown".to_string()),
+                    )
             }
             nxsh_hal::HalError::Platform(plat_err) => {
                 let kind = ErrorKind::SystemError(SystemErrorKind::PlatformError);
@@ -608,7 +640,13 @@ impl From<nxsh_hal::HalError> for ShellError {
                 let kind = ErrorKind::SystemError(SystemErrorKind::OutOfSpace);
                 ShellError::new(kind, res_err.message)
                     .with_context("resource_type", res_err.resource_type)
-                    .with_context("limit", res_err.limit.map(|l| l.to_string()).unwrap_or_else(|| "unknown".to_string()))
+                    .with_context(
+                        "limit",
+                        res_err
+                            .limit
+                            .map(|l| l.to_string())
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    )
             }
             nxsh_hal::HalError::Invalid(msg) => {
                 let kind = ErrorKind::RuntimeError(RuntimeErrorKind::InvalidArgument);
@@ -648,7 +686,10 @@ impl From<SerdeJsonError> for ShellError {
     fn from(err: SerdeJsonError) -> Self {
         // Heuristic: treat messages suggesting syntax structure issues as InvalidFormat, others as InvalidData
         let msg = err.to_string();
-        let kind = if msg.contains("expected") || msg.contains("EOF while") || msg.contains("invalid type") {
+        let kind = if msg.contains("expected")
+            || msg.contains("EOF while")
+            || msg.contains("invalid type")
+        {
             SerializationErrorKind::InvalidFormat
         } else {
             SerializationErrorKind::InvalidData
@@ -698,14 +739,13 @@ impl From<anyhow::Error> for ShellError {
         } else {
             ErrorKind::RuntimeError(RuntimeErrorKind::ConversionError)
         };
-        
+
         ShellError::new(kind, err.to_string())
     }
 }
 
 // Convenience constructors for common error types
 impl ShellError {
-
     pub fn file_not_found(path: &str) -> Self {
         ShellError::new(
             ErrorKind::RuntimeError(RuntimeErrorKind::FileNotFound),
@@ -772,4 +812,4 @@ impl SourceLocation {
         self.source_text = Some(text);
         self
     }
-} 
+}

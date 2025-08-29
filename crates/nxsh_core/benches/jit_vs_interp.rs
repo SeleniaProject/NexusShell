@@ -1,6 +1,6 @@
-use criterion::{criterion_group, criterion_main, Criterion, black_box};
-use nxsh_core::executor::{Executor, ExecutionStrategy};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use nxsh_core::context::ShellContext;
+use nxsh_core::executor::{ExecutionStrategy, Executor};
 use nxsh_parser::Parser;
 
 fn bench_jit_vs_interp(c: &mut Criterion) {
@@ -44,5 +44,3 @@ fn bench_jit_vs_interp(c: &mut Criterion) {
 
 criterion_group!(benches, bench_jit_vs_interp);
 criterion_main!(benches);
-
-

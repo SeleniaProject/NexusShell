@@ -3,18 +3,18 @@
 //! This module provides enterprise-grade crash handling, reporting, and recovery
 //! capabilities with privacy-aware data collection and automated diagnostics.
 
-use crate::compat::{Result, Context};
+use crate::compat::{Context, Result};
 use crate::nxsh_log_warn;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Write, BufWriter, BufRead, BufReader};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{SystemTime, UNIX_EPOCH, Duration};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use std::panic::{self, PanicHookInfo};
 use std::backtrace::Backtrace;
+use std::panic::{self, PanicHookInfo};
 
 /// Crash severity levels
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -22,7 +22,7 @@ pub enum CrashSeverity {
     /// Minor issues that don't affect core functionality
     Minor,
     /// Moderate issues that may affect some features
-    Moderate, 
+    Moderate,
     /// Major crashes that affect core functionality
     Major,
     /// Critical system failures
@@ -138,9 +138,13 @@ impl Default for CrashHandlerConfig {
     fn default() -> Self {
         let crash_dir = {
             #[cfg(feature = "system-info")]
-            { dirs::cache_dir().unwrap_or_else(|| PathBuf::from(".")) }
+            {
+                dirs::cache_dir().unwrap_or_else(|| PathBuf::from("."))
+            }
             #[cfg(not(feature = "system-info"))]
-            { PathBuf::from(".") }
+            {
+                PathBuf::from(".")
+            }
         }
         .join("nxsh")
         .join("crashes");
@@ -166,8 +170,12 @@ impl CrashHandler {
     /// Create a new crash handler
     pub fn new(config: CrashHandlerConfig) -> Result<Self> {
         // Create crash report directory
-        fs::create_dir_all(&config.crash_report_dir)
-            .with_context(|| format!("Failed to create crash report directory: {:?}", config.crash_report_dir))?;
+        fs::create_dir_all(&config.crash_report_dir).with_context(|| {
+            format!(
+                "Failed to create crash report directory: {:?}",
+                config.crash_report_dir
+            )
+        })?;
 
         let crash_handler = Self {
             config: RwLock::new(config),
@@ -186,7 +194,7 @@ impl CrashHandler {
     fn init_report_file(&self) -> Result<()> {
         let config = self.config.read().unwrap();
         let report_path = config.crash_report_dir.join("crashes.jsonl");
-        
+
         let file = OpenOptions::new()
             .create(true)
             .append(true)
@@ -224,7 +232,10 @@ impl CrashHandler {
             {
                 let mut stats_guard = stats.lock().unwrap();
                 stats_guard.total_crashes += 1;
-                *stats_guard.crashes_by_severity.entry(crash_event.severity).or_insert(0) += 1;
+                *stats_guard
+                    .crashes_by_severity
+                    .entry(crash_event.severity)
+                    .or_insert(0) += 1;
                 stats_guard.most_recent_crash = Some(SystemTime::now());
             }
 
@@ -232,7 +243,7 @@ impl CrashHandler {
             {
                 let mut reports = crash_reports.lock().unwrap();
                 reports.push(crash_event.clone());
-                
+
                 // Limit report history
                 if reports.len() > config_guard.max_crash_reports {
                     let excess = reports.len() - config_guard.max_crash_reports;
@@ -255,14 +266,17 @@ impl CrashHandler {
             eprintln!("Crash ID: {}", crash_event.id);
             eprintln!("Severity: {:?}", crash_event.severity);
             eprintln!("Message: {}", crash_event.message);
-            
+
             if config_guard.collect_backtrace {
                 if let Some(ref backtrace) = crash_event.backtrace {
                     eprintln!("Backtrace:\n{backtrace}");
                 }
             }
 
-            eprintln!("\nCrash report saved to: {:?}", config_guard.crash_report_dir);
+            eprintln!(
+                "\nCrash report saved to: {:?}",
+                config_guard.crash_report_dir
+            );
         }));
     }
 
@@ -277,7 +291,7 @@ impl CrashHandler {
             .as_secs();
 
         let id = format!("crash-{}-{}", timestamp, rand::random::<u16>());
-        
+
         let message = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
             s.to_string()
         } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
@@ -335,18 +349,26 @@ impl CrashHandler {
             "localhost".to_string()
         } else {
             #[cfg(feature = "system-info")]
-            { whoami::fallible::hostname().unwrap_or_else(|_| "unknown".to_string()) }
+            {
+                whoami::fallible::hostname().unwrap_or_else(|_| "unknown".to_string())
+            }
             #[cfg(not(feature = "system-info"))]
-            { "unknown".to_string() }
+            {
+                "unknown".to_string()
+            }
         };
 
         let username = if config.privacy_mode {
             "user".to_string()
         } else {
             #[cfg(feature = "system-info")]
-            { whoami::username() }
+            {
+                whoami::username()
+            }
             #[cfg(not(feature = "system-info"))]
-            { "unknown".to_string() }
+            {
+                "unknown".to_string()
+            }
         };
 
         Ok(SystemInfo {
@@ -359,27 +381,43 @@ impl CrashHandler {
             uptime_seconds: Self::get_uptime().unwrap_or(0),
             memory_total: {
                 #[cfg(feature = "system-info")]
-                { Self::get_total_memory().unwrap_or(0) }
+                {
+                    Self::get_total_memory().unwrap_or(0)
+                }
                 #[cfg(not(feature = "system-info"))]
-                { 0 }
+                {
+                    0
+                }
             },
             memory_available: {
                 #[cfg(feature = "system-info")]
-                { Self::get_available_memory().unwrap_or(0) }
+                {
+                    Self::get_available_memory().unwrap_or(0)
+                }
                 #[cfg(not(feature = "system-info"))]
-                { 0 }
+                {
+                    0
+                }
             },
             cpu_count: {
                 #[cfg(feature = "system-info")]
-                { num_cpus::get() }
+                {
+                    num_cpus::get()
+                }
                 #[cfg(not(feature = "system-info"))]
-                { 0 }
+                {
+                    0
+                }
             },
             load_average: {
                 #[cfg(feature = "system-info")]
-                { Self::get_load_average().unwrap_or(0.0) }
+                {
+                    Self::get_load_average().unwrap_or(0.0)
+                }
                 #[cfg(not(feature = "system-info"))]
-                { 0.0 }
+                {
+                    0.0
+                }
             },
         })
     }
@@ -387,13 +425,17 @@ impl CrashHandler {
     /// Collect process information
     fn collect_process_info(config: &CrashHandlerConfig) -> Result<ProcessInfo> {
         let pid = std::process::id();
-        
+
         Ok(ProcessInfo {
             pid,
             parent_pid: Self::get_parent_pid().unwrap_or(0),
             memory_usage: Self::get_memory_usage().unwrap_or_default(),
             cpu_usage: Self::get_cpu_usage().unwrap_or(0.0),
-            open_files: if config.privacy_mode { Vec::new() } else { Self::get_open_files().unwrap_or_default() },
+            open_files: if config.privacy_mode {
+                Vec::new()
+            } else {
+                Self::get_open_files().unwrap_or_default()
+            },
             environment_vars: if config.collect_environment && !config.privacy_mode {
                 std::env::vars().collect()
             } else {
@@ -416,7 +458,11 @@ impl CrashHandler {
         let history_entries = ctx.get_history().len();
         let active_jobs = ctx.jobs.read().map(|m| m.len()).unwrap_or(0);
         let loaded_aliases = ctx.aliases.read().map(|m| m.len()).unwrap_or(0);
-        let environment_size = ctx.env.read().map(|m| m.len()).unwrap_or_else(|_| std::env::vars().count());
+        let environment_size = ctx
+            .env
+            .read()
+            .map(|m| m.len())
+            .unwrap_or_else(|_| std::env::vars().count());
         let last_command = ctx.get_history().last().cloned();
 
         Ok(ShellState {
@@ -433,19 +479,20 @@ impl CrashHandler {
     /// Classify crash severity based on error message
     fn classify_crash_severity(message: &str) -> CrashSeverity {
         let message_lower = message.to_lowercase();
-        
-        if message_lower.contains("out of memory") || 
-           message_lower.contains("segmentation fault") ||
-           message_lower.contains("stack overflow") {
+
+        if message_lower.contains("out of memory")
+            || message_lower.contains("segmentation fault")
+            || message_lower.contains("stack overflow")
+        {
             CrashSeverity::Fatal
-        } else if message_lower.contains("assertion") ||
-                  message_lower.contains("index out of bounds") {
+        } else if message_lower.contains("assertion")
+            || message_lower.contains("index out of bounds")
+        {
             CrashSeverity::Critical
-        } else if message_lower.contains("io error") ||
-                  message_lower.contains("permission denied") {
+        } else if message_lower.contains("io error") || message_lower.contains("permission denied")
+        {
             CrashSeverity::Major
-        } else if message_lower.contains("parsing") ||
-                  message_lower.contains("format") {
+        } else if message_lower.contains("parsing") || message_lower.contains("format") {
             CrashSeverity::Moderate
         } else {
             CrashSeverity::Minor
@@ -468,28 +515,33 @@ impl CrashHandler {
     pub fn load_crash_reports(&self) -> Result<()> {
         let config = self.config.read().unwrap();
         let report_path = config.crash_report_dir.join("crashes.jsonl");
-        
+
         if !report_path.exists() {
             return Ok(());
         }
 
         let file = File::open(&report_path)
             .with_context(|| format!("Failed to open crash report file: {report_path:?}"))?;
-        
+
         let reader = BufReader::new(file);
         let mut reports = self.crash_reports.lock().unwrap();
         let mut stats = self.stats.lock().unwrap();
 
         for line in reader.lines() {
             let line = line.with_context(|| "Failed to read line from crash report file")?;
-            
+
             match serde_json::from_str::<CrashEvent>(&line) {
                 Ok(crash_event) => {
                     reports.push(crash_event.clone());
                     stats.total_crashes += 1;
-                    *stats.crashes_by_severity.entry(crash_event.severity).or_insert(0) += 1;
-                    
-                    if let Some(crash_time) = SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(crash_event.timestamp)) {
+                    *stats
+                        .crashes_by_severity
+                        .entry(crash_event.severity)
+                        .or_insert(0) += 1;
+
+                    if let Some(crash_time) = SystemTime::UNIX_EPOCH
+                        .checked_add(Duration::from_secs(crash_event.timestamp))
+                    {
                         stats.most_recent_crash = Some(crash_time);
                     }
                 }
@@ -542,29 +594,35 @@ impl CrashHandler {
             if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
                 for line in meminfo.lines() {
                     if let Some(value) = line.strip_prefix("MemTotal:") {
-                        if let Ok(kb) = value.trim().split_whitespace().next().unwrap_or("0").parse::<u64>() {
+                        if let Ok(kb) = value
+                            .trim()
+                            .split_whitespace()
+                            .next()
+                            .unwrap_or("0")
+                            .parse::<u64>()
+                        {
                             return Some(kb * 1024); // Convert KB to bytes
                         }
                     }
                 }
             }
         }
-        
+
         #[cfg(target_os = "windows")]
         {
             use std::mem;
             use winapi::um::sysinfoapi::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
-            
+
             unsafe {
                 let mut mem_status: MEMORYSTATUSEX = mem::zeroed();
                 mem_status.dwLength = mem::size_of::<MEMORYSTATUSEX>() as u32;
-                
+
                 if GlobalMemoryStatusEx(&mut mem_status) != 0 {
                     return Some(mem_status.ullTotalPhys);
                 }
             }
         }
-        
+
         #[cfg(target_os = "macos")]
         {
             use std::process::Command;
@@ -576,7 +634,7 @@ impl CrashHandler {
                 }
             }
         }
-        
+
         None
     }
 
@@ -587,29 +645,35 @@ impl CrashHandler {
             if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
                 for line in meminfo.lines() {
                     if let Some(value) = line.strip_prefix("MemAvailable:") {
-                        if let Ok(kb) = value.trim().split_whitespace().next().unwrap_or("0").parse::<u64>() {
+                        if let Ok(kb) = value
+                            .trim()
+                            .split_whitespace()
+                            .next()
+                            .unwrap_or("0")
+                            .parse::<u64>()
+                        {
                             return Some(kb * 1024); // Convert KB to bytes
                         }
                     }
                 }
             }
         }
-        
+
         #[cfg(target_os = "windows")]
         {
             use std::mem;
             use winapi::um::sysinfoapi::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
-            
+
             unsafe {
                 let mut mem_status: MEMORYSTATUSEX = mem::zeroed();
                 mem_status.dwLength = mem::size_of::<MEMORYSTATUSEX>() as u32;
-                
+
                 if GlobalMemoryStatusEx(&mut mem_status) != 0 {
                     return Some(mem_status.ullAvailPhys);
                 }
             }
         }
-        
+
         #[cfg(target_os = "macos")]
         {
             use std::process::Command;
@@ -619,7 +683,8 @@ impl CrashHandler {
                     for line in vm_stat_str.lines() {
                         if line.starts_with("Pages free:") {
                             if let Some(pages_str) = line.split(':').nth(1) {
-                                if let Ok(pages) = pages_str.trim().replace('.', "").parse::<u64>() {
+                                if let Ok(pages) = pages_str.trim().replace('.', "").parse::<u64>()
+                                {
                                     free_pages = pages;
                                     break;
                                 }
@@ -631,7 +696,7 @@ impl CrashHandler {
                 }
             }
         }
-        
+
         None
     }
 
@@ -647,7 +712,7 @@ impl CrashHandler {
                 }
             }
         }
-        
+
         #[cfg(target_os = "macos")]
         {
             use std::process::Command;
@@ -664,14 +729,15 @@ impl CrashHandler {
                 }
             }
         }
-        
+
         #[cfg(target_os = "windows")]
         {
             // Windows doesn't have direct load average, use CPU usage as approximation
             use std::process::Command;
             if let Ok(output) = Command::new("wmic")
                 .args(["cpu", "get", "loadpercentage", "/value"])
-                .output() {
+                .output()
+            {
                 if let Ok(output_str) = String::from_utf8(output.stdout) {
                     for line in output_str.lines() {
                         if line.starts_with("LoadPercentage=") {
@@ -685,53 +751,56 @@ impl CrashHandler {
                 }
             }
         }
-        
+
         None
     }
 
     fn get_parent_pid() -> Option<u32> {
         #[cfg(unix)]
         {
-            use std::process;
             use std::os::unix::process::parent_id;
+            use std::process;
             Some(parent_id())
         }
-        
+
         #[cfg(target_os = "windows")]
         {
-            use std::process;
-            use winapi::um::tlhelp32::{CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32, TH32CS_SNAPPROCESS};
-            use winapi::um::handleapi::CloseHandle;
             use std::mem;
-            
+            use std::process;
+            use winapi::um::handleapi::CloseHandle;
+            use winapi::um::tlhelp32::{
+                CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32,
+                TH32CS_SNAPPROCESS,
+            };
+
             unsafe {
                 let current_pid = process::id();
                 let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
                 if snapshot == winapi::um::handleapi::INVALID_HANDLE_VALUE {
                     return None;
                 }
-                
+
                 let mut entry: PROCESSENTRY32 = mem::zeroed();
                 entry.dwSize = mem::size_of::<PROCESSENTRY32>() as u32;
-                
+
                 if Process32First(snapshot, &mut entry) != 0 {
                     loop {
                         if entry.th32ProcessID == current_pid {
                             CloseHandle(snapshot);
                             return Some(entry.th32ParentProcessID);
                         }
-                        
+
                         if Process32Next(snapshot, &mut entry) == 0 {
                             break;
                         }
                     }
                 }
-                
+
                 CloseHandle(snapshot);
                 None
             }
         }
-        
+
         #[cfg(not(any(unix, target_os = "windows")))]
         None
     }
@@ -743,33 +812,45 @@ impl CrashHandler {
             let pid = process::id();
             if let Ok(status) = std::fs::read_to_string(format!("/proc/{}/status", pid)) {
                 let mut usage = MemoryUsage::default();
-                
+
                 for line in status.lines() {
                     if let Some(value) = line.strip_prefix("VmRSS:") {
-                        if let Ok(kb) = value.trim().split_whitespace().next().unwrap_or("0").parse::<u64>() {
+                        if let Ok(kb) = value
+                            .trim()
+                            .split_whitespace()
+                            .next()
+                            .unwrap_or("0")
+                            .parse::<u64>()
+                        {
                             usage.resident = kb * 1024;
                         }
                     } else if let Some(value) = line.strip_prefix("VmSize:") {
-                        if let Ok(kb) = value.trim().split_whitespace().next().unwrap_or("0").parse::<u64>() {
+                        if let Ok(kb) = value
+                            .trim()
+                            .split_whitespace()
+                            .next()
+                            .unwrap_or("0")
+                            .parse::<u64>()
+                        {
                             usage.virt_mem = kb * 1024;
                         }
                     }
                 }
-                
+
                 return Some(usage);
             }
         }
-        
+
         #[cfg(target_os = "windows")]
         {
+            use std::mem;
             use winapi::um::processthreadsapi::GetCurrentProcess;
             use winapi::um::psapi::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
-            use std::mem;
-            
+
             unsafe {
                 let mut pmc: PROCESS_MEMORY_COUNTERS = mem::zeroed();
                 pmc.cb = mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
-                
+
                 if GetProcessMemoryInfo(GetCurrentProcess(), &mut pmc, pmc.cb) != 0 {
                     return Some(MemoryUsage {
                         resident: pmc.WorkingSetSize as u64,
@@ -781,7 +862,7 @@ impl CrashHandler {
                 }
             }
         }
-        
+
         None
     }
 
@@ -794,7 +875,9 @@ impl CrashHandler {
                 let fields: Vec<&str> = stat.split_whitespace().collect();
                 if fields.len() >= 15 {
                     // utime (14th field) + stime (15th field)
-                    if let (Ok(utime), Ok(stime)) = (fields[13].parse::<u64>(), fields[14].parse::<u64>()) {
+                    if let (Ok(utime), Ok(stime)) =
+                        (fields[13].parse::<u64>(), fields[14].parse::<u64>())
+                    {
                         let total_time = utime + stime;
                         // Convert from clock ticks to seconds (assume 100 Hz)
                         return Some(total_time as f64 / 100.0);
@@ -802,37 +885,40 @@ impl CrashHandler {
                 }
             }
         }
-        
+
         #[cfg(target_os = "windows")]
         {
-            use winapi::um::processthreadsapi::{GetCurrentProcess, GetProcessTimes};
-            use winapi::shared::minwindef::FILETIME;
             use std::mem;
-            
+            use winapi::shared::minwindef::FILETIME;
+            use winapi::um::processthreadsapi::{GetCurrentProcess, GetProcessTimes};
+
             unsafe {
                 let mut creation_time: FILETIME = mem::zeroed();
                 let mut exit_time: FILETIME = mem::zeroed();
                 let mut kernel_time: FILETIME = mem::zeroed();
                 let mut user_time: FILETIME = mem::zeroed();
-                
+
                 if GetProcessTimes(
                     GetCurrentProcess(),
                     &mut creation_time,
                     &mut exit_time,
                     &mut kernel_time,
                     &mut user_time,
-                ) != 0 {
+                ) != 0
+                {
                     // Convert FILETIME to u64 (100-nanosecond intervals)
-                    let kernel_ticks = ((kernel_time.dwHighDateTime as u64) << 32) | kernel_time.dwLowDateTime as u64;
-                    let user_ticks = ((user_time.dwHighDateTime as u64) << 32) | user_time.dwLowDateTime as u64;
+                    let kernel_ticks = ((kernel_time.dwHighDateTime as u64) << 32)
+                        | kernel_time.dwLowDateTime as u64;
+                    let user_ticks =
+                        ((user_time.dwHighDateTime as u64) << 32) | user_time.dwLowDateTime as u64;
                     let total_ticks = kernel_ticks + user_ticks;
-                    
+
                     // Convert to seconds
                     return Some(total_ticks as f64 / 10_000_000.0);
                 }
             }
         }
-        
+
         None
     }
 
@@ -842,7 +928,7 @@ impl CrashHandler {
             use std::process;
             let pid = process::id();
             let fd_dir = format!("/proc/{}/fd", pid);
-            
+
             if let Ok(entries) = std::fs::read_dir(fd_dir) {
                 let mut files = Vec::new();
                 for entry in entries.flatten() {
@@ -853,14 +939,14 @@ impl CrashHandler {
                 return Some(files);
             }
         }
-        
+
         #[cfg(target_os = "windows")]
         {
             // Windows implementation would require more complex API calls
             // For now, return empty list as a reasonable fallback
             Some(Vec::new())
         }
-        
+
         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         None
     }
@@ -893,7 +979,7 @@ mod tests {
             crash_report_dir: temp_dir.path().to_path_buf(),
             ..Default::default()
         };
-        
+
         let handler = CrashHandler::new(config).unwrap();
         let stats = handler.get_stats();
         assert_eq!(stats.total_crashes, 0);
@@ -930,11 +1016,11 @@ mod tests {
             collect_environment: false,
             ..Default::default()
         };
-        
+
         let system_info = CrashHandler::collect_system_info(&config).unwrap();
         assert_eq!(system_info.hostname, "localhost");
         assert_eq!(system_info.username, "user");
-        
+
         let process_info = CrashHandler::collect_process_info(&config).unwrap();
         assert!(process_info.open_files.is_empty());
         assert!(process_info.environment_vars.is_empty());

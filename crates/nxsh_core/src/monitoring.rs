@@ -7,7 +7,10 @@ use crate::compat::Result;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, atomic::{AtomicBool, Ordering}},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::{Duration, SystemTime},
 };
 use tokio::{
@@ -171,7 +174,11 @@ pub enum MetricUpdate {
     /// パフォーマンススナップショットの追加
     PerformanceSnapshot(PerformanceSnapshot),
     /// カスタムメトリクス
-    Custom { name: String, value: f64, tags: HashMap<String, String> },
+    Custom {
+        name: String,
+        value: f64,
+        tags: HashMap<String, String>,
+    },
 }
 
 /// アラート
@@ -307,7 +314,7 @@ impl MonitoringSystem {
     pub fn new(config: MonitoringConfig) -> Result<Self> {
         let (metrics_sender, _metrics_receiver) = mpsc::unbounded_channel();
         let (alert_sender, _alert_receiver) = broadcast::channel(1000);
-        
+
         let system = Self {
             config: config.clone(),
             state: Arc::new(AsyncRwLock::new(MonitoringState::new())),
@@ -315,52 +322,52 @@ impl MonitoringSystem {
             alert_sender,
             shutdown_signal: Arc::new(AtomicBool::new(false)),
         };
-        
+
         info!(
             event = "monitoring_system_initialized",
             interval_secs = config.monitoring_interval_secs,
             dashboard_port = config.dashboard_port,
             "Monitoring system initialized"
         );
-        
+
         Ok(system)
     }
-    
+
     /// 監視を開始
     pub async fn start(&self) -> Result<()> {
         if !self.config.enabled {
             info!("Monitoring system disabled by configuration");
             return Ok(());
         }
-        
+
         let state = Arc::clone(&self.state);
         let config = self.config.clone();
         let shutdown_signal = Arc::clone(&self.shutdown_signal);
         let alert_sender = self.alert_sender.clone();
-        
+
         // 監視タスクを開始
         tokio::spawn(async move {
             let mut interval = interval(Duration::from_secs(config.monitoring_interval_secs));
-            
+
             while !shutdown_signal.load(Ordering::Relaxed) {
                 interval.tick().await;
-                
+
                 if let Err(e) = Self::collect_metrics(&state, &config, &alert_sender).await {
                     error!(error = %e, "Failed to collect metrics");
                 }
             }
         });
-        
+
         info!("Monitoring system started");
         Ok(())
     }
-    
+
     /// 監視を停止
     pub async fn stop(&self) {
         self.shutdown_signal.store(true, Ordering::Relaxed);
         info!("Monitoring system stopped");
     }
-    
+
     /// メトリクスを収集
     async fn collect_metrics(
         state: &Arc<AsyncRwLock<MonitoringState>>,
@@ -369,49 +376,52 @@ impl MonitoringSystem {
     ) -> Result<()> {
         // システムメトリクスを収集
         let system_metrics = Self::collect_system_metrics().await?;
-        
+
         // ジョブメトリクスを収集
         let job_metrics = Self::collect_job_metrics().await?;
-        
+
         // パフォーマンススナップショットを作成
         let snapshot = PerformanceSnapshot {
             timestamp: SystemTime::now(),
             cpu_usage: system_metrics.cpu_usage_percent,
-            memory_usage: (system_metrics.memory_usage_bytes as f64 / system_metrics.total_memory_bytes as f64) * 100.0,
+            memory_usage: (system_metrics.memory_usage_bytes as f64
+                / system_metrics.total_memory_bytes as f64)
+                * 100.0,
             active_jobs: job_metrics.running_jobs,
-            response_time_us: 0, // 実際の実装では測定
+            response_time_us: 0,         // 実際の実装では測定
             throughput_ops_per_sec: 0.0, // 実際の実装では計算
         };
-        
+
         // 状態を更新
         {
             let mut state_guard = state.write().await;
             state_guard.system_metrics = system_metrics.clone();
             state_guard.job_metrics = job_metrics.clone();
             state_guard.performance_history.push_back(snapshot.clone());
-            
+
             // 履歴を制限
-            let max_history = (config.history_retention_hours * 3600) / config.monitoring_interval_secs;
+            let max_history =
+                (config.history_retention_hours * 3600) / config.monitoring_interval_secs;
             while state_guard.performance_history.len() > max_history as usize {
                 state_guard.performance_history.pop_front();
             }
-            
+
             state_guard.last_update = SystemTime::now();
         }
-        
+
         // アラートをチェック
         Self::check_alerts(&system_metrics, &job_metrics, config, alert_sender).await;
-        
+
         debug!("Metrics collected successfully");
         Ok(())
     }
-    
+
     /// システムメトリクスを収集
     async fn collect_system_metrics() -> Result<SystemMetrics> {
         // 実際の実装ではsysinfo crateなどを使用
         Ok(SystemMetrics {
-            cpu_usage_percent: 15.5, // モックデータ
-            memory_usage_bytes: 1024 * 1024 * 512, // 512MB
+            cpu_usage_percent: 15.5,                    // モックデータ
+            memory_usage_bytes: 1024 * 1024 * 512,      // 512MB
             total_memory_bytes: 1024 * 1024 * 1024 * 8, // 8GB
             disk_usage_bytes: 1024 * 1024 * 1024 * 100, // 100GB
             total_disk_bytes: 1024 * 1024 * 1024 * 500, // 500GB
@@ -426,7 +436,7 @@ impl MonitoringSystem {
             },
         })
     }
-    
+
     /// ジョブメトリクスを収集
     async fn collect_job_metrics() -> Result<JobMetrics> {
         // 実際の実装ではジョブマネージャーから取得
@@ -439,7 +449,7 @@ impl MonitoringSystem {
             success_rate_percent: 98.0,
         })
     }
-    
+
     /// アラートをチェック
     async fn check_alerts(
         system_metrics: &SystemMetrics,
@@ -448,64 +458,72 @@ impl MonitoringSystem {
         alert_sender: &broadcast::Sender<Alert>,
     ) {
         let alerts = &config.alerts;
-        
+
         // CPU使用率チェック
         if system_metrics.cpu_usage_percent > alerts.cpu_threshold_percent {
             let alert = Alert {
                 id: "high_cpu_usage".to_string(),
                 level: AlertLevel::Warning,
                 title: "High CPU Usage".to_string(),
-                message: format!("CPU usage is {}%, exceeding threshold of {}%", 
-                    system_metrics.cpu_usage_percent, alerts.cpu_threshold_percent),
+                message: format!(
+                    "CPU usage is {}%, exceeding threshold of {}%",
+                    system_metrics.cpu_usage_percent, alerts.cpu_threshold_percent
+                ),
                 timestamp: SystemTime::now(),
                 resolved_at: None,
                 metrics: [("cpu_usage".to_string(), system_metrics.cpu_usage_percent)].into(),
                 tags: HashMap::new(),
             };
-            
+
             let _ = alert_sender.send(alert);
         }
-        
+
         // メモリ使用率チェック
-        let memory_usage_percent = (system_metrics.memory_usage_bytes as f64 / system_metrics.total_memory_bytes as f64) * 100.0;
+        let memory_usage_percent = (system_metrics.memory_usage_bytes as f64
+            / system_metrics.total_memory_bytes as f64)
+            * 100.0;
         if memory_usage_percent > alerts.memory_threshold_percent {
             let alert = Alert {
                 id: "high_memory_usage".to_string(),
                 level: AlertLevel::Warning,
                 title: "High Memory Usage".to_string(),
-                message: format!("Memory usage is {:.1}%, exceeding threshold of {}%", 
-                    memory_usage_percent, alerts.memory_threshold_percent),
+                message: format!(
+                    "Memory usage is {:.1}%, exceeding threshold of {}%",
+                    memory_usage_percent, alerts.memory_threshold_percent
+                ),
                 timestamp: SystemTime::now(),
                 resolved_at: None,
                 metrics: [("memory_usage".to_string(), memory_usage_percent)].into(),
                 tags: HashMap::new(),
             };
-            
+
             let _ = alert_sender.send(alert);
         }
-        
+
         // 失敗ジョブ数チェック
         if job_metrics.failed_jobs > alerts.failed_jobs_threshold {
             let alert = Alert {
                 id: "high_job_failures".to_string(),
                 level: AlertLevel::Error,
                 title: "High Job Failure Rate".to_string(),
-                message: format!("Failed jobs count is {}, exceeding threshold of {}", 
-                    job_metrics.failed_jobs, alerts.failed_jobs_threshold),
+                message: format!(
+                    "Failed jobs count is {}, exceeding threshold of {}",
+                    job_metrics.failed_jobs, alerts.failed_jobs_threshold
+                ),
                 timestamp: SystemTime::now(),
                 resolved_at: None,
                 metrics: [("failed_jobs".to_string(), job_metrics.failed_jobs as f64)].into(),
                 tags: HashMap::new(),
             };
-            
+
             let _ = alert_sender.send(alert);
         }
     }
-    
+
     /// ダッシュボードデータを取得
     pub async fn get_dashboard_data(&self) -> Result<DashboardData> {
         let state = self.state.read().await;
-        
+
         Ok(DashboardData {
             system_overview: SystemOverview {
                 uptime: format!("{}h", state.system_metrics.uptime_seconds / 3600),
@@ -558,16 +576,24 @@ impl MonitoringSystem {
             ],
         })
     }
-    
+
     /// アラート受信者を作成
     pub fn subscribe_alerts(&self) -> broadcast::Receiver<Alert> {
         self.alert_sender.subscribe()
     }
-    
+
     /// カスタムメトリクスを送信
-    pub fn send_custom_metric(&self, name: String, value: f64, tags: HashMap<String, String>) -> Result<()> {
+    pub fn send_custom_metric(
+        &self,
+        name: String,
+        value: f64,
+        tags: HashMap<String, String>,
+    ) -> Result<()> {
         // チャンネルに送信を試みる
-        match self.metrics_sender.send(MetricUpdate::Custom { name, value, tags }) {
+        match self
+            .metrics_sender
+            .send(MetricUpdate::Custom { name, value, tags })
+        {
             Ok(()) => Ok(()),
             Err(_) => {
                 // チャンネルが閉じられている場合でも、とりあえず成功とする
@@ -615,7 +641,7 @@ impl MonitoringState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_monitoring_config_default() {
         let config = MonitoringConfig::default();
@@ -623,7 +649,7 @@ mod tests {
         assert_eq!(config.monitoring_interval_secs, 5);
         assert_eq!(config.dashboard_port, 8080);
     }
-    
+
     #[test]
     fn test_alert_creation() {
         let alert = Alert {
@@ -636,19 +662,21 @@ mod tests {
             metrics: HashMap::new(),
             tags: HashMap::new(),
         };
-        
+
         assert_eq!(alert.id, "test_alert");
         assert!(matches!(alert.level, AlertLevel::Warning));
         assert_eq!(alert.title, "Test Alert");
     }
-    
+
     #[tokio::test]
     async fn test_monitoring_system_creation() {
         let config = MonitoringConfig::default();
         let monitoring = MonitoringSystem::new(config).unwrap();
-        
+
         // テスト用のカスタムメトリクスを送信
         let tags = HashMap::new();
-        assert!(monitoring.send_custom_metric("test_metric".to_string(), 42.0, tags).is_ok());
+        assert!(monitoring
+            .send_custom_metric("test_metric".to_string(), 42.0, tags)
+            .is_ok());
     }
 }

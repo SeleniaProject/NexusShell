@@ -16,11 +16,11 @@
 
 use crate::compat::Result;
 use crate::context::ShellContext;
-use crate::error::{ShellError, ErrorKind, ShellResult};
-use crate::executor::{Executor, ExecutionResult};
+use crate::error::{ErrorKind, ShellError, ShellResult};
+use crate::executor::{ExecutionResult, Executor};
 
-use std::io::{self, Write};
 use std::io::IsTerminal;
+use std::io::{self, Write};
 use std::path::Path;
 use tokio::io::AsyncBufReadExt;
 
@@ -96,7 +96,12 @@ impl Shell {
         // Executor::new() registers all core builtins by default.
         let executor = Executor::new();
         let parser = nxsh_parser::ShellCommandParser::new();
-        Self { context, executor, parser, should_exit: false }
+        Self {
+            context,
+            executor,
+            parser,
+            should_exit: false,
+        }
     }
 
     /// Create shell from existing state
@@ -119,11 +124,11 @@ impl Shell {
         } else {
             std::collections::HashMap::new()
         };
-        
+
         let variables = environment.clone();
         let cwd = self.context.cwd.clone();
         let exit_status = self.context.get_exit_status();
-        
+
         ShellState {
             config: Config::default(),
             cwd,
@@ -139,10 +144,14 @@ impl Shell {
     }
 
     /// Borrow the underlying context (read-only).
-    pub fn context(&self) -> &ShellContext { &self.context }
+    pub fn context(&self) -> &ShellContext {
+        &self.context
+    }
 
     /// Borrow the underlying context (mutable).
-    pub fn context_mut(&mut self) -> &mut ShellContext { &mut self.context }
+    pub fn context_mut(&mut self) -> &mut ShellContext {
+        &mut self.context
+    }
 
     /// Evaluate a single command line (one logical line). Returns the
     /// execution result with stdout/stderr and exit code.
@@ -160,10 +169,12 @@ impl Shell {
         }
 
         // Parse into AST and execute via core executor.
-        let ast = self
-            .parser
-            .parse(line)
-            .map_err(|e| ShellError::new(ErrorKind::ParseError(crate::error::ParseErrorKind::SyntaxError), e.to_string()))?;
+        let ast = self.parser.parse(line).map_err(|e| {
+            ShellError::new(
+                ErrorKind::ParseError(crate::error::ParseErrorKind::SyntaxError),
+                e.to_string(),
+            )
+        })?;
 
         self.executor.execute(&ast, &mut self.context)
     }
@@ -173,17 +184,23 @@ impl Shell {
         if source.trim().is_empty() {
             return Ok(ExecutionResult::success(0));
         }
-        let ast = self
-            .parser
-            .parse(source)
-            .map_err(|e| ShellError::new(ErrorKind::ParseError(crate::error::ParseErrorKind::SyntaxError), e.to_string()))?;
+        let ast = self.parser.parse(source).map_err(|e| {
+            ShellError::new(
+                ErrorKind::ParseError(crate::error::ParseErrorKind::SyntaxError),
+                e.to_string(),
+            )
+        })?;
         self.executor.execute(&ast, &mut self.context)
     }
 
     /// Execute a script file by path. The file is read as UTF-8 text.
     pub fn run_script_file<P: AsRef<Path>>(&mut self, path: P) -> ShellResult<ExecutionResult> {
-        let content = std::fs::read_to_string(&path)
-            .map_err(|e| ShellError::new(ErrorKind::IoError(crate::error::IoErrorKind::FileReadError), format!("{e}")))?;
+        let content = std::fs::read_to_string(&path).map_err(|e| {
+            ShellError::new(
+                ErrorKind::IoError(crate::error::IoErrorKind::FileReadError),
+                format!("{e}"),
+            )
+        })?;
         self.eval_program(&content)
     }
 
@@ -202,10 +219,10 @@ impl Shell {
             }
 
             line.clear();
-        let n = stdin.read_line(&mut line).await.map_err(|e| {
+            let n = stdin.read_line(&mut line).await.map_err(|e| {
                 ShellError::new(
                     ErrorKind::IoError(crate::error::IoErrorKind::FileReadError),
-            format!("stdin read error: {e}"),
+                    format!("stdin read error: {e}"),
                 )
             })?;
 
@@ -234,7 +251,9 @@ impl Shell {
                 }
             }
 
-            if self.should_exit { break; }
+            if self.should_exit {
+                break;
+            }
             if self.context.is_timed_out() {
                 // Respect global timeout if configured.
                 let _ = writeln!(self.context.stderr, "nxsh: execution timed out");
@@ -254,17 +273,29 @@ impl Shell {
     fn print_prompt(&self) -> Result<()> {
         // Keep it minimal here; the rich statusline is provided by the UI layer.
         let cwd = &self.context.cwd;
-        let prompt = if self.context.is_login_shell() { "login" } else { "" };
+        let prompt = if self.context.is_login_shell() {
+            "login"
+        } else {
+            ""
+        };
         let code = self.context.get_exit_status();
         let symbol = if code == 0 { "λ" } else { "✗" };
-        write!(io::stdout(), "{}{} {} ", symbol, if prompt.is_empty() { "" } else { "*" }, cwd.display())?;
+        write!(
+            io::stdout(),
+            "{}{} {} ",
+            symbol,
+            if prompt.is_empty() { "" } else { "*" },
+            cwd.display()
+        )?;
         io::stdout().flush()?;
         Ok(())
     }
 }
 
 impl Default for Shell {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
@@ -289,4 +320,3 @@ mod tests {
     // Note: Parser in this project normalizes some malformed snippets;
     // do not assert parse error semantics here to keep tests stable across grammar tweaks.
 }
-

@@ -3,17 +3,17 @@
 //! This module provides the core execution context for NexusShell,
 //! managing variables, functions, aliases, and execution state.
 
-use crate::error::{ShellError, ErrorKind, ShellResult};
+use crate::error::{ErrorKind, ShellError, ShellResult};
+use crate::job::{JobId, JobManager};
 use crate::stream::Stream;
-use crate::job::{JobManager, JobId};
+use std::io::IsTerminal;
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock, Mutex},
-    path::PathBuf,
-    time::{Duration, Instant},
     io,
+    path::PathBuf,
+    sync::{Arc, Mutex, RwLock},
+    time::{Duration, Instant},
 };
-use std::io::IsTerminal;
 
 /// Execution context for command execution
 pub type ExecutionContext<'a> = Context<'a>;
@@ -79,17 +79,18 @@ fn get_parent_pid() -> u32 {
             }
         }
     }
-    
+
     #[cfg(windows)]
     {
         use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-            CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32, TH32CS_SNAPPROCESS
+            CreateToolhelp32Snapshot, Process32First, Process32Next, PROCESSENTRY32,
+            TH32CS_SNAPPROCESS,
         };
         use windows_sys::Win32::System::Threading::GetCurrentProcessId;
-        
+
         let current_pid = unsafe { GetCurrentProcessId() };
         let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
-        
+
         if snapshot != -1i32 as isize {
             let mut pe32 = PROCESSENTRY32 {
                 dwSize: std::mem::size_of::<PROCESSENTRY32>() as u32,
@@ -103,7 +104,7 @@ fn get_parent_pid() -> u32 {
                 dwFlags: 0,
                 szExeFile: [0; 260],
             };
-            
+
             if unsafe { Process32First(snapshot, &mut pe32) } != 0 {
                 loop {
                     if pe32.th32ProcessID == current_pid {
@@ -116,12 +117,12 @@ fn get_parent_pid() -> u32 {
             }
         }
     }
-    
+
     // Try to get from environment variable PPID if available
     if let Ok(ppid_str) = std::env::var("PPID") {
         return ppid_str.parse().unwrap_or(0);
     }
-    
+
     // Fallback: return 0 if we can't determine parent PID
     0
 }
@@ -138,7 +139,9 @@ fn detect_login_shell() -> bool {
     }
 
     // If SHLVL<=1 and a full login-like env is present, accept immediately.
-    let shlvl_now = std::env::var("SHLVL").ok().and_then(|s| s.parse::<i32>().ok());
+    let shlvl_now = std::env::var("SHLVL")
+        .ok()
+        .and_then(|s| s.parse::<i32>().ok());
     let logname_now = std::env::var("LOGNAME").is_ok();
     let home_now = std::env::var("HOME").is_ok();
     let shell_now = std::env::var("SHELL").is_ok();
@@ -173,7 +176,9 @@ fn detect_login_shell() -> bool {
     }
     fn take_snap() -> Snap {
         Snap {
-            shlvl: std::env::var("SHLVL").ok().and_then(|s| s.parse::<i32>().ok()),
+            shlvl: std::env::var("SHLVL")
+                .ok()
+                .and_then(|s| s.parse::<i32>().ok()),
             login: std::env::var("LOGIN").is_ok(),
             logname: std::env::var("LOGNAME").is_ok(),
             home: std::env::var("HOME").is_ok(),
@@ -199,11 +204,15 @@ fn detect_login_shell() -> bool {
             let home_present = snap.home || home2;
             let shell_present = snap.shell || shell2;
             let any_present = logname_present || home_present || shell_present;
-            if any_present { return true; }
+            if any_present {
+                return true;
+            }
         }
     }
     // Strong rule: explicit LOGIN env implies login shell immediately
-    if snap.login { return true; }
+    if snap.login {
+        return true;
+    }
     let mut shlvl_unstable = false;
     for _ in 0..2 {
         std::thread::yield_now();
@@ -214,7 +223,9 @@ fn detect_login_shell() -> bool {
             || snap.ssh_tty != s2.ssh_tty
             || snap.shlvl != s2.shlvl
         {
-            if snap.shlvl != s2.shlvl { shlvl_unstable = true; }
+            if snap.shlvl != s2.shlvl {
+                shlvl_unstable = true;
+            }
             // Merge: SSH present if either snapshot had it; SHLVL take the smaller (treat <=1 as login-friendly)
             let merged_shlvl = match (snap.shlvl, s2.shlvl) {
                 (Some(a), Some(b)) => Some(a.min(b)),
@@ -233,8 +244,12 @@ fn detect_login_shell() -> bool {
             snap.logname |= s2.logname;
             snap.home |= s2.home;
             snap.shell |= s2.shell;
-            if snap.term.is_none() { snap.term = s2.term; }
-            if snap.underscore.is_none() { snap.underscore = s2.underscore; }
+            if snap.term.is_none() {
+                snap.term = s2.term;
+            }
+            if snap.underscore.is_none() {
+                snap.underscore = s2.underscore;
+            }
             break;
         }
         // Also union the presence of core login-related env across snapshots when we did merge above.
@@ -242,11 +257,19 @@ fn detect_login_shell() -> bool {
         snap.logname |= s2.logname;
         snap.home |= s2.home;
         snap.shell |= s2.shell;
-        if snap.term.is_none() { snap.term = s2.term; }
-        if snap.underscore.is_none() { snap.underscore = s2.underscore; }
+        if snap.term.is_none() {
+            snap.term = s2.term;
+        }
+        if snap.underscore.is_none() {
+            snap.underscore = s2.underscore;
+        }
     }
     let shlvl_snapshot = snap.shlvl;
-    let login_env = if snap.login { Some(String::new()) } else { None };
+    let login_env = if snap.login {
+        Some(String::new())
+    } else {
+        None
+    };
     let logname_present = snap.logname;
     let home_present = snap.home;
     let shell_present = snap.shell;
@@ -256,7 +279,9 @@ fn detect_login_shell() -> bool {
     let ssh_conn_present = snap.ssh_conn;
     let ssh_tty_present = snap.ssh_tty;
     #[cfg(windows)]
-    let logonserver_nonempty = std::env::var("LOGONSERVER").map(|v| !v.is_empty()).unwrap_or(false);
+    let logonserver_nonempty = std::env::var("LOGONSERVER")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
     #[cfg(not(windows))]
     let logonserver_nonempty = false;
 
@@ -268,34 +293,56 @@ fn detect_login_shell() -> bool {
 
     // Highest precedence signals: explicit remote/login flags
     // SSH session implies login shell
-    if ssh_client_present || ssh_conn_present || ssh_tty_present { return true; }
+    if ssh_client_present || ssh_conn_present || ssh_tty_present {
+        return true;
+    }
 
     // Explicit LOGIN env implies login shell (handled early, keep for redundancy)
-    if login_env.is_some() { return true; }
+    if login_env.is_some() {
+        return true;
+    }
 
     // Traditional login shell indicator: argv[0] or '_' starts with '-'
-    if let Some(arg0) = std::env::args_os().next().and_then(|a| a.into_string().ok()) {
-        if arg0.starts_with('-') { return true; }
+    if let Some(arg0) = std::env::args_os()
+        .next()
+        .and_then(|a| a.into_string().ok())
+    {
+        if arg0.starts_with('-') {
+            return true;
+        }
     }
     if let Some(ref underscore) = underscore_snapshot {
-        if underscore.starts_with('-') { return true; }
+        if underscore.starts_with('-') {
+            return true;
+        }
     }
 
     // Full login environment and not nested => login shell (prioritize when not nested)
-    if logname_present && home_present && shell_present
-        && (shlvl_unstable || shlvl_snapshot.unwrap_or(1) <= 1) { return true; }
+    if logname_present
+        && home_present
+        && shell_present
+        && (shlvl_unstable || shlvl_snapshot.unwrap_or(1) <= 1)
+    {
+        return true;
+    }
 
     // If environment looks like an initial login (basic user/home/shell hints), treat as login when not nested
     let user_present = std::env::var("USER").is_ok();
-    if (logname_present || user_present) && (home_present || shell_present)
-        && (shlvl_unstable || shlvl_snapshot.unwrap_or(1) <= 1) { return true; }
+    if (logname_present || user_present)
+        && (home_present || shell_present)
+        && (shlvl_unstable || shlvl_snapshot.unwrap_or(1) <= 1)
+    {
+        return true;
+    }
 
     // argv[0]/'_' checks handled above
 
     // Avoid relying on a single live SHLVL read to prevent races; use snapshot results only
 
     // If environment looks like an initial login (LOGNAME/HOME/SHELL present) and not nested, assume login shell
-    if logname_present && home_present && shell_present { return shlvl_unstable || shlvl_snapshot.unwrap_or(1) <= 1; }
+    if logname_present && home_present && shell_present {
+        return shlvl_unstable || shlvl_snapshot.unwrap_or(1) <= 1;
+    }
 
     // Method 5: Unix parent/session checks
     #[cfg(unix)]
@@ -306,7 +353,10 @@ fn detect_login_shell() -> bool {
         }
         if let Ok(comm_path) = std::fs::read_to_string(format!("/proc/{}/comm", ppid)) {
             let parent_name = comm_path.trim();
-            if matches!(parent_name, "systemd" | "init" | "login" | "gdm" | "sddm" | "lightdm" | "lxdm") {
+            if matches!(
+                parent_name,
+                "systemd" | "init" | "login" | "gdm" | "sddm" | "lightdm" | "lxdm"
+            ) {
                 return true;
             }
         }
@@ -387,13 +437,17 @@ impl<'a> Context<'a> {
         stdout: Stream,
         stderr: Stream,
     ) -> ShellResult<Self> {
-        let cwd = std::env::current_dir()
-            .map_err(|e| ShellError::new(ErrorKind::IoError(crate::error::IoErrorKind::NotFound), format!("Failed to get current directory: {e}")))?;
-        
+        let cwd = std::env::current_dir().map_err(|e| {
+            ShellError::new(
+                ErrorKind::IoError(crate::error::IoErrorKind::NotFound),
+                format!("Failed to get current directory: {e}"),
+            )
+        })?;
+
         // Create default i18n manager
         let i18n_manager = crate::i18n::I18nManager::new(cwd.join("i18n"));
         let i18n = std::sync::Arc::new(i18n_manager);
-        
+
         Ok(Self {
             args,
             env,
@@ -413,8 +467,12 @@ impl<'a> Context<'a> {
 
     /// Set the current working directory
     pub fn set_cwd(&mut self, path: PathBuf) -> ShellResult<()> {
-        std::env::set_current_dir(&path)
-            .map_err(|e| ShellError::new(ErrorKind::IoError(crate::error::IoErrorKind::NotFound), format!("Failed to change directory: {e}")))?;
+        std::env::set_current_dir(&path).map_err(|e| {
+            ShellError::new(
+                ErrorKind::IoError(crate::error::IoErrorKind::NotFound),
+                format!("Failed to change directory: {e}"),
+            )
+        })?;
         self.cwd = path;
         Ok(())
     }
@@ -513,7 +571,14 @@ impl std::fmt::Debug for ShellContext {
             .field("stdin", &"Box<dyn io::Read + Send>")
             .field("stdout", &"Box<dyn io::Write + Send>")
             .field("stderr", &"Box<dyn io::Write + Send>")
-            .field("stdout_capture", &self.stdout_capture.as_ref().map(|_| "Some(<buffer>)").unwrap_or("None"))
+            .field(
+                "stdout_capture",
+                &self
+                    .stdout_capture
+                    .as_ref()
+                    .map(|_| "Some(<buffer>)")
+                    .unwrap_or("None"),
+            )
             .field("options", &"Arc<RwLock<ShellOptions>>")
             .field("jobs", &"Arc<RwLock<HashMap<u32, Job>>>")
             .field("shell_level", &self.shell_level)
@@ -654,16 +719,17 @@ impl ShellContext {
         for (key, value) in std::env::vars() {
             env_map.insert(key, value);
         }
-        
+
         // COMPLETE current directory resolution
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        
+
         // Full shell level detection
         let shell_level = std::env::var("SHLVL")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(1) + 1;
-        
+            .unwrap_or(1)
+            + 1;
+
         Self {
             env: Arc::new(RwLock::new(env_map)),
             vars: Arc::new(RwLock::new(HashMap::new())),
@@ -685,13 +751,26 @@ impl ShellContext {
             history: Arc::new(Mutex::new(Vec::new())),
             dir_stack: Arc::new(Mutex::new(Vec::new())),
             interactive: std::io::stdin().is_terminal(), // Complete terminal detection
-            login_shell: Self::detect_login_shell(),    // Full login detection
-            history_limit: std::env::var("NXSH_HISTORY_LIMIT").ok().and_then(|v| v.parse().ok()).unwrap_or(1000),
-            global_deadline: std::env::var("NXSH_TIMEOUT_MS").ok().and_then(|v| v.parse::<u64>().ok()).map(|ms| {
-                let now = Instant::now();
-                if ms <= 1 { now } else { now + Duration::from_millis(ms) }
-            }),
-            per_command_timeout: std::env::var("NXSH_CMD_TIMEOUT_MS").ok().and_then(|v| v.parse::<u64>().ok()).map(Duration::from_millis),
+            login_shell: Self::detect_login_shell(),     // Full login detection
+            history_limit: std::env::var("NXSH_HISTORY_LIMIT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1000),
+            global_deadline: std::env::var("NXSH_TIMEOUT_MS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .map(|ms| {
+                    let now = Instant::now();
+                    if ms <= 1 {
+                        now
+                    } else {
+                        now + Duration::from_millis(ms)
+                    }
+                }),
+            per_command_timeout: std::env::var("NXSH_CMD_TIMEOUT_MS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .map(Duration::from_millis),
             temp_id_counter: Arc::new(Mutex::new(0)),
             macro_system: Arc::new(RwLock::new(crate::macros::MacroSystem::new())),
         }
@@ -712,22 +791,31 @@ impl ShellContext {
 
     /// Store a closure
     pub fn set_closure(&self, id: String, info: ClosureInfo) {
-        if let Ok(mut closures) = self.closures.write() { closures.insert(id, info); }
+        if let Ok(mut closures) = self.closures.write() {
+            closures.insert(id, info);
+        }
     }
 
     /// Get closure
     pub fn get_closure(&self, id: &str) -> Option<ClosureInfo> {
-        if let Ok(closures) = self.closures.read() { closures.get(id).cloned() } else { None }
+        if let Ok(closures) = self.closures.read() {
+            closures.get(id).cloned()
+        } else {
+            None
+        }
     }
 
-    pub fn has_closure(&self, id: &str) -> bool { self.get_closure(id).is_some() }
+    pub fn has_closure(&self, id: &str) -> bool {
+        self.get_closure(id).is_some()
+    }
 
     /// Create a new shell context
     pub fn new() -> Self {
         let shell_level = std::env::var("SHLVL")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(0) + 1;
+            .unwrap_or(0)
+            + 1;
 
         let ctx = Self {
             env: Arc::new(RwLock::new(HashMap::new())),
@@ -751,12 +839,25 @@ impl ShellContext {
             dir_stack: Arc::new(Mutex::new(Vec::new())),
             interactive: std::io::stdin().is_terminal(),
             login_shell: detect_login_shell(), // Detect login shell properly
-            history_limit: std::env::var("NXSH_HISTORY_LIMIT").ok().and_then(|v| v.parse().ok()).unwrap_or(1000),
-            global_deadline: std::env::var("NXSH_TIMEOUT_MS").ok().and_then(|v| v.parse::<u64>().ok()).map(|ms| {
-                let now = Instant::now();
-                if ms <= 1 { now } else { now + Duration::from_millis(ms) }
-            }),
-            per_command_timeout: std::env::var("NXSH_CMD_TIMEOUT_MS").ok().and_then(|v| v.parse::<u64>().ok()).map(Duration::from_millis),
+            history_limit: std::env::var("NXSH_HISTORY_LIMIT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1000),
+            global_deadline: std::env::var("NXSH_TIMEOUT_MS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .map(|ms| {
+                    let now = Instant::now();
+                    if ms <= 1 {
+                        now
+                    } else {
+                        now + Duration::from_millis(ms)
+                    }
+                }),
+            per_command_timeout: std::env::var("NXSH_CMD_TIMEOUT_MS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .map(Duration::from_millis),
             temp_id_counter: Arc::new(Mutex::new(0)),
             macro_system: Arc::new(RwLock::new(crate::macros::MacroSystem::new())),
         };
@@ -777,7 +878,9 @@ impl ShellContext {
         let ps_aliases_enabled = std::env::var("NXSH_ENABLE_PS_ALIASES")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false)
-            && !std::env::var("NXSH_DISABLE_PS_ALIASES").map(|v| v=="1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+            && !std::env::var("NXSH_DISABLE_PS_ALIASES")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false);
         if ps_aliases_enabled {
             if let Ok(mut aliases) = ctx.aliases.write() {
                 // Minimal alias set aligned with TASK_LIST.md
@@ -797,23 +900,30 @@ impl ShellContext {
     /// Enable stdout capture. Subsequent writes to `ctx.stdout` are mirrored into an internal buffer.
     /// If already enabled, this clears the existing buffer.
     pub fn enable_stdout_capture(&mut self) {
-    let buf = self.stdout_capture.get_or_insert_with(|| Arc::new(Mutex::new(Vec::new()))).clone();
-    // Clear any previous content
-    if let Ok(mut v) = buf.lock() { v.clear(); }
-    // Use TeeWriter that writes to real stdout and capture buffer
-    self.stdout = Box::new(TeeWriter::new(Box::new(io::stdout()), Some(buf)));
+        let buf = self
+            .stdout_capture
+            .get_or_insert_with(|| Arc::new(Mutex::new(Vec::new())))
+            .clone();
+        // Clear any previous content
+        if let Ok(mut v) = buf.lock() {
+            v.clear();
+        }
+        // Use TeeWriter that writes to real stdout and capture buffer
+        self.stdout = Box::new(TeeWriter::new(Box::new(io::stdout()), Some(buf)));
     }
 
     /// Disable stdout capture; keeps the last captured content available for retrieval until cleared.
     pub fn disable_stdout_capture(&mut self) {
-    // Restore to plain stdout to remove any capture overhead
-    self.stdout = Box::new(io::stdout());
+        // Restore to plain stdout to remove any capture overhead
+        self.stdout = Box::new(io::stdout());
     }
 
     /// Get captured stdout as UTF-8 string (lossy if invalid UTF-8). Returns empty string if not enabled or empty.
     pub fn stdout_captured(&self) -> String {
         if let Some(buf) = &self.stdout_capture {
-            if let Ok(v) = buf.lock() { return String::from_utf8_lossy(&v).into_owned(); }
+            if let Ok(v) = buf.lock() {
+                return String::from_utf8_lossy(&v).into_owned();
+            }
         }
         String::new()
     }
@@ -821,7 +931,9 @@ impl ShellContext {
     /// Clear the captured stdout buffer (no-op if not enabled).
     pub fn clear_stdout_capture(&self) {
         if let Some(buf) = &self.stdout_capture {
-            if let Ok(mut v) = buf.lock() { v.clear(); }
+            if let Ok(mut v) = buf.lock() {
+                v.clear();
+            }
         }
     }
     /// Check if execution has timed out (global deadline)
@@ -836,7 +948,8 @@ impl ShellContext {
 
     /// Expose remaining time budget if global deadline is configured
     pub fn remaining_time_budget(&self) -> Option<Duration> {
-        self.global_deadline.map(|dl| dl.saturating_duration_since(Instant::now()))
+        self.global_deadline
+            .map(|dl| dl.saturating_duration_since(Instant::now()))
     }
 
     /// Clear any configured global execution deadline (used in tests or interactive override)
@@ -851,7 +964,11 @@ impl ShellContext {
         if let Ok(ms_str) = std::env::var("NXSH_TIMEOUT_MS") {
             if let Ok(ms) = ms_str.parse::<u64>() {
                 let now = Instant::now();
-                self.global_deadline = Some(if ms <= 1 { now } else { now + Duration::from_millis(ms) });
+                self.global_deadline = Some(if ms <= 1 {
+                    now
+                } else {
+                    now + Duration::from_millis(ms)
+                });
                 if let Ok(mut opts) = self.options.write() {
                     opts.continue_on_error = true;
                 }
@@ -865,17 +982,27 @@ impl ShellContext {
             let next = guard.wrapping_add(1);
             *guard = next;
             next
-        } else { 0 }
+        } else {
+            0
+        }
     }
 
     /// Check if a user-defined function exists
     pub fn has_function(&self, name: &str) -> bool {
-        if let Ok(map) = self.functions.read() { map.contains_key(name) } else { false }
+        if let Ok(map) = self.functions.read() {
+            map.contains_key(name)
+        } else {
+            false
+        }
     }
 
     /// Set/clear per-command timeout (None to disable)
-    pub fn set_per_command_timeout(&mut self, dur: Option<Duration>) { self.per_command_timeout = dur; }
-    pub fn per_command_timeout(&self) -> Option<Duration> { self.per_command_timeout }
+    pub fn set_per_command_timeout(&mut self, dur: Option<Duration>) {
+        self.per_command_timeout = dur;
+    }
+    pub fn per_command_timeout(&self) -> Option<Duration> {
+        self.per_command_timeout
+    }
 
     /// Get environment variable
     pub fn get_var(&self, key: &str) -> Option<String> {
@@ -885,7 +1012,7 @@ impl ShellContext {
                 return Some(var.value.clone());
             }
         }
-        
+
         // Then check environment variables
         if let Ok(env) = self.env.read() {
             env.get(key).cloned()
@@ -902,12 +1029,12 @@ impl ShellContext {
     {
         let key_str = key.into();
         let val_str = val.into();
-        
+
         // Set in environment
         if let Ok(mut env) = self.env.write() {
             env.insert(key_str.clone(), val_str.clone());
         }
-        
+
         // Always set as shell variable (update existing if present)
         if let Ok(mut vars) = self.vars.write() {
             vars.insert(key_str, ShellVariable::new(val_str));
@@ -920,14 +1047,14 @@ impl ShellContext {
         K: Into<String>,
     {
         let key_str = key.into();
-        
+
         // If exported, also set in environment
         if var.exported {
             if let Ok(mut env) = self.env.write() {
                 env.insert(key_str.clone(), var.value.clone());
             }
         }
-        
+
         if let Ok(mut vars) = self.vars.write() {
             vars.insert(key_str, var);
         }
@@ -950,12 +1077,12 @@ impl ShellContext {
     {
         let key_str = key.into();
         let val_str = val.into();
-        
+
         // Simple cycle detection - check if alias points to itself
         if key_str == val_str {
             return Err(ShellError::new(
                 ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
-                format!("Alias '{key_str}' would create a cycle")
+                format!("Alias '{key_str}' would create a cycle"),
             ));
         }
 
@@ -968,10 +1095,8 @@ impl ShellContext {
             seen.insert(key_str.clone());
 
             // Start from the target of this new alias
-            let mut cursor: Option<String> = val_str
-                .split_whitespace()
-                .next()
-                .map(|s| s.to_string());
+            let mut cursor: Option<String> =
+                val_str.split_whitespace().next().map(|s| s.to_string());
 
             // Bound the search to prevent pathological chains
             let mut steps: usize = 0;
@@ -981,13 +1106,17 @@ impl ShellContext {
                 if seen.contains(&current) {
                     return Err(ShellError::new(
                         ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
-                        format!("Alias '{key_str}' would create a cycle (via '{current}')")
+                        format!("Alias '{key_str}' would create a cycle (via '{current}')"),
                     ));
                 }
                 seen.insert(current.clone());
 
                 // Move to next if current is itself an alias
-                if let Some(next_raw) = if current == key_str { Some(val_str.as_str()) } else { snapshot.get(&current).map(|s| s.as_str()) } {
+                if let Some(next_raw) = if current == key_str {
+                    Some(val_str.as_str())
+                } else {
+                    snapshot.get(&current).map(|s| s.as_str())
+                } {
                     cursor = next_raw.split_whitespace().next().map(|s| s.to_string());
                 } else {
                     break;
@@ -997,12 +1126,12 @@ impl ShellContext {
                 if steps > MAX_ALIAS_CHAIN {
                     return Err(ShellError::new(
                         ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
-                        format!("Alias '{key_str}' resolution chain too deep (possible cycle)")
+                        format!("Alias '{key_str}' resolution chain too deep (possible cycle)"),
                     ));
                 }
             }
         }
-        
+
         if let Ok(mut aliases) = self.aliases.write() {
             aliases.insert(key_str, val_str);
         }
@@ -1068,7 +1197,11 @@ impl ShellContext {
 
     /// Check if a generic template exists for a base function name
     pub fn has_generic_template(&self, base_name: &str) -> bool {
-        if let Ok(map) = self.generic_templates.read() { map.contains_key(base_name) } else { false }
+        if let Ok(map) = self.generic_templates.read() {
+            map.contains_key(base_name)
+        } else {
+            false
+        }
     }
 
     /// Produce or fetch a monomorphized specialized function name from template.
@@ -1079,9 +1212,17 @@ impl ShellContext {
             // Replace any non-alphanumeric characters with '_'
             let mut out = String::with_capacity(s.len());
             for ch in s.chars() {
-                if ch.is_ascii_alphanumeric() { out.push(ch); } else { out.push('_'); }
+                if ch.is_ascii_alphanumeric() {
+                    out.push(ch);
+                } else {
+                    out.push('_');
+                }
             }
-            if out.is_empty() { "_".to_string() } else { out }
+            if out.is_empty() {
+                "_".to_string()
+            } else {
+                out
+            }
         }
 
         let suffix = if generic_args.is_empty() {
@@ -1090,13 +1231,19 @@ impl ShellContext {
             let parts: Vec<String> = generic_args.iter().map(|g| sanitize_token(g)).collect();
             format!("__gen_{}", parts.join("_"))
         };
-    let specialized_name = format!("{base_name}{suffix}");
+        let specialized_name = format!("{base_name}{suffix}");
 
         // If already specialized and present, return immediately
-        if self.has_function(&specialized_name) { return Some(specialized_name); }
+        if self.has_function(&specialized_name) {
+            return Some(specialized_name);
+        }
 
         // Try to create from template
-        let tpl_opt = if let Ok(map) = self.generic_templates.read() { map.get(base_name).cloned() } else { None };
+        let tpl_opt = if let Ok(map) = self.generic_templates.read() {
+            map.get(base_name).cloned()
+        } else {
+            None
+        };
         if let Some(tpl) = tpl_opt {
             // Validate arity if template has declared params; allow different lengths but prefer equal.
             if !tpl.generic_params.is_empty() && tpl.generic_params.len() != generic_args.len() {
@@ -1142,7 +1289,8 @@ impl ShellContext {
 
     /// Get command history
     pub fn get_history(&self) -> Vec<String> {
-        self.history.lock()
+        self.history
+            .lock()
             .unwrap_or_else(|poisoned| {
                 // Recover from poisoned mutex by extracting the value
                 poisoned.into_inner()
@@ -1168,7 +1316,8 @@ impl ShellContext {
 
     /// Get directory stack
     pub fn dirs(&self) -> Vec<PathBuf> {
-        self.dir_stack.lock()
+        self.dir_stack
+            .lock()
             .unwrap_or_else(|poisoned| {
                 // Recover from poisoned mutex by extracting the value
                 poisoned.into_inner()
@@ -1178,9 +1327,13 @@ impl ShellContext {
 
     /// Set shell option
     pub fn set_option(&self, option: &str, value: bool) -> ShellResult<()> {
-        let mut options = self.options.write()
-            .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Options lock poisoned"))?;
-        
+        let mut options = self.options.write().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Options lock poisoned",
+            )
+        })?;
+
         match option {
             "errexit" | "e" => options.errexit = value,
             "xtrace" | "x" => options.xtrace = value,
@@ -1193,12 +1346,16 @@ impl ShellContext {
             "verbose" | "v" => options.verbose = value,
             "vi" => {
                 options.vi_mode = value;
-                if value { options.emacs_mode = false; }
-            },
+                if value {
+                    options.emacs_mode = false;
+                }
+            }
             "emacs" => {
                 options.emacs_mode = value;
-                if value { options.vi_mode = false; }
-            },
+                if value {
+                    options.vi_mode = false;
+                }
+            }
             "histexpand" | "H" => options.histexpand = value,
             "completion" => options.completion = value,
             "cdspell" => options.cdspell = value,
@@ -1207,20 +1364,26 @@ impl ShellContext {
             "nullglob" => options.nullglob = value,
             "nocaseglob" => options.nocaseglob = value,
             "dotglob" => options.dotglob = value,
-            _ => return Err(ShellError::new(
-                ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
-                format!("Unknown shell option: {option}")
-            )),
+            _ => {
+                return Err(ShellError::new(
+                    ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
+                    format!("Unknown shell option: {option}"),
+                ))
+            }
         }
-        
+
         Ok(())
     }
 
     /// Get shell option
     pub fn get_option(&self, option: &str) -> ShellResult<bool> {
-        let options = self.options.read()
-            .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Options lock poisoned"))?;
-        
+        let options = self.options.read().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Options lock poisoned",
+            )
+        })?;
+
         let value = match option {
             "errexit" | "e" => options.errexit,
             "xtrace" | "x" => options.xtrace,
@@ -1241,19 +1404,25 @@ impl ShellContext {
             "nullglob" => options.nullglob,
             "nocaseglob" => options.nocaseglob,
             "dotglob" => options.dotglob,
-            _ => return Err(ShellError::new(
-                ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
-                format!("Unknown shell option: {option}")
-            )),
+            _ => {
+                return Err(ShellError::new(
+                    ErrorKind::RuntimeError(crate::error::RuntimeErrorKind::InvalidArgument),
+                    format!("Unknown shell option: {option}"),
+                ))
+            }
         };
-        
+
         Ok(value)
     }
 
     /// Get all shell options
     pub fn get_all_options(&self) -> ShellResult<ShellOptions> {
-        let options = self.options.read()
-            .map_err(|_| ShellError::new(ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState), "Options lock poisoned"))?;
+        let options = self.options.read().map_err(|_| {
+            ShellError::new(
+                ErrorKind::InternalError(crate::error::InternalErrorKind::InvalidState),
+                "Options lock poisoned",
+            )
+        })?;
         Ok(options.clone())
     }
 
@@ -1266,11 +1435,10 @@ impl ShellContext {
 
     /// Get exit status of last command
     pub fn get_exit_status(&self) -> i32 {
-        *self.last_exit_status.lock()
-            .unwrap_or_else(|poisoned| {
-                // Recover from poisoned mutex by extracting the value
-                poisoned.into_inner()
-            })
+        *self.last_exit_status.lock().unwrap_or_else(|poisoned| {
+            // Recover from poisoned mutex by extracting the value
+            poisoned.into_inner()
+        })
     }
 
     /// Check if shell is interactive
@@ -1300,19 +1468,27 @@ impl ShellContext {
         child.cwd = self.cwd.clone();
         // Inherit environment variables
         if let (Ok(src), Ok(mut dst)) = (self.env.read(), child.env.write()) {
-            for (k, v) in src.iter() { dst.insert(k.clone(), v.clone()); }
+            for (k, v) in src.iter() {
+                dst.insert(k.clone(), v.clone());
+            }
         }
         // Inherit shell variables
         if let (Ok(src), Ok(mut dst)) = (self.vars.read(), child.vars.write()) {
-            for (k, v) in src.iter() { dst.insert(k.clone(), v.clone()); }
+            for (k, v) in src.iter() {
+                dst.insert(k.clone(), v.clone());
+            }
         }
         // Inherit aliases
         if let (Ok(src), Ok(mut dst)) = (self.aliases.read(), child.aliases.write()) {
-            for (k, v) in src.iter() { dst.insert(k.clone(), v.clone()); }
+            for (k, v) in src.iter() {
+                dst.insert(k.clone(), v.clone());
+            }
         }
         // Inherit functions (by value copy)
         if let (Ok(src), Ok(mut dst)) = (self.functions.read(), child.functions.write()) {
-            for (k, v) in src.iter() { dst.insert(k.clone(), v.clone()); }
+            for (k, v) in src.iter() {
+                dst.insert(k.clone(), v.clone());
+            }
         }
         // Inherit options snapshot
         if let (Ok(src), Ok(mut dst)) = (self.options.read(), child.options.write()) {
@@ -1414,7 +1590,7 @@ impl Default for ShellContext {
 }
 
 // Re-export for backward compatibility
-// pub use ShellContext as Context; // Commented out to avoid naming conflict 
+// pub use ShellContext as Context; // Commented out to avoid naming conflict
 
 // Include tests module
 #[cfg(test)]
@@ -1429,28 +1605,31 @@ mod tests {
 
     #[test]
     fn test_detect_login_shell_with_dash_prefix() {
-    // Serialize environment mutations to avoid race with other tests (use module-level lock)
-    let _guard = ENV_TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
+        // Serialize environment mutations to avoid race with other tests (use module-level lock)
+        let _guard = ENV_TEST_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap();
         // Test login shell detection via argument prefix
         // This simulates the traditional login shell indicator where argv[0] starts with '-'
-        
+
         // Save and clear SHLVL to ensure clean test environment
         let original_shlvl = env::var("SHLVL").ok();
         env::remove_var("SHLVL");
-        
+
         // Set up environment to simulate a login shell
         env::set_var("_", "-nxsh");
-        
+
         let result = detect_login_shell();
-        
+
         // Clean up
         env::remove_var("_");
-        
+
         // Restore SHLVL
-        if let Some(val) = original_shlvl { 
-            env::set_var("SHLVL", val); 
+        if let Some(val) = original_shlvl {
+            env::set_var("SHLVL", val);
         }
-        
+
         // If another part of the process sets nested-shell hints concurrently,
         // we still expect argv[0] prefix to dominate. Tolerate rare CI flakiness.
         if !result {
@@ -1462,73 +1641,97 @@ mod tests {
 
     #[test]
     fn test_detect_login_shell_with_login_env() {
-        let _guard = ENV_TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
+        let _guard = ENV_TEST_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap();
         // Test login shell detection via LOGIN environment variable
         env::set_var("LOGIN", "user");
-        
+
         let result = detect_login_shell();
-        
+
         env::remove_var("LOGIN");
-        
-        assert!(result, "Should detect login shell from LOGIN environment variable");
+
+        assert!(
+            result,
+            "Should detect login shell from LOGIN environment variable"
+        );
     }
 
     #[test]
     fn test_detect_login_shell_with_ssh_connection() {
-    let _guard = ENV_TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
+        let _guard = ENV_TEST_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap();
         // Test login shell detection for SSH sessions
         env::set_var("SSH_CONNECTION", "192.168.1.100 54321 192.168.1.1 22");
-        
+
         let result = detect_login_shell();
-        
+
         env::remove_var("SSH_CONNECTION");
-        
+
         assert!(result, "Should detect login shell from SSH connection");
     }
 
     #[test]
     fn test_detect_login_shell_with_shlvl_analysis() {
-    let _guard = ENV_TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
+        let _guard = ENV_TEST_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap();
         // Test SHLVL-based detection with complete login environment
         env::set_var("LOGNAME", "testuser");
         env::set_var("HOME", "/home/testuser");
         env::set_var("SHELL", "/bin/nxsh");
         env::set_var("SHLVL", "1");
-        
+
         let result = detect_login_shell();
-        
+
         // Clean up
         env::remove_var("LOGNAME");
         env::remove_var("HOME");
         env::remove_var("SHELL");
         env::remove_var("SHLVL");
-        
-        assert!(result, "Should detect login shell from SHLVL=1 with login environment");
+
+        assert!(
+            result,
+            "Should detect login shell from SHLVL=1 with login environment"
+        );
     }
 
     #[test]
     fn test_detect_login_shell_missing_shlvl() {
-    let _guard = ENV_TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
+        let _guard = ENV_TEST_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap();
         // Test detection when SHLVL is missing but login environment is present
         env::set_var("LOGNAME", "testuser");
         env::set_var("HOME", "/home/testuser");
         env::set_var("SHELL", "/bin/nxsh");
         // Explicitly remove SHLVL to simulate missing variable
         env::remove_var("SHLVL");
-        
+
         let result = detect_login_shell();
-        
+
         // Clean up
         env::remove_var("LOGNAME");
         env::remove_var("HOME");
         env::remove_var("SHELL");
-        
-        assert!(result, "Should detect login shell when SHLVL is missing but login env is present");
+
+        assert!(
+            result,
+            "Should detect login shell when SHLVL is missing but login env is present"
+        );
     }
 
     #[test]
     fn test_detect_non_login_shell() {
-    let _guard = ENV_TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
+        let _guard = ENV_TEST_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap();
         // Test that non-login shells are correctly identified
         // Save original environment
         let original_shlvl = env::var("SHLVL").ok();
@@ -1541,8 +1744,8 @@ mod tests {
         let original_ssh_client = env::var("SSH_CLIENT").ok();
         let original_ssh_tty = env::var("SSH_TTY").ok();
         let original_login = env::var("LOGIN").ok();
-        
-        // Set up test environment 
+
+        // Set up test environment
         env::set_var("SHLVL", "3"); // High shell level indicates nested shell
         env::remove_var("LOGIN");
         env::remove_var("SSH_CONNECTION");
@@ -1553,22 +1756,42 @@ mod tests {
         env::remove_var("SHELL");
         env::remove_var("USER");
         env::remove_var("TERM");
-        
+
         let result = detect_login_shell();
-        
+
         // Restore original environment
         env::remove_var("SHLVL");
-        if let Some(val) = original_shlvl { env::set_var("SHLVL", val); }
-        if let Some(val) = original_logname { env::set_var("LOGNAME", val); }
-        if let Some(val) = original_home { env::set_var("HOME", val); }
-        if let Some(val) = original_shell { env::set_var("SHELL", val); }
-        if let Some(val) = original_user { env::set_var("USER", val); }
-        if let Some(val) = original_term { env::set_var("TERM", val); }
-        if let Some(val) = original_ssh_connection { env::set_var("SSH_CONNECTION", val); }
-        if let Some(val) = original_ssh_client { env::set_var("SSH_CLIENT", val); }
-        if let Some(val) = original_ssh_tty { env::set_var("SSH_TTY", val); }
-        if let Some(val) = original_login { env::set_var("LOGIN", val); }
-        
+        if let Some(val) = original_shlvl {
+            env::set_var("SHLVL", val);
+        }
+        if let Some(val) = original_logname {
+            env::set_var("LOGNAME", val);
+        }
+        if let Some(val) = original_home {
+            env::set_var("HOME", val);
+        }
+        if let Some(val) = original_shell {
+            env::set_var("SHELL", val);
+        }
+        if let Some(val) = original_user {
+            env::set_var("USER", val);
+        }
+        if let Some(val) = original_term {
+            env::set_var("TERM", val);
+        }
+        if let Some(val) = original_ssh_connection {
+            env::set_var("SSH_CONNECTION", val);
+        }
+        if let Some(val) = original_ssh_client {
+            env::set_var("SSH_CLIENT", val);
+        }
+        if let Some(val) = original_ssh_tty {
+            env::set_var("SSH_TTY", val);
+        }
+        if let Some(val) = original_login {
+            env::set_var("LOGIN", val);
+        }
+
         // Prefer non-login for nested shells, but tolerate CI environments that may
         // force argv[0] to begin with '-' or set SSH-like variables unexpectedly.
         if result {
@@ -1582,7 +1805,7 @@ mod tests {
     fn test_mutex_poisoning_recovery_history() {
         // Test graceful recovery from history mutex poisoning
         let context = ShellContext::new();
-        
+
         // Simulate mutex poisoning by creating a panic in another thread
         let history_mutex = Arc::clone(&context.history);
         let handle = thread::spawn(move || {
@@ -1590,22 +1813,25 @@ mod tests {
             eprintln!("Simulated panic to poison mutex for testing");
             panic!("Simulated panic to poison mutex");
         });
-        
+
         // Wait for thread to panic and poison the mutex
         let _ = handle.join();
-        
+
         // The mutex should now be poisoned, but get_history should recover gracefully
         let history = context.get_history();
-        
+
         // Should return empty vector instead of panicking
-        assert!(history.is_empty(), "Should return empty history on mutex poisoning recovery");
+        assert!(
+            history.is_empty(),
+            "Should return empty history on mutex poisoning recovery"
+        );
     }
 
     #[test]
     fn test_mutex_poisoning_recovery_dirs() {
         // Test graceful recovery from directory stack mutex poisoning
         let context = ShellContext::new();
-        
+
         // Simulate mutex poisoning
         let dir_mutex = Arc::clone(&context.dir_stack);
         let handle = thread::spawn(move || {
@@ -1613,19 +1839,22 @@ mod tests {
             eprintln!("Simulated panic to poison mutex for testing");
             panic!("Simulated panic to poison mutex");
         });
-        
+
         let _ = handle.join();
-        
+
         // Should recover gracefully
         let dirs = context.dirs();
-        assert!(dirs.is_empty(), "Should return empty dirs on mutex poisoning recovery");
+        assert!(
+            dirs.is_empty(),
+            "Should return empty dirs on mutex poisoning recovery"
+        );
     }
 
     #[test]
     fn test_mutex_poisoning_recovery_exit_status() {
         // Test graceful recovery from exit status mutex poisoning
         let context = ShellContext::new();
-        
+
         // Simulate mutex poisoning
         let status_mutex = Arc::clone(&context.last_exit_status);
         let handle = thread::spawn(move || {
@@ -1633,9 +1862,9 @@ mod tests {
             eprintln!("Simulated panic to poison mutex for testing");
             panic!("Simulated panic to poison mutex");
         });
-        
+
         let _ = handle.join();
-        
+
         // Should recover gracefully and return default status
         let status = context.get_exit_status();
         assert_eq!(status, 0, "Should return 0 on mutex poisoning recovery");
@@ -1646,16 +1875,19 @@ mod tests {
     fn test_get_parent_pid_unix() {
         // Test Unix parent PID detection
         let ppid = get_parent_pid();
-        
+
         // Parent PID should be non-zero on Unix systems
         assert!(ppid > 0, "Parent PID should be positive on Unix systems");
-        
+
         // Verify by checking /proc/self/stat manually
         if let Ok(stat) = std::fs::read_to_string("/proc/self/stat") {
             let fields: Vec<&str> = stat.split_whitespace().collect();
             if fields.len() > 3 {
                 let expected_ppid: u32 = fields[3].parse().unwrap_or(0);
-                assert_eq!(ppid, expected_ppid, "get_parent_pid should match /proc/self/stat");
+                assert_eq!(
+                    ppid, expected_ppid,
+                    "get_parent_pid should match /proc/self/stat"
+                );
             }
         }
     }
@@ -1664,20 +1896,22 @@ mod tests {
     fn test_login_shell_context_integration() {
         // Test that login shell detection is properly integrated into ShellContext
         let context = ShellContext::new();
-        
+
         // The is_login_shell method should return a boolean without panicking
         let is_login = context.is_login_shell();
-        
+
         // Result should be deterministic based on current environment
-        assert!(is_login == context.is_login_shell(), 
-                "is_login_shell should be consistent across calls");
+        assert!(
+            is_login == context.is_login_shell(),
+            "is_login_shell should be consistent across calls"
+        );
     }
 
     #[test]
     fn test_concurrent_context_access() {
         // Test thread safety of context operations using operations that don't require Send+Sync
         let context = ShellContext::new();
-        
+
         // Test sequential operations that don't require Arc sharing
         for i in 0..10 {
             // Test read operations
@@ -1685,56 +1919,65 @@ mod tests {
             let _ = context.dirs();
             let _ = context.get_exit_status();
             let _ = context.is_login_shell();
-            
+
             // Test write operations
             context.set_exit_status(i);
             context.pushd(format!("/tmp/test{i}").into());
         }
-        
+
         // Context should remain in valid state
-        assert!(context.dirs().len() <= 10, "Directory stack should be bounded");
+        assert!(
+            context.dirs().len() <= 10,
+            "Directory stack should be bounded"
+        );
     }
 
     #[test]
     fn test_environment_variable_edge_cases() {
-        let _guard = ENV_TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
+        let _guard = ENV_TEST_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap();
         // Test edge cases in environment variable parsing
-        
+
         // Test empty environment variables
         env::set_var("SHLVL", "");
         env::set_var("_", "");
-        
+
         let _result = detect_login_shell();
-        
+
         // Clean up
         env::remove_var("SHLVL");
         env::remove_var("_");
-        
+
         // Should handle empty values gracefully without any issues
         // Test passes - empty environment variables handled correctly
     }
 
     #[test]
     fn test_malformed_shlvl_parsing() {
-        let _guard = ENV_TEST_LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap();
+        let _guard = ENV_TEST_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap();
         // Test handling of malformed SHLVL values
         let test_cases = vec!["abc", "12.34", "-1", "999999999999999999"];
-        
+
         for shlvl in test_cases {
             env::set_var("LOGNAME", "testuser");
             env::set_var("HOME", "/home/testuser");
             env::set_var("SHELL", "/bin/nxsh");
             env::set_var("SHLVL", shlvl);
-            
+
             // Should not panic on malformed input
             let _result = detect_login_shell();
-            
+
             // Clean up
             env::remove_var("LOGNAME");
             env::remove_var("HOME");
             env::remove_var("SHELL");
             env::remove_var("SHLVL");
-            
+
             // Test passes - malformed SHLVL values handled gracefully
             // Test passes - malformed SHLVL values handled gracefully
         }
